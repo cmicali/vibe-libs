@@ -9,7 +9,8 @@
 
 #import <notify.h>
 #import <unistd.h>
-#import "DebugShared.h"
+#import "AppSettings.h"
+#import "DebugWireFormat.h"
 
 // The CLI half of the debug command channel: VibeDebugCommandClientMain, which
 // main.m runs for `Vibe --debug-cmd ...` before NSApplicationMain. The local
@@ -145,7 +146,7 @@ static int VibeDebugClientRunOne(NSArray<NSString *> *args, BOOL inScript) {
                 fprintf(stderr, "usage: Vibe --debug-cmd set_appearance <light|dark|system>\n");
                 return 64;
             }
-            Settings.windowAppearanceStyle = value;
+            AppSettings.sharedInstance.windowAppearanceStyle = value;
             // Short-lived process: force the cfprefsd flush before exit.
             [NSUserDefaults.standardUserDefaults synchronize];
             VibeClientPrintReply(VibeJSONString(@{@"ok": @YES, @"windowAppearance": args[1]}), inScript);
@@ -170,8 +171,8 @@ static int VibeDebugClientRunOne(NSArray<NSString *> *args, BOOL inScript) {
                 fprintf(stderr, "usage: Vibe --debug-cmd set_key_display <camelot|musical> <colors|plain>\n");
                 return 64;
             }
-            Settings.keyNotation = notation;
-            Settings.keyColorsEnabled = colorsOn;
+            AppSettings.sharedInstance.keyNotation = notation;
+            AppSettings.sharedInstance.keyColorsEnabled = colorsOn;
             [NSUserDefaults.standardUserDefaults synchronize];
             VibeClientPrintReply(VibeJSONString(@{@"ok": @YES, @"keyNotation": notation,
                                                   @"keyColors": @(colorsOn)}), inScript);
@@ -193,15 +194,15 @@ static int VibeDebugClientRunOne(NSArray<NSString *> *args, BOOL inScript) {
                 return 64;
             }
             if (isBPM) {
-                Settings.analyzeBPM = on;
+                AppSettings.sharedInstance.analyzeBPM = on;
             }
             else {
-                Settings.analyzeKey = on;
+                AppSettings.sharedInstance.analyzeKey = on;
             }
             [NSUserDefaults.standardUserDefaults synchronize];
             VibeClientPrintReply(VibeJSONString(@{@"ok": @YES,
-                                                  @"analyzeBPM": @(Settings.analyzeBPM),
-                                                  @"analyzeKey": @(Settings.analyzeKey)}), inScript);
+                                                  @"analyzeBPM": @(AppSettings.sharedInstance.analyzeBPM),
+                                                  @"analyzeKey": @(AppSettings.sharedInstance.analyzeKey)}), inScript);
             return 0;
         }
         NSString *commandId = NSUUID.UUID.UUIDString;
@@ -231,9 +232,15 @@ static int VibeDebugClientRunOne(NSArray<NSString *> *args, BOOL inScript) {
         if (timeout <= 0) {
             timeout = 5;
         }
-        int maxPolls = (int)(timeout / 0.05);
-        for (int i = 0; i < maxPolls; i++) {
-            usleep(50 * 1000);
+        // Check first, then back off — a fixed pre-sleep charged EVERY command
+        // the full interval even when the app had already answered, which for a
+        // 50ms interval was most of the round trip and the whole reason driving
+        // the app through this channel felt like a hardware limit. Starting at
+        // 0.5ms and doubling to a 20ms ceiling keeps a fast reply fast, an idle
+        // wait cheap, and a slow verb's polling as sparse as it ever was.
+        useconds_t backoff = 500;
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:timeout];
+        while (YES) {
             if ([fileManager fileExistsAtPath:responsePath]) {
                 NSString *response = [NSString stringWithContentsOfFile:responsePath
                                                                encoding:NSUTF8StringEncoding
@@ -292,6 +299,11 @@ static int VibeDebugClientRunOne(NSArray<NSString *> *args, BOOL inScript) {
                 }
                 return failed ? 2 : 0;
             }
+            if ([deadline timeIntervalSinceNow] <= 0) {
+                break;
+            }
+            usleep(backoff);
+            backoff = MIN(backoff * 2, 20 * 1000);
         }
         [fileManager removeItemAtPath:commandPath error:nil];
         fprintf(stderr, "vibe: no response after %.0fs — is a debug build of Vibe running?\n", timeout);
