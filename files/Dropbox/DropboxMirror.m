@@ -9,13 +9,12 @@
 
 #import "DropboxRules.h"
 #import "FileSearchRules.h"
-#import "NSURLUtil.h"
+#import "FilePaths.h"
+#import "PlaceholderFiles.h"
 #import "PlayableExtensions.h"
 #import "PlaylistFile.h"
 #import "RemotePlaceholderStoreInternal.h"
 
-static NSString *const kKeychainService = @"com.commonwealthrecordings.Vibe.dropbox";
-static NSString *const kAppKeyInfoKey = @"VibeDropboxAppKey";
 // list_folder's own maximum page.
 static const NSInteger kListPageLimit = 2000;
 NSNotificationName const VibeDropboxDownloadsDidChangeNotification = @"VibeDropboxDownloadsDidChangeNotification";
@@ -44,13 +43,13 @@ static NSString *const kIndexAttribute = @"com.commonwealthrecordings.vibe.dropb
     static DropboxMirror *shared;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        NSString *appKey = [NSBundle.mainBundle objectForInfoDictionaryKey:kAppKeyInfoKey];
-        NSAssert(appKey.length > 0, @"%@ missing from Info.plist", kAppKeyInfoKey);
+        NSString *appKey = [NSBundle.mainBundle objectForInfoDictionaryKey:VibeDropboxAppKeyInfoKey];
+        NSAssert(appKey.length > 0, @"%@ missing from Info.plist", VibeDropboxAppKeyInfoKey);
         NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.defaultSessionConfiguration;
         // Fail fast offline: a waiting request holds a materialization lane.
         configuration.waitsForConnectivity = NO;
         DropboxClient *client = [[DropboxClient alloc] initWithAppKey:appKey ?: @""
-                                                      keychainService:kKeychainService
+                                                      keychainService:VibeDropboxKeychainService
                                                         configuration:configuration];
         NSURL *support = [NSFileManager.defaultManager URLForDirectory:NSApplicationSupportDirectory
                                                               inDomain:NSUserDomainMask
@@ -196,7 +195,7 @@ static NSString *const kIndexAttribute = @"com.commonwealthrecordings.vibe.dropb
                                             attributes:nil error:NULL];
 }
 
-// Answers the CUE sheets to fetch: they are read while the folder opens, so
+// Answers the playlist files to fetch: they are read while the folder opens, so
 // they come down with the listing; tracks wait for their open. *discarded is
 // set when downloaded bytes went: a changed file back to a placeholder, or a
 // departed file or folder deleted.
