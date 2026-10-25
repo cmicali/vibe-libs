@@ -11,8 +11,9 @@
 //  probe, its stream, its tail and tag reads, and every resend run unchanged
 //  against it, with no network. Faults script what real servers do.
 //
-//  Its serving engine is VibeFakeHTTPProtocol.h, which the tests' HTTPStub
-//  shares. This file holds the directory, its faults, and its log.
+//  Its serving engine is files/HTTP's VibeFakeHTTPProtocol.h, which the
+//  tests' HTTPStub shares. This file holds the directory, its faults, and
+//  its log.
 //
 
 #import <Foundation/Foundation.h>
