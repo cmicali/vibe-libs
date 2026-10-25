@@ -21,6 +21,7 @@
 #import "AudioWaveformCache+Debug.h"
 #import "CloudFileMaterializer.h"
 #import "NSURL+Hash.h"
+#import "PINCache+VibeAudioCache.h"
 #import "VibeReadAheadScript.h"
 #import "VibeTestTrack.h"
 
@@ -843,6 +844,23 @@ static NSUInteger MatchingBins(CodableAudioWaveform *waveform, CodableAudioWavef
     AudioWaveformCache *cache = [[AudioWaveformCache alloc] initWithRootPath:root];
     cache.delegate = recorder;
     return cache;
+}
+
+// The store's name carries its version as DiskCache's removal reads it, so a
+// format bump removes the old store and keeps the current one.
+- (void)testTheStoreNameFollowsTheVersionRule {
+    NSString *root = [_tempDirectory URLByAppendingPathComponent:@"stores"].path;
+    NSString *current = [@"com.pinterest.PINDiskCache." stringByAppendingString:AudioWaveformCache.cacheName];
+    for (NSString *store in @[current, @"com.pinterest.PINDiskCache.audio_waveform_cache_v1"]) {
+        XCTAssertTrue([NSFileManager.defaultManager createDirectoryAtPath:[root stringByAppendingPathComponent:store]
+                                              withIntermediateDirectories:YES attributes:nil error:nil]);
+    }
+    XCTestExpectation *removed = [self expectationWithDescription:@"removed"];
+    [PINCache removeOtherAudioCacheVersionsKeeping:@[AudioWaveformCache.cacheName] rootPath:root completion:^{
+        [removed fulfill];
+    }];
+    [self waitForExpectations:@[removed] timeout:VIBE_TEST_HANG_TIMEOUT];
+    XCTAssertEqualObjects([NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:nil], @[current]);
 }
 
 - (void)testCacheOnlyLookupMissesWithoutDecodingAndChecksAnalysisRequirements {
