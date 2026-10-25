@@ -39,4 +39,4 @@ The disk queue is named `vibe-libs.remotefiles.<log name>-store`.
 
 ## Tests
 
-`Tests/files/RemoteFiles/` holds the store's tests, over a test subclass, a temporary root, and `HTTPStub` (`Tests/Support`). The stub serves through `files/HTTP`'s fake, which the piece's template already lists. The tests install the store as FileLoading's remote backend and read through `CloudFileMaterializer`, as an app's open does. The subclass keeps a CUE sheet whole through `downloadsUnder:`.
+`Tests/files/RemoteFiles/` holds the store's tests, over a test subclass, a temporary root, and `HTTPStub` (`Tests/Support`). The stub serves through `files/HTTP`'s fake, which the piece's template already lists. The tests install the store as FileLoading's remote backend and read through `CloudFileMaterializer`, as an app's open does. The subclass keeps a CUE sheet whole through `downloadsUnder:`. **The tail read's Range is checked against `TailWindowMath.h`**, for a small window and two chunked ones. Decode's streaming tests open on that same window, so together they check that the store fetches what the opens read.
