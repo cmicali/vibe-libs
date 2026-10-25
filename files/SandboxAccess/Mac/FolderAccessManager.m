@@ -81,7 +81,7 @@ const NSInteger VibeFolderAccessRestoreConcurrencyLimit = 4;
 @end
 
 @interface FolderAccessManager ()
-// Paths whose scope is live in this process.
+// The entitled folders, then the paths whose scope is live in this process.
 @property (atomic, copy) NSArray<NSString *> *activePathSnapshot;
 @property (nonatomic) NSTimeInterval restoreDeadline;
 @end
@@ -89,6 +89,7 @@ const NSInteger VibeFolderAccessRestoreConcurrencyLimit = 4;
 @implementation FolderAccessManager {
     NSUserDefaults *_defaults;
     NSString *_defaultsKey;
+    NSArray<NSString *> *_entitledPaths;
     // Main thread only; background work takes snapshots and merges back.
     NSMutableArray<NSMutableDictionary *> *_entries;
     NSMutableArray<VibeRestorationWaiter *> *_restorationWaiters;
@@ -101,10 +102,21 @@ const NSInteger VibeFolderAccessRestoreConcurrencyLimit = 4;
 }
 
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults key:(NSString *)key {
+    return [self initWithDefaults:defaults key:key entitledFolders:@[]];
+}
+
+- (instancetype)initWithDefaults:(NSUserDefaults *)defaults
+                             key:(NSString *)key
+                 entitledFolders:(NSArray<NSURL *> *)entitledFolders {
     self = [super init];
     if (self) {
         _defaults = defaults;
         _defaultsKey = [key copy];
+        NSMutableArray<NSString *> *entitledPaths = [NSMutableArray arrayWithCapacity:entitledFolders.count];
+        for (NSURL *folder in entitledFolders) {
+            [entitledPaths addObject:folder.path];
+        }
+        _entitledPaths = [entitledPaths copy];
         _entries = [NSMutableArray array];
         _restorationWaiters = [NSMutableArray array];
         _restorationQueue = [NSOperationQueue new];
@@ -127,7 +139,7 @@ const NSInteger VibeFolderAccessRestoreConcurrencyLimit = 4;
                 [_entries addObject:[@{kEntryPathKey: path, kEntryBookmarkKey: bookmark} mutableCopy]];
             }
         }
-        _activePathSnapshot = @[];
+        _activePathSnapshot = _entitledPaths;
     }
     return self;
 }
@@ -545,7 +557,8 @@ static BOOL VibeURLIsCoveredByPath(NSURL *url, NSString *grantedPath) {
 }
 
 // TRAP: inside the sandbox NSHomeDirectory and NSHomeDirectoryForUser answer
-// the container, silently breaking the ~/Music rule. getpwuid is the on-disk home.
+// the container, so an entitled ~/Music spelled from them names a folder no
+// music sits under. getpwuid is the on-disk home.
 + (NSString *)realHomeDirectory {
     static NSString *home;
     static dispatch_once_t once;
@@ -579,19 +592,7 @@ static BOOL VibeURLIsCoveredByPath(NSURL *url, NSString *grantedPath) {
             return YES;
         }
     }
-    // Not appended to grantedPaths: a reader may ask this per directory.
-    return caseInsensitive ? VibeUncanonicalPathIsUnderFolder(candidate, self.musicRoot)
-                           : VibePathIsUnderFolder(candidate, self.musicRoot);
-}
-
-// ~/Music, alias-free and computed once.
-+ (NSString *)musicRoot {
-    static NSString *musicRoot;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        musicRoot = VibeAliasFreePath([self.realHomeDirectory stringByAppendingPathComponent:@"Music"]);
-    });
-    return musicRoot;
+    return NO;
 }
 
 #pragma mark - Removing
@@ -649,7 +650,7 @@ static BOOL VibeURLIsCoveredByPath(NSURL *url, NSString *grantedPath) {
             [active addObject:entry[kEntryPathKey]];
         }
     }
-    self.activePathSnapshot = active;
+    self.activePathSnapshot = [_entitledPaths arrayByAddingObjectsFromArray:active];
 }
 
 @end

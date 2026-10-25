@@ -187,14 +187,26 @@ static NSString *RealHome(void) {
                                                                      length:strlen(entry->pw_dir)];
 }
 
-- (void)testMusicFolderIsCoveredWithoutAGrant {
+// The app names the folders its entitlements grant. Only the store it gave
+// them to reads inside them, with no bookmark and no row. The coverage rule
+// itself grants nothing.
+- (void)testAnEntitledFolderIsReadableWithoutAGrant {
     NSString *music = [RealHome() stringByAppendingPathComponent:@"Music"];
-    XCTAssertTrue([FolderAccessManager path:music isCoveredByAnyOf:@[]]);
-    XCTAssertTrue([FolderAccessManager path:[music stringByAppendingPathComponent:@"Live Sets"]
-                            isCoveredByAnyOf:@[]]);
+    NSString *liveSets = [music stringByAppendingPathComponent:@"Live Sets"];
+    XCTAssertFalse([FolderAccessManager path:music isCoveredByAnyOf:@[]]);
+    FolderAccessManager *plain = [[FolderAccessManager alloc] initWithDefaults:_defaults key:kGrantsKey];
+    XCTAssertFalse([plain canReadInsideDirectory:liveSets]);
+
+    FolderAccessManager *entitled = [[FolderAccessManager alloc]
+            initWithDefaults:_defaults key:kGrantsKey
+             entitledFolders:@[[NSURL fileURLWithPath:music isDirectory:YES]]];
+    XCTAssertTrue([entitled canReadInsideDirectory:music]);
+    XCTAssertTrue([entitled canReadInsideDirectory:liveSets.uppercaseString], @"the read test folds case");
+    XCTAssertFalse([entitled canReadInsideDirectory:RealHome()]);
+    XCTAssertEqualObjects(entitled.grantedFolders, @[]);
 }
 
-- (void)testTheStandingMusicGrantUsesTheOnDiskHome {
+- (void)testTheRealHomeIsTheOnDiskHome {
     XCTAssertEqualObjects(FolderAccessManager.realHomeDirectory, RealHome());
 }
 
