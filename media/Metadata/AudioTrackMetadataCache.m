@@ -16,6 +16,8 @@
 #import "AudioTrackMetadataCache+Debug.h"
 
 @interface AudioTrackMetadataCache ()
+// Atomic: set on the cache's queue, read per track from the loader's workers.
+@property (atomic, strong, nullable) PINCache *store;
 @property (nonatomic, readonly) AudioLoadingConfiguration *loadingConfiguration;
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration;
 - (void)setNeighborhoodURLs:(nullable NSArray<NSURL *> *)urls;
@@ -64,13 +66,24 @@
                 dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
         // Off main: constructing on main boosts PINCache's init-time disk scan
         // to user-initiated, which priority-inverts against the utility
-        // workers. A loader can run before this lands; it re-reads the
-        // property at each use.
+        // workers. A load before this lands waits for it (metadataCache).
         dispatch_async(_cacheQueue, ^{
-            self.metadataCache = [PINCache audioCacheWithName:AudioTrackMetadataCache.cacheName rootPath:rootPath];
+            self.store = [PINCache audioCacheWithName:AudioTrackMetadataCache.cacheName rootPath:rootPath];
         });
     }
     return self;
+}
+
+- (PINCache *)metadataCache {
+    PINCache *store = self.store;
+    if (!store) {
+        // The build is the queue's first block, so it has run once this
+        // returns. dispatch_sync lends it the reader's QoS. On the queue
+        // itself the store already exists, so this never waits there.
+        dispatch_sync(_cacheQueue, ^{});
+        store = self.store;
+    }
+    return store;
 }
 
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration {
@@ -135,13 +148,7 @@
                                                        loadingConfiguration:_loadingConfiguration];
     }
     _cacheOnlyLoader.delegate = self.delegate;
-    AudioTrackMetadataLoader *loader = _cacheOnlyLoader;
-    NSArray<id<AudioTrackMetadataHolder>> *snapshot = [tracks copy];
-    // Serial behind init's construction: before the store exists a lookup
-    // misses, and a miss here is final.
-    dispatch_async(_cacheQueue, ^{
-        [loader loadFromCacheOnly:snapshot];
-    });
+    [_cacheOnlyLoader loadFromCacheOnly:[tracks copy]];
 }
 
 - (void)abandonQueuedTrack:(id<AudioTrackMetadataHolder>)track {

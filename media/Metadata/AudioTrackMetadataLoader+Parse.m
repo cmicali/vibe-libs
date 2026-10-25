@@ -59,12 +59,7 @@ static void VibeInstallArchivedDisplayArtProvider(AudioTrackMetadata *metadata,
         LogWarn(@"No cache key for %@ — loading metadata uncached", track.url.path);
         return nil;
     }
-    // nil until constructed; only the earliest tracks parse uncached.
     PINCache *metadataCache = _owner.metadataCache;
-    if (!metadataCache) {
-        LogWarn(@"Metadata cache not yet available — loading %@ uncached", track.url.path);
-        return nil;
-    }
     // Bypasses PINMemoryCache: on macOS it never evicts (its pressure hooks
     // are iOS-only), so every track ever loaded would stay pinned.
     AudioTrackMetadata *cachedMetaData = (AudioTrackMetadata *)[metadataCache.diskCache objectForKey:cacheKey];
