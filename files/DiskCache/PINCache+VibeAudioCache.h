@@ -27,6 +27,16 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)audioDiskUsageWithCompletion:(void (^)(NSUInteger fileCount,
                                                unsigned long long totalBytes))completion;
 
+// Removes, off the calling thread, every store under rootPath, nil for the
+// user's caches, whose name is a current name's apart from its version suffix
+// (" v8", "_v7") and is not that name. A name with no suffix is a version too.
+// So a version bump needs no edit at the call site. An app calls it once at
+// launch with every store name it opens. The completion runs on the queue
+// that removed them.
++ (void)removeOtherAudioCacheVersionsKeeping:(NSArray<NSString *> *)currentNames
+                                    rootPath:(nullable NSString *)rootPath
+                                  completion:(nullable dispatch_block_t)completion;
+
 @end
 
 NS_ASSUME_NONNULL_END

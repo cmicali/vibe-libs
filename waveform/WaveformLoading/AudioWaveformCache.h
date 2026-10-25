@@ -58,6 +58,14 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 // Both main thread only, like the delegate deliveries they gate.
 - (void)loadWaveformForTrack:(id<VibePlayableItem>)track;
 
+// filed is a waiter. It runs once, on main, after the load's final delivery,
+// when the decode it rides has written its entry or given up. YES means the
+// entry is on disk, so a cache-only lookup from then on hits. NO means this
+// load filed nothing. A request that joins a decode in flight waits on that
+// decode, and on its retry if one starts. A worker wedged in a stat or an
+// open holds the waiter until the worker returns.
+- (void)loadWaveformForTrack:(id<VibePlayableItem>)track filed:(nullable void (^)(BOOL filed))filed;
+
 // Main-thread request and completion. Reads only the disk cache, without
 // opening audio or retargeting the active load. A miss answers nil; cancelling
 // pending work drops its completion. Preview stats cannot occupy active slots.

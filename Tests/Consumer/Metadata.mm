@@ -3,11 +3,12 @@
 //
 //  Roots a metadata cache of its own and tags a WAV with a title, an album,
 //  and a PNG picture through TagLib's own writer. Loads the WAV through the
-//  cache into the consumer's row. Reads the title and the album back, groups
-//  the album, reads the picture's bytes through the artwork's extractor, and
-//  waits for the row thumbnail. Then reopens the cache over the same root and
-//  loads a fresh row from the disk cache alone, which hits with the same title
-//  and album. Objective-C++, since TagLib's writer is C++.
+//  cache into the consumer's row, as soon as the cache exists. Reads the
+//  title and the album back, groups the album, reads the picture's bytes
+//  through the artwork's extractor, and waits for the row thumbnail. Then
+//  reopens the cache over the same root and loads a fresh row from the disk
+//  cache alone, which hits with the same title and album. Objective-C++,
+//  since TagLib's writer is C++.
 //
 
 #import <AppKit/AppKit.h>
@@ -120,23 +121,12 @@ BOOL ConsumerLoadsMetadata(void) {
         AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:cachePath];
         ConsumerMetadataDelegate *delegate = [[ConsumerMetadataDelegate alloc] init];
         cache.delegate = delegate;
-        // The store is made off main, and a parse before it lands is never
-        // filed. The usage count waits behind it, and finds it empty.
-        __block NSInteger entries = -1;
-        [cache diskUsageWithCompletion:^(NSUInteger fileCount, unsigned long long totalBytes) {
-            entries = (NSInteger)fileCount;
-        }];
+        // At once: the store is built off main, and the load waits for it.
         ConsumerTrack *track = [ConsumerTrack withURL:url];
+        [cache loadMetadataNow:track];
         NSData *art = nil;
         __block VibeImage *thumbnail = nil;
-        BOOL empty = Spin(^BOOL { return entries >= 0; }) && entries == 0;
-        if (empty) {
-            [cache loadMetadataNow:track];
-        }
-        if (!empty) {
-            Fail("the new metadata cache is not empty");
-        }
-        else if (!Spin(^BOOL { return delegate.deliveries > 0; })) {
+        if (!Spin(^BOOL { return delegate.deliveries > 0; })) {
             Fail("the metadata cache delivered nothing");
         }
         else if (!track.metadata.parsedOK || ![track.metadata.title isEqualToString:@"Consumer"]) {

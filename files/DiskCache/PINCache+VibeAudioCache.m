@@ -15,6 +15,12 @@ static const NSUInteger kAudioCacheByteLimit = 1024 * 1024 * 1024;
 // instead of holding the byte budget forever.
 static const NSTimeInterval kAudioCacheAgeLimit = 6 * (30 * (24 * 60 * 60)); // 180 days
 
+// The name without its version suffix.
+static NSString *VibeAudioCacheFamily(NSString *name) {
+    NSRange suffix = [name rangeOfString:@"[ _]v[0-9]+$" options:NSRegularExpressionSearch];
+    return suffix.location == NSNotFound ? name : [name substringToIndex:suffix.location];
+}
+
 @implementation PINCache (VibeAudioCache)
 
 + (PINCache *)audioCacheWithName:(NSString *)name rootPath:(NSString *)rootPath {
@@ -37,6 +43,37 @@ static const NSTimeInterval kAudioCacheAgeLimit = 6 * (30 * (24 * 60 * 60)); // 
     }];
     run_on_main_thread({
         completion(count, bytes);
+    });
+}
+
++ (void)removeOtherAudioCacheVersionsKeeping:(NSArray<NSString *> *)currentNames
+                                    rootPath:(NSString *)rootPath
+                                  completion:(dispatch_block_t)completion {
+    NSArray<NSString *> *current = [currentNames copy];
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+        NSString *root = rootPath
+                ?: NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
+        NSFileManager *fileManager = NSFileManager.defaultManager;
+        // PINDiskCache names each store's directory "<prefix>.<name>".
+        NSString *prefix = [PINDiskCachePrefix stringByAppendingString:@"."];
+        if (root) {
+            for (NSString *entry in [fileManager contentsOfDirectoryAtPath:root error:nil]) {
+                if (![entry hasPrefix:prefix]) {
+                    continue;
+                }
+                NSString *name = [entry substringFromIndex:prefix.length];
+                for (NSString *keep in current) {
+                    if (![name isEqualToString:keep]
+                            && [VibeAudioCacheFamily(name) isEqualToString:VibeAudioCacheFamily(keep)]) {
+                        [fileManager removeItemAtPath:[root stringByAppendingPathComponent:entry] error:nil];
+                        break;
+                    }
+                }
+            }
+        }
+        if (completion) {
+            completion();
+        }
     });
 }
 

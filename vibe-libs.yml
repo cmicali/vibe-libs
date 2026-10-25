@@ -14,6 +14,14 @@
 targetTemplates:
   # generate-git-info.sh is not compiled. An app that wants build provenance's
   # git fields runs it in a pre-build phase and searches what it writes.
+  #
+  # VIBE_LIBS_UI_FRAMEWORK is the platform's UI framework, AppKit or UIKit,
+  # for any piece that lists this template and links it by flag.
+  # TRAP: it is a setting of its own, conditional on the SDK, which a piece
+  # splices into its OTHER_LDFLAGS. A conditional OTHER_LDFLAGS would replace
+  # the flags every other template passes. A piece needs the flag when its
+  # sources are all Objective-C++, which Xcode builds with -fno-cxx-modules,
+  # so their framework imports link nothing on their own.
   VibeLibsCommon:
     sources:
       - path: core/Common
@@ -21,6 +29,8 @@ targetTemplates:
     settings:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/core/Common"]
+        "VIBE_LIBS_UI_FRAMEWORK[sdk=macosx*]": AppKit
+        "VIBE_LIBS_UI_FRAMEWORK[sdk=iphone*]": UIKit
 
   # Each half's headers are searched on both platforms. The excluded half's
   # sources do not compile, so only a stray import could reach its headers.
@@ -385,11 +395,9 @@ targetTemplates:
   # helpers, and Common for the signpost and tally macros. Each half's headers
   # are searched on both platforms, as Graphics' are.
   #
-  # TRAP: it links QuartzCore, and AppKit or UIKit, itself. Its sources are
-  # all Objective-C++, which Xcode builds with -fno-cxx-modules, so their
-  # framework imports link nothing on their own. The platform's framework is
-  # a setting of its own, conditional on the SDK. A conditional OTHER_LDFLAGS
-  # would replace the flags every other template passes.
+  # It links QuartzCore, and AppKit or UIKit, itself, since its sources are
+  # all Objective-C++. The platform's framework is Common's
+  # VIBE_LIBS_UI_FRAMEWORK, whose comment carries the trap.
   VibeLibsWaveformView:
     templates: [VibeLibsCommon, VibeLibsWaveformStyles, VibeLibsWaveform, VibeLibsControls, VibeLibsGraphics]
     sources:
@@ -402,10 +410,7 @@ targetTemplates:
           - "$(VIBE_LIBS_ROOT)/waveform/WaveformView"
           - "$(VIBE_LIBS_ROOT)/waveform/WaveformView/Mac"
           - "$(VIBE_LIBS_ROOT)/waveform/WaveformView/iOS"
-        "VIBE_LIBS_WAVEFORM_VIEW_UI_FRAMEWORK[sdk=macosx*]": AppKit
-        "VIBE_LIBS_WAVEFORM_VIEW_UI_FRAMEWORK[sdk=iphone*]": UIKit
-        OTHER_LDFLAGS: ["$(inherited)", "-framework", "QuartzCore", "-framework",
-                        "$(VIBE_LIBS_WAVEFORM_VIEW_UI_FRAMEWORK)"]
+        OTHER_LDFLAGS: ["$(inherited)", "-framework", "QuartzCore", "-framework", "$(VIBE_LIBS_UI_FRAMEWORK)"]
 
   # The loading and equalizer indicators are shared files, which both
   # platforms draw. Mac/ holds the mac's drawn controls, so an iOS target
