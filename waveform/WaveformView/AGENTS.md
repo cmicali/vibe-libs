@@ -16,7 +16,7 @@ The views that host a waveform renderer. It depends on `waveform/WaveformStyles`
 
 ## How an app uses it
 
-List `VibeLibsWaveformView`. It lists WaveformStyles', Waveform's, Controls', Graphics', and Common's templates. Its sources are Objective-C++, so **the app builds C++ as C++17 or later**, as Waveform needs. The template links QuartzCore, and AppKit or UIKit, itself, since Xcode builds Objective-C++ with `-fno-cxx-modules`. The platform's framework is a setting of its own, conditional on the SDK, because a conditional `OTHER_LDFLAGS` would replace every other template's flags. The template's comment carries the trap.
+List `VibeLibsWaveformView`. It lists WaveformStyles', Waveform's, Controls', Graphics', and Common's templates. Its sources are Objective-C++, so **the app builds C++ as C++17 or later**, as Waveform needs. The template links QuartzCore, and AppKit or UIKit, itself, since Xcode builds Objective-C++ with `-fno-cxx-modules`. The platform's framework is `VIBE_LIBS_UI_FRAMEWORK`, which Common's template sets for each SDK, because a conditional `OTHER_LDFLAGS` would replace every other template's flags. The comment at that setting carries the trap.
 
 ```objc
 WaveformView *view = [[WaveformView alloc] initWithFrame:frame];
