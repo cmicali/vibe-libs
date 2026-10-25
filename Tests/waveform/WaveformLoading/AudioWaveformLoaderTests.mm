@@ -893,6 +893,48 @@ static NSUInteger MatchingBins(CodableAudioWaveform *waveform, CodableAudioWavef
     XCTAssertTrue([self eventually:^BOOL { return settled; }]);
 }
 
+// The filed waiter runs once, on main, after the final delivery, when the
+// entry is on disk. A cache-only lookup issued then hits on its first try. A
+// second load, a hit, is filed at once. A file with no key files nothing.
+- (void)testAFiledLoadIsFoundByACacheOnlyLookupAtOnce {
+    NSURL *url = [self writeNoiseWAVNamed:@"filed.wav" seconds:2.0 seed:41];
+    WaveformCacheRecorder *recorder = [[WaveformCacheRecorder alloc] init];
+    AudioWaveformCache *cache = [self cacheWithRecorder:recorder];
+    NSMutableArray<NSNumber *> *answers = [NSMutableArray array];
+    __block NSUInteger completionsWhenFiled = 0;
+    [cache loadWaveformForTrack:[VibeTestTrack withURL:url] filed:^(BOOL filed) {
+        XCTAssertTrue(NSThread.isMainThread);
+        completionsWhenFiled = recorder.completions;
+        [answers addObject:@(filed)];
+    }];
+    XCTAssertTrue([self eventually:^BOOL { return answers.count > 0; }]);
+    XCTAssertEqualObjects(answers, @[@YES]);
+    XCTAssertEqual(completionsWhenFiled, 1u, @"the waiter runs after the final delivery");
+    __block BOOL answered = NO;
+    __block CodableAudioWaveform *found = nil;
+    [cache cachedWaveformForTrack:[VibeTestTrack withURL:url] completion:^(CodableAudioWaveform *waveform) {
+        found = waveform;
+        answered = YES;
+    }];
+    XCTAssertTrue([self eventually:^BOOL { return answered; }]);
+    XCTAssertNotNil(found, @"the entry is on disk once the waiter says so");
+
+    [cache loadWaveformForTrack:[VibeTestTrack withURL:url] filed:^(BOOL filed) {
+        [answers addObject:@(filed)];
+    }];
+    XCTAssertTrue([self eventually:^BOOL { return answers.count > 1; }]);
+    XCTAssertEqualObjects(answers, (@[@YES, @YES]), @"a hit's entry is already filed");
+    XCTAssertEqual(recorder.completions, 2u);
+
+    NSURL *missing = [_tempDirectory URLByAppendingPathComponent:@"missing.wav"];
+    [cache loadWaveformForTrack:[VibeTestTrack withURL:missing] filed:^(BOOL filed) {
+        [answers addObject:@(filed)];
+    }];
+    XCTAssertTrue([self eventually:^BOOL { return answers.count > 2; }]);
+    XCTAssertEqualObjects(answers, (@[@YES, @YES, @NO]));
+    XCTAssertEqual(recorder.failures, 1u);
+}
+
 // The seam keys a cue row as the cache does, by its window. Its decode is
 // filed and found under the window's key, its dump is the window's, and its
 // clear leaves the whole file's entry.

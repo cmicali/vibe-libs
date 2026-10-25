@@ -28,6 +28,11 @@
 // for one parked request cannot fire against the next. Main-confined.
 @property (nonatomic) NSUInteger retryGeneration;
 @property (atomic, strong, nullable) AudioWorkToken *workToken;
+// Whether the decode wrote its entry. Set by the worker before it settles.
+@property (atomic) BOOL filed;
+// loadWaveformForTrack:filed:'s waiters, run when the claim settles.
+// Main-confined.
+@property (nonatomic, strong) NSMutableArray<void (^)(BOOL)> *filedWaiters;
 @end
 
 @implementation VibeWaveformLoadClaim
@@ -172,6 +177,10 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 }
 
 - (void)loadWaveformForTrack:(id<VibePlayableItem>)track {
+    [self loadWaveformForTrack:track filed:nil];
+}
+
+- (void)loadWaveformForTrack:(id<VibePlayableItem>)track filed:(void (^)(BOOL))filed {
     NSString *key = VibeWaveformClaimKey(track);
     // On main, so a provider reading main-confined settings (an app's theme)
     // is never called off it.
@@ -179,6 +188,9 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     [self detachCurrentLoader];
     VibeWaveformLoadClaim *existing = _claimsByKey[key];
     if (existing) {
+        if (filed) {
+            [existing.filedWaiters addObject:filed];
+        }
         existing.deliveryTrack = track;
         _currentLoadTrack = track;
         // A decode without the bands or an observer this request asks for,
@@ -217,6 +229,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     claim.key = key;
     claim.loader = loader;
     claim.deliveryTrack = track;
+    claim.filedWaiters = filed ? [NSMutableArray arrayWithObject:filed] : [NSMutableArray array];
     _claimsByKey[key] = claim;
     _currentLoader = loader;
     // Captured now rather than read back at delivery. Every delivery carries
@@ -246,7 +259,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         // it; stats cannot keep feeding an unbounded loader-queue tail.
         dispatch_sync(self->_loaderQueue, ^{
             [self load:track cacheKey:cacheKey withLoader:loader claim:claim
-                    awaitPersist:NO completion:^(CodableAudioWaveform *waveform, BOOL wasCached) {
+                    completion:^(CodableAudioWaveform *waveform, BOOL wasCached) {
                 if (waveform) {
                     [self deliverCompleteWaveform:waveform loader:loader claim:claim];
                 }
@@ -262,7 +275,8 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
                 run_on_main_thread({
                     [self->_detachedLoaders removeObjectIdenticalTo:loader];
                 });
-            } settled:^{
+            } settled:^(BOOL filed) {
+                claim.filed = filed;
                 [self settleClaim:claim];
             }];
         });
@@ -451,7 +465,14 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         BOOL retryIsCurrent = retryTrack && current
                 && [VibeWaveformClaimKey(current) isEqualToString:claim.key];
         if (retryIsCurrent) {
+            // The retry files the window's entry, so the waiters move to its
+            // claim, which this call files under the same key.
             [self loadWaveformForTrack:retryTrack];
+            [self->_claimsByKey[claim.key].filedWaiters addObjectsFromArray:claim.filedWaiters];
+            return;
+        }
+        for (void (^waiter)(BOOL) in claim.filedWaiters) {
+            waiter(claim.filed);
         }
     });
 }
@@ -484,16 +505,16 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 // this queue; a decode completes on its worker; admission failure runs on
 // main. A caller that removes pending work owns its settlement. nil means
 // failed, cancelled, or decoded from another version than cacheKey names, and
-// wasCached marks a disk hit. awaitPersist waits for
-// the cache-write attempt before completion. Invalidation can suppress it.
-// The delegate path passes NO to deliver before that write.
+// wasCached marks a disk hit. A decode completes before its cache write, so a
+// delivery never queues behind PINDiskCache. settled follows on the same
+// thread, after the write attempt, and says whether the entry is on disk.
+// Invalidation can suppress the write.
 - (void)load:(id<VibePlayableItem>)track
     cacheKey:(NSString *)cacheKey
   withLoader:(AudioWaveformLoader *)loader
        claim:(VibeWaveformLoadClaim *)claim
-awaitPersist:(BOOL)awaitPersist
   completion:(void (^)(CodableAudioWaveform *waveform, BOOL wasCached))completion
-     settled:(dispatch_block_t)settled {
+     settled:(void (^)(BOOL filed))settled {
     CodableAudioWaveform *cachedWaveform = [self waveformForCacheKey:cacheKey analysis:loader.analysis];
     if (cachedWaveform) {
         // A hit finishes this loader as surely as a decode does; without the
@@ -501,16 +522,12 @@ awaitPersist:(BOOL)awaitPersist
         // loader that will never deliver again.
         loader.isComplete = YES;
         completion(cachedWaveform, YES);
-        if (settled) {
-            settled();
-        }
+        settled(YES);
         return;
     }
     if (loader.isCancelled) {
         completion(nil, NO); // superseded while the cache lookup ran — don't start a decode
-        if (settled) {
-            settled();
-        }
+        settled(NO);
         return;
     }
     // Decode off this serial queue. AudioFileHandle's open and the cache-key stat
@@ -545,17 +562,13 @@ awaitPersist:(BOOL)awaitPersist
         }
         if (!waveform || !loader.isComplete || stale) {
             completion(nil, NO); // cancelled, failed, partial, or stale
-            if (settled) {
-                settled();
-            }
+            settled(NO);
             return;
         }
-        if (!awaitPersist) {
-            // Deliver before persisting, so UI delivery never queues behind
-            // PINDiskCache. The waveform is valid whatever the persist below
-            // decides.
-            completion(waveform, NO);
-        }
+        // Delivered before persisting, so UI delivery never queues behind
+        // PINDiskCache. The waveform is valid whatever the persist below
+        // decides.
+        completion(waveform, NO);
         // Cache even when cancelled: a completed decode is worth keeping for
         // the next play of this track. It is skipped when an invalidate
         // arrived after this decode started, since the write would repopulate
@@ -565,26 +578,21 @@ awaitPersist:(BOOL)awaitPersist
         // writes, so an invalidate can slip between the check and the write.
         // The compensating remove is what makes the header's
         // cannot-repopulate guarantee hold.
+        BOOL filed = NO;
         if (generation == self->_cacheGeneration.load(std::memory_order_relaxed)) {
             [cache.diskCache setObject:waveform forKey:cacheKey];
-            if (generation != self->_cacheGeneration.load(std::memory_order_relaxed)) {
+            filed = generation == self->_cacheGeneration.load(std::memory_order_relaxed);
+            if (!filed) {
                 [cache.diskCache removeObjectForKey:cacheKey];
             }
         }
-        if (awaitPersist) {
-            completion(waveform, NO);
-        }
-        if (settled) {
-            settled();
-        }
+        settled(filed);
     } failureQueue:dispatch_get_main_queue()
       admissionFailure:^(VibeAudioWorkAdmissionFailure failure) {
         LogWarn(@"Waveform decode admission exhausted for %@ (%ld)",
                 track.url.path, (long)failure);
         completion(nil, NO);
-        if (settled) {
-            settled();
-        }
+        settled(NO);
     }];
     claim.workToken = decodeToken;
     // A cancel landing between the check above and here leaves a pending decode
@@ -593,9 +601,7 @@ awaitPersist:(BOOL)awaitPersist
     // owns its own cancellation checks and settles normally.
     if (loader.isCancelled && [decodeToken cancelIfPending]) {
         completion(nil, NO);
-        if (settled) {
-            settled();
-        }
+        settled(NO);
     }
 }
 
