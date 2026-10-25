@@ -370,12 +370,13 @@ targets:
 
   # files/ShareLinks, tested on macOS: the link rules, the fake web server's
   # answers and faults, and an iCloud Drive lookup through the link client.
-  # The fake compiles only under DEBUG, so the bundle defines it in every
-  # configuration.
+  # The rules' tests pass AudioTypes' playable extensions, so the bundle
+  # lists that template too. The fake compiles only under DEBUG, so the
+  # bundle defines it in every configuration.
   ShareLinksTests:
     type: bundle.unit-test
     platform: macOS
-    templates: [VibeLibsShareLinks]
+    templates: [VibeLibsShareLinks, VibeLibsAudioTypes]
     templateAttributes:
       excludedPlatform: iOS
     sources:

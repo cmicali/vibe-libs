@@ -3,16 +3,10 @@
 
 #import "HTTPTransferClient.h"
 #import "LinkRules.h"
+#import "PlayableExtensions.h"
 
 @interface LinkRulesTests : XCTestCase
 @end
-
-// What an app's decoders open, as the rules take it.
-static NSSet<NSString *> *Playable(void) {
-    return [NSSet setWithArray:@[@"wav", @"wave", @"bwf", @"w64", @"aif", @"aiff", @"flac", @"caf",
-                                 @"m4a", @"mp4", @"qta", @"m4b", @"m4r", @"aac", @"adts",
-                                 @"ogg", @"oga", @"opus", @"mp3", @"mp2"]];
-}
 
 static VibeLinkError Accept(NSString *string) {
     return VibeLinkURLAcceptance(VibeLinkURLFromString(string));
@@ -27,15 +21,15 @@ static NSData *Text(NSString *text) {
 }
 
 static NSString *Audio(NSData *head, NSString *url, NSString *disposition, NSString *type) {
-    return VibeLinkAudioExtension(head, [NSURL URLWithString:url], disposition, type, Playable());
+    return VibeLinkAudioExtension(head, [NSURL URLWithString:url], disposition, type, PlayableExtensions.lookup);
 }
 
 static NSString *Name(NSString *url, NSString *extension) {
-    return VibeLinkFileName([NSURL URLWithString:url], nil, extension, Playable());
+    return VibeLinkFileName([NSURL URLWithString:url], nil, extension, PlayableExtensions.lookup);
 }
 
 static NSString *NameWithDisposition(NSString *url, NSString *disposition, NSString *extension) {
-    return VibeLinkFileName([NSURL URLWithString:url], disposition, extension, Playable());
+    return VibeLinkFileName([NSURL URLWithString:url], disposition, extension, PlayableExtensions.lookup);
 }
 
 static NSUInteger UTF8Length(NSString *string) {
@@ -328,7 +322,7 @@ static const uint8_t kFLAC[] = {'f', 'L', 'a', 'C', 0, 0, 0, 34};
         NSSet *family = nil;
         XCTAssertEqualObjects(VibeLinkExtensionOfMagic(head, &family), expected, @"%@", head);
         XCTAssertTrue([family containsObject:expected], @"%@", head);
-        XCTAssertTrue([family isSubsetOfSet:Playable()], @"%@", family);
+        XCTAssertTrue([family isSubsetOfSet:PlayableExtensions.lookup], @"%@", family);
         XCTAssertEqualObjects(Audio(head, @"https://example.com/stream", nil, nil), expected, @"%@", head);
     }];
 }
@@ -474,7 +468,7 @@ static const uint8_t kFLAC[] = {'f', 'L', 'a', 'C', 0, 0, 0, 34};
     };
     [map enumerateKeysAndObjectsUsingBlock:^(NSString *type, NSString *extension, BOOL *stop) {
         XCTAssertEqualObjects(VibeLinkExtensionOfContentType(type), extension, @"%@", type);
-        XCTAssertTrue([Playable() containsObject:extension], @"%@", extension);
+        XCTAssertTrue([PlayableExtensions.lookup containsObject:extension], @"%@", extension);
     }];
     for (NSString *type in @[@"audio/x-unknown", @"video/mp4", @"application/ogg", @"application/octet-stream",
                              @"text/html", @"audio", @"", @";", @"audio/mpegx"]) {
