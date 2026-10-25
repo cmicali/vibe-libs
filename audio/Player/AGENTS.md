@@ -20,7 +20,7 @@ Everything between a decoded file and the speaker: the transport, the voice bus,
 | `PlaybackRequestCoordinator` | the in-flight open: identity, row, intent, slow-load state, and what the delegate must be told |
 | `PlaybackIntent.h` | the intent a request must land in |
 | `AudioPrefetchRules.h` | the prefetch request's lifecycle and its dispositions, and the three crossfade decisions of a track change, as static inlines |
-| `PlaybackDeliveryRules.h` | settlement identity, as static inlines, beside three rules an app's shells share |
+| `PlaybackDeliveryRules.h` | settlement identity, as static inlines |
 | `AudioPlayer+Debug` | the seam: manual rendering, the pipeline's counters, and the holds the render suites use. It compiles in every configuration and wraps its body in `#if DEBUG` |
 | `VibeManualRenderPump` | the manual render pump, which stands in for the output unit (The manual render pump, below). Debug only, as the seam is |
 | `Mac/AudioPlayer+Devices` | the unit's device binding, rates and device observations, and the mac's private device header (Mac/, below) |
@@ -189,7 +189,7 @@ The bus takes an end frame per voice and per successor: the row's cue end in fil
 
 **TRAP: the counter is `_nextSubmittedPlayIdentifier`, which only increments, never `_lastSubmittedPlayIdentifier`.** That one is the pre-Loading handoff, cleared to 0 once its play reaches Loading. Compared against it, every settlement reads as superseded, nothing is delivered, and whatever an app releases on settlement is stranded.
 
-`PlaybackDeliveryRules.h` also holds three rules an app's shells share, which no player code calls: when Previous is available, when an empty seek's settlement is current, and the deferred metadata sweep's consumption. They came with the header from Vibe.
+**The header holds only what the player decides.** When Previous is available, when an empty seek's settlement is current, and when a deferred metadata sweep runs are each app's own. Vibe keeps them beside its shells.
 
 ## Opening a file
 
