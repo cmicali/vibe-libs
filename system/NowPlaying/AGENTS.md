@@ -36,6 +36,6 @@ The bridge to the system's Now Playing info and remote commands, over MediaPlaye
 
 ## Tests
 
-`Tests/system/NowPlaying/` holds `NowPlayingRulesTests`. They cover the position rule, and the publication path through `initWithClock:publish:commandAvailability:`, which registers no command. An injected clock and sinks stand in for the system's centers. The tests cover the first-play gate, the clear, the dirty check, a buffering hold, and command availability. Each track is a path, which is its source key, with its file name as its title. The minimal consumer registers the commands through `initWithDelegate:`, pushes a title and a duration, and reads `MPNowPlayingInfoCenter`'s dictionary back.
+`Tests/system/NowPlaying/` holds `NowPlayingRulesTests`. They cover the position rule, and the publication path through `initWithClock:publish:commandAvailability:`, which registers no command. An injected clock and sinks stand in for the system's centers. The tests cover the first-play gate, the clear, the dirty check, a buffering hold, and command availability. Each track is a path, which is its source key, with its file name as its title. The minimal consumer builds the controller over sinks of its own, as these tests do, so it touches no system state. It pushes a title and a duration, reads the published dictionary back, and checks the clear.
 
 Vibe keeps its test of the values its row pushes, with the artwork's dirty check and its size cap (`AudioTrackTests`). The commands' delivery on a device is a live-app check.

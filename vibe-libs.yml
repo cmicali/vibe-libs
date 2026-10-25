@@ -142,7 +142,9 @@ targetTemplates:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/files/DiskCache"]
 
   # Ranged HTTP transfers: a download streamed into a file, a ranged read,
-  # and a probe of the first bytes. Foundation only.
+  # and a probe of the first bytes. Foundation only. The fake of ranged
+  # serving compiles in every configuration. It wraps its body in #if DEBUG,
+  # so a release build ships none of it.
   VibeLibsHTTP:
     templates: [VibeLibsCommon]
     sources:

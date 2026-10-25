@@ -245,7 +245,11 @@ typedef struct {
     NSString *shape;
 } VibeFakeHTTPExchange;
 
-@implementation VibeFakeHTTPProtocol (Directory)
+// HTTP's engine, answering from the directory.
+@interface VibeFakeHTTPDirectoryProtocol : VibeFakeHTTPProtocol
+@end
+
+@implementation VibeFakeHTTPDirectoryProtocol
 
 - (VibeFakeHTTPAnswer *)answerForRequest:(NSURLRequest *)request {
     VibeFakeHTTPExchange exchange = {.url = request.URL, .range = [request valueForHTTPHeaderField:@"Range"]};
@@ -554,11 +558,7 @@ typedef struct {
 }
 
 + (NSURLSessionConfiguration *)sessionConfiguration {
-    NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
-    configuration.URLCache = nil;
-    configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
-    configuration.protocolClasses = @[VibeFakeHTTPProtocol.class];
-    return configuration;
+    return VibeFakeHTTPDirectoryProtocol.sessionConfiguration;
 }
 
 + (void)uninstallFromClient:(HTTPTransferClient *)client {

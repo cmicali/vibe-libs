@@ -73,12 +73,12 @@ NSInteger VibeFakeHTTPRangeStatus(NSString *range, uint64_t size, NSMutableDicti
 
 // Pieces of a body are delivered here, never on CFNetwork's protocol thread:
 // a wait there would queue every other request behind it and hold a cancel
-// until the whole file had gone out. HTTPStub's bodies too.
+// until the whole file had gone out.
 static dispatch_queue_t VibeFakeHTTPDeliveryQueue(void) {
     static dispatch_queue_t queue;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        queue = dispatch_queue_create("vibe-libs.sharelinks.fake-http", DISPATCH_QUEUE_SERIAL);
+        queue = dispatch_queue_create("vibe-libs.http.fake", DISPATCH_QUEUE_SERIAL);
     });
     return queue;
 }
@@ -93,6 +93,14 @@ static dispatch_queue_t VibeFakeHTTPDeliveryQueue(void) {
 @implementation VibeFakeHTTPProtocol {
     NSThread *_loader;
     NSArray<NSRunLoopMode> *_modes;
+}
+
++ (NSURLSessionConfiguration *)sessionConfiguration {
+    NSURLSessionConfiguration *configuration = NSURLSessionConfiguration.ephemeralSessionConfiguration;
+    configuration.URLCache = nil;
+    configuration.requestCachePolicy = NSURLRequestReloadIgnoringLocalCacheData;
+    configuration.protocolClasses = @[self];
+    return configuration;
 }
 
 // Installed on sessions their owner alone uses. Every request is the fake's.
@@ -115,6 +123,10 @@ static dispatch_queue_t VibeFakeHTTPDeliveryQueue(void) {
     if (!self.cancelled) {
         block();
     }
+}
+
+- (VibeFakeHTTPAnswer *)answerForRequest:(NSURLRequest *)request {
+    return nil;
 }
 
 - (void)startLoading {
