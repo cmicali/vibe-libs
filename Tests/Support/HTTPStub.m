@@ -6,7 +6,6 @@
 
 #include <os/lock.h>
 
-#import "VibeFakeHTTP.h"
 #import "VibeFakeHTTPProtocol.h"
 
 // From 1, so a nil step's kind is none of them.
@@ -137,9 +136,7 @@ static HTTPStub *_Nullable HTTPStubForHost(NSString *host) {
         _requests = [NSMutableArray array];
         _requestTimes = [NSMutableArray array];
         _hosts = [NSMutableArray arrayWithObject:_host];
-        NSURLSessionConfiguration *configuration = VibeFakeHTTP.sessionConfiguration;
-        configuration.protocolClasses = @[HTTPStubProtocol.class];
-        _configuration = configuration;
+        _configuration = HTTPStubProtocol.sessionConfiguration;
         os_unfair_lock_lock(&sHostsLock);
         if (!sHosts) {
             sHosts = [NSMapTable strongToWeakObjectsMapTable];

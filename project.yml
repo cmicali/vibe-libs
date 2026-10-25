@@ -305,14 +305,13 @@ targets:
       excludedPlatform: Mac
 
   # files/HTTP, tested on macOS, over HTTPStub. HTTPStub scripts the answers
-  # of ShareLinks' fake web server, so the bundle lists ShareLinks' template
-  # too. The fake compiles only under DEBUG, so the bundle defines it in
-  # every configuration, the analyzer's Release build included. The hang and
-  # gate bounds match Vibe's.
+  # of this piece's fake, which compiles only under DEBUG. So the bundle
+  # defines it in every configuration, the analyzer's Release build
+  # included. The hang and gate bounds match Vibe's.
   HTTPTests:
     type: bundle.unit-test
     platform: macOS
-    templates: [VibeLibsHTTP, VibeLibsShareLinks]
+    templates: [VibeLibsHTTP]
     templateAttributes:
       excludedPlatform: iOS
     sources:
@@ -343,7 +342,7 @@ targets:
   RemoteFilesTests:
     type: bundle.unit-test
     platform: macOS
-    templates: [VibeLibsRemoteFiles, VibeLibsShareLinks]
+    templates: [VibeLibsRemoteFiles]
     templateAttributes:
       excludedPlatform: iOS
     sources:

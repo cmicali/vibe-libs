@@ -7,8 +7,8 @@
 //  session only through `configuration`'s protocolClasses, never through
 //  +[NSURLProtocol registerClass:].
 //
-//  The serving is the fake web server's (VibeFakeHTTPProtocol.h).
-//  This class scripts its answers. A path serves its bytes by the fake's
+//  The serving is files/HTTP's fake (VibeFakeHTTPProtocol.h), which the fake
+//  web server shares. This class scripts its answers. A path serves its bytes by the fake's
 //  Range rule: 206 with Content-Range for a range inside the file, 416 for
 //  one starting at or past its end, and 200 whole when the file ignores
 //  ranges. Steps queued on a path script the next requests to it, one step

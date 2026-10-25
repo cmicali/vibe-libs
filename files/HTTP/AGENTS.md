@@ -1,12 +1,13 @@
 # files/HTTP
 
-Ranged HTTP transfers, for files an app fetches itself rather than through a file provider. A download streams into a file as its bytes arrive. A ranged read and a probe read a file's bytes without downloading it. A resend continues a download rather than starting it over, and only for the same version. **Today it holds what Vibe moved here.** It depends only on `core/Common`. It is Foundation only, and no file needs a platform half. It reads no app's settings, strings, or types.
+Ranged HTTP transfers, for files an app fetches itself rather than through a file provider. A download streams into a file as its bytes arrive. A ranged read and a probe read a file's bytes without downloading it. A resend continues a download rather than starting it over, and only for the same version. It also holds a fake of ranged HTTP serving, for tests and a debug channel (the plan's rule 8). **Today it holds what Vibe moved here.** It depends only on `core/Common`. It is Foundation only, and no file needs a platform half. It reads no app's settings, strings, or types.
 
 | File | Owns |
 | --- | --- |
 | `HTTPTransferClient` | the streamed download, the ranged read, and the probe. The resends, the kept part, and the version pin |
 | `HTTPTransferClientInternal.h` | the hooks a subclass overrides, and the seams the tests and a debug channel use (`useSessionConfiguration:`, `retryDelayScale`) |
 | `HTTPTransferRules.h` | the retry delay, the connection errors, and the size and version a response's headers state |
+| `VibeFakeHTTPProtocol` | the fake's serving engine: the one `NSURLProtocol`, the one Range rule, and the one body delivery |
 
 **A client of a web API subclasses the client.** `files/ShareLinks`' `LinkClient` does, and so may an app's own API client. `files/RemoteFiles`' placeholder store fetches through any of them.
 
@@ -44,6 +45,16 @@ Ranged HTTP transfers, for files an app fetches itself rather than through a fil
 
 **The error domain is `vibe-libs.http`** (`VibeHTTPErrorDomain`). The client's queues are named `vibe-libs.http.<log name>.<session>`.
 
+## The fake of ranged serving
+
+**`VibeFakeHTTPProtocol` answers a session's requests with no network.** A subclass says what each request gets (`answerForRequest:`): a failure, a redirect, or a response and its body. The engine delivers it. `VibeFakeHTTPRangeStatus` is the one Range rule: 206, 416, or 200. The body goes out in 64 KB pieces after the answer's latency. It can hold, be cut by a lost connection, or be paced. A session takes the fake through `sessionConfiguration`, on the subclass that answers. The client takes that through `useSessionConfiguration:`.
+
+**Two fakes answer through it.** The tests' `HTTPStub` (`Tests/Support`) scripts each answer, on a host of its own per test. `files/ShareLinks`' `VibeFakeHTTP` is the fake web server: a directory that answers as Dropbox, Google Drive, and iCloud would. This piece names no service.
+
+**TRAP: a lost connection waits until the task holds the bytes sent before it.** Sent at once, the failure overtakes them, and the session resends the whole request itself instead of the client's Range resend.
+
+**How the fake builds here.** Its header has no `#if DEBUG`, since no header here may carry one. Its `.m` wraps its whole body in `#if DEBUG`, so a release build compiles an empty object and ships none of it. Only debug-only code calls it. Its delivery queue is `vibe-libs.http.fake`.
+
 ## Tests
 
-`Tests/files/HTTP/` holds the client's tests and the rules' tests. They run on macOS in Debug, with the headermap off. The client's tests run over `HTTPStub` (`Tests/Support`), a scripted host per test. It scripts the answers of `files/ShareLinks`' fake web server, `VibeFakeHTTPProtocol`, so the test bundle lists ShareLinks' template beside this piece's. The piece itself never imports it. A wait for what must happen uses `VIBE_TEST_HANG_TIMEOUT`, and a gate the test releases uses `VIBE_TEST_GATE_TIMEOUT`.
+`Tests/files/HTTP/` holds the client's tests and the rules' tests. They run on macOS in Debug, with the headermap off. The client's tests run over `HTTPStub` (`Tests/Support`), a scripted host per test, over this piece's fake. A wait for what must happen uses `VIBE_TEST_HANG_TIMEOUT`, and a gate the test releases uses `VIBE_TEST_GATE_TIMEOUT`.
