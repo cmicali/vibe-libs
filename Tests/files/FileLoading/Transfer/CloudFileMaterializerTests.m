@@ -225,7 +225,7 @@
                                          token:[materializer prepareMaterialization]
                                     onReadable:nil
                                          error:&error]);
-    XCTAssertEqualObjects(error.domain, @"com.vibe.fake-cloud");
+    XCTAssertEqualObjects(error.domain, @"vibe-libs.fileloading.fake-cloud");
     XCTAssertEqual(releases, 1u);
     XCTAssertEqualObjects(completions, (@[@NO]));
     XCTAssertEqualObjects(hookRoles, (@[@"request:metadata-scan",
@@ -308,7 +308,7 @@
 }
 
 - (void)testAvailabilityFailureFailsEveryWaitWithItsError {
-    NSError *failure = [NSError errorWithDomain:@"com.vibe.test-transfer" code:3 userInfo:nil];
+    NSError *failure = [NSError errorWithDomain:@"vibe-libs.fileloading.tests.transfer" code:3 userInfo:nil];
     CloudFileAvailability *availability = [[CloudFileAvailability alloc] initWithPartURL:[NSURL fileURLWithPath:@"/p"] size:100];
     [availability noteWrittenBytes:50];
     CloudFileAvailabilityWait result = CloudFileAvailabilityReady;
@@ -442,7 +442,7 @@ static CloudFileAvailabilityWait Probe(CloudFileAvailability *availability, uint
     XCTAssertEqual(memcmp(buffer, (const uint8_t *)file.bytes + 96, 4), 0);
     free(buffer);
 
-    NSError *failure = [NSError errorWithDomain:@"com.vibe.test-transfer" code:4 userInfo:nil];
+    NSError *failure = [NSError errorWithDomain:@"vibe-libs.fileloading.tests.transfer" code:4 userInfo:nil];
     [availability finishWithError:failure];
     XCTAssertEqual(availability.windowLength, 0u);
     NSError *error = nil;
@@ -996,7 +996,7 @@ static void TakeNews(CloudFileAvailability *availability) {
 
     woken = [self waitForWork:availability open:&open wanted:&wanted length:&length position:&position];
     [self assertStillWaiting:woken];
-    [availability finishWithError:[NSError errorWithDomain:@"com.vibe.test-read-ahead" code:1 userInfo:nil]];
+    [availability finishWithError:[NSError errorWithDomain:@"vibe-libs.fileloading.tests.read-ahead" code:1 userInfo:nil]];
     [self awaitReturn:woken];
     XCTAssertFalse(open);
     XCTAssertFalse([availability waitForWorkUntil:[NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT]
@@ -1021,7 +1021,7 @@ static void TakeNews(CloudFileAvailability *availability) {
     woken = [self waitForWork:availability open:&open wanted:&wanted length:&length position:&position];
     availability.readAheadPaused = NO;
     [self assertStillWaiting:woken];
-    [availability finishWithError:[NSError errorWithDomain:@"com.vibe.test-read-ahead" code:2 userInfo:nil]];
+    [availability finishWithError:[NSError errorWithDomain:@"vibe-libs.fileloading.tests.read-ahead" code:2 userInfo:nil]];
     [self awaitReturn:woken];
 
     CloudFileAvailability *idle = [[CloudFileAvailability alloc] initWithoutPartFile];

@@ -218,7 +218,7 @@ static NSData *Mutate(NSData *original, NSRange region, VibeFuzzRandom *random, 
     _baseSeed = VibeFuzzBaseSeed(0x7A6F0E5EED5EEDULL);
     _rounds = environment[@"VIBE_FUZZ_ROUNDS"] ? (NSUInteger)environment[@"VIBE_FUZZ_ROUNDS"].integerValue : 128;
     _dir = VibeTagFixtureDirectory();
-    _queue = dispatch_queue_create("com.vibe.tests.tag-fuzz",
+    _queue = dispatch_queue_create("vibe-libs.metadata.tests.tag-fuzz",
             dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
 }
 

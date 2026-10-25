@@ -606,7 +606,7 @@
             isTransferringURL:[self URLNamed:@"delayed-local.wav"]]);
 
     dispatch_queue_t stateReadQueue = dispatch_queue_create(
-            "com.vibe.tests.materialization.refresh-state", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.fileloading.tests.materialization.refresh-state", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *stateResponsive =
             [self expectationWithDescription:@"state responsive during refresh"];
     __block AudioLoadingConfiguration *configuration = nil;

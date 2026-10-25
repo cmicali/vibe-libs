@@ -112,7 +112,7 @@ static void VibeFakeTransferHooks(NSTimeInterval (^*seconds)(NSURL *, NSString *
             *error = VibeMaterializationCancelledError();
         }
         if (completed && fakeFails && error) {
-            *error = [NSError errorWithDomain:@"com.vibe.fake-cloud"
+            *error = [NSError errorWithDomain:@"vibe-libs.fileloading.fake-cloud"
                                          code:1
                                      userInfo:@{NSLocalizedDescriptionKey:
                                              @"Fake provider transfer failed"}];

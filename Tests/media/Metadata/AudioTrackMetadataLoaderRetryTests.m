@@ -323,7 +323,7 @@
     };
     AudioFileMaterializationCoordinator *coordinator = _coordinators.lastObject;
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.metadata-real-gate", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.metadata.tests.real-gate", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *foregroundCompleted =
             [self expectationWithDescription:@"foreground completed"];
     __unused AudioFileMaterializationRequestToken *foregroundToken = [coordinator
@@ -380,7 +380,7 @@
     }];
     AudioFileMaterializationCoordinator *coordinator = _coordinators.lastObject;
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.metadata-yield-local", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.metadata.tests.yield-local", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *foregroundCompleted =
             [self expectationWithDescription:@"foreground completed"];
     __unused AudioFileMaterializationRequestToken *foregroundToken = [coordinator
@@ -445,7 +445,7 @@
     }];
     AudioFileMaterializationCoordinator *coordinator = _coordinators.lastObject;
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.metadata-yield-demote", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.metadata.tests.yield-demote", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *foregroundCompleted =
             [self expectationWithDescription:@"foreground completed"];
     __unused AudioFileMaterializationRequestToken *foregroundToken = [coordinator
@@ -506,7 +506,7 @@
     }];
     AudioFileMaterializationCoordinator *coordinator = _coordinators.lastObject;
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.metadata-idle-kick", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.metadata.tests.idle-kick", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *foregroundCompleted =
             [self expectationWithDescription:@"foreground completed"];
     __unused AudioFileMaterializationRequestToken *foregroundToken = [coordinator
@@ -559,7 +559,7 @@
     }];
     AudioFileMaterializationCoordinator *coordinator = _coordinators.lastObject;
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.metadata-same-path-repeat", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.metadata.tests.same-path-repeat", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *firstCompleted =
             [self expectationWithDescription:@"first foreground completed"];
     __unused AudioFileMaterializationRequestToken *firstToken = [coordinator
@@ -636,7 +636,7 @@
     }];
     AudioFileMaterializationCoordinator *coordinator = _coordinators.lastObject;
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.metadata-priority-generation", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.metadata.tests.priority-generation", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *foregroundCompleted =
             [self expectationWithDescription:@"foreground completed"];
     __unused AudioFileMaterializationRequestToken *foregroundToken = [coordinator
@@ -711,7 +711,7 @@
     }];
     AudioFileMaterializationCoordinator *coordinator = _coordinators.lastObject;
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.metadata-yield-cancel", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.metadata.tests.yield-cancel", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *foregroundCompleted =
             [self expectationWithDescription:@"foreground completed"];
     __unused AudioFileMaterializationRequestToken *foregroundToken = [coordinator
@@ -771,7 +771,7 @@
     NSMutableArray<dispatch_block_t> *retries = [self captureRetriesOf:loader];
     AudioFileMaterializationCoordinator *coordinator = _coordinators.lastObject;
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.metadata-delay-cancel", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.metadata.tests.delay-cancel", DISPATCH_QUEUE_SERIAL);
     __unused AudioFileMaterializationRequestToken *running = [coordinator
             materializeURL:[self URLNamed:@"running-background.wav"]
                       role:VibeAudioFileMaterializationRoleMetadataScan
@@ -845,7 +845,7 @@
     NSMutableArray<dispatch_block_t> *retries = [self captureRetriesOf:loader];
     AudioFileMaterializationCoordinator *coordinator = _coordinators.lastObject;
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.metadata-delay-retry", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.metadata.tests.delay-retry", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *runningCompleted =
             [self expectationWithDescription:@"running claim completed"];
     __unused AudioFileMaterializationRequestToken *running = [coordinator

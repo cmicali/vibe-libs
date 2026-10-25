@@ -53,7 +53,7 @@ static double VibeTestRMS(NSData *capture, int channel, NSUInteger from, NSUInte
 
 - (void)setUp {
     [super setUp];
-    _queue = dispatch_queue_create("com.vibe.test.fx-chain", DISPATCH_QUEUE_SERIAL);
+    _queue = dispatch_queue_create("vibe-libs.player.tests.fx-chain", DISPATCH_QUEUE_SERIAL);
     __weak AudioFXChainTests *weakSelf = self;
     // The scheduler is the pump's virtual clock, as the player's is under the
     // pump; the chain renders on the test thread, so no render is left to wait out.
