@@ -8,7 +8,7 @@
 #include <math.h>
 
 NSString * const VibeAudioLoadingConfigurationErrorDomain =
-        @"com.vibe.audio-loading-configuration";
+        @"vibe-libs.fileloading.configuration";
 
 static const NSUInteger kMaximumSafeBackgroundMaterializations = 4;
 static const NSUInteger kMaximumSafeLocalMetadataParseConcurrency = 16;

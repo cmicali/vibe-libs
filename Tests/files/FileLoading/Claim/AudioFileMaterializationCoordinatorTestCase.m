@@ -11,7 +11,7 @@
     [super setUp];
     _controller = [[VibeTestMaterializationController alloc] init];
     _probeController = [[VibeTestDatalessProbeController alloc] init];
-    _completionQueue = dispatch_queue_create("com.vibe.tests.materialization", DISPATCH_QUEUE_SERIAL);
+    _completionQueue = dispatch_queue_create("vibe-libs.fileloading.tests.materialization", DISPATCH_QUEUE_SERIAL);
     _now = 100;
 }
 

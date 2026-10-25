@@ -20,7 +20,9 @@ BOOL ConsumerDebugChannelAnswers(void) {
             return VibeJSONString(@{@"echo": VibeRestArgument(tokens)});
         }),
     ];
-    VibeInstallDebugCommandChannel(^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+    // A tool has no bundle identifier, so it names its channel itself.
+    NSString *channel = @"vibe-libs.consumer";
+    VibeInstallDebugCommandChannel(channel, ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
         NSDictionary *spec = VibeDebugSpecForVerb(table, args.firstObject);
         if (!spec) {
             return VibeDebugUnknownCommandReply(args.firstObject, @[table], nil);
@@ -31,10 +33,10 @@ BOOL ConsumerDebugChannelAnswers(void) {
     NSString *commandId = NSUUID.UUID.UUIDString;
     NSData *payload = [NSJSONSerialization dataWithJSONObject:@{@"id": commandId, @"args": @[@"echo", @"a b"]}
                                                       options:0 error:nil];
-    [payload writeToFile:VibeDebugCommandPath(commandId) atomically:YES];
-    notify_post(kVibeDebugCommandNotification.UTF8String);
+    [payload writeToFile:VibeDebugCommandPath(channel, commandId) atomically:YES];
+    notify_post(VibeDebugCommandNotificationName(channel).UTF8String);
 
-    NSString *responsePath = VibeDebugResponsePath(commandId);
+    NSString *responsePath = VibeDebugResponsePath(channel, commandId);
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:10];
     while (![NSFileManager.defaultManager fileExistsAtPath:responsePath] && deadline.timeIntervalSinceNow > 0) {
         [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];

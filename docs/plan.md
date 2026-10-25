@@ -345,6 +345,7 @@ It returned nothing on Vibe's branch after cut 30 and the layout's own cut, befo
 - The pieces' files compile as the app's own sources. Each vendored library keeps its own compiler flags in its template.
 - The spec reads two project settings, the verbose-logging switch and the signposts switch. Vibe maps the first from its beta switch and sets the second in its Debug configuration. Test targets set both to 1.
 - The log subsystem is the main bundle's identifier, so each app logs under its own name.
+- Two apps on one Mac coexist. A piece's queue labels and error domains start `vibe-libs.<piece>` and name no app. The one exception is HTTP's kept-part xattr, which parts already on disk carry. The debug channel takes its name from the app when the app installs it, so one app's commands never reach another's. The cleanup landed on 2026-10-25.
 
 ### Why compile in, and not link
 

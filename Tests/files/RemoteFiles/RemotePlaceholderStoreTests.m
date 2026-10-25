@@ -14,7 +14,7 @@
 #import "RemotePlaceholderStoreInternal.h"
 #import "TailWindowMath.h"
 
-static NSString *const kIndexAttribute = @"com.commonwealthrecordings.vibe.test-store";
+static NSString *const kIndexAttribute = @"vibe-libs.remotefiles.tests.store";
 static const char *const kVersionAttribute = "com.commonwealthrecordings.Vibe.rev";
 static const time_t kStamp = 1577934245;
 // RemotePlaceholderStore's kStreamReadableBytes.

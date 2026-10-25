@@ -17,11 +17,12 @@
 // The channel holds one executor per process, so every test installs it once
 // and swaps what it runs.
 static VibeDebugChannelExecutor gRunning;
+static NSString *const kChannel = @"vibe-libs.debugchannel.tests";
 
 static void InstallChannelOnce(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        VibeInstallDebugCommandChannel(^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        VibeInstallDebugCommandChannel(kChannel, ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
             return gRunning(args, commandId);
         });
     });
@@ -34,12 +35,12 @@ static id JSONObject(NSString *json) {
 // Writes the payload as a client does, renamed into place, then posts the
 // wake-up and spins main until the reply lands. Returns the reply, or nil.
 static NSString *Send(NSData *payload, NSString *commandId) {
-    NSString *path = VibeDebugCommandPath(commandId);
+    NSString *path = VibeDebugCommandPath(kChannel, commandId);
     NSString *part = [path stringByAppendingString:@".part"];
     [payload writeToFile:part atomically:NO];
     [NSFileManager.defaultManager moveItemAtPath:part toPath:path error:nil];
-    notify_post(kVibeDebugCommandNotification.UTF8String);
-    NSString *responsePath = VibeDebugResponsePath(commandId);
+    notify_post(VibeDebugCommandNotificationName(kChannel).UTF8String);
+    NSString *responsePath = VibeDebugResponsePath(kChannel, commandId);
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
     while (![NSFileManager.defaultManager fileExistsAtPath:responsePath] && deadline.timeIntervalSinceNow > 0) {
         [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
@@ -67,11 +68,23 @@ static NSString *SendArgs(NSArray *args) {
 
 - (void)testEachCommandHasItsOwnFiles {
     NSString *tmp = NSTemporaryDirectory();
-    XCTAssertEqualObjects(VibeDebugCommandPath(@"abc"), [tmp stringByAppendingPathComponent:@"vibe-command-abc.json"]);
-    XCTAssertEqualObjects(VibeDebugResponsePath(@"abc"), [tmp stringByAppendingPathComponent:@"vibe-response-abc.txt"]);
-    XCTAssertEqualObjects(VibeDebugScreenshotPathForCommand(@"abc"),
-                          [tmp stringByAppendingPathComponent:@"vibe-screenshot-abc.png"]);
-    XCTAssertNotEqualObjects(VibeDebugCommandPath(@"abc"), VibeDebugCommandPath(@"abd"));
+    XCTAssertEqualObjects(VibeDebugCommandPath(@"app", @"abc"),
+                          [tmp stringByAppendingPathComponent:@"app.debug-command-abc.json"]);
+    XCTAssertEqualObjects(VibeDebugResponsePath(@"app", @"abc"),
+                          [tmp stringByAppendingPathComponent:@"app.debug-response-abc.txt"]);
+    XCTAssertEqualObjects(VibeDebugScreenshotPathForCommand(@"app", @"abc"),
+                          [tmp stringByAppendingPathComponent:@"app.debug-screenshot-abc.png"]);
+    XCTAssertNotEqualObjects(VibeDebugCommandPath(@"app", @"abc"), VibeDebugCommandPath(@"app", @"abd"));
+}
+
+- (void)testEveryNameOnTheWireIsTheChannels {
+    XCTAssertEqualObjects(VibeDebugCommandNotificationName(@"com.example.App"), @"com.example.App.debug.command");
+    XCTAssertNotEqualObjects(VibeDebugCommandPath(@"com.example.App", @"abc"),
+                             VibeDebugCommandPath(@"com.example.Other", @"abc"));
+    XCTAssertFalse([VibeDebugFilePrefix(@"com.example.App.beta", @"command")
+                    hasPrefix:VibeDebugFilePrefix(@"com.example.App", @"command")],
+                   @"a name that extends another's still has files of its own");
+    XCTAssertEqualObjects(VibeDebugChannelName(), kChannel);
 }
 
 - (void)testEveryReplyIsOneJSONObject {
@@ -180,6 +193,28 @@ static NSString *SendArgs(NSArray *args) {
         return nil;
     };
     XCTAssertEqualObjects(JSONObject(SendArgs(@[@"slow"])), @{@"later": @YES});
+}
+
+// Two unsandboxed apps share one temporary directory. Each drains only its own.
+- (void)testAnotherChannelsCommandIsNeitherRunNorAnswered {
+    __block NSMutableArray<NSString *> *ran = [NSMutableArray array];
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        [ran addObject:args.firstObject];
+        return VibeJSONString(@{@"verb": args.firstObject});
+    };
+    NSString *other = @"vibe-libs.debugchannel.tests.other";
+    NSString *commandId = NSUUID.UUID.UUIDString;
+    NSString *path = VibeDebugCommandPath(other, commandId);
+    NSData *payload = [NSJSONSerialization dataWithJSONObject:@{@"id": commandId, @"args": @[@"theirs"]}
+                                                      options:0 error:nil];
+    XCTAssertTrue([payload writeToFile:path atomically:YES]);
+    notify_post(VibeDebugCommandNotificationName(other).UTF8String);
+    // Our own reply means a drain has passed over the other channel's file.
+    XCTAssertEqualObjects(JSONObject(SendArgs(@[@"ours"])), @{@"verb": @"ours"});
+    XCTAssertEqualObjects(ran, @[@"ours"]);
+    XCTAssertTrue([NSFileManager.defaultManager fileExistsAtPath:path]);
+    XCTAssertFalse([NSFileManager.defaultManager fileExistsAtPath:VibeDebugResponsePath(other, commandId)]);
+    [NSFileManager.defaultManager removeItemAtPath:path error:nil];
 }
 
 - (void)testAMalformedPayloadStillGetsAnErrorReply {

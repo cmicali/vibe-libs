@@ -121,7 +121,7 @@
 
 - (ArtworkLoadObservingWorkScheduler *)scheduler {
     return [[ArtworkLoadObservingWorkScheduler alloc]
-            initWithLabel:@"com.vibe.tests.artwork"
+            initWithLabel:@"vibe-libs.metadata.tests.artwork"
             qualityOfService:QOS_CLASS_USER_INITIATED
             maximumRunningCount:2
             maximumPendingCount:5
@@ -335,7 +335,7 @@
 - (void)testWorkerAdmissionExhaustionRetriesAfterSlotReturns {
     NSData *embedded = [self embeddedArtData];
     AudioWorkScheduler *scheduler = [[AudioWorkScheduler alloc]
-            initWithLabel:@"com.vibe.tests.artwork-admission"
+            initWithLabel:@"vibe-libs.metadata.tests.artwork-admission"
             qualityOfService:QOS_CLASS_USER_INITIATED
             maximumRunningCount:1
             maximumPendingCount:0
@@ -388,7 +388,7 @@
     NSData *embedded = [self embeddedArtData];
     ArtworkLoadObservingWorkScheduler *scheduler =
             [[ArtworkLoadObservingWorkScheduler alloc]
-            initWithLabel:@"com.vibe.tests.source-artwork-admission"
+            initWithLabel:@"vibe-libs.metadata.tests.source-artwork-admission"
             qualityOfService:QOS_CLASS_USER_INITIATED
             maximumRunningCount:1
             maximumPendingCount:1

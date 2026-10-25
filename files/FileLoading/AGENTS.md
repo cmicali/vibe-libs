@@ -186,6 +186,8 @@ They look like one thing and are opposites in the two ways that matter. The moni
 
 **`AudioLoadingConfiguration` is immutable once built, and its diagnostic surface is for tests and an app's debug channel only.** The safe tuning surface is the background lane width, the local parse concurrency, and the prefetch depth. The interactive lanes, pending bounds, grace, retry count, and `openTimeouts` are diagnostic. The `(Debug)` category and the tests replace them. Production code never does.
 
+**The error domains start `vibe-libs.fileloading`.** They are `vibe-libs.fileloading.materialization`, `vibe-libs.fileloading.open`, and `vibe-libs.fileloading.configuration` (`VibeAudioFileMaterializationErrorDomain`, `VibeAudioFileOpenErrorDomain`, and `VibeAudioLoadingConfigurationErrorDomain`). The fake cloud's failures are `vibe-libs.fileloading.fake-cloud`.
+
 ## The debug seams and the fake cloud
 
 **How a seam builds here.** Its header has no `#if DEBUG`, since no header here may carry one. Its `.m` wraps its whole body in `#if DEBUG`, so a release build compiles an empty object and ships none of it. This repo's tests build Debug, so they test it. An app's debug configuration must define `DEBUG`. A call from code that also builds in release fails to link. So only debug-only code calls a seam. The template compiles the seams in every configuration, because a template cannot know an app's configuration names. A shipping file imports a seam's header only to call it in debug code.
