@@ -4,7 +4,7 @@ The bridge to the system's Now Playing info and remote commands, over MediaPlaye
 
 | File | Owns |
 | --- | --- |
-| `NowPlayingController.{h,m}` | the publish path, its dirty check, the artwork's rasterization, and the remote command handlers |
+| `NowPlayingController.{h,m}` | the update's record, the publish path, its dirty check, the artwork's rasterization, and the remote command handlers |
 | `NowPlayingRules.h` | the header-only rules: the state from a player's flags, the string comparison, and the position's dirty check |
 | `NowPlayingController+Debug.h` | the seam: the source image of the published artwork |
 
@@ -12,7 +12,9 @@ The bridge to the system's Now Playing info and remote commands, over MediaPlaye
 
 **The app drives it, and takes the commands back through the delegate.** The app hands it each track's values and timing on every transport event. The delegate routes each command to the same transport entry points the app's own buttons use. Each command is delivered on main.
 
-**It takes values, never the app's row.** `updateWithSourceKey:title:artist:artwork:…` takes the track's source key, its title, its artist, one image, and the timing. The source key is the dirty check's identity, so a cue row of the same file is a change. A nil source key means no track. A nil title publishes as empty, and a nil artist publishes none.
+**It takes values, never the app's row.** `updateWithRecord:` takes one `VibeNowPlayingRecord`: the track's source key, its title, its artist, one image, the timing, the state, and whether next and previous are available. The source key is the dirty check's identity, so a cue row of the same file is a change. A nil source key means no track. A nil title publishes as empty, and a nil artist publishes none.
+
+**The record is the one type the piece adds.** It is a C struct of the ten values one update needs. The app fills a fresh one on every transport event and passes it by value. So each call site names its values, a value left out reads as nil, zero, or NO, and the controller holds its own copy. A later change on the app's side never reaches what was published. The plan once named a snapshot type for this piece and said it was not needed, since the update took its values loose. Ten loose parameters proved too many, so the record is that snapshot. It holds plain values, and the piece still has no edge to `audio/AudioTypes`.
 
 **Nothing is published until the first track plays.** The update withholds every publish before its first Playing one: no track, a parked start and a paused start alike. A launch into a restored session therefore cannot claim the system slot. Next and previous availability is applied before that return regardless. After the first play, a nil source key clears the slot once.
 
@@ -38,4 +40,4 @@ The bridge to the system's Now Playing info and remote commands, over MediaPlaye
 
 `Tests/system/NowPlaying/` holds `NowPlayingRulesTests`. They cover the position rule, and the publication path through `initWithClock:publish:commandAvailability:`, which registers no command. An injected clock and sinks stand in for the system's centers. The tests cover the first-play gate, the clear, the dirty check, a buffering hold, and command availability. Each track is a path, which is its source key, with its file name as its title. The minimal consumer registers the commands through `initWithDelegate:`, pushes a title and a duration, and reads `MPNowPlayingInfoCenter`'s dictionary back.
 
-Vibe keeps its test of the values its row pushes, with the artwork's dirty check and its size cap (`AudioTrackTests`). The commands' delivery on a device is a live-app check.
+The artwork tests use plain images. The same image object publishes once, and a new object publishes again. The published art is a private copy, capped at 512 px in its own proportions. Vibe keeps its test of the values its row pushes (`AudioTrackTests`). The commands' delivery on a device is a live-app check.

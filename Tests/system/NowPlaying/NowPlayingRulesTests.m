@@ -80,9 +80,16 @@ static BOOL Dirty(double publishedRate, BOOL wasPlaying, NSTimeInterval position
 // A track is its path: the path is its source key, and its file name its title.
 - (void)update:(NSString *)track position:(double)position duration:(NSTimeInterval)duration
          state:(NowPlayingPlaybackState)state rate:(double)rate hasNext:(BOOL)hasNext hasPrevious:(BOOL)hasPrevious {
-    [self.publisher updateWithSourceKey:track title:track.lastPathComponent.stringByDeletingPathExtension artist:nil
-                                artwork:nil position:position duration:duration state:state rate:rate
-                                hasNext:hasNext hasPrevious:hasPrevious];
+    [self.publisher updateWithRecord:(VibeNowPlayingRecord){
+        .sourceKey = track,
+        .title = track.lastPathComponent.stringByDeletingPathExtension,
+        .position = position,
+        .duration = duration,
+        .state = state,
+        .rate = rate,
+        .hasNext = hasNext,
+        .hasPrevious = hasPrevious,
+    }];
 }
 
 - (void)publish:(NSString *)track state:(NowPlayingPlaybackState)state position:(double)position rate:(double)rate {
@@ -163,6 +170,63 @@ static BOOL Dirty(double publishedRate, BOOL wasPlaying, NSTimeInterval position
     [self publish:@"/elsewhere/a.wav"
             state:NowPlayingPlaybackStatePlaying position:0 rate:1];
     XCTAssertEqual(self.publications.count, 2u);
+}
+
+#pragma mark - Artwork
+
+static NSImage *Image(CGFloat width, CGFloat height) {
+    return [NSImage imageWithSize:NSMakeSize(width, height) flipped:NO drawingHandler:^BOOL(NSRect rect) {
+        [NSColor.redColor setFill];
+        NSRectFill(rect);
+        return YES;
+    }];
+}
+
+- (MPMediaItemArtwork *)publish:(NSString *)track artwork:(NSImage *)artwork {
+    [self.publisher updateWithRecord:(VibeNowPlayingRecord){
+        .sourceKey = track,
+        .title = track.lastPathComponent,
+        .artwork = artwork,
+        .duration = 120,
+        .state = NowPlayingPlaybackStatePlaying,
+        .rate = 1,
+    }];
+    return self.publishedInfo[MPMediaItemPropertyArtwork];
+}
+
+// The dirty check compares the image by identity. The same object publishes
+// once. A new object publishes again, even one with the same pixels, and so
+// does a change back to none.
+- (void)testTheSameImagePublishesOnceAndANewImagePublishesAgain {
+    NSString *track = @"/tests/a.wav";
+    NSImage *art = Image(64, 64);
+    MPMediaItemArtwork *first = [self publish:track artwork:art];
+    XCTAssertNotNil(first);
+    XCTAssertEqual([self publish:track artwork:art], first);
+    XCTAssertEqual(self.publications.count, 1u);
+
+    MPMediaItemArtwork *second = [self publish:track artwork:Image(64, 64)];
+    XCTAssertEqual(self.publications.count, 2u);
+    XCTAssertNotNil(second);
+    XCTAssertNotEqual(second, first);
+
+    XCTAssertNil([self publish:track artwork:nil]);
+    XCTAssertEqual(self.publications.count, 3u);
+}
+
+// The published art is a private copy, at most 512 px on its longer side and
+// in the source's proportions. A small image is copied at its own size.
+- (void)testPublishedArtworkIsCappedAt512PixelsAndKeepsItsShape {
+    MPMediaItemArtwork *large = [self publish:@"/tests/large.wav" artwork:Image(2048, 1024)];
+    XCTAssertTrue(NSEqualSizes(large.bounds.size, NSMakeSize(512, 256)), @"%@", NSStringFromSize(large.bounds.size));
+    NSImage *drawn = [large imageWithSize:NSMakeSize(1024, 1024)];
+    XCTAssertTrue(NSEqualSizes(drawn.size, NSMakeSize(512, 256)), @"the handler draws nothing: %@",
+                  NSStringFromSize(drawn.size));
+
+    NSImage *small = Image(20, 10);
+    MPMediaItemArtwork *copied = [self publish:@"/tests/small.wav" artwork:small];
+    XCTAssertTrue(NSEqualSizes(copied.bounds.size, NSMakeSize(20, 10)));
+    XCTAssertNotEqual([copied imageWithSize:NSMakeSize(20, 10)], small, @"a private copy");
 }
 
 @end

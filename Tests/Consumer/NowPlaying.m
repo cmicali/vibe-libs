@@ -31,15 +31,19 @@ FOUNDATION_EXTERN BOOL ConsumerPublishesNowPlaying(void);
 BOOL ConsumerPublishesNowPlaying(void) {
     ConsumerRemote *remote = [ConsumerRemote new];
     NowPlayingController *controller = [[NowPlayingController alloc] initWithDelegate:remote];
-    [controller updateWithSourceKey:@"/consumer/now-playing.wav" title:@"Consumer" artist:nil artwork:nil
-                           position:3 duration:42 state:NowPlayingPlaybackStatePlaying rate:1
-                            hasNext:NO hasPrevious:NO];
+    [controller updateWithRecord:(VibeNowPlayingRecord){
+        .sourceKey = @"/consumer/now-playing.wav",
+        .title = @"Consumer",
+        .position = 3,
+        .duration = 42,
+        .state = NowPlayingPlaybackStatePlaying,
+        .rate = 1,
+    }];
     NSDictionary *info = MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo;
     BOOL published = [info[MPMediaItemPropertyTitle] isEqual:@"Consumer"]
             && [info[MPMediaItemPropertyPlaybackDuration] isEqual:@42]
             && info[MPMediaItemPropertyArtist] == nil;
-    [controller updateWithSourceKey:nil title:nil artist:nil artwork:nil position:0 duration:0
-                              state:NowPlayingPlaybackStateStopped rate:1 hasNext:NO hasPrevious:NO];
+    [controller updateWithRecord:(VibeNowPlayingRecord){.state = NowPlayingPlaybackStateStopped, .rate = 1}];
     BOOL cleared = MPNowPlayingInfoCenter.defaultCenter.nowPlayingInfo == nil;
     if (!published || !cleared) {
         fprintf(stderr, "consumer: Now Playing read back %s, and %s cleared\n", info.description.UTF8String,

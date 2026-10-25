@@ -583,7 +583,7 @@ Two changes of behavior, each its own pull request with its own measurements:
 
 Each remaining candidate moves when a second app needs it, with the cuts it was waiting for:
 
-- **NowPlaying and Updates, by the other app's first release.** The rest of seam 19 comes with NowPlaying, and Updates' part of seam 21 with Updates. NowPlaying moved on 2026-10-22: its 5 files moved with their history (this repo's #41, Vibe #390), their tests run here, and Vibe compiles them through the template. It takes the track's source key, title, artist, and image as values, so it needs no snapshot type and no edge to AudioTypes.
+- **NowPlaying and Updates, by the other app's first release.** The rest of seam 19 comes with NowPlaying, and Updates' part of seam 21 with Updates. NowPlaying moved on 2026-10-22: its 5 files moved with their history (this repo's #41, Vibe #390), their tests run here, and Vibe compiles them through the template. It took the track's source key, title, artist, and image as values, so it needed no snapshot type and no edge to AudioTypes. On 2026-10-25 its update's ten values became one record the app fills, `VibeNowPlayingRecord`. That record is the snapshot, made of plain values, so the piece still has no edge to AudioTypes.
 - **HTTP, RemoteFiles, and ShareLinks**, when the other app adds a server source. Cut 2 and seam 20 come with them.
 - **SandboxAccess, AppOpening, DebugChannel, and iOSDriver**, each with its part of seam 21, when a consumer needs it.
 - **The pitch fader** joins `ui/Controls` with its part of seam 21. It moved on 2026-10-23 in this repo's #51 and Vibe #399. The fader and its panel joined `ui/Controls`' `Mac/` half. Their 4 files and their test moved with their history, the test runs here, and Vibe compiles them through Controls' template. Their part of seam 21 was four values, which a prep commit in Vibe turned into pushes. The panel takes its title, the fader's VoiceOver label, one formatter for its readout and the fader's spoken value, and its corner radius. So Controls' map row and template are unchanged.
@@ -644,6 +644,8 @@ The cuts add these small types. Each replaces a dependency on an app class:
 - the catalog scan's verdict and its read policy, from FolderScan
 - the settings pane's effects sink, a block over an integer the app interprets, from SettingsWindow
 - the typography slot table, from Graphics
+
+One more replaces no app class: the Now Playing update's record, from NowPlaying. It took the place of the update's ten parameters.
 
 ## TRAPs
 
