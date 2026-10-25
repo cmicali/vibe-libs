@@ -344,6 +344,34 @@ typedef struct {
     XCTAssertFalse([NSFileManager.defaultManager fileExistsAtPath:[PlaceholderFiles remotePlaceholderPartURL:url].path]);
 }
 
+// The tail read asks for the window TailWindowMath.h gives the format, the
+// one Decode's streaming tests open on: the small window, a chunked
+// container's floor, and its share of a larger file.
+- (void)testTheTailReadAsksForTheWindowDecodesOpensOn {
+    const uint64_t KB = 1024, MB = 1024 * KB;
+    NSDictionary<NSString *, NSNumber *> *sizes = @{@"a.flac": @(1 * MB), @"b.aiff": @(3 * MB / 2),
+                                                    @"c.m4a": @(24 * MB)};
+    for (NSString *name in sizes) {
+        uint64_t size = sizes[name].unsignedLongLongValue;
+        uint64_t window = VibeAudioFileTailWindowBytes(name.pathExtension, size);
+        XCTAssertGreaterThan(window, 0u, @"%@", name);
+        NSURL *url = [self placeholder:name bytes:PatternBytes((NSUInteger)size)];
+        dispatch_semaphore_t gate = [self stallStreamOf:name];
+        FetchExpectations fetch = [self startFetch:url fetched:^(BOOL answer, NSError *error) {
+            XCTAssertTrue(answer, @"%@: %@", name, error);
+        } cancel:nil];
+        [self waitUntil:^BOOL {
+            return [self closedRangeRequestsTo:name].count > 0;
+        }];
+        NSString *range = [[self closedRangeRequestsTo:name].firstObject valueForHTTPHeaderField:@"Range"];
+        XCTAssertEqualObjects(range, ([NSString stringWithFormat:@"bytes=%llu-%llu", size - window, size - 1]),
+                              @"%@", name);
+        dispatch_semaphore_signal(gate);
+        dispatch_semaphore_signal(gate);
+        [self waitForExpectations:@[fetch.readable, fetch.returned] timeout:VIBE_TEST_HANG_TIMEOUT];
+    }
+}
+
 - (void)testAFetchTheLastReaderLeavesIsCancelledAndKeepsItsPart {
     NSData *bytes = PatternBytes(1024 * 1024);
     NSURL *url = [self placeholder:@"a.flac" bytes:bytes];

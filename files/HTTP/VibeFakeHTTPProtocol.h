@@ -2,10 +2,11 @@
 //  VibeFakeHTTPProtocol.h
 //  vibe-libs
 //
-//  The fake web server's serving engine, which the tests' HTTPStub shares.
-//  HTTPStub subclasses the protocol and scripts each answer. The Range rule,
-//  the body's pieces, its stall, its lost connection, and its pacing are
-//  here alone. VibeFakeHTTP.h is the directory that answers.
+//  A fake of ranged HTTP serving, at the NSURLProtocol boundary. A subclass
+//  says what each request is answered with. The Range rule, the body's
+//  pieces, its stall, its lost connection, and its pacing are here alone.
+//  The tests' HTTPStub subclasses it and scripts each answer. ShareLinks'
+//  VibeFakeHTTP subclasses it and answers from a directory.
 //
 
 #import <Foundation/Foundation.h>
@@ -60,12 +61,15 @@ NSData *_Nullable VibeFakeHTTPBodyOfRequest(NSURLRequest *request);
 
 // The fake's protocol. It delivers each answer.
 @interface VibeFakeHTTPProtocol : NSURLProtocol
-@end
 
-// Its answers are the directory's (VibeFakeHTTP.m). A subclass serves others
-// by overriding answerForRequest:. nil fails as an unknown host.
-@interface VibeFakeHTTPProtocol (Directory)
+// Ephemeral and uncached, with this class as its only protocol class. Every
+// request a session on it sends is the fake's.
++ (NSURLSessionConfiguration *)sessionConfiguration;
+
+// A subclass answers by overriding this. nil fails as an unknown host, which
+// is all this class answers.
 - (nullable VibeFakeHTTPAnswer *)answerForRequest:(NSURLRequest *)request;
+
 @end
 
 NS_ASSUME_NONNULL_END

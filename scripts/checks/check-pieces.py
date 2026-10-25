@@ -36,7 +36,8 @@ For each piece:
     A header an app may supply, included only under __has_include of its
     own name, may reach nothing.
     A test may also include a helper from Tests/Support, which every test
-    bundle searches. A piece's own file may not.
+    bundle searches, and a header of any piece its test bundle lists. A
+    piece's own file may not.
   - Mac/ and iOS/ are the only platform directories, and only at the top of
     a piece. A shared file imports AppKit or UIKit only under a platform
     guard.
@@ -417,6 +418,12 @@ for piece in pieces:
                         fail(f"{os.path.join(dirpath, d)}: a platform half sits at the top of its piece, where the template's exclude reaches it")
                     elif d not in PLATFORMS and LOOKALIKE.match(d):
                         fail(f"{os.path.join(dirpath, d)}: Mac/ and iOS/ are the only platform directories")
+    # A test may also reach every piece its test bundle lists.
+    test_deps = set(deps)
+    for v in targets.values():
+        if v.get("type") == "bundle.unit-test" and any(
+                (s if isinstance(s, str) else s.get("path")) == test_dir for s in v.get("sources", [])):
+            test_deps |= {p for p in pieces if template_name(p) in reached_by(v.get("templates", []))}
     includes = {}
     for f in files + tests:
         includes[f] = []
@@ -445,7 +452,7 @@ for piece in pieces:
                     fail(f"{f}:{number}: \"{spelling}\" is in no piece; an isolated build cannot find it")
                 continue
             owner = owners[0]
-            if owner not in deps:
+            if owner not in (test_deps if f in tests else deps):
                 fail(f"{f}:{number}: includes {spelling} from {owner}, which the map does not allow {piece}")
             includes[f].append(found[0])
     # Everything a source or test of this piece compiles.

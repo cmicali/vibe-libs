@@ -42,8 +42,9 @@
 //  source of its own, and checks the bars ask it for levels once and let go
 //  when they leave their window. Plays a queue of two rows of one WAV and a
 //  CUE window of another through a player on the manual render pump, and
-//  reads every frame back exactly (Player.m). Publishes a
-//  title and a duration to Now Playing and reads them back (NowPlaying.m).
+//  reads every frame back exactly (Player.m). Publishes a title and a
+//  duration through the Now Playing controller, over sinks of its own, and
+//  reads them back (NowPlaying.m).
 //  Downloads a file and reads a range of it through an HTTP transfer client
 //  over the fake web server (ShareLinks.m). Answers one command through the
 //  debug channel (DebugChannel.m). Makes a folder grants' store over a
@@ -102,7 +103,7 @@ FOUNDATION_EXTERN BOOL ConsumerPlaysAQueue(void);
 FOUNDATION_EXTERN BOOL ConsumerWaveformStylesHold(void);
 // WaveformView.mm's check, since the summary's header is C++.
 FOUNDATION_EXTERN BOOL ConsumerWaveformViewDraws(void);
-// NowPlaying.m's check, beside the delegate its commands need.
+// NowPlaying.m's check.
 FOUNDATION_EXTERN BOOL ConsumerPublishesNowPlaying(void);
 // AppOpening.m's check.
 FOUNDATION_EXTERN BOOL ConsumerOrdersASplitOpen(void);
