@@ -114,7 +114,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         // priority-inversion warning while stealing P-core time from the start
         // of playback.
         dispatch_queue_attr_t queueAttributes = dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0);
-        _loaderQueue = dispatch_queue_create("AudioWaveformCache", queueAttributes);
+        _loaderQueue = dispatch_queue_create("vibe-libs.waveformloading.loader", queueAttributes);
         _lookupScheduler = [[AudioWorkScheduler alloc]
                 initWithLabel:@"vibe-libs.waveformloading.lookup"
                 qualityOfService:QOS_CLASS_UTILITY

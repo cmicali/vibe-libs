@@ -62,7 +62,7 @@
         // Several workers, so one slow file stalls only its own. The current
         // track's parse raises its own operation to user-initiated.
         _queue = [[NSOperationQueue alloc] init];
-        _queue.name = @"AudioTrackMetadataLoader";
+        _queue.name = @"vibe-libs.metadata.parse";
         _queue.maxConcurrentOperationCount =
                 (NSInteger)loadingConfiguration.localMetadataParseConcurrency;
         _queue.qualityOfService = NSQualityOfServiceUtility;

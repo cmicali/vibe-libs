@@ -157,11 +157,11 @@
     [_probeController gateCall:1 forName:@"blocked-probe.wav"];
     [self makeCoordinatorWithValues:VibeAudioLoadingProductionConfigurationValues()];
     dispatch_queue_t blockedRequestQueue = dispatch_queue_create(
-            "com.vibe.tests.materialization.blocked-request", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.fileloading.tests.materialization.blocked-request", DISPATCH_QUEUE_SERIAL);
     dispatch_queue_t stateReadQueue = dispatch_queue_create(
-            "com.vibe.tests.materialization.state-read", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.fileloading.tests.materialization.state-read", DISPATCH_QUEUE_SERIAL);
     dispatch_queue_t healthyRequestQueue = dispatch_queue_create(
-            "com.vibe.tests.materialization.healthy-request", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.fileloading.tests.materialization.healthy-request", DISPATCH_QUEUE_SERIAL);
     XCTestExpectation *blockedRequestReturned =
             [self expectationWithDescription:@"blocked request returned"];
     __block AudioFileMaterializationRequestToken *blockedToken = nil;

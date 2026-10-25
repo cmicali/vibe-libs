@@ -12,6 +12,11 @@
 #import "VibeMacros.h"
 
 static VibeDebugChannelExecutor gExecutor;
+static NSString *gChannel;
+
+NSString *VibeDebugChannelName(void) {
+    return gChannel;
+}
 
 static NSString *VibeDebugLogTag(NSString *commandId) {
     return commandId.length > 8 ? [commandId substringToIndex:8] : (commandId ?: @"?");
@@ -42,7 +47,7 @@ static void VibeLogDebugReply(NSString *commandId, NSString *response) {
 }
 
 void VibeWriteDebugResponse(NSString *commandId, NSString *response) {
-    [response writeToFile:VibeDebugResponsePath(commandId)
+    [response writeToFile:VibeDebugResponsePath(gChannel, commandId)
                atomically:YES
                  encoding:NSUTF8StringEncoding
                     error:nil];
@@ -109,9 +114,10 @@ static void VibeHandleDebugCommandFiles(void) {
     do {
         deferred = NO;
         NSString *tmpDir = NSTemporaryDirectory();
+        NSString *commandPrefix = VibeDebugFilePrefix(gChannel, @"command");
         NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:tmpDir error:nil];
         for (NSString *name in [names sortedArrayUsingSelector:@selector(compare:)]) {
-            if ([name hasPrefix:@"vibe-command-"] && [name hasSuffix:@".json"]) {
+            if ([name hasPrefix:commandPrefix] && [name hasSuffix:@".json"]) {
                 VibeHandleOneDebugCommandFile([tmpDir stringByAppendingPathComponent:name]);
             }
         }
@@ -119,14 +125,16 @@ static void VibeHandleDebugCommandFiles(void) {
     draining = NO;
 }
 
-// Remove old commands before listening. Replaying a previous run can mutate files.
+// Remove old commands before listening. Replaying a previous run can mutate
+// files. Only this channel's files go. Another app's in the same directory
+// stay.
 static void VibeSweepStaleChannelFiles(void) {
     NSString *tmpDir = NSTemporaryDirectory();
     NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:tmpDir error:nil];
     for (NSString *name in names) {
-        if (([name hasPrefix:@"vibe-response-"] && [name hasSuffix:@".txt"])
-                || ([name hasPrefix:@"vibe-screenshot-"] && [name hasSuffix:@".png"])
-                || ([name hasPrefix:@"vibe-command-"] && [name hasSuffix:@".json"])) {
+        if (([name hasPrefix:VibeDebugFilePrefix(gChannel, @"response")] && [name hasSuffix:@".txt"])
+                || ([name hasPrefix:VibeDebugFilePrefix(gChannel, @"screenshot")] && [name hasSuffix:@".png"])
+                || ([name hasPrefix:VibeDebugFilePrefix(gChannel, @"command")] && [name hasSuffix:@".json"])) {
             [NSFileManager.defaultManager removeItemAtPath:[tmpDir stringByAppendingPathComponent:name]
                                                      error:nil];
         }
@@ -157,11 +165,16 @@ static void VibeInstallTmpDirectoryWatcher(void) {
 }
 #endif
 
-void VibeInstallDebugCommandChannel(VibeDebugChannelExecutor executor) {
+void VibeInstallDebugCommandChannel(NSString *channel, VibeDebugChannelExecutor executor) {
+    if (channel.length == 0) {
+        LogError(@"Debug channel: no name, so no channel");
+        return;
+    }
+    gChannel = [channel copy];
     gExecutor = [executor copy];
     VibeSweepStaleChannelFiles();
     static int token;
-    notify_register_dispatch(kVibeDebugCommandNotification.UTF8String, &token,
+    notify_register_dispatch(VibeDebugCommandNotificationName(gChannel).UTF8String, &token,
                              dispatch_get_main_queue(), ^(int t) {
         VibeHandleDebugCommandFiles();
     });
