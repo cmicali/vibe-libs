@@ -168,7 +168,7 @@
         @"playback", @"prefetch", @"metadata-priority", @"metadata-scan"
     ];
     dispatch_queue_t completionQueue = dispatch_queue_create(
-            "com.vibe.tests.fake-cloud-role-map", DISPATCH_QUEUE_SERIAL);
+            "vibe-libs.fileloading.tests.fake-cloud-role-map", DISPATCH_QUEUE_SERIAL);
 
     for (NSUInteger index = 0; index < roles.count; index++) {
         XCTestExpectation *ready = [self expectationWithDescription:labels[index]];
@@ -345,7 +345,7 @@
                                          token:[materializer prepareMaterialization]
                                     onReadable:nil
                                          error:&error]);
-    XCTAssertEqualObjects(error.domain, @"com.vibe.fake-cloud");
+    XCTAssertEqualObjects(error.domain, @"vibe-libs.fileloading.fake-cloud");
     XCTAssertEqual(error.code, 1);
     XCTAssertEqualObjects([[VibeFakeCloud traceEvents] valueForKey:@"event"],
                           (@[@"requested", @"started", @"cancelled"]));

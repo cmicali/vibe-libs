@@ -21,8 +21,8 @@
 #include <stdatomic.h>
 
 NSString * const VibeAudioFileMaterializationErrorDomain =
-        @"com.vibe.audio-file-materialization";
-NSString * const VibeAudioFileOpenErrorDomain = @"com.vibe.audio-file-open";
+        @"vibe-libs.fileloading.materialization";
+NSString * const VibeAudioFileOpenErrorDomain = @"vibe-libs.fileloading.open";
 
 @implementation VibeAudioHandleRun
 @end

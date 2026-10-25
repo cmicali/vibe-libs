@@ -12,7 +12,7 @@
 - (AudioWorkScheduler *)schedulerWithPendingCount:(NSUInteger)pendingCount
                                              grace:(NSTimeInterval)grace {
     return [[AudioWorkScheduler alloc]
-            initWithLabel:@"com.vibe.tests.audio-work"
+            initWithLabel:@"vibe-libs.common.tests.audio-work"
             qualityOfService:QOS_CLASS_UTILITY
             maximumRunningCount:1
             maximumPendingCount:pendingCount
@@ -103,7 +103,7 @@
     // would free the slot, and the over-bound submit would park, not fail.
     AudioWorkScheduler *expiring = [self schedulerWithPendingCount:1 grace:0.05];
     AudioWorkScheduler *refusing = [self schedulerWithPendingCount:0 grace:0];
-    dispatch_queue_t failureQueue = dispatch_queue_create("com.vibe.tests.failure",
+    dispatch_queue_t failureQueue = dispatch_queue_create("vibe-libs.common.tests.failure",
                                                           DISPATCH_QUEUE_SERIAL);
     dispatch_semaphore_t releaseRunning = dispatch_semaphore_create(0);
     for (AudioWorkScheduler *scheduler in @[expiring, refusing]) {

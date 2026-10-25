@@ -7,7 +7,13 @@
 
 #if DEBUG
 
-NSString *const kVibeDebugCommandNotification = @"com.vibe.debug.command";
+NSString *VibeDebugCommandNotificationName(NSString *channel) {
+    return [channel stringByAppendingString:@".debug.command"];
+}
+
+NSString *VibeDebugFilePrefix(NSString *channel, NSString *kind) {
+    return [NSString stringWithFormat:@"%@.debug-%@-", channel, kind];
+}
 
 NSString *VibeDebugTmpPath(NSString *name) {
     return [NSTemporaryDirectory() stringByAppendingPathComponent:name];
@@ -15,16 +21,19 @@ NSString *VibeDebugTmpPath(NSString *name) {
 
 // Per-command, like the response: one fixed command path loses a command when
 // two clients write back to back.
-NSString *VibeDebugCommandPath(NSString *commandId) {
-    return VibeDebugTmpPath([NSString stringWithFormat:@"vibe-command-%@.json", commandId]);
+NSString *VibeDebugCommandPath(NSString *channel, NSString *commandId) {
+    return VibeDebugTmpPath([NSString stringWithFormat:@"%@%@.json",
+                             VibeDebugFilePrefix(channel, @"command"), commandId]);
 }
 
-NSString *VibeDebugResponsePath(NSString *commandId) {
-    return VibeDebugTmpPath([NSString stringWithFormat:@"vibe-response-%@.txt", commandId]);
+NSString *VibeDebugResponsePath(NSString *channel, NSString *commandId) {
+    return VibeDebugTmpPath([NSString stringWithFormat:@"%@%@.txt",
+                             VibeDebugFilePrefix(channel, @"response"), commandId]);
 }
 
-NSString *VibeDebugScreenshotPathForCommand(NSString *commandId) {
-    return VibeDebugTmpPath([NSString stringWithFormat:@"vibe-screenshot-%@.png", commandId]);
+NSString *VibeDebugScreenshotPathForCommand(NSString *channel, NSString *commandId) {
+    return VibeDebugTmpPath([NSString stringWithFormat:@"%@%@.png",
+                             VibeDebugFilePrefix(channel, @"screenshot"), commandId]);
 }
 
 // Every reply is one JSON object; {"error": ...} maps to client exit code 2.

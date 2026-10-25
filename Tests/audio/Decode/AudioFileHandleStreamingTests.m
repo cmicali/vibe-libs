@@ -705,7 +705,7 @@ static NSData *VibeWithTrailingTag(NSData *file, NSString *extension, uint32_t l
 #pragma mark - Failure
 
 - (void)testAFailedTransferFailsTheBlockedReadWithItsError {
-    NSError *transferError = [NSError errorWithDomain:@"com.vibe.test-transfer" code:7 userInfo:nil];
+    NSError *transferError = [NSError errorWithDomain:@"vibe-libs.decode.tests.transfer" code:7 userInfo:nil];
     NSDictionary<NSURL *, NSString *> *fixtures = [self fixtures];
     for (NSURL *source in fixtures) {
         NSString *name = source.lastPathComponent;
@@ -903,7 +903,7 @@ static NSData *VibeWithTrailingTag(NSData *file, NSString *extension, uint32_t l
     rename(renamed.availability.partURL.fileSystemRepresentation, renamed.url.fileSystemRepresentation);
     [self assertPCM:VibeDecode([self openWhole:renamed.url], 4096, INT64_MAX, &error) equals:reference context:@"renamed"];
 
-    NSError *transferError = [NSError errorWithDomain:@"com.vibe.test-transfer" code:9 userInfo:nil];
+    NSError *transferError = [NSError errorWithDomain:@"vibe-libs.decode.tests.transfer" code:9 userInfo:nil];
     VibeGrowingFile *failed = [self stream:source prefix:100];
     [NSFileManager.defaultManager removeItemAtURL:failed.availability.partURL error:NULL];
     [failed.availability finishWithError:transferError];
@@ -1244,7 +1244,7 @@ static NSData *VibeWithTrailingTag(NSData *file, NSString *extension, uint32_t l
     }];
     XCTAssertTrue([self eventually:^BOOL { return self->_coordinator.stateSnapshotForTesting.waiterCount == 1; }],
                   @"a metadata waiter joins the stream the user hears, not yielded by its hold");
-    NSError *transferError = [NSError errorWithDomain:@"com.vibe.test-transfer" code:7 userInfo:nil];
+    NSError *transferError = [NSError errorWithDomain:@"vibe-libs.decode.tests.transfer" code:7 userInfo:nil];
     _fetchFailure = transferError;
     XCTAssertTrue([self finishRemote:VibeFetchFailed]);
     [self waitForExpectations:@[settled] timeout:VIBE_TEST_HANG_TIMEOUT];
