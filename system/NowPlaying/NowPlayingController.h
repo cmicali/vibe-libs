@@ -6,10 +6,9 @@
 //  playback state. The app drives it and takes the commands back through the
 //  delegate.
 //
-//  TRAP: a debug build's --no-audio-hw and --no-now-playing launch flags
-//  suppress all of it: no publish and no command registration. Publishing can
-//  pull AirPods from another device even when rendering to a virtual output.
-//  Verifying this class needs a launch without either flag.
+//  TRAP: making one claims the system's media slot. Registering the commands
+//  and publishing can pull AirPods from another device, even while the app
+//  renders to a virtual output. An app's test launch makes none.
 //
 
 #import <Foundation/Foundation.h>

@@ -35,7 +35,7 @@ struct VibeMasterBus {
     _Atomic uint64_t refusedRenders; // renders the door turned away; a soak holds it at zero
     _Atomic uint64_t frames;         // the output timeline: frames rendered
     _Atomic uint32_t pendingFrames;  // the slice in flight
-    _Atomic int32_t silent;          // --silent: the volume's target is 0, so the meter sees the signal and the device zeros
+    _Atomic int32_t silent;          // debug silent output: the volume's target is 0, so the meter sees the signal and the device zeros
     // The output volume: the queue's target gain, and the gain the render last
     // landed on, which it ramps from. volumeSnap, raised by every output
     // start, lands the next slice on the target instead: nothing sounded

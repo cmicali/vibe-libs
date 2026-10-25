@@ -26,7 +26,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Creates the output — the hosted unit on the system default at that
 // device's rate on macOS; on iOS the pipeline at the route's rate, the unit
-// itself made at the first start; the debug pump under --no-audio-hw.
+// itself made at the first start; the debug pump with no hardware output.
 // Configures the existing master bus. Init and the iOS media-services rebuild
 // must configure them identically.
 - (void)createOutputOnQueue;

@@ -28,7 +28,7 @@ The bridge to the system's Now Playing info and remote commands, over MediaPlaye
 
 **The republish rules are `NowPlayingRules.h`**, header-only and tested. The system extrapolates the elapsed time from the last publish at the published rate, so only a jump it cannot explain republishes. A buffering hold publishes Playing at rate 0, so the system's clock holds with the audio. An app's widget can share the string comparison.
 
-**TRAP: a debug build's `--no-audio-hw` and `--no-now-playing` launch flags suppress all of it**: no publish and no command registration. Publishing can pull AirPods from another device even when rendering to a virtual output. `--no-now-playing` keeps hardware rendering for loopback tests. Verifying this class needs a launch without either flag.
+**TRAP: making a controller claims the system's media slot.** `initWithDelegate:` registers the commands, and the first Playing update publishes. Either can pull AirPods from another device, even while the app renders to a virtual output. So an app's test launch makes no controller. The controller reads no launch flag. Verifying it needs a launch that makes one.
 
 ## The seam
 

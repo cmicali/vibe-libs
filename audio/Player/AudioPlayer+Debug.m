@@ -17,6 +17,25 @@
 
 @implementation AudioPlayer (Debug)
 
+static BOOL VibeDebugNoHardwareOutput;
+static BOOL VibeDebugSilentOutput;
+
++ (BOOL)debugNoHardwareOutput {
+    return VibeDebugNoHardwareOutput;
+}
+
++ (void)setDebugNoHardwareOutput:(BOOL)noHardwareOutput {
+    VibeDebugNoHardwareOutput = noHardwareOutput;
+}
+
++ (BOOL)debugSilentOutput {
+    return VibeDebugSilentOutput;
+}
+
++ (void)setDebugSilentOutput:(BOOL)silentOutput {
+    VibeDebugSilentOutput = silentOutput;
+}
+
 #pragma mark - Manual rendering and introspection
 
 - (instancetype)initForManualRendering:(AVAudioFormat *)format enableFX:(BOOL)enableFX automatic:(BOOL)automatic delegate:(id<AudioPlayerDelegate>)delegate {

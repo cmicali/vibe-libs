@@ -24,7 +24,15 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)debugShutdown;
 - (void)debugBlockQueueForSeconds:(NSTimeInterval)seconds;
 
-// --no-audio-hw's output: the pump stands in for the IO thread. Player queue
+// A debug launch's output, which the app sets before it makes a player. With
+// no hardware output, an automatic pump stands in for the output unit's IO
+// thread. With silent output, the device is driven and the output is zeroed
+// after the meter. Read when the output is made, at init and at the iOS
+// media-services rebuild.
+@property (class, nonatomic) BOOL debugNoHardwareOutput;
+@property (class, nonatomic) BOOL debugSilentOutput;
+
+// The no-hardware output: the pump stands in for the IO thread. Player queue
 // only; createOutputOnQueue is the caller.
 - (void)attachPumpOnQueue:(VibeManualRenderPump *)pump render:(VibeManualRenderBlock)render running:(BOOL (^)(void))running;
 
@@ -56,8 +64,9 @@ NS_ASSUME_NONNULL_BEGIN
 // hold's age while buffering, else the last hold's length.
 - (NSDictionary<NSString *, NSNumber *> *)debugBufferingRecord;
 
-// Whether a render pump stands in for the output unit. Under --no-audio-hw it
-// attaches during the async init, so the argv flag alone does not prove it.
+// Whether a render pump stands in for the output unit. With no hardware
+// output it attaches during the async init, so the class flag alone does not
+// prove it.
 // Written once, before any voice; read lock-free.
 - (BOOL)manualRenderingActive;
 
