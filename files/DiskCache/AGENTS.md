@@ -1,6 +1,6 @@
 # files/DiskCache
 
-A bounded disk cache over PINCache. It depends on `third_party/PINCache` and on `core/Common`. **Today it holds what Vibe moved here**: one category, `PINCache (VibeAudioCache)`. `media/Metadata`'s cache and `waveform/WaveformLoading`'s cache both build their stores through it, so their entries live and die on the same terms.
+A bounded disk cache over PINCache. It depends on `third_party/PINCache` and on `core/Common`. **Today it holds what Vibe moved here**: one category, `PINCache (VibeAudioCache)`. `media/Metadata`'s cache and `waveform/WaveformLoading`'s cache both build their stores through it, so their entries live and die on the same terms. The category also removes the stores other versions left.
 
 ## The store
 
@@ -12,6 +12,12 @@ A bounded disk cache over PINCache. It depends on `third_party/PINCache` and on 
 
 The keys are the caller's. Both stores are keyed by `core/Common`'s disk key, `NSURL (Hash)`.
 
+## Other versions' stores
+
+**`removeOtherAudioCacheVersionsKeeping:rootPath:completion:` removes the stores other versions left.** A store's name carries its entry format's version, as `Audio Track Metadata v8` and `audio_waveform_cache_v7` do. A format change renames the store, so the old one is never opened again. Only an open store trims itself, so an old store would keep up to 1 GiB on disk for good. The rule removes a store when its name is a current name's apart from the version suffix, a space or an underscore then `v` and digits, and it is not that name. A name with no suffix is a version too. Another store, and a directory that is no store, stay. An app calls it once at launch, with the name of every store it opens, and it runs off the calling thread. A version bump then needs no edit in the app.
+
+**The cost is a downgrade's.** An older build keeps only the names it knows. So it removes a newer build's store in the same way. Each switch between the two builds then costs one parse or decode of every file.
+
 ## Tests
 
-Vibe had no tests of this category, so `Tests/files/DiskCache/` is new here. It roots a store in a temporary directory, checks the limits, and reads the usage back on main. The minimal consumer does the same, as an app would.
+Vibe had no tests of the store's limits or usage, so those are new here. They root a store in a temporary directory, check the limits, and read the usage back on main. The tests of the removal came from Vibe. They lay out every name a release shipped, keep the current stores, another store, and a directory that is no store, and remove the rest. A missing directory is a no-op. `waveform/WaveformLoading`'s tests check that its store's name follows the rule. The minimal consumer does the same, as an app would.

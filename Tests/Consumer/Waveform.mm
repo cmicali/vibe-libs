@@ -7,7 +7,8 @@
 //  wide as a coverage mask. Writes the tone as a WAV, loads it into a summary
 //  through the waveform loader, and reads its length and peaks back. Roots a
 //  waveform cache of its own, with an observer of its own on the decode, and
-//  loads the tone through it twice. The second load is a hit that decodes
+//  loads the tone through it. Once the load says its entry is filed, a
+//  cache-only lookup hits at once. A second load is a hit that decodes
 //  nothing, which the cache's seam reports. A CUE window of the tone then
 //  loads through the seam twice, and its second load is a hit too.
 //
@@ -209,8 +210,8 @@ static BOOL Spin(BOOL (^done)(void)) {
 
 // The tone through a cache rooted in a temporary directory. The first load
 // decodes it, and the observer counts its frames. The entry is filed after
-// that delivery, so the preview lane, which only reads the disk, waits for it.
-// The second load, of a fresh row of the same file, asks the cache's seam. It
+// that delivery, and the load's waiter says when. A cache-only lookup then
+// hits on its first try. The second load, of a fresh row of the same file, asks the cache's seam. It
 // is a hit, it hands back the filed count, and no second sink is made. Then a
 // row that is a third of a second of the file loads through the seam. It
 // decodes only its window, and a fresh row of that window is a hit.
@@ -236,20 +237,24 @@ BOOL ConsumerHitsTheWaveformCache(void) {
     NSDictionary *counted = @{@"consumer.frames": @(kToneFrames)};
 
     ConsumerTrack *row = [ConsumerTrack withURL:url];
-    [cache loadWaveformForTrack:row];
-    BOOL decoded = Spin(^BOOL { return listener.results.count > 0; })
+    __block NSUInteger waits = 0;
+    __block BOOL written = NO;
+    [cache loadWaveformForTrack:row filed:^(BOOL filed) {
+        written = filed;
+        waits++;
+    }];
+    BOOL decoded = Spin(^BOOL { return waits > 0; }) && written
             && listener.resultTracks.firstObject == row && [listener.results.firstObject isEqual:counted]
             && [listener.completed indexOfObjectIdenticalTo:row] != NSNotFound;
     cache.delegate = nil;
-    __block BOOL filed = NO;
-    for (NSUInteger tries = 0; decoded && !filed && tries < 1000; tries++) {
-        __block BOOL answered = NO;
+    __block BOOL filed = NO, looked = NO;
+    if (decoded) {
         [cache cachedWaveformForTrack:[ConsumerTrack withURL:url]
                            completion:^(CodableAudioWaveform *waveform) {
             filed = waveform != nil;
-            answered = YES;
+            looked = YES;
         }];
-        Spin(^BOOL { return answered; });
+        Spin(^BOOL { return looked; });
     }
     __block BOOL ok = NO, wasCached = NO;
     __block NSDictionary *results = nil;
@@ -273,10 +278,11 @@ BOOL ConsumerHitsTheWaveformCache(void) {
     BOOL windowHit = windowDecoded && ask([[ConsumerTrack alloc] initWithURL:url cueStart:25 cueEnd:50])
             && ok && wasCached && [results isEqual:windowCounted];
     [NSFileManager.defaultManager removeItemAtURL:directory error:NULL];
-    if (!windowHit || listener.sinks != 2) {
+    if (!windowHit || listener.sinks != 2 || waits != 1) {
         fprintf(stderr, "consumer: the waveform cache decoded %d, filed %d, hit %d, decoded the window %d, "
-                "then answered %d, hit %d, with %s, after %lu decodes\n", decoded, filed, hit, windowDecoded,
-                ok, wasCached, results.description.UTF8String, (unsigned long)listener.sinks);
+                "then answered %d, hit %d, with %s, after %lu decodes and %lu filed waits\n", decoded, filed, hit,
+                windowDecoded, ok, wasCached, results.description.UTF8String, (unsigned long)listener.sinks,
+                (unsigned long)waits);
         return NO;
     }
     return YES;

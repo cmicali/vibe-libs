@@ -42,9 +42,8 @@ static inline NSString *_Nullable VibeWaveformEntryKey(id<VibePlayableItem> trac
     cacheKey:(NSString *)cacheKey
   withLoader:(AudioWaveformLoader *)loader
        claim:(nullable VibeWaveformLoadClaim *)claim
-awaitPersist:(BOOL)awaitPersist
   completion:(void (^)(CodableAudioWaveform *_Nullable waveform, BOOL wasCached))completion
-     settled:(nullable dispatch_block_t)settled;
+     settled:(void (^)(BOOL filed))settled;
 
 @end
 

@@ -50,11 +50,18 @@ static std::atomic<double> sDebugDecodeSeconds{0};
             run_on_main_thread({ completion(nil, NO); });
             return;
         }
+        // Answered once the write is attempted, so a fresh decode is on disk.
+        // Both blocks run in turn on one thread.
+        __block CodableAudioWaveform *loaded = nil;
+        __block BOOL hit = NO;
         dispatch_sync(self->_loaderQueue, ^{
             [self load:track cacheKey:cacheKey withLoader:loader claim:nil
-                    awaitPersist:YES completion:^(CodableAudioWaveform *waveform, BOOL wasCached) {
-                run_on_main_thread({ completion(waveform, wasCached); });
-            } settled:nil];
+                    completion:^(CodableAudioWaveform *waveform, BOOL wasCached) {
+                loaded = waveform;
+                hit = wasCached;
+            } settled:^(BOOL filed) {
+                run_on_main_thread({ completion(loaded, hit); });
+            }];
         });
     } failureQueue:dispatch_get_main_queue()
       admissionFailure:^(VibeAudioWorkAdmissionFailure failure) {

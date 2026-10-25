@@ -68,6 +68,10 @@ What every other piece may use, and nothing else. Every piece may import from it
 - **`IntegerTokenRules.h`**'s `VibeParseNonnegativeInteger` reads a token of digits only. A debug seam and a debug channel share it without either importing the other.
 - **`NSString+FormLabel`**'s `vibeFormLabel` drops a trailing form colon, so one localized string serves a form row and a label that stands alone. One rule covers French's no-break space before the colon and CJK's fullwidth colon. SettingsWindow's rows and section headers use it, and so do an app's iOS screens that show the same strings. That is why it sits here and not in the macOS-only piece.
 
+## The template's linker setting
+
+**`VIBE_LIBS_UI_FRAMEWORK` names the platform's UI framework**: AppKit for the macOS SDK and UIKit for the iOS SDKs. Common's template sets it, so any piece that lists that template can link the framework by flag, as `waveform/WaveformView` does. A piece whose sources are all Objective-C++ needs the flag, because Xcode builds Objective-C++ with `-fno-cxx-modules`. **TRAP: it is a setting of its own, never a conditional `OTHER_LDFLAGS`**, which would replace the flags every other template passes. The template's comment carries the trap too.
+
 ## Build provenance
 
 **`NSBundle+BuildInfo` names the build that is running.** `vibeVersionString` is the version, the build number, and the configuration. `vibeBuildTimeString` is the executable's modification time, which a copy that does not preserve it moves. `vibeGitString` is the commit, the branch, and whether the tree was dirty. `VibeLogBuildProvenance` logs the last two at launch.

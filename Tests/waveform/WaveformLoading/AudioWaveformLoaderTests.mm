@@ -21,6 +21,7 @@
 #import "AudioWaveformCache+Debug.h"
 #import "CloudFileMaterializer.h"
 #import "NSURL+Hash.h"
+#import "PINCache+VibeAudioCache.h"
 #import "VibeReadAheadScript.h"
 #import "VibeTestTrack.h"
 
@@ -845,6 +846,23 @@ static NSUInteger MatchingBins(CodableAudioWaveform *waveform, CodableAudioWavef
     return cache;
 }
 
+// The store's name carries its version as DiskCache's removal reads it, so a
+// format bump removes the old store and keeps the current one.
+- (void)testTheStoreNameFollowsTheVersionRule {
+    NSString *root = [_tempDirectory URLByAppendingPathComponent:@"stores"].path;
+    NSString *current = [@"com.pinterest.PINDiskCache." stringByAppendingString:AudioWaveformCache.cacheName];
+    for (NSString *store in @[current, @"com.pinterest.PINDiskCache.audio_waveform_cache_v1"]) {
+        XCTAssertTrue([NSFileManager.defaultManager createDirectoryAtPath:[root stringByAppendingPathComponent:store]
+                                              withIntermediateDirectories:YES attributes:nil error:nil]);
+    }
+    XCTestExpectation *removed = [self expectationWithDescription:@"removed"];
+    [PINCache removeOtherAudioCacheVersionsKeeping:@[AudioWaveformCache.cacheName] rootPath:root completion:^{
+        [removed fulfill];
+    }];
+    [self waitForExpectations:@[removed] timeout:VIBE_TEST_HANG_TIMEOUT];
+    XCTAssertEqualObjects([NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:nil], @[current]);
+}
+
 - (void)testCacheOnlyLookupMissesWithoutDecodingAndChecksAnalysisRequirements {
     NSURL *url = [self writeNoiseWAVNamed:@"preview.wav" seconds:2.0 seed:31];
     WaveformCacheRecorder *recorder = [[WaveformCacheRecorder alloc] init];
@@ -891,6 +909,48 @@ static NSUInteger MatchingBins(CodableAudioWaveform *waveform, CodableAudioWavef
         settled = YES;
     }];
     XCTAssertTrue([self eventually:^BOOL { return settled; }]);
+}
+
+// The filed waiter runs once, on main, after the final delivery, when the
+// entry is on disk. A cache-only lookup issued then hits on its first try. A
+// second load, a hit, is filed at once. A file with no key files nothing.
+- (void)testAFiledLoadIsFoundByACacheOnlyLookupAtOnce {
+    NSURL *url = [self writeNoiseWAVNamed:@"filed.wav" seconds:2.0 seed:41];
+    WaveformCacheRecorder *recorder = [[WaveformCacheRecorder alloc] init];
+    AudioWaveformCache *cache = [self cacheWithRecorder:recorder];
+    NSMutableArray<NSNumber *> *answers = [NSMutableArray array];
+    __block NSUInteger completionsWhenFiled = 0;
+    [cache loadWaveformForTrack:[VibeTestTrack withURL:url] filed:^(BOOL filed) {
+        XCTAssertTrue(NSThread.isMainThread);
+        completionsWhenFiled = recorder.completions;
+        [answers addObject:@(filed)];
+    }];
+    XCTAssertTrue([self eventually:^BOOL { return answers.count > 0; }]);
+    XCTAssertEqualObjects(answers, @[@YES]);
+    XCTAssertEqual(completionsWhenFiled, 1u, @"the waiter runs after the final delivery");
+    __block BOOL answered = NO;
+    __block CodableAudioWaveform *found = nil;
+    [cache cachedWaveformForTrack:[VibeTestTrack withURL:url] completion:^(CodableAudioWaveform *waveform) {
+        found = waveform;
+        answered = YES;
+    }];
+    XCTAssertTrue([self eventually:^BOOL { return answered; }]);
+    XCTAssertNotNil(found, @"the entry is on disk once the waiter says so");
+
+    [cache loadWaveformForTrack:[VibeTestTrack withURL:url] filed:^(BOOL filed) {
+        [answers addObject:@(filed)];
+    }];
+    XCTAssertTrue([self eventually:^BOOL { return answers.count > 1; }]);
+    XCTAssertEqualObjects(answers, (@[@YES, @YES]), @"a hit's entry is already filed");
+    XCTAssertEqual(recorder.completions, 2u);
+
+    NSURL *missing = [_tempDirectory URLByAppendingPathComponent:@"missing.wav"];
+    [cache loadWaveformForTrack:[VibeTestTrack withURL:missing] filed:^(BOOL filed) {
+        [answers addObject:@(filed)];
+    }];
+    XCTAssertTrue([self eventually:^BOOL { return answers.count > 2; }]);
+    XCTAssertEqualObjects(answers, (@[@YES, @YES, @NO]));
+    XCTAssertEqual(recorder.failures, 1u);
 }
 
 // The seam keys a cue row as the cache does, by its window. Its decode is

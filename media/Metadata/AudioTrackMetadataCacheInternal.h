@@ -18,9 +18,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface AudioTrackMetadataCache () {
     AudioTrackMetadataLoader*   _currentLoader;
 }
-// Atomic: set asynchronously after init, read per track from the loader's
-// workers.
-@property (atomic, strong, nullable) PINCache *metadataCache;
+// The store, built on the cache's queue after init. A read before it exists
+// waits for it, so every lookup and write reaches it.
+@property (nonatomic, readonly) PINCache *metadataCache;
 // Bumped by invalidation. A parse captures it at start, skips its write if it
 // moved and rechecks after, or a parse in flight during Clear Cache would
 // repopulate the emptied cache.
