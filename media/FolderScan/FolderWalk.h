@@ -39,8 +39,10 @@ typedef NS_ENUM(NSInteger, VibeFolderScanReadPolicy) {
     // Nothing: every file is an entry whole, a CUE sheet included, and no
     // sheet or FLAC is opened.
     VibeFolderScanReadPolicyNone = 0,
-    // What an open reads: each sheet beside the files, and the sheet inside a
-    // large FLAC that is not a cloud placeholder.
+    // What is local: each sheet beside the files that is not a cloud
+    // placeholder, and the sheet inside a large FLAC that is not one. A
+    // placeholder sheet is an entry whole, since the read would download it.
+    // An open reads that sheet too.
     VibeFolderScanReadPolicyLocal,
 };
 
