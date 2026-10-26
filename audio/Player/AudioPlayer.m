@@ -1523,8 +1523,9 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
 }
 
 
-// No FX tail is modeled: it would be a timer-shaped guess. A buffering hold is
-// not output either.
+// TRAP: not "the output has stopped", which is outputIdle. No FX tail is
+// modeled: it would be a timer-shaped guess. A buffering hold is not output
+// either.
 - (void)refreshOutputAudioActiveOnQueue {
     BOOL active = [self renderingOnQueue]
             && ((_state == VibePlayerStatePlaying && _voice != 0 && !_buffering) || _retiringVoices.count > 0);
