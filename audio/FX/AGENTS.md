@@ -9,7 +9,7 @@ The DJ chain over Apple's audio units, run in place inside a host's render. It d
 | `AudioFXMath.h` | the numbers a toggle or a pad position resolves to. Header-only and tested |
 | `AudioFX+Debug.h` | the fault seam: an uninitialized unit refuses its next render, as under a hosting failure. `AudioFX.m` implements it under `#if DEBUG`, beside the chain's private struct |
 
-It has the Q low-kill high-pass with its W double-cutoff boost, and three send-returns. E is a long reverb wash. R and T are BPM-synced ping-pong delays on 1/8- and 1/16-note taps, fed through `delayTapBPM`. The traps are `TRAP:` comments in `AudioFX.m`: MatrixReverb's stale header ranges, the frames per slice a directly hosted unit defaults to, and the unit that writes back into a lent input buffer.
+It has the Q low-kill high-pass with its W double-cutoff boost, and three send-returns. E is a long reverb wash. R and T are BPM-synced ping-pong delays on 1/8- and 1/16-note taps, fed through `delayTapBPM`. The traps are `TRAP:` comments in `AudioFX.m`: MatrixReverb's stale header ranges, the frames per slice a directly hosted unit defaults to, the unit that writes back into a lent input buffer, and the scratch cleared with `vDSP_vclr` rather than `memset`. Clang drops a `memset(0)` after `calloc`. The audio thread would then take the page faults on its first write.
 
 ## The host
 
