@@ -13,6 +13,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface HTTPTransferClient ()
 
+// TRAP: a subclass's internal header imports this one and never redeclares
+// its seams. A redeclaration that cannot see the base's gets an ivar of its
+// own. It starts at 0, not 1, and every retry wait would read it.
+
 // Calls and ranged reads. A call is answered whole. A ranged read streams
 // through the client, as a download does. Its own queue, so a tag read never
 // waits behind a download's disk writes.
