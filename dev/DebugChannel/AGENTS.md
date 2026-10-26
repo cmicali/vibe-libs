@@ -1,6 +1,6 @@
 # dev/DebugChannel
 
-The transport of a debug command channel: a script drives and inspects a running debug build of an app. A command is a file. The client writes one into the app's temporary directory and posts a Darwin notification. The app drains it, runs the verb, and writes a reply file back. **It holds no verbs.** The app owns every verb, its tables, its dispatcher, and its client. It depends on `core/Common` for the log macros, and on nothing else. It builds on both platforms.
+The transport of a debug command channel: a script drives and inspects a running debug build of an app. A command is a file. The client writes one into the app's temporary directory and posts a Darwin notification. The app drains it, runs the verb, and writes a reply file back. **It holds no verbs.** The app owns every verb, its tables, its dispatcher, and its client. It came from Vibe. It depends on `core/Common` for the log macros, and on nothing else. It builds on both platforms.
 
 | File | Owns |
 | --- | --- |

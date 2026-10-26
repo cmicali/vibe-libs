@@ -1,6 +1,6 @@
 # media/FolderScan
 
-The folder walk: whatever the user opened, a file, a folder, or a playlist file, as an ordered list of entries. It depends on `audio/AudioTypes`, for the playable extensions, on `files/FileLoading`, for the placeholder checks, on `media/Playlists`, for the readers and the entry record, and on `core/Common`, for the emptiness test and the log macros. **It holds what Vibe moved here, and the catalog scan built on it.** None of it reads an app's settings, strings, or types.
+The folder walk: whatever the user opened, a file, a folder, or a playlist file, as an ordered list of entries. It depends on `audio/AudioTypes`, for the playable extensions, on `files/FileLoading`, for the placeholder checks, on `media/Playlists`, for the readers and the entry record, and on `core/Common`, for the emptiness test and the log macros. Its walk came from Vibe, and its catalog scan was built on it here. None of it reads an app's settings, strings, or types.
 
 | File | Owns |
 | --- | --- |

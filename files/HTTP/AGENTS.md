@@ -1,6 +1,6 @@
 # files/HTTP
 
-Ranged HTTP transfers, for files an app fetches itself rather than through a file provider. A download streams into a file as its bytes arrive. A ranged read and a probe read a file's bytes without downloading it. A resend continues a download rather than starting it over, and only for the same version. It also holds a fake of ranged HTTP serving, for tests and a debug channel (the plan's rule 8). **Today it holds what Vibe moved here.** It depends only on `core/Common`. It is Foundation only, and no file needs a platform half. It reads no app's settings, strings, or types.
+Ranged HTTP transfers, for files an app fetches itself rather than through a file provider. A download streams into a file as its bytes arrive. A ranged read and a probe read a file's bytes without downloading it. A resend continues a download rather than starting it over, and only for the same version. It also holds a fake of ranged HTTP serving, for tests and a debug channel (the plan's rule 8). It came from Vibe. It depends only on `core/Common`. It is Foundation only, and no file needs a platform half. It reads no app's settings, strings, or types.
 
 | File | Owns |
 | --- | --- |

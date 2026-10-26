@@ -49,7 +49,7 @@ CI runs all six on every pull request.
 ## How work moves between the repos
 
 - **Decoupling happens in Vibe first**, under Vibe's gates. Then a move here is mechanical.
-- **A move carries history with `git filter-repo`.** It arrives as one merge with `--allow-unrelated-histories`. Its message callback, `scripts/plan/filter-messages.py`, rewrites `Closes #45` as `Closes Vibe #45`, and every other closing keyword before `#<number>` the same way (the plan's recipe, in The work, in order).
+- **A move carries history with `git filter-repo`.** It arrives as one merge with `--allow-unrelated-histories`. Its message callback, `scripts/plan/filter-messages.py`, rewrites every closing keyword before `#<number>` or `GH-<number>` to name Vibe (the plan's recipe, in The work, in order). `Closes #45` becomes `Closes Vibe #45`, and `Closes GH-45` becomes `Closes Vibe GH-45`.
 - **A move is measured, not assumed free.** Between fixed before and after commits, Vibe's `perf.py compare` keeps each affected benchmark's retired instructions inside its own no-change band, and the pull request reports every outlier and rerun. Vibe's `make test-audio` time stays within noise. The plan's build audit compares what every target compiles.
 - **A change across the repos lands here first**, then in the consumer's pin, then through the consumer's gates. The old pin is the rollback.
 

@@ -2,7 +2,7 @@
 
 What every other piece may use, and nothing else. Every piece may import from it, so it depends on nothing. **Every file here is featureless.** If you can name the feature a file serves, it belongs in that feature's piece. Nothing here may call anything stateful: a singleton, a setting, a grant, or a panel.
 
-**Today it holds** the macros (`VibeMacros.h`), the work tally, the stall sampler, path spelling, the disk key, file emptiness and identity, the fixed-slot work lanes, a weak proxy, the display-paced update timer, the helper macros, the integer token parser, build provenance and its script, and the form label's colon rule. All of it came from Vibe. A file imports `VibeMacros.h` explicitly. No piece relies on a prefix header. An app's prefix header may import it too.
+It holds the macros (`VibeMacros.h`), the work tally, the stall sampler, path spelling, the disk key, file emptiness and identity, the fixed-slot work lanes, a weak proxy, the display-paced update timer, the helper macros, the integer token parser, build provenance and its script, and the form label's colon rule. It came from Vibe. A file imports `VibeMacros.h` explicitly. No piece relies on a prefix header. An app's prefix header may import it too.
 
 ## The realtime-effects brackets
 

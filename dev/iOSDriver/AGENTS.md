@@ -1,6 +1,6 @@
 # dev/iOSDriver
 
-Taps, drags, and pinches in the iOS simulator, for scripts. No public API synthesizes a `UITouch` in-process. Touch synthesis exists only inside XCUITest. So the driver is one resident XCUITest, `VibeiOSDriverTests`, whose one "test" serves commands until it is told to quit. It is not a test suite. **It is iOS only**, and it depends on nothing.
+Taps, drags, and pinches in the iOS simulator, for scripts. No public API synthesizes a `UITouch` in-process. Touch synthesis exists only inside XCUITest. So the driver is one resident XCUITest, `VibeiOSDriverTests`, whose one "test" serves commands until it is told to quit. It is not a test suite. It came from Vibe. **It is iOS only**, and it depends on nothing.
 
 | File | Owns |
 | --- | --- |

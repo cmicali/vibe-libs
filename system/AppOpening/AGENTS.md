@@ -1,6 +1,6 @@
 # system/AppOpening
 
-On the mac, one open request from the batches Launch Services splits it into, delivered in order. Launch Services can split one multi-file open into several batches. An app then expands each batch at its own pace, as a folder walk or a playlist read. Two classes handle those two shapes. It depends only on `core/Common`, for the scheduler type. **Today it holds what Vibe moved here.** None of it reads an app's settings, strings, or types. **It is macOS only**, so its files sit in its `Mac/` half and no iOS target lists its template.
+On the mac, one open request from the batches Launch Services splits it into, delivered in order. Launch Services can split one multi-file open into several batches. An app then expands each batch at its own pace, as a folder walk or a playlist read. Two classes handle those two shapes. It depends only on `core/Common`, for the scheduler type. It came from Vibe. None of it reads an app's settings, strings, or types. **It is macOS only**, so its files sit in its `Mac/` half and no iOS target lists its template.
 
 | File | Owns |
 | --- | --- |

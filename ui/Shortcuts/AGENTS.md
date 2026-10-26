@@ -1,6 +1,6 @@
 # ui/Shortcuts
 
-Remappable shortcuts for a mac app. It depends on `ui/SettingsWindow`, whose pane base the recorder pane subclasses. **Today it holds what Vibe moved here, and it is macOS only**: the encoding and its matching (`ShortcutRules.h`), a shortcut under the current keyboard layout (`ShortcutLayout`), and the Keyboard Shortcuts pane (`SettingsShortcutsViewController`). They sit in its `Mac/` half. None reads an app's settings, strings, or types. An app pushes in its commands, its strings, and its store.
+Remappable shortcuts for a mac app. It depends on `ui/SettingsWindow`, whose pane base the recorder pane subclasses. It holds the encoding and its matching (`ShortcutRules.h`), a shortcut under the current keyboard layout (`ShortcutLayout`), and the Keyboard Shortcuts pane (`SettingsShortcutsViewController`). It came from Vibe. **It is macOS only.** Its files sit in its `Mac/` half. None reads an app's settings, strings, or types. An app pushes in its commands, its strings, and its store.
 
 ## The encoding
 

@@ -1,6 +1,6 @@
 # files/RemoteFiles
 
-Files on a server kept as local placeholders under one root, so everything that plays, tags, waveforms, and caches a file works on them unchanged. Playing one downloads it, and the file is readable while it streams. Tags are read by range. Past a download budget the oldest downloads go back to placeholders. **Today it holds what Vibe moved here.** It depends on `core/Common`, `files/FileLoading` for the placeholder rule, the remote backend, and the availability it publishes, `files/HTTP` for the client, and `audio/Decode` for the tail window's math. It is Foundation only, and no file needs a platform half. It reads no app's settings, strings, or types.
+Files on a server kept as local placeholders under one root, so everything that plays, tags, waveforms, and caches a file works on them unchanged. Playing one downloads it, and the file is readable while it streams. Tags are read by range. Past a download budget the oldest downloads go back to placeholders. It came from Vibe. It depends on `core/Common`, `files/FileLoading` for the placeholder rule, the remote backend, and the availability it publishes, `files/HTTP` for the client, and `audio/Decode` for the tail window's math. It is Foundation only, and no file needs a platform half. It reads no app's settings, strings, or types.
 
 | File | Owns |
 | --- | --- |

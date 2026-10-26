@@ -1,6 +1,6 @@
 # files/ShareLinks
 
-Opening a web link to an audio file: which addresses are fetched, whether the first bytes are audio, the file's name, and share links turned into the address of their bytes. Dropbox and Google Drive links are rewritten. An iCloud Drive link is looked up before each request, by `LinkClient`. What a drop or a paste holds is decided here too. The fake web server, which stands in for these hosts in tests and a debug channel, lives here (the plan's rule 8). **Today it holds what Vibe moved here.** It depends on `core/Common` and `files/HTTP`. It is Foundation only, and no file needs a platform half. It reads no app's settings, strings, or types.
+Opening a web link to an audio file: which addresses are fetched, whether the first bytes are audio, the file's name, and share links turned into the address of their bytes. Dropbox and Google Drive links are rewritten. An iCloud Drive link is looked up before each request, by `LinkClient`. What a drop or a paste holds is decided here too. The fake web server, which stands in for these hosts in tests and a debug channel, lives here (the plan's rule 8). It came from Vibe. It depends on `core/Common` and `files/HTTP`. It is Foundation only, and no file needs a platform half. It reads no app's settings, strings, or types.
 
 | File | Owns |
 | --- | --- |

@@ -1,6 +1,6 @@
 # waveform/WaveformStyles
 
-Each waveform style's look: its columns, its levels, its colors, the zoom math, and the morph engine that eases between them. It depends on `waveform/Waveform` for the summary it draws, on `core/Graphics` for the platform colors, and on `core/Common` for the log, signpost, and helper macros. **Today it holds what Vibe moved here**: the six renderers and their base, the registry, the morph engine, the bar and level math, the theme, and the zoom math. It names no app type. It reads no setting and no string. The views that host a renderer, the mac view and the iOS scrubber, are `waveform/WaveformView`.
+Each waveform style's look: its columns, its levels, its colors, the zoom math, and the morph engine that eases between them. It depends on `waveform/Waveform` for the summary it draws, on `core/Graphics` for the platform colors, and on `core/Common` for the log, signpost, and helper macros. It holds the six renderers and their base, the registry, the morph engine, the bar and level math, the theme, and the zoom math. It came from Vibe. It names no app type. It reads no setting and no string. The views that host a renderer, the mac view and the iOS scrubber, are `waveform/WaveformView`.
 
 | File | Owns |
 | --- | --- |
@@ -185,7 +185,7 @@ Spectrum reads `spectrumColors`. Each renderer declares its palette through `pal
 
 ## Tests
 
-`Tests/waveform/WaveformStyles/` holds the tests that came from Vibe with the code. `AudioWaveformTests` keeps its name from Vibe. It draws every style into a layer with no window and checks its pixels: the bakes, the played side and the hover, Centered, the bar count and width, Normalize, the morph across a resize, 3-Band's rings and ceilings, Spectrum's colors and sections, the convert sweep, and every step style drawn in part and whole. `WaveformThemeTests` holds the palettes and the clamps. It sits in the tests' `Mac/` half, since it imports AppKit. `WaveformLevelMathTests` and `WaveformZoomMathTests` hold the math. The waveforms they draw are built bin by bin through `Tests/Support/WaveformTestSupport.h`. The minimal consumer draws a tone in every style and reads back that each drew.
+`Tests/waveform/WaveformStyles/` holds Vibe's tests of the styles, the theme, and the math. `AudioWaveformTests` keeps its name from Vibe. It draws every style into a layer with no window and checks its pixels: the bakes, the played side and the hover, Centered, the bar count and width, Normalize, the morph across a resize, 3-Band's rings and ceilings, Spectrum's colors and sections, the convert sweep, and every step style drawn in part and whole. `WaveformThemeTests` holds the palettes and the clamps. It sits in the tests' `Mac/` half, since it imports AppKit. `WaveformLevelMathTests` and `WaveformZoomMathTests` hold the math. The waveforms they draw are built bin by bin through `Tests/Support/WaveformTestSupport.h`. The minimal consumer draws a tone in every style and reads back that each drew.
 
 Vibe keeps the tests of its own mapping onto the theme, `WaveformThemeSettingsTests`. The views' tests are `waveform/WaveformView`'s.
 

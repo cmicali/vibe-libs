@@ -1,6 +1,6 @@
 # audio/Meter
 
-Live band levels from inside a render, only while someone looks. It depends on `core/Common` and nothing else. Its band math is its own. **Today it holds what Vibe moved here.** None of it reads an app's settings, strings, or types. It opens and analyzes no file.
+Live band levels from inside a render, only while someone looks. It depends on `core/Common` and nothing else. Its band math is its own. It came from Vibe. None of it reads an app's settings, strings, or types. It opens and analyzes no file.
 
 | File | Owns |
 | --- | --- |
