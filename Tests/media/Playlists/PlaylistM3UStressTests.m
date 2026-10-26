@@ -7,7 +7,7 @@
 //
 
 #import <XCTest/XCTest.h>
-#import "PlaylistFile.h"
+#import "VibePlaylistFile.h"
 
 @interface PlaylistM3UStressTests : XCTestCase
 @end
@@ -35,7 +35,7 @@
 }
 
 - (NSArray<NSString *> *)parse:(NSString *)text {
-    NSArray<NSString *> *entries = [PlaylistFile m3uEntriesInText:text];
+    NSArray<NSString *> *entries = [VibePlaylistFile m3uEntriesInText:text];
     XCTAssertNotNil(entries);
     [self assertResolvable:entries from:[text substringToIndex:MIN((NSUInteger)40, text.length)]];
     return entries;
@@ -182,7 +182,7 @@
             seed = seed * 1664525u + 1013904223u;
             bytes[i] = (uint8_t)(seed >> 24);
         }
-        NSString *text = [PlaylistFile textFromData:data];
+        NSString *text = [VibePlaylistFile textFromData:data];
         if (text) {
             [self parse:text];
         }
@@ -199,7 +199,7 @@
         if (!data) {
             continue;
         }
-        NSString *text = [PlaylistFile textFromData:data];
+        NSString *text = [VibePlaylistFile textFromData:data];
         XCTAssertNotNil(text, @"encoding %@ failed to decode", encoding);
         XCTAssertEqual([self parse:text].count, 2u, @"encoding %@ lost entries", encoding);
     }
@@ -213,7 +213,7 @@
         [text appendFormat:@"#EXTINF:%lu,T%lu\nMusic/track%lu.mp3\n",
                            (unsigned long)i, (unsigned long)i, (unsigned long)i];
     }
-    NSArray<NSString *> *entries = [PlaylistFile m3uEntriesInText:text];
+    NSArray<NSString *> *entries = [VibePlaylistFile m3uEntriesInText:text];
     XCTAssertEqual(entries.count, 50000u);
 }
 
@@ -249,11 +249,11 @@
                 case 4: bytes[at] = '%'; break;                   // break an escape
             }
         }
-        NSString *text = [PlaylistFile textFromData:data];
+        NSString *text = [VibePlaylistFile textFromData:data];
         if (!text) {
             continue;
         }
-        NSArray<NSString *> *entries = [PlaylistFile m3uEntriesInText:text];
+        NSArray<NSString *> *entries = [VibePlaylistFile m3uEntriesInText:text];
         XCTAssertNotNil(entries);
         [self assertResolvable:entries
                           from:[NSString stringWithFormat:@"fuzz round %lu", (unsigned long)round]];
@@ -281,7 +281,7 @@
     [data appendBytes:"good.mp3\n" length:9];
     [data appendBytes:"a\0b.mp3\n" length:8];   // NUL inside a path component
     [data appendBytes:"\0\0\0\n" length:4];     // nothing but NULs
-    NSArray<NSURL *> *urls = [[PlaylistFile entriesForPlaylistAtURL:
+    NSArray<NSURL *> *urls = [[VibePlaylistFile entriesForPlaylistAtURL:
             [self writePlaylist:data named:@"nuls.m3u"]] valueForKey:@"url"];
     XCTAssertNotNil(urls);
     for (NSURL *url in urls) {
@@ -298,7 +298,7 @@
             seed = seed * 1664525u + 1013904223u;
             bytes[i] = (uint8_t)(seed >> 24);
         }
-        NSArray<NSURL *> *urls = [[PlaylistFile entriesForPlaylistAtURL:
+        NSArray<NSURL *> *urls = [[VibePlaylistFile entriesForPlaylistAtURL:
                 [self writePlaylist:data named:@"junk.m3u"]] valueForKey:@"url"];
         for (NSURL *url in urls) {
             XCTAssertNotNil(url, @"round %lu produced a nil URL", (unsigned long)round);
@@ -312,7 +312,7 @@
     // keeps them from single-byte mojibake.
     NSString *source = @"日本語のとても長いファイル名前です第一曲.mp3\n日本語のとても長いファイル名前です第二曲.mp3\n";
     NSData *data = [source dataUsingEncoding:NSUTF16LittleEndianStringEncoding];
-    NSString *text = [PlaylistFile textFromData:data];
+    NSString *text = [VibePlaylistFile textFromData:data];
 
     XCTAssertEqualObjects(text, source, @"decoded as something other than UTF-16");
     XCTAssertEqual([self parse:text].count, 2u);

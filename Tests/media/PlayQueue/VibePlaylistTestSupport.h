@@ -1,7 +1,7 @@
 
 #import <Foundation/Foundation.h>
 
-#import "Playlist.h"
+#import "VibePlaylist.h"
 
 // "1" or "0,2".
 static inline NSString *RowsString(NSIndexSet *indexes) {
@@ -12,7 +12,7 @@ static inline NSString *RowsString(NSIndexSet *indexes) {
     return [parts componentsJoinedByString:@","];
 }
 
-@interface RecordingObserver : NSObject <PlaylistObserver>
+@interface RecordingObserver : NSObject <VibePlaylistObserver>
 @property (nonatomic, strong) NSMutableArray<NSString *> *events;
 @property (nonatomic) NSUInteger lastReplacementGeneration;
 @end
@@ -86,8 +86,8 @@ static inline TestRow *CueRowOf(NSString *filename, NSUInteger start, NSUInteger
 }
 
 // Keyed by the URL and the source key, so it has lookup by file.
-static inline Playlist<TestRow *> *NewPlaylist(void) {
-    return [[Playlist<TestRow *> alloc] initWithURLKey:^NSURL *(TestRow *track) {
+static inline VibePlaylist<TestRow *> *NewPlaylist(void) {
+    return [[VibePlaylist<TestRow *> alloc] initWithURLKey:^NSURL *(TestRow *track) {
         return track.url;
     } sourceKey:^NSString *(TestRow *track) {
         return track.sourceKey;
@@ -101,12 +101,12 @@ static inline TestRow *(^ReplacementAt(NSURL *url))(TestRow *) {
     };
 }
 
-static inline Playlist<TestRow *> *PlaylistWithFiles(NSArray<NSString *> *filenames) {
+static inline VibePlaylist<TestRow *> *PlaylistWithFiles(NSArray<NSString *> *filenames) {
     NSMutableArray<NSURL *> *urls = [NSMutableArray array];
     for (NSString *name in filenames) {
         [urls addObject:URLNamed(name)];
     }
-    Playlist<TestRow *> *playlist = NewPlaylist();
+    VibePlaylist<TestRow *> *playlist = NewPlaylist();
     [playlist replaceAllWithTracks:Rows(urls) startingAtIndex:NSNotFound];
     return playlist;
 }

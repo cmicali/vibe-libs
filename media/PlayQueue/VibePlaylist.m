@@ -1,11 +1,11 @@
 //
-// Playlist.m
+// VibePlaylist.m
 // vibe-libs
 //
 
-#import "Playlist.h"
+#import "VibePlaylist.h"
 
-@implementation Playlist {
+@implementation VibePlaylist {
     NSURL * _Nullable (^_urlKey)(id entry);
     NSString * _Nullable (^_sourceKey)(id entry);
     NSMutableArray *_tracks;

@@ -1,17 +1,17 @@
 #import <XCTest/XCTest.h>
 
-#import "Playlist.h"
-#import "PlaylistTestSupport.h"
+#import "VibePlaylist.h"
+#import "VibePlaylistTestSupport.h"
 
-@interface PlaylistTests : XCTestCase
+@interface VibePlaylistTests : XCTestCase
 @end
 
-@implementation PlaylistTests
+@implementation VibePlaylistTests
 
 #pragma mark - Ordering
 
 - (void)testCapturedTracksResolveByIdentityAfterMoveRemovalAndReplacement {
-    Playlist *playlist = PlaylistWithFiles(@[@"same.mp3", @"b.mp3", @"same.mp3", @"d.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"same.mp3", @"b.mp3", @"same.mp3", @"d.mp3"]);
     NSArray *captured = @[[playlist trackAtIndex:0], [playlist trackAtIndex:2], [playlist trackAtIndex:2]];
     XCTAssertEqualObjects([playlist indexesOfTracks:captured], RowSetOf(@[@0, @2]));
     [playlist moveTracksAtIndexes:RowSet(0) toIndexes:RowSet(3)];
@@ -24,7 +24,7 @@
 }
 
 - (void)testSameURLsInAReplacementDoNotReviveCapturedTargets {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     NSArray *captured = playlist.tracks;
     [playlist replaceAllWithTracks:Rows(@[URLNamed(@"a.mp3"), URLNamed(@"b.mp3")]) startingAtIndex:NSNotFound];
     XCTAssertEqual([playlist indexesOfTracks:captured].count, 0u);
@@ -36,7 +36,7 @@
 - (void)testRemovalForwardLandingAgreesWithEveryActualRemoval {
     for (NSUInteger cursor = 0; cursor < 5; cursor++) {
         for (NSUInteger mask = 1; mask < 32; mask++) {
-            Playlist *playlist = PlaylistWithFiles(@[@"same.mp3", @"same.mp3", @"same.mp3", @"same.mp3", @"same.mp3"]);
+            VibePlaylist *playlist = PlaylistWithFiles(@[@"same.mp3", @"same.mp3", @"same.mp3", @"same.mp3", @"same.mp3"]);
             playlist.currentIndex = cursor;
             NSArray *before = playlist.tracks;
             NSMutableIndexSet *rows = [NSMutableIndexSet indexSet];
@@ -66,7 +66,7 @@
 }
 
 - (void)testInvalidRemovalHasNoForwardLanding {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     XCTAssertNil([playlist forwardTrackAfterRemovingTracksAtIndexes:RowSetOf(@[@0, @2])]);
     XCTAssertNil([playlist forwardTrackAfterRemovingTracksAtIndexes:RowSet(NSNotFound - 1)]);
     XCTAssertNil([playlist forwardTrackAfterRemovingTracksAtIndexes:[NSIndexSet indexSet]]);
@@ -75,7 +75,7 @@
 }
 
 - (void)testGaplessAdoptionAdvancesExactlyOnceAndNotifiesWithFinalCursor {
-    Playlist *playlist = PlaylistWithFiles(@[@"same.mp3", @"same.mp3", @"c.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"same.mp3", @"same.mp3", @"c.mp3"]);
     RecordingObserver *observer = [RecordingObserver new];
     playlist.observer = observer;
     TestRow *finished = playlist.currentTrack, *started = [playlist trackAtIndex:1];
@@ -88,7 +88,7 @@
 }
 
 - (void)testGaplessAdoptionRefusesAReplacedSuccessorWithTheSameURL {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     TestRow *finished = playlist.currentTrack, *started = [playlist trackAtIndex:1];
     [playlist replaceTrackAtIndex:1 withTrack:[TestRow withURL:started.url]];
     RecordingObserver *observer = [RecordingObserver new];
@@ -99,7 +99,7 @@
 }
 
 - (void)testGaplessAdoptionRefusesChangedCursorReorderedSuccessorAndEmptyList {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3"]);
     TestRow *finished = playlist.currentTrack, *started = [playlist trackAtIndex:1];
     playlist.currentIndex = 2;
     XCTAssertFalse([playlist advanceFromTrack:finished toTrack:started]);
@@ -114,7 +114,7 @@
 }
 
 - (void)testStructureGenerationSurvivesEditsButRetiresBeforeReplacementNotification {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3"]);
     NSUInteger generation = playlist.structureGeneration;
     [playlist next];
     [playlist appendTracks:Rows(@[URLNamed(@"d.mp3")])];
@@ -137,7 +137,7 @@
 }
 
 - (void)testReplaceAllOrdersTracksAndResetsCursor {
-    Playlist<TestRow *> *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3"]);
+    VibePlaylist<TestRow *> *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3"]);
     XCTAssertEqual(playlist.count, 3u);
     XCTAssertEqual(playlist.currentIndex, 0u);
     XCTAssertEqualObjects([playlist trackAtIndex:0].url, URLNamed(@"a.mp3"));
@@ -147,7 +147,7 @@
 }
 
 - (void)testAppendExtendsWithoutTouchingCursor {
-    Playlist<TestRow *> *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist<TestRow *> *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     [playlist next];
     XCTAssertEqual(playlist.currentIndex, 1u);
     [playlist appendTracks:Rows(@[URLNamed(@"c.mp3")])];
@@ -157,14 +157,14 @@
 }
 
 - (void)testAppendToEmptyPlaylist {
-    Playlist<TestRow *> *playlist = NewPlaylist();
+    VibePlaylist<TestRow *> *playlist = NewPlaylist();
     [playlist appendTracks:Rows(@[URLNamed(@"a.mp3")])];
     XCTAssertEqual(playlist.count, 1u);
     XCTAssertEqualObjects(playlist.currentTrack.url, URLNamed(@"a.mp3"));
 }
 
 - (void)testClearEmptiesAndResetsCursor {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     [playlist next];
     [playlist clear];
     XCTAssertEqual(playlist.count, 0u);
@@ -175,7 +175,7 @@
 }
 
 - (void)testTracksIsADefensiveCopy {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3"]);
     NSArray<TestRow *> *snapshot = playlist.tracks;
     [playlist appendTracks:Rows(@[URLNamed(@"b.mp3")])];
     XCTAssertEqual(snapshot.count, 1u);
@@ -185,7 +185,7 @@
 #pragma mark - next / previous boundaries
 
 - (void)testNextAdvancesUntilTheEnd {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     XCTAssertTrue(playlist.hasNextTrack);
     XCTAssertFalse(playlist.hasPreviousTrack);
     XCTAssertTrue([playlist next]);
@@ -196,7 +196,7 @@
 }
 
 - (void)testPreviousRetreatsUntilTheStart {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     [playlist next];
     XCTAssertTrue([playlist previous]);
     XCTAssertEqual(playlist.currentIndex, 0u);
@@ -205,13 +205,13 @@
 }
 
 - (void)testBoundariesOnEmptyAndSingleTrackPlaylists {
-    Playlist *empty = NewPlaylist();
+    VibePlaylist *empty = NewPlaylist();
     XCTAssertFalse(empty.hasNextTrack);
     XCTAssertFalse(empty.hasPreviousTrack);
     XCTAssertFalse([empty next]);
     XCTAssertFalse([empty previous]);
 
-    Playlist *single = PlaylistWithFiles(@[@"a.mp3"]);
+    VibePlaylist *single = PlaylistWithFiles(@[@"a.mp3"]);
     XCTAssertFalse(single.hasNextTrack);
     XCTAssertFalse(single.hasPreviousTrack);
 }
@@ -219,7 +219,7 @@
 #pragma mark - Lookup
 
 - (void)testIndexesOfTracksWithURLFindsEveryDuplicateRow {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"a.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"a.mp3"]);
     NSIndexSet *indexes = [playlist indexesOfTracksWithURL:URLNamed(@"a.mp3")];
     XCTAssertEqual(indexes.count, 2u);
     XCTAssertTrue([indexes containsIndex:0]);
@@ -228,14 +228,14 @@
 }
 
 - (void)testTrackForURLReturnsTheFirstMatch {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"a.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"a.mp3"]);
     TestRow *found = [playlist trackForURL:URLNamed(@"a.mp3")];
     XCTAssertEqual(found, [playlist trackAtIndex:0]);
     XCTAssertNil([playlist trackForURL:URLNamed(@"missing.mp3")]);
 }
 
 - (void)testGetIndexForTrackIsAnIdentityLookup {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"a.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"a.mp3"]);
     XCTAssertEqual([playlist getIndexForTrack:[playlist trackAtIndex:0]], 0);
     XCTAssertEqual([playlist getIndexForTrack:[playlist trackAtIndex:1]], 1);
     // A different row object for the same file is a different row.
@@ -244,7 +244,7 @@
 }
 
 - (void)testStampingReachesEveryRowSoundingTheWindowAndNoOtherRowOfTheFile {
-    Playlist *playlist = NewPlaylist();
+    VibePlaylist *playlist = NewPlaylist();
     [playlist replaceAllWithTracks:@[CueRowOf(@"mix.flac", 0, 4500), CueRowOf(@"mix.flac", 4500, 0),
                                      [TestRow withURL:URLNamed(@"mix.flac")], CueRowOf(@"mix.flac", 0, 4500)]
                    startingAtIndex:NSNotFound];
@@ -264,7 +264,7 @@
 }
 
 - (void)testIsCurrentTrackComparesIdentity {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     XCTAssertTrue([playlist isCurrentTrack:[playlist trackAtIndex:0]]);
     XCTAssertFalse([playlist isCurrentTrack:[playlist trackAtIndex:1]]);
 }
@@ -272,7 +272,7 @@
 #pragma mark - Replace
 
 - (void)testReplaceRefusesOutOfRange {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3"]);
     XCTAssertFalse([playlist replaceTrackAtIndex:1 withTrack:[TestRow withURL:URLNamed(@"b.mp3")]]);
     XCTAssertEqual(playlist.count, 1u);
 }
@@ -280,7 +280,7 @@
 // An entry already in the list would sit in two rows, and the track-to-row map
 // can name only one of them.
 - (void)testReplaceRefusesAnEntryAlreadyInTheList {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     RecordingObserver *observer = [RecordingObserver new];
     playlist.observer = observer;
     TestRow *first = [playlist trackAtIndex:0], *second = [playlist trackAtIndex:1];
@@ -293,7 +293,7 @@
     // Every row of a file given one replacement: the first row takes it, and
     // the second keeps its entry.
     NSURL *output = URLNamed(@"same.flac");
-    Playlist *duplicates = PlaylistWithFiles(@[@"same.mp3", @"same.mp3"]);
+    VibePlaylist *duplicates = PlaylistWithFiles(@[@"same.mp3", @"same.mp3"]);
     TestRow *kept = [duplicates trackAtIndex:1];
     TestRow *shared = [TestRow withURL:output];
     NSIndexSet *rows = [duplicates replaceTracksMatchingTrack:kept usingBlock:^TestRow *(TestRow *outgoing) {
@@ -305,7 +305,7 @@
 }
 
 - (void)testAPlaylistMadeWithoutKeysHasNoLookupByFile {
-    Playlist *playlist = [[Playlist alloc] init];
+    VibePlaylist *playlist = [[VibePlaylist alloc] init];
     TestRow *track = [TestRow withURL:URLNamed(@"a.mp3")];
     [playlist replaceAllWithTracks:@[track] startingAtIndex:NSNotFound];
     XCTAssertEqual([playlist indexesOfTracksWithURL:track.url].count, 0u);
@@ -320,7 +320,7 @@
 }
 
 - (void)testReplaceLeavesTheCursorAlone {
-    Playlist<TestRow *> *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist<TestRow *> *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     [playlist next];
     [playlist replaceTrackAtIndex:1 withTrack:[TestRow withURL:URLNamed(@"b.flac")]];
     XCTAssertEqual(playlist.currentIndex, 1u);
@@ -330,7 +330,7 @@
 #pragma mark - Observer
 
 - (void)testMutationsNotifyTheObserverWithTheAffectedRows {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3"]);
     RecordingObserver *observer = [RecordingObserver new];
     playlist.observer = observer;
 
@@ -348,7 +348,7 @@
 
 - (void)testSettingTheSameCurrentIndexStillNotifies {
     // A pick of the playing row must re-render it.
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3"]);
     RecordingObserver *observer = [RecordingObserver new];
     playlist.observer = observer;
     playlist.currentIndex = 0;
@@ -358,7 +358,7 @@
 // The cursor callback must not also fire, or a table would reconcile the
 // same edit twice.
 - (void)testRemovalSendsExactlyOneEventCarryingTheFinalState {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3"]);
     [playlist next];
     RecordingObserver *observer = [RecordingObserver new];
     playlist.observer = observer;
@@ -374,7 +374,7 @@
 }
 
 - (void)testBatchEditsSendExactlyOneEventCarryingTheFinalState {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3", @"d.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3", @"b.mp3", @"c.mp3", @"d.mp3"]);
     [playlist next];
     RecordingObserver *observer = [RecordingObserver new];
     playlist.observer = observer;
@@ -388,7 +388,7 @@
 }
 
 - (void)testBoundaryRefusalsDoNotNotify {
-    Playlist *playlist = PlaylistWithFiles(@[@"a.mp3"]);
+    VibePlaylist *playlist = PlaylistWithFiles(@[@"a.mp3"]);
     RecordingObserver *observer = [RecordingObserver new];
     playlist.observer = observer;
     [playlist next];
@@ -403,7 +403,7 @@
     NSURL *source = [NSURL fileURLWithPath:@"/tests/source.wav"];
     NSURL *output = [NSURL fileURLWithPath:@"/tests/source.flac"];
     NSURL *other = [NSURL fileURLWithPath:@"/tests/other.wav"];
-    Playlist<TestRow *> *playlist = NewPlaylist();
+    VibePlaylist<TestRow *> *playlist = NewPlaylist();
     [playlist replaceAllWithTracks:Rows(@[source, other, source]) startingAtIndex:NSNotFound];
     playlist.currentIndex = 2;
     NSArray *before = playlist.tracks;
@@ -424,7 +424,7 @@
 - (void)testConversionCompletionReplacesSourceRowsAfterPlaylistReplacement {
     NSURL *source = [NSURL fileURLWithPath:@"/tests/source.wav"];
     NSURL *output = [NSURL fileURLWithPath:@"/tests/output.flac"];
-    Playlist *playlist = NewPlaylist();
+    VibePlaylist *playlist = NewPlaylist();
     [playlist replaceAllWithTracks:Rows(@[source]) startingAtIndex:NSNotFound];
     TestRow *departed = playlist.currentTrack;
     [playlist replaceAllWithTracks:Rows(@[source, source]) startingAtIndex:NSNotFound];
@@ -434,7 +434,7 @@
 }
 
 - (void)testConversionCompletionReplacesSurvivingDuplicateAfterOriginalRowRemoval {
-    Playlist<TestRow *> *playlist = PlaylistWithFiles(@[@"source.wav", @"other.wav", @"source.wav"]);
+    VibePlaylist<TestRow *> *playlist = PlaylistWithFiles(@[@"source.wav", @"other.wav", @"source.wav"]);
     TestRow *departed = playlist.currentTrack;
     [playlist removeTracksAtIndexes:RowSet(0)];
     TestRow *other = playlist.currentTrack;

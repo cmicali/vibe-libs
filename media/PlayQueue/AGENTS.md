@@ -4,16 +4,16 @@ The play queue: an order over an app's own entries, with repeat, shuffle, and wh
 
 | File | Owns |
 | --- | --- |
-| `Playlist.{h,m}` | the queue: its rows, the cursor, the two indexes, the structural edits, repeat, shuffle, `nextTrack`, and `trackEndSuccessor`. `Playlist.h` states each method's contract |
+| `VibePlaylist.{h,m}` | the queue: its rows, the cursor, the two indexes, the structural edits, repeat, shuffle, `nextTrack`, and `trackEndSuccessor`. `VibePlaylist.h` states each method's contract |
 | `RepeatMode.h` | `VibeRepeatMode`: Off, One, and All, with MPRepeatType's raw values, so Now Playing converts by cast |
 
 ## Entries
 
-`Playlist.h` states each method's contract. This doc holds the rules a caller is checked against.
+`VibePlaylist.h` states each method's contract. This doc holds the rules a caller is checked against.
 
 **A row's identity is the object.** The queue holds opaque entries. It keeps each one, hands the same object back, and never copies or compares it by content. Its entry-to-row map is keyed by pointer, so two entries for one file stay two rows. The app mints a fresh entry per row. Recreating rows from URLs would throw away what the app installed on each one and defeat every identity check.
 
-**The queue reads an entry only through the two key blocks it is made with** (`initWithURLKey:sourceKey:`). The URL key indexes the rows of each file. The source key matches a stamp to the rows sounding one window. An app passes its row's URL and source key. A queue made with plain `init` has no lookup by file. It stamps nothing and replaces nothing by file. The entry type is a lightweight generic, so an app that declares `Playlist<AppRow *>` gets typed rows back. The queue takes no protocol, not even `audio/AudioTypes`' playable item, since it needs only each entry's identity.
+**The queue reads an entry only through the two key blocks it is made with** (`initWithURLKey:sourceKey:`). The URL key indexes the rows of each file. The source key matches a stamp to the rows sounding one window. An app passes its row's URL and source key. A queue made with plain `init` has no lookup by file. It stamps nothing and replaces nothing by file. The entry type is a lightweight generic, so an app that declares `VibePlaylist<AppRow *>` gets typed rows back. The queue takes no protocol, not even `audio/AudioTypes`' playable item, since it needs only each entry's identity.
 
 **The queue mints no rows.** A replacement takes the caller's fresh entry, and one already in the list is refused. `replaceTracksMatchingTrack:usingBlock:` asks the block for each row's replacement, since each row may be a different cue window. The queue keeps the indexes, both shuffle orders, and one event per replaced row.
 
@@ -47,6 +47,6 @@ Under Repeat All the next cycle is a fresh shuffle. With more than one row, its 
 
 ## Tests
 
-`Tests/media/PlayQueue/` holds Vibe's tests of the queue: the order, the indexes, the edits and their cursor, repeat, and shuffle. They run over `TestRow`, a row of the tests' own in `PlaylistTestSupport.h`, since the queue reads an entry only through its key blocks. The shuffle tests seed `randomBelow`. The minimal consumer makes a queue of plain `NSURL`s and walks `trackEndSuccessor` under repeat and shuffle.
+`Tests/media/PlayQueue/` holds Vibe's tests of the queue: the order, the indexes, the edits and their cursor, repeat, and shuffle. They run over `TestRow`, a row of the tests' own in `VibePlaylistTestSupport.h`, since the queue reads an entry only through its key blocks. The shuffle tests seed `randomBelow`. The minimal consumer makes a queue of plain `NSURL`s and walks `trackEndSuccessor` under repeat and shuffle.
 
 The tests of Vibe's row, its replacement and its keys, stay in Vibe.

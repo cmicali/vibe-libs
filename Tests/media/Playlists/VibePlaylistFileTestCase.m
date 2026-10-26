@@ -1,11 +1,11 @@
 //
-//  PlaylistFileTestCase.m
+//  VibePlaylistFileTestCase.m
 //  vibe-libs
 //
 
-#import "PlaylistFileTestCase.h"
+#import "VibePlaylistFileTestCase.h"
 
-@implementation PlaylistFile (CueFileNames)
+@implementation VibePlaylistFile (CueFileNames)
 + (NSArray<NSString *> *)fileNamesInCueText:(NSString *)text {
     NSMutableArray<NSString *> *names = [NSMutableArray new];
     [self cueEntriesInText:text sheetURL:nil resolvingFile:^NSURL *(NSString *name, BOOL sole) {
@@ -20,7 +20,7 @@
 
 @end
 
-@implementation PlaylistFileTestCase
+@implementation VibePlaylistFileTestCase
 
 - (NSURL *)makeTempDirWithFiles:(NSArray<NSString *> *)names
                    playlistName:(NSString *)playlistName

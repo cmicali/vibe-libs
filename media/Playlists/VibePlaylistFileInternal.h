@@ -1,8 +1,8 @@
 //
-//  PlaylistFileInternal.h
+//  VibePlaylistFileInternal.h
 //  vibe-libs
 //
-//  The helpers PlaylistFile.m and PlaylistFile+CUE.m share. Import it nowhere else.
+//  The helpers VibePlaylistFile.m and VibePlaylistFile+CUE.m share. Import it nowhere else.
 //
 
 #import <Foundation/Foundation.h>

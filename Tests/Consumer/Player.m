@@ -13,7 +13,7 @@
 
 #import "AudioPlayer+Debug.h"
 #import "ConsumerTrack.h"
-#import "Playlist.h"
+#import "VibePlaylist.h"
 
 FOUNDATION_EXTERN BOOL ConsumerPlaysAQueue(void);
 // main.m's WAV writer.
@@ -22,7 +22,7 @@ FOUNDATION_EXTERN NSURL *ConsumerRampWAV(uint32_t rate, int16_t count, int16_t f
 // The app's side of the player, on main. It keeps the queue in step with what
 // sounds, and parks the queue's successor at each start and each advance.
 @interface ConsumerListener : NSObject <AudioPlayerDelegate>
-@property (nonatomic, strong) Playlist<ConsumerTrack *> *queue;
+@property (nonatomic, strong) VibePlaylist<ConsumerTrack *> *queue;
 @property (nonatomic) BOOL initialized;
 @property (nonatomic) NSMutableArray<ConsumerTrack *> *started;
 @property (nonatomic) NSMutableArray<NSArray<ConsumerTrack *> *> *advanced;
@@ -107,7 +107,7 @@ BOOL ConsumerPlaysAQueue(void) {
     ConsumerTrack *again = [ConsumerTrack withURL:ramp];
     ConsumerTrack *window = [[ConsumerTrack alloc] initWithURL:mix cueStart:1 cueEnd:3];
     ConsumerListener *listener = [ConsumerListener new];
-    listener.queue = [[Playlist<ConsumerTrack *> alloc] initWithURLKey:^NSURL *(ConsumerTrack *row) {
+    listener.queue = [[VibePlaylist<ConsumerTrack *> alloc] initWithURLKey:^NSURL *(ConsumerTrack *row) {
         return row.url;
     } sourceKey:^NSString *(ConsumerTrack *row) {
         return row.sourceKey;

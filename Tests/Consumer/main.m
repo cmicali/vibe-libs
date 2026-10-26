@@ -67,9 +67,9 @@
 #import "PINCache+VibeAudioCache.h"
 #import "NSURL+Hash.h"
 #import "PlatformColor.h"
-#import "Playlist.h"
-#import "PlaylistEntry.h"
-#import "PlaylistFile.h"
+#import "VibePlaylist.h"
+#import "VibePlaylistEntry.h"
+#import "VibePlaylistFile.h"
 #import "CrossfadingImageView.h"
 #import "DrawnControls.h"
 #import "EqualizerIndicatorView.h"
@@ -166,7 +166,7 @@ static BOOL QueueWalksItsSuccessors(void) {
     NSURL *a = [NSURL fileURLWithPath:@"/consumer/a.mp3"];
     NSURL *b = [NSURL fileURLWithPath:@"/consumer/b.mp3"];
     NSURL *again = [[NSURL alloc] initFileURLWithPath:a.path];
-    Playlist<NSURL *> *queue = [[Playlist<NSURL *> alloc] initWithURLKey:^NSURL *(NSURL *url) {
+    VibePlaylist<NSURL *> *queue = [[VibePlaylist<NSURL *> alloc] initWithURLKey:^NSURL *(NSURL *url) {
         return url;
     } sourceKey:^NSString *(NSURL *url) {
         return url.path;
@@ -226,21 +226,21 @@ static BOOL PlaylistsRoundTrip(void) {
                      "  TRACK 01 AUDIO\n    TITLE \"One\"\n    INDEX 01 00:00:00\n"
                      "  TRACK 02 AUDIO\n    TITLE \"Two\"\n    INDEX 01 01:00:00\n";
     [[cue dataUsingEncoding:NSUTF8StringEncoding] writeToURL:sheet atomically:YES];
-    NSArray<PlaylistEntry *> *cueEntries = [PlaylistFile entriesForPlaylistAtURL:sheet];
+    NSArray<VibePlaylistEntry *> *cueEntries = [VibePlaylistFile entriesForPlaylistAtURL:sheet];
     BOOL sheetRead = cueEntries.count == 2 && [cueEntries[0].url.lastPathComponent isEqual:@"mix.flac"]
             && cueEntries[0].cueStart == 0 && cueEntries[0].cueEnd == 4500 && cueEntries[1].cueStart == 4500
             && cueEntries[1].cueEnd == 0 && [cueEntries[1].cueTitle isEqual:@"Two"]
             && [cueEntries[1].cuePerformer isEqual:@"DJ"];
 
-    PlaylistEntry *whole = [PlaylistEntry entryWithURL:song];
-    PlaylistEntry *window = [[PlaylistEntry alloc] initWithURL:mix cueStart:4500 cueEnd:9000 title:@"Two"
-                                                     performer:@"DJ" sheet:sheet trackNumber:2 duration:60
-                                                  displayTitle:@"Two" displayArtist:@"DJ"];
+    VibePlaylistEntry *whole = [VibePlaylistEntry entryWithURL:song];
+    VibePlaylistEntry *window = [[VibePlaylistEntry alloc] initWithURL:mix cueStart:4500 cueEnd:9000 title:@"Two"
+                                                             performer:@"DJ" sheet:sheet trackNumber:2 duration:60
+                                                          displayTitle:@"Two" displayArtist:@"DJ"];
     NSURL *list = [directory URLByAppendingPathComponent:@"set.m3u"];
     NSError *error = nil;
-    BOOL written = [PlaylistFile writeM3UForEntries:@[whole, window] relativeToDirectory:directory toURL:list
-                                              error:&error];
-    NSArray<PlaylistEntry *> *read = [PlaylistFile entriesForPlaylistAtURL:list];
+    BOOL written = [VibePlaylistFile writeM3UForEntries:@[whole, window] relativeToDirectory:directory toURL:list
+                                                  error:&error];
+    NSArray<VibePlaylistEntry *> *read = [VibePlaylistFile entriesForPlaylistAtURL:list];
     NSString *text = [NSString stringWithContentsOfURL:list encoding:NSUTF8StringEncoding error:NULL];
     BOOL listRead = written && read.count == 2 && [read[0].url.lastPathComponent isEqual:@"song.mp3"]
             && !read[0].isWindowed && [read[1].url.lastPathComponent isEqual:@"mix.flac"]
@@ -264,7 +264,7 @@ static BOOL FolderScanScansACatalog(NSURL *album) {
     __block NSArray<NSNumber *> *verdicts = nil;
     __block NSArray<NSArray<NSError *> *> *failures = nil;
     [FolderWalk scanRoots:@[album] readPolicy:VibeFolderScanReadPolicyNone progress:token
-                    batch:^(NSArray<PlaylistEntry *> *entries) {
+                    batch:^(NSArray<VibePlaylistEntry *> *entries) {
         batches++;
         [scanned addObjectsFromArray:[entries valueForKeyPath:@"url.lastPathComponent"]];
     } completion:^(NSArray<NSNumber *> *rootVerdicts, NSArray<NSArray<NSError *> *> *rootFailures) {
@@ -309,10 +309,10 @@ static BOOL FolderScanWalksATree(void) {
 
     NSArray<NSString *> * (^walk)(NSURL *, VibeFolderOpenSort, NSUInteger *) =
             ^NSArray<NSString *> *(NSURL *url, VibeFolderOpenSort sort, NSUInteger *folders) {
-        __block NSArray<PlaylistEntry *> *found = nil;
+        __block NSArray<VibePlaylistEntry *> *found = nil;
         __block NSUInteger count = 0;
         [FolderWalk expandAndFilterList:@[url] sortedBy:sort
-                             completion:^(NSArray<PlaylistEntry *> *entries, NSUInteger folderCount) {
+                             completion:^(NSArray<VibePlaylistEntry *> *entries, NSUInteger folderCount) {
             dispatch_async(dispatch_get_main_queue(), ^{
                 count = folderCount;
                 found = entries;

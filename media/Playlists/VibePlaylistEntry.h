@@ -1,5 +1,5 @@
 //
-//  PlaylistEntry.h
+//  VibePlaylistEntry.h
 //  vibe-libs
 //
 //  One entry of a playlist, as the readers return it and the writer takes it:
@@ -12,7 +12,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface PlaylistEntry : NSObject
+@interface VibePlaylistEntry : NSObject
 
 // A file whole.
 + (instancetype)entryWithURL:(NSURL *)url;

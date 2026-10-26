@@ -4,14 +4,14 @@ CUE sheets, also embedded in FLAC, and M3U playlists, read and written as record
 
 | File | Owns |
 | --- | --- |
-| `PlaylistEntry.{h,m}` | the record: a file whole, or a CUE sheet's window of one with the sheet's names, plus the length and names the writer's `#EXTINF` line takes. A plain value, made once and never changed, so it crosses threads freely |
-| `PlaylistFile.{h,m}` | the M3U reader and writer, the text decoding, the entry rungs, and the extensions it expands. `PlaylistFile.h` states each method's contract |
-| `PlaylistFile+CUE.m` | the CUE reader, and the sheet a FLAC carries |
-| `PlaylistFileInternal.h` | the entry rungs and the name cleanup the two files share. Nothing else imports it |
+| `VibePlaylistEntry.{h,m}` | the record: a file whole, or a CUE sheet's window of one with the sheet's names, plus the length and names the writer's `#EXTINF` line takes. A plain value, made once and never changed, so it crosses threads freely |
+| `VibePlaylistFile.{h,m}` | the M3U reader and writer, the text decoding, the entry rungs, and the extensions it expands. `VibePlaylistFile.h` states each method's contract |
+| `VibePlaylistFile+CUE.m` | the CUE reader, and the sheet a FLAC carries |
+| `VibePlaylistFileInternal.h` | the entry rungs and the name cleanup the two files share. Nothing else imports it |
 
 ## Records
 
-**The readers return `PlaylistEntry` records, and the writer takes them.** An app makes its rows from entries, and entries from its rows, in one place of its own. The writer takes each entry's length and display names, so the app fills them in. The readers ignore `#EXTINF`, so they make every entry with the shorter initializer. The window's arithmetic is `audio/AudioTypes`' `CueWindowMath.h`, which an app's player shares.
+**The readers return `VibePlaylistEntry` records, and the writer takes them.** An app makes its rows from entries, and entries from its rows, in one place of its own. The writer takes each entry's length and display names, so the app fills them in. The readers ignore `#EXTINF`, so they make every entry with the shorter initializer. The window's arithmetic is `audio/AudioTypes`' `CueWindowMath.h`, which an app's player shares.
 
 The playable extensions are `audio/AudioTypes`' `PlayableExtensions`. The entry rungs read it, so an entry can never resolve to a format the decoders do not open. `media/FolderScan`'s walk filters with the same list.
 
@@ -21,7 +21,7 @@ The playable extensions are `audio/AudioTypes`' `PlayableExtensions`. The entry 
 
 **TRAP: against a listing every rung answers in the listing's spelling, never its own.** A walk claims files by exact URL. The volume folds case and Unicode normalization, and NSURL decomposes what it is handed. A probe would find the listed `01 - Title.flac` under the sheet's `01 - title.flac`, and the file would also play whole beside its rows. `testEveryResolutionRungClaimsTheListedFileUnderEverySpelling`, in `media/FolderScan`'s tests, covers every rung.
 
-**A CUE sheet reads as entries** (`cueEntriesInText:sheetURL:resolvingFile:`, one parser with the resolution injected). Each kept AUDIO TRACK becomes one entry, a window of its FILE in CD frames, with the sheet's TITLE and PERFORMER. Only those two fields are read. Every file keeps all its audio. Its first entry starts at frame 0, a pregap plays at the end of the entry before it, and a FILE with no surviving track plays whole. The drop rules are in `PlaylistFile.h`. `testCueFuzzedMutationsKeepRowsPlayable` holds every window playable under mutation.
+**A CUE sheet reads as entries** (`cueEntriesInText:sheetURL:resolvingFile:`, one parser with the resolution injected). Each kept AUDIO TRACK becomes one entry, a window of its FILE in CD frames, with the sheet's TITLE and PERFORMER. Only those two fields are read. Every file keeps all its audio. Its first entry starts at frame 0, a pregap plays at the end of the entry before it, and a FILE with no surviving track plays whole. The drop rules are in `VibePlaylistFile.h`. `testCueFuzzedMutationsKeepRowsPlayable` holds every window playable under mutation.
 
 **A FLAC can carry its own sheet** (`cueEntriesEmbeddedInFLACAtURL:`). It may be the `CUESHEET` tag's text or the binary CUESHEET block. The text wins, since only it has titles. The block is rewritten as text for the one parser, with sample offsets rounded to CD frames. The first FILE line maps to the FLAC itself, and any other is dropped. The reader reads the metadata blocks and nothing else. Whether a file is worth opening for its sheet is the caller's decision. `media/FolderScan`'s walk opens a FLAC of 100 MB or more that no sheet beside it claimed, and never a cloud placeholder.
 
@@ -45,6 +45,6 @@ These files come from other people's software, so the next two traps are load-be
 
 ## Tests
 
-`Tests/media/Playlists/` holds Vibe's tests of the readers and the writer: the CUE lexing and windows, the encodings, the rungs, the embedded sheet, the M3U round trips, a fuzz suite, and a stress suite of hostile M3U files. They read and write entries. `PlaylistFileTestCase` is their harness of temporary folders, with no tests. The embedded-sheet and fuzz tests write their FLAC headers with `Tests/Support/FLACFixtures.h` and draw from `Tests/Support/VibeFuzzRandom.h`. `VIBE_FUZZ_SEED` re-runs one base seed. The minimal consumer writes an M3U, reads it back, and reads a small CUE sheet.
+`Tests/media/Playlists/` holds Vibe's tests of the readers and the writer: the CUE lexing and windows, the encodings, the rungs, the embedded sheet, the M3U round trips, a fuzz suite, and a stress suite of hostile M3U files. They read and write entries. `VibePlaylistFileTestCase` is their harness of temporary folders, with no tests. The embedded-sheet and fuzz tests write their FLAC headers with `Tests/Support/FLACFixtures.h` and draw from `Tests/Support/VibeFuzzRandom.h`. `VIBE_FUZZ_SEED` re-runs one base seed. The minimal consumer writes an M3U, reads it back, and reads a small CUE sheet.
 
 What Vibe adds stays in Vibe: its rows made from entries and the session mirror, with their tests. The folder walk's claims are `media/FolderScan`'s.

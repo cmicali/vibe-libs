@@ -1,19 +1,19 @@
 //
-//  PlaylistFile.m
+//  VibePlaylistFile.m
 //  vibe-libs
 //
 
-#import "PlaylistFile.h"
-#import "PlaylistFileInternal.h"
+#import "VibePlaylistFile.h"
+#import "VibePlaylistFileInternal.h"
 
-#import "PlaylistEntry.h"
+#import "VibePlaylistEntry.h"
 #import "FilePaths.h"
 #import "PlayableExtensions.h"
 #import "CueWindowMath.h"
 
 #include <string.h>
 
-@implementation PlaylistFile
+@implementation VibePlaylistFile
 
 + (BOOL)isCueExtension:(NSString *)extension {
     return [extension isEqualToString:@"cue"];
@@ -30,7 +30,7 @@
 // The file decoded as playlist text; nil when unreadable.
 NSString *VibeTextOfFile(NSURL *url) {
     NSData *data = [NSData dataWithContentsOfURL:url];
-    return data ? [PlaylistFile textFromData:data] : nil;
+    return data ? [VibePlaylistFile textFromData:data] : nil;
 }
 
 // NULs on the even and odd halves of the byte pairs, the only input to both
@@ -243,7 +243,7 @@ static NSCharacterSet *CueFieldAllowedCharacters(void) {
 // The #VIBE-CUE payload: "<track>,<start>,<end>,<title>,<performer>,<sheet
 // URL>", the window in CD frames. The URL is last, so its own commas need no
 // escape.
-static NSString *CuePayload(PlaylistEntry *entry) {
+static NSString *CuePayload(VibePlaylistEntry *entry) {
     NSString *title = [entry.cueTitle ?: @"" stringByAddingPercentEncodingWithAllowedCharacters:CueFieldAllowedCharacters()];
     NSString *performer = [entry.cuePerformer ?: @"" stringByAddingPercentEncodingWithAllowedCharacters:CueFieldAllowedCharacters()];
     return [NSString stringWithFormat:@"%ld,%lu,%lu,%@,%@,%@", (long)entry.cueTrackNumber,
@@ -253,25 +253,25 @@ static NSString *CuePayload(PlaylistEntry *entry) {
 
 // The file as the entry its payload describes; a plain entry without a
 // payload, or with one that does not parse into a playable window.
-static PlaylistEntry *EntryForPayload(NSURL *url, NSString *_Nullable cue) {
+static VibePlaylistEntry *EntryForPayload(NSURL *url, NSString *_Nullable cue) {
     NSArray<NSString *> *fields = [cue componentsSeparatedByString:@","];
     if (fields.count < 6) {
-        return [PlaylistEntry entryWithURL:url];
+        return [VibePlaylistEntry entryWithURL:url];
     }
     long long start = fields[1].longLongValue;
     long long end = fields[2].longLongValue;
     if (start < 0 || end < 0 || (end > 0 && end <= start)) {
-        return [PlaylistEntry entryWithURL:url];
+        return [VibePlaylistEntry entryWithURL:url];
     }
     NSString *title = fields[3].stringByRemovingPercentEncoding;
     NSString *performer = fields[4].stringByRemovingPercentEncoding;
     NSString *sheet = [[fields subarrayWithRange:NSMakeRange(5, fields.count - 5)] componentsJoinedByString:@","];
     NSURL *sheetURL = sheet.length ? [NSURL URLWithString:sheet] : nil;
-    return [[PlaylistEntry alloc] initWithURL:url cueStart:(NSUInteger)start cueEnd:(NSUInteger)end
-                                        title:title.length ? title : nil
-                                    performer:performer.length ? performer : nil
-                                        sheet:sheetURL.isFileURL ? sheetURL : nil
-                                  trackNumber:fields[0].integerValue];
+    return [[VibePlaylistEntry alloc] initWithURL:url cueStart:(NSUInteger)start cueEnd:(NSUInteger)end
+                                            title:title.length ? title : nil
+                                        performer:performer.length ? performer : nil
+                                            sheet:sheetURL.isFileURL ? sheetURL : nil
+                                      trackNumber:fields[0].integerValue];
 }
 
 #pragma mark - Resolution
@@ -280,7 +280,7 @@ NSURL *VibeKnownFileAtPath(NSString *path, NSDictionary<NSString *, NSArray<NSUR
     if (!path) {
         return nil;
     }
-    NSArray<NSURL *> *matches = knownFiles[[PlaylistFile knownFileKeyForPath:path]];
+    NSArray<NSURL *> *matches = knownFiles[[VibePlaylistFile knownFileKeyForPath:path]];
     for (NSURL *url in matches) {
         if ([url.path isEqualToString:path]) {
             return url;
@@ -372,7 +372,7 @@ NSURL *VibeResolveEntry(NSString *entry, NSURL *dir, NSFileManager *fileManager,
     return path.precomposedStringWithCanonicalMapping.lowercaseString;
 }
 
-+ (NSArray<PlaylistEntry *> *)entriesForPlaylistAtURL:(NSURL *)url {
++ (NSArray<VibePlaylistEntry *> *)entriesForPlaylistAtURL:(NSURL *)url {
     if ([self isCueExtension:url.pathExtension.lowercaseString]) {
         return [self cueEntriesForSheetAtURL:url knownFiles:nil];
     }
@@ -382,7 +382,7 @@ NSURL *VibeResolveEntry(NSString *entry, NSURL *dir, NSFileManager *fileManager,
     }
     NSURL *dir = url.URLByDeletingLastPathComponent;
     NSFileManager *fileManager = NSFileManager.defaultManager;
-    NSMutableArray<PlaylistEntry *> *entries = [NSMutableArray array];
+    NSMutableArray<VibePlaylistEntry *> *entries = [NSMutableArray array];
     NSMutableDictionary<NSString *, NSNumber *> *dirReachable = [NSMutableDictionary new];
     EnumerateM3U(text, ^(NSString *entry, NSString *cue) {
         NSURL *primary = nil;
@@ -394,9 +394,9 @@ NSURL *VibeResolveEntry(NSString *entry, NSURL *dir, NSFileManager *fileManager,
     return entries;
 }
 
-+ (NSArray<PlaylistEntry *> *)entriesInM3UData:(NSData *)data {
++ (NSArray<VibePlaylistEntry *> *)entriesInM3UData:(NSData *)data {
     NSString *text = [self textFromData:data];
-    NSMutableArray<PlaylistEntry *> *entries = [NSMutableArray array];
+    NSMutableArray<VibePlaylistEntry *> *entries = [NSMutableArray array];
     if (!text) {
         return entries;
     }
@@ -429,7 +429,7 @@ static NSString *M3UPathLine(NSString *path, NSString *_Nullable prefix) {
 // A literal " - ", not STR_LABEL_TRACK_ARTIST_TITLE: an interchange file must
 // not change shape with the UI language. A newline becomes a space, or the
 // tail would read as an entry line.
-static NSString *M3UInfoName(PlaylistEntry *entry) {
+static NSString *M3UInfoName(VibePlaylistEntry *entry) {
     NSString *artist = entry.displayArtist;
     NSString *title = entry.displayTitle ?: @"";
     NSString *name = artist ? [NSString stringWithFormat:@"%@ - %@", artist, title] : title;
@@ -437,14 +437,14 @@ static NSString *M3UInfoName(PlaylistEntry *entry) {
             componentsJoinedByString:@" "];
 }
 
-+ (NSString *)m3uTextForEntries:(NSArray<PlaylistEntry *> *)entries relativeToDirectory:(NSURL *)directory {
++ (NSString *)m3uTextForEntries:(NSArray<VibePlaylistEntry *> *)entries relativeToDirectory:(NSURL *)directory {
     // The trailing slash keeps /Music/Album from claiming /Music/Album2/x.mp3.
     // Both sides use VibeComparablePath, which reads the spelling alone. Save
     // Playlist builds this text on main.
     NSString *dir = VibeComparablePath(directory.path);
     NSString *prefix = [dir hasSuffix:@"/"] ? dir : [dir stringByAppendingString:@"/"];
     NSMutableString *text = [NSMutableString stringWithString:@"#EXTM3U\n"];
-    for (PlaylistEntry *entry in entries) {
+    for (VibePlaylistEntry *entry in entries) {
         NSTimeInterval duration = entry.duration;
         [text appendFormat:@"#EXTINF:%lld,%@\n", duration > 0 ? llround(duration) : -1LL, M3UInfoName(entry)];
         // A cue entry: VLC's window for players that honor it, then the
@@ -464,7 +464,7 @@ static NSString *M3UInfoName(PlaylistEntry *entry) {
     return text;
 }
 
-+ (BOOL)writeM3UForEntries:(NSArray<PlaylistEntry *> *)entries relativeToDirectory:(NSURL *)directory
++ (BOOL)writeM3UForEntries:(NSArray<VibePlaylistEntry *> *)entries relativeToDirectory:(NSURL *)directory
                      toURL:(NSURL *)url error:(NSError **)error {
     NSString *text = [self m3uTextForEntries:entries relativeToDirectory:directory];
     // Lossy: an unpaired surrogate from a malformed tag costs one character,
@@ -473,9 +473,9 @@ static NSString *M3UInfoName(PlaylistEntry *entry) {
     return [data writeToURL:url options:NSDataWritingAtomic error:error];
 }
 
-+ (NSURL *)commonDirectoryForEntries:(NSArray<PlaylistEntry *> *)entries {
++ (NSURL *)commonDirectoryForEntries:(NSArray<VibePlaylistEntry *> *)entries {
     NSArray<NSString *> *common = nil;
-    for (PlaylistEntry *entry in entries) {
+    for (VibePlaylistEntry *entry in entries) {
         NSArray<NSString *> *components =
                 VibeComparablePath(entry.url.path).stringByDeletingLastPathComponent.pathComponents;
         if (!common) {

@@ -1,11 +1,11 @@
 //
-//  PlaylistEntry.m
+//  VibePlaylistEntry.m
 //  vibe-libs
 //
 
-#import "PlaylistEntry.h"
+#import "VibePlaylistEntry.h"
 
-@implementation PlaylistEntry
+@implementation VibePlaylistEntry
 
 + (instancetype)entryWithURL:(NSURL *)url {
     return [[self alloc] initWithURL:url cueStart:0 cueEnd:0 title:nil performer:nil sheet:nil trackNumber:0];
