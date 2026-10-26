@@ -6,7 +6,8 @@
 //  says what each request is answered with. The Range rule, the body's
 //  pieces, its stall, its lost connection, and its pacing are here alone.
 //  The tests' HTTPStub subclasses it and scripts each answer. ShareLinks'
-//  VibeFakeHTTP subclasses it and answers from a directory.
+//  VibeFakeHTTP subclasses it and answers from a directory. An app's fake
+//  of its own web API may subclass it too.
 //
 
 #import <Foundation/Foundation.h>
