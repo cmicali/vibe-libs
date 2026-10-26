@@ -552,7 +552,7 @@ static BOOL TonePassesFXAndMeter(void) {
 
 int main(void) {
     // An app pushes its error domain at launch, before any player exists.
-    VibeAudioErrorSetDomain(@"com.vibe-libs.Consumer");
+    VibeAudioErrorSetDomain(@"vibe-libs.Consumer");
     VibeVarispeed *stage = VibeVarispeedCreate(2, kFrames);
     if (!stage) {
         fprintf(stderr, "consumer: no stage\n");

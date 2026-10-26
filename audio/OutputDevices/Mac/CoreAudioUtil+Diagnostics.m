@@ -121,7 +121,7 @@ static NSArray<NSString *> *VibeReadAvailableRates(AudioDeviceID deviceID) {
     pid_t owner = -1;
     if ([self readHogOwner:&owner forDeviceID:deviceID]) {
         d[@"exclusiveOwnerPID"] = @(owner);
-        d[@"exclusiveOwnedByVibe"] = @(owner == getpid());
+        d[@"exclusiveOwnedByThisProcess"] = @(owner == getpid());
     }
     Float64 rate = 0;
     if ([self readNominalSampleRate:&rate forDeviceID:deviceID]) d[@"nominalSampleRate"] = @(rate);
@@ -220,7 +220,7 @@ static NSArray<NSString *> *VibeReadAvailableRates(AudioDeviceID deviceID) {
             pid_t owner = -1;
             VibeReadDeviceProperty(object, address.mSelector, address.mScope, &owner, sizeof(owner));
             return [NSString stringWithFormat:@"exclusive owner = %d%@", owner,
-                    owner == getpid() ? @" (Vibe)" : owner == -1 ? @" (none)" : @""];
+                    owner == getpid() ? @" (this app)" : owner == -1 ? @" (none)" : @""];
         }
         case kAudioStreamPropertyPhysicalFormat:
         case kAudioStreamPropertyVirtualFormat: {

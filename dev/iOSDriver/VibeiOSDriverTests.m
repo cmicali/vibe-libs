@@ -5,8 +5,8 @@
 //  Not a test suite: an interactive touch driver in XCUITest clothing (the
 //  WebDriverAgent pattern). Touch synthesis exists only inside the XCUITest
 //  harness; there is no public UITouch constructor. The one "test" polls
-//  VIBE_DRIVER_DIR for vibe-touch-*.json in the debug channel's {id, args}
-//  format and replies to vibe-touch-response-<id>.txt.
+//  VIBE_DRIVER_DIR for touch-*.json in the debug channel's {id, args}
+//  format and replies to touch-response-<id>.txt.
 //
 //  The app's script passes each value as TEST_RUNNER_<name>, which xcodebuild
 //  hands the runner as <name>:
@@ -24,7 +24,7 @@
 #import <XCTest/XCTest.h>
 #import <objc/runtime.h>
 
-static NSString *const kReadyMarker = @"vibe-driver-ready";
+static NSString *const kReadyMarker = @"driver-ready";
 // The loop's absolute lifetime; the quit verb is the normal exit.
 static const NSTimeInterval kMaxSessionSeconds = 4 * 60 * 60;
 
@@ -300,7 +300,7 @@ static void DisableQuiescenceWaits(void) {
         reply = JSONString(@{@"error": exception.reason ?: exception.name});
     }
     NSString *responsePath = [_dir stringByAppendingPathComponent:
-            [NSString stringWithFormat:@"vibe-touch-response-%@.txt", commandId]];
+            [NSString stringWithFormat:@"touch-response-%@.txt", commandId]];
     [reply writeToFile:responsePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
     return quit;
 }
@@ -326,7 +326,7 @@ static void DisableQuiescenceWaits(void) {
     // A command left behind by a dead client must not fire out of nowhere —
     // the debug channel's stale-sweep rationale.
     for (NSString *name in [fm contentsOfDirectoryAtPath:_dir error:nil]) {
-        if ([name hasPrefix:@"vibe-touch-"]) {
+        if ([name hasPrefix:@"touch-"]) {
             [fm removeItemAtPath:[_dir stringByAppendingPathComponent:name] error:nil];
         }
     }
@@ -340,7 +340,7 @@ static void DisableQuiescenceWaits(void) {
         NSArray<NSString *> *names =
                 [[fm contentsOfDirectoryAtPath:_dir error:nil] sortedArrayUsingSelector:@selector(compare:)];
         for (NSString *name in names) {
-            if ([name hasPrefix:@"vibe-touch-"] && [name hasSuffix:@".json"]) {
+            if ([name hasPrefix:@"touch-"] && [name hasSuffix:@".json"]) {
                 sawCommand = YES;
                 done = [self handleCommandFile:[_dir stringByAppendingPathComponent:name]] || done;
             }

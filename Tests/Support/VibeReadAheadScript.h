@@ -1,8 +1,8 @@
 // What a read-ahead's reads do, as a test scripts them through
 // AudioFileHandle+Debug.h's seam: each counted by file and offset, then
 // slept, stalled until released, failed or cut short. A stalled read holds
-// its thread as a dead mount's syscall does. Shared by VibeTests and
-// VibeAudioTests.
+// its thread as a dead mount's syscall does. Shared by every test that reads
+// ahead, here and in an app.
 
 #import <Foundation/Foundation.h>
 
