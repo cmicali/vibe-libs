@@ -23,7 +23,7 @@ Use a host directory, never the app's container. Every `simctl install` moves th
 
 ## The protocol
 
-The client writes `vibe-touch-<id>.json`, in the debug channel's `{id, args}` shape, into the directory. It renames a complete file into place, since a file read mid-write is deleted unexecuted. The driver replies with one JSON object in `vibe-touch-response-<id>.txt`. A bad command replies `{"error": …}` and the loop keeps serving. An exception from XCTest, such as an off-screen coordinate or a dead app proxy, becomes an error reply too. The driver writes `vibe-driver-ready` once it serves, and removes it when it ends. At start it deletes every `vibe-touch-` file a dead client left. The loop's absolute lifetime is four hours. The `quit` verb is the normal exit.
+The client writes `touch-<id>.json`, in the debug channel's `{id, args}` shape, into the directory. It renames a complete file into place, since a file read mid-write is deleted unexecuted. The driver replies with one JSON object in `touch-response-<id>.txt`. A bad command replies `{"error": …}` and the loop keeps serving. An exception from XCTest, such as an off-screen coordinate or a dead app proxy, becomes an error reply too. The driver writes `driver-ready` once it serves, and removes it when it ends. At start it deletes every `touch-` file a dead client left. The loop's absolute lifetime is four hours. The `quit` verb is the normal exit.
 
 **Coordinates are app-window points, top-left origin**: screenshot pixels divided by the screen scale. The unknown-command reply lists every verb. A reply means the gesture was performed, not that it landed. The caller verifies the result in the app.
 

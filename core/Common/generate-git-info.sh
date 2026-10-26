@@ -5,7 +5,9 @@
 # app's root, it writes there.
 #
 # Rewritten only when its contents change, so an unchanged git state forces no
-# recompile. Without git, commit and branch are "unknown" and dirty is 0.
+# recompile. A new header is written beside the old one and renamed into
+# place. Two builds of one checkout can run this at once, and neither may read
+# half a file. Without git, commit and branch are "unknown" and dirty is 0.
 
 set -euo pipefail
 
@@ -40,6 +42,8 @@ EOF
 
 mkdir -p "$OUTPUT_DIR"
 if [ ! -f "$OUTPUT" ] || [ "$(cat "$OUTPUT")" != "$contents" ]; then
-    printf '%s\n' "$contents" > "$OUTPUT"
+    tmp="$OUTPUT.$$"
+    printf '%s\n' "$contents" > "$tmp"
+    mv -f "$tmp" "$OUTPUT"
     echo "🔊 git info: $commit ($branch$([ "$dirty" = 1 ] && echo ", dirty" || true))"
 fi

@@ -9,7 +9,7 @@
 
 #import "AudioError.h"
 
-static NSString *const kTestDomain = @"com.vibe-libs.PlayerTests";
+static NSString *const kTestDomain = @"vibe-libs.PlayerTests";
 
 // An app pushes its domain once, at launch. This bundle has no app, so it
 // pushes one at image load, before any test can make an error.
