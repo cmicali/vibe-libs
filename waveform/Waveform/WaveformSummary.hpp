@@ -144,7 +144,8 @@ public:
     static std::unique_ptr<Summary> decode(const void *bytes, size_t length);
 
     // For builders and tests. A bin holds binFrames frames except the last.
-    // Before the summary is shared only.
+    // TRAP: before the summary is shared only. After a read its pyramid would
+    // no longer describe it.
     void appendBin(float lo, float hi, double sumSquares, const double *bandSumSquares, uint32_t frames);
     void setTotalFrames(int64_t frames) { totalFrames_ = frames; }
     void markComplete() { complete_ = true; }

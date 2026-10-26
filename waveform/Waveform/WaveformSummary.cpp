@@ -548,6 +548,8 @@ void Summary::tentBandMeanSquares(double framesPerColumn, int64_t firstIndex, si
 }
 
 // Copies the finest level of at most kSnapshotBins and its upper levels.
+// TRAP: never every bin. A copy of every bin grew with the decode, and once
+// it outlasted the time between snapshots the decode ran at their pace.
 // The base keeps its unfinished loudest windows from the builder's sums.
 // An upper level holds only whole groups. It trails the last appended bin
 // by less than one of its bins and half a loudest window. That is at most
