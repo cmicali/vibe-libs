@@ -20,8 +20,8 @@ static inline int64_t VibeCueEndFrame(NSUInteger cueEnd, double sampleRate) {
 // rounded at the file's rate, the two rows meeting at a marker round the same
 // point, so they stay contiguous at a rate 75 does not divide. A cue end of 0,
 // or one past the file's, is the file's end; empty when nothing is left.
-// Against a length that is only an estimate (audio/Decode's file handle may
-// say so) nothing is refused or cut short: the cue end stands, and
+// TRAP: against a length that is only an estimate (audio/Decode's file handle
+// may say so) nothing is refused or cut short: the cue end stands, and
 // a window to the file's end reaches a frame past its start at least; both
 // clamp once the length settles.
 static inline NSRange VibeCueWindow(NSUInteger cueStart, NSUInteger cueEnd, double sampleRate, int64_t fileLength,
