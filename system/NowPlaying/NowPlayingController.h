@@ -27,34 +27,37 @@ typedef NS_ENUM(NSInteger, NowPlayingPlaybackState) {
 };
 
 // One update's values. The app fills a fresh record on every transport event
-// and passes it by value, so a later change on the app's side never reaches
-// what was published. A field left out reads as nil, zero, or NO.
-typedef struct {
-    // The track's identity for the dirty check, so a cue row of the same file
-    // is a change. nil means no track.
-    NSString *_Nullable sourceKey;
-    // nil publishes as empty.
-    NSString *_Nullable title;
-    // nil publishes none.
-    NSString *_Nullable artist;
-    // The track's art, else its thumbnail, else the app's placeholder, each
-    // read without blocking. The thumbnail covers the gap until the full art
-    // decodes. The placeholder must already match the app's appearance, since
-    // the drawing appearance here is the system's. Pass the same image while
-    // it is unchanged, since the dirty check compares identity.
-    VibeImage *_Nullable artwork;
-    // Seconds from the track start.
-    NSTimeInterval position;
-    // 0 publishes none.
-    NSTimeInterval duration;
-    NowPlayingPlaybackState state;
-    // How fast position advances in real time. 0 holds the system's clock.
-    double rate;
-    // Gate the system's next and previous commands, even before the first
-    // publish.
-    BOOL hasNext;
-    BOOL hasPrevious;
-} VibeNowPlayingRecord;
+// and passes it to updateWithRecord:. The update reads what it compares into
+// fields of its own and keeps no reference to the record. So a later change to
+// the record never reaches what was published. A property left unset reads as
+// nil, zero, or NO. A class, since Swift cannot import a C struct with object
+// fields.
+@interface VibeNowPlayingRecord : NSObject
+// The track's identity for the dirty check, so a cue row of the same file
+// is a change. nil means no track.
+@property (nonatomic, copy, nullable) NSString *sourceKey;
+// nil publishes as empty.
+@property (nonatomic, copy, nullable) NSString *title;
+// nil publishes none.
+@property (nonatomic, copy, nullable) NSString *artist;
+// The track's art, else its thumbnail, else the app's placeholder, each
+// read without blocking. The thumbnail covers the gap until the full art
+// decodes. The placeholder must already match the app's appearance, since
+// the drawing appearance here is the system's. Pass the same image while
+// it is unchanged, since the dirty check compares identity.
+@property (nonatomic, nullable) VibeImage *artwork;
+// Seconds from the track start.
+@property (nonatomic) NSTimeInterval position;
+// 0 publishes none.
+@property (nonatomic) NSTimeInterval duration;
+@property (nonatomic) NowPlayingPlaybackState state;
+// How fast position advances in real time. 0 holds the system's clock.
+@property (nonatomic) double rate;
+// Gate the system's next and previous commands, even before the first
+// publish.
+@property (nonatomic) BOOL hasNext;
+@property (nonatomic) BOOL hasPrevious;
+@end
 
 @protocol NowPlayingControllerDelegate <NSObject>
 // Destination states, not a toggle: route them to idempotent operations.
@@ -85,7 +88,7 @@ typedef struct {
 // claims the system slot. After that, a nil sourceKey clears it once. A dirty
 // check skips unchanged publishes, so this is cheap on every transport event.
 // Main thread.
-- (void)updateWithRecord:(VibeNowPlayingRecord)record;
+- (void)updateWithRecord:(VibeNowPlayingRecord *)record;
 
 // The modes the system's controls show, and whether they offer them at all:
 // unavailable, CarPlay draws neither button. There is no Now Playing info key

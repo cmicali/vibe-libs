@@ -42,10 +42,6 @@ GROUPS = ("core", "files", "audio", "media", "waveform", "ui", "system", "dev", 
 
 # Files still in Vibe: (piece, path prefix relative to root). First match wins.
 PIECES = [
-    # files
-    ("app", "Vibe/Loading/iOS/"),
-    # media
-    ("media/FolderScan", "Vibe/iOS/Search/FileSearch"),
     ("app", ""),
 ]
 

@@ -58,6 +58,13 @@ typedef NS_ENUM(NSInteger, VibeGrantedFolderState) {
 // the signal to reconsider.
 - (BOOL)canReadInsideDirectory:(nullable NSString *)path;
 
+// Already granted, for a list that offers to add a folder: at or under an
+// entitled folder or a row that is not Unavailable. A restoring row counts,
+// or the list offers a duplicate at launch. An unavailable one is the folder
+// worth offering again. Case-sensitive, as noteOpenedURLs:'s duplicate check
+// is. Main thread.
+- (BOOL)coversFolder:(NSString *)path;
+
 // Call once at launch. completion runs on main once every scope has started,
 // or at a short deadline: a launch open cannot usefully wait out an
 // automounter timeout.
