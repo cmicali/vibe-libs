@@ -157,6 +157,16 @@ static BOOL VibeURLIsCoveredByPath(NSURL *url, NSString *grantedPath) {
     return [self.class readablePath:path isCoveredByAnyOf:self.activePathSnapshot ?: @[]];
 }
 
+- (BOOL)coversFolder:(NSString *)path {
+    NSMutableArray<NSString *> *covering = [_entitledPaths mutableCopy];
+    for (NSDictionary *entry in _entries) {
+        if ([self stateForEntry:entry] != VibeGrantedFolderStateUnavailable) {
+            [covering addObject:entry[kEntryPathKey]];
+        }
+    }
+    return [self.class path:path isCoveredByAnyOf:covering];
+}
+
 - (NSArray<VibeGrantedFolder *> *)grantedFolders {
     NSMutableArray<VibeGrantedFolder *> *folders = [NSMutableArray arrayWithCapacity:_entries.count];
     for (NSDictionary *entry in _entries) {

@@ -206,6 +206,23 @@ static NSString *RealHome(void) {
     XCTAssertEqualObjects(entitled.grantedFolders, @[]);
 }
 
+// A list that offers to add a folder reads an entitled one as already granted.
+// It keeps the add check's case.
+- (void)testAnEntitledFolderIsAlreadyCoveredForAList {
+    NSString *music = [RealHome() stringByAppendingPathComponent:@"Music"];
+    NSString *liveSets = [music stringByAppendingPathComponent:@"Live Sets"];
+    FolderAccessManager *plain = [[FolderAccessManager alloc] initWithDefaults:_defaults key:kGrantsKey];
+    XCTAssertFalse([plain coversFolder:music]);
+
+    FolderAccessManager *entitled = [[FolderAccessManager alloc]
+            initWithDefaults:_defaults key:kGrantsKey
+             entitledFolders:@[[NSURL fileURLWithPath:music isDirectory:YES]]];
+    XCTAssertTrue([entitled coversFolder:music]);
+    XCTAssertTrue([entitled coversFolder:liveSets]);
+    XCTAssertFalse([entitled coversFolder:liveSets.uppercaseString], @"the add check keeps case");
+    XCTAssertFalse([entitled coversFolder:RealHome()]);
+}
+
 - (void)testTheRealHomeIsTheOnDiskHome {
     XCTAssertEqualObjects(FolderAccessManager.realHomeDirectory, RealHome());
 }
@@ -273,6 +290,7 @@ static NSString *RealHome(void) {
     XCTAssertFalse([manager canReadInsideDirectory:path]);
     // Nothing has been tried yet, so the row is pending rather than failed.
     XCTAssertEqual(manager.grantedFolders.firstObject.state, VibeGrantedFolderStateRestoring);
+    XCTAssertTrue([manager coversFolder:path], @"a list offers no duplicate of a restoring row");
 
     XCTestExpectation *finished = [self expectationWithDescription:@"restore finished"];
     [manager restoreGrantedAccessWithCompletion:^{
@@ -306,6 +324,7 @@ static NSString *RealHome(void) {
     XCTAssertEqual(manager.grantedFolders.count, 1u);
     XCTAssertEqualObjects(manager.grantedFolders.firstObject.path, path);
     XCTAssertEqual(manager.grantedFolders.firstObject.state, VibeGrantedFolderStateUnavailable);
+    XCTAssertFalse([manager coversFolder:path], @"an unavailable row is the folder worth offering again");
     XCTAssertEqualObjects([defaults arrayForKey:key].firstObject[@"path"], path);
 }
 

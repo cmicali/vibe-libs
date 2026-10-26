@@ -22,19 +22,20 @@ BOOL ConsumerPublishesNowPlaying(void) {
         [publications addObject:info ?: NSNull.null];
     } commandAvailability:^(BOOL hasNext, BOOL hasPrevious) {
     }];
-    [controller updateWithRecord:(VibeNowPlayingRecord){
-        .sourceKey = @"/consumer/now-playing.wav",
-        .title = @"Consumer",
-        .position = 3,
-        .duration = 42,
-        .state = NowPlayingPlaybackStatePlaying,
-        .rate = 1,
-    }];
+    VibeNowPlayingRecord *record = [VibeNowPlayingRecord new];
+    record.sourceKey = @"/consumer/now-playing.wav";
+    record.title = @"Consumer";
+    record.position = 3;
+    record.duration = 42;
+    record.state = NowPlayingPlaybackStatePlaying;
+    record.rate = 1;
+    [controller updateWithRecord:record];
     NSDictionary *info = [publications.lastObject isKindOfClass:NSDictionary.class] ? publications.lastObject : nil;
     BOOL published = [info[MPMediaItemPropertyTitle] isEqual:@"Consumer"]
             && [info[MPMediaItemPropertyPlaybackDuration] isEqual:@42]
             && info[MPMediaItemPropertyArtist] == nil;
-    [controller updateWithRecord:(VibeNowPlayingRecord){.state = NowPlayingPlaybackStateStopped, .rate = 1}];
+    // No source key, Stopped: the clear.
+    [controller updateWithRecord:[VibeNowPlayingRecord new]];
     BOOL cleared = publications.count == 2 && publications.lastObject == NSNull.null;
     if (!published || !cleared) {
         fprintf(stderr, "consumer: Now Playing published %s, and %s cleared\n", publications.description.UTF8String,
