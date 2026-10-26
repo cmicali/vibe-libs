@@ -116,7 +116,7 @@ static void VibeHandleDebugCommandFiles(void) {
 
 // When this process started. Now when the system cannot say, so every file
 // counts as stale.
-static NSDate *VibeProcessStartDate(void) {
+static NSDate *VibeDebugProcessStartDate(void) {
     struct kinfo_proc info;
     size_t size = sizeof(info);
     int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
@@ -133,7 +133,7 @@ static NSDate *VibeProcessStartDate(void) {
 // install drains it. Only this channel's files go. Another app's stay.
 static void VibeSweepStaleChannelFiles(void) {
     NSString *tmpDir = NSTemporaryDirectory();
-    NSDate *started = VibeProcessStartDate();
+    NSDate *started = VibeDebugProcessStartDate();
     NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:tmpDir error:nil];
     for (NSString *name in names) {
         if (([name hasPrefix:VibeDebugFilePrefix(gChannel, @"response")] && [name hasSuffix:@".txt"])
