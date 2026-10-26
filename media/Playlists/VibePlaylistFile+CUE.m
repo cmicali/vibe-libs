@@ -1,19 +1,19 @@
 //
-//  PlaylistFile+CUE.m
+//  VibePlaylistFile+CUE.m
 //  vibe-libs
 //
 
-#import "PlaylistFile.h"
-#import "PlaylistFileInternal.h"
+#import "VibePlaylistFile.h"
+#import "VibePlaylistFileInternal.h"
 
-#import "PlaylistEntry.h"
+#import "VibePlaylistEntry.h"
 #import "PlayableExtensions.h"
 #import "CueWindowMath.h"
 
 #include <libkern/OSByteOrder.h>
 #include <string.h>
 
-@implementation PlaylistFile (CUE)
+@implementation VibePlaylistFile (CUE)
 
 #pragma mark - CUE
 
@@ -221,12 +221,12 @@ static NSURL *AudioFileNamedLikeSheet(NSURL *sheet, NSFileManager *fileManager,
     return nil;
 }
 
-+ (NSArray<PlaylistEntry *> *)cueEntriesInText:(NSString *)text sheetURL:(NSURL *)sheetURL
++ (NSArray<VibePlaylistEntry *> *)cueEntriesInText:(NSString *)text sheetURL:(NSURL *)sheetURL
                                  resolvingFile:(NSURL *(^)(NSString *name, BOOL sole))resolve {
     NSMutableArray<NSString *> *files = [NSMutableArray new];
     NSString *sheetPerformer = nil;
     NSArray<NSDictionary *> *tracks = CueTracksInText(text, files, &sheetPerformer);
-    NSMutableArray<PlaylistEntry *> *entries = [NSMutableArray arrayWithCapacity:MAX(tracks.count, files.count)];
+    NSMutableArray<VibePlaylistEntry *> *entries = [NSMutableArray arrayWithCapacity:MAX(tracks.count, files.count)];
     // Tracks arrive in file order, so each FILE's are one run; a track before
     // any FILE line (-1) comes first. Each file is resolved once, in order.
     NSUInteger next = 0;
@@ -243,7 +243,7 @@ static NSURL *AudioFileNamedLikeSheet(NSURL *sheet, NSFileManager *fileManager,
         // A FILE none of whose tracks survived plays whole: no audio the sheet
         // names goes missing.
         if (next == begin) {
-            [entries addObject:[PlaylistEntry entryWithURL:url]];
+            [entries addObject:[VibePlaylistEntry entryWithURL:url]];
             continue;
         }
         for (NSUInteger i = begin; i < next; i++) {
@@ -260,7 +260,7 @@ static NSURL *AudioFileNamedLikeSheet(NSURL *sheet, NSFileManager *fileManager,
             if (hasNext && end <= start) {
                 continue;
             }
-            [entries addObject:[[PlaylistEntry alloc] initWithURL:url cueStart:start cueEnd:end
+            [entries addObject:[[VibePlaylistEntry alloc] initWithURL:url cueStart:start cueEnd:end
                                                             title:tracks[i][@"title"]
                                                         performer:tracks[i][@"performer"] ?: sheetPerformer
                                                             sheet:sheetURL
@@ -270,7 +270,7 @@ static NSURL *AudioFileNamedLikeSheet(NSURL *sheet, NSFileManager *fileManager,
     return entries;
 }
 
-+ (NSArray<PlaylistEntry *> *)cueEntriesForSheetAtURL:(NSURL *)url
++ (NSArray<VibePlaylistEntry *> *)cueEntriesForSheetAtURL:(NSURL *)url
                                            knownFiles:(NSDictionary<NSString *, NSArray<NSURL *> *> *)knownFiles {
     NSString *text = VibeTextOfFile(url);
     if (!text) {
@@ -311,7 +311,7 @@ static NSString *CueSheetCommentInBlock(NSData *block) {
             return nil;
         }
         if (size > 9 && strncasecmp((const char *)bytes + p, "CUESHEET=", 9) == 0) {
-            return [PlaylistFile textFromData:[block subdataWithRange:NSMakeRange((NSUInteger)p + 9, (NSUInteger)size - 9)]];
+            return [VibePlaylistFile textFromData:[block subdataWithRange:NSMakeRange((NSUInteger)p + 9, (NSUInteger)size - 9)]];
         }
         p += size;
     }
@@ -406,7 +406,7 @@ static void ReadFLACCueSources(FILE *file, uint32_t *rate, NSString **text, NSDa
     }
 }
 
-+ (NSArray<PlaylistEntry *> *)cueEntriesEmbeddedInFLACAtURL:(NSURL *)url {
++ (NSArray<VibePlaylistEntry *> *)cueEntriesEmbeddedInFLACAtURL:(NSURL *)url {
     FILE *file = fopen(url.fileSystemRepresentation, "rb");
     if (!file) {
         return @[];
@@ -422,7 +422,7 @@ static void ReadFLACCueSources(FILE *file, uint32_t *rate, NSString **text, NSDa
         // first FILE only, since a second would lay its windows over the same
         // audio.
         __block BOOL resolved = NO;
-        NSArray<PlaylistEntry *> *entries = [self cueEntriesInText:sheet sheetURL:url
+        NSArray<VibePlaylistEntry *> *entries = [self cueEntriesInText:sheet sheetURL:url
                                                      resolvingFile:^NSURL *(NSString *name, BOOL sole) {
             BOOL first = !resolved;
             resolved = YES;

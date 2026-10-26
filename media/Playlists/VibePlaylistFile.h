@@ -1,5 +1,5 @@
 //
-//  PlaylistFile.h
+//  VibePlaylistFile.h
 //  vibe-libs
 //
 
@@ -7,13 +7,13 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class PlaylistEntry;
+@class VibePlaylistEntry;
 
 // Readers for playlist-like files — CUE sheets and M3U playlists — and the M3U
-// writer, all in PlaylistEntry records. A CUE sheet reads as entries, each a
+// writer, all in VibePlaylistEntry records. A CUE sheet reads as entries, each a
 // window of its FILE. An M3U reads as file references, and its #EXTINF
 // metadata is ignored. A cue entry this writer wrote comes back as that entry.
-@interface PlaylistFile : NSObject
+@interface VibePlaylistFile : NSObject
 
 // YES for a (lowercased) path extension this class expands: cue, m3u, m3u8.
 + (BOOL)isPlaylistExtension:(NSString *)extension;
@@ -46,7 +46,7 @@ NS_ASSUME_NONNULL_BEGIN
 // the cue entry a #VIBE-CUE line before it describes, else a plain one. An
 // entry readable nowhere still yields its primary candidate, so the caller can
 // ask for sandbox access and call again.
-+ (NSArray<PlaylistEntry *> *)entriesForPlaylistAtURL:(NSURL *)url;
++ (NSArray<VibePlaylistEntry *> *)entriesForPlaylistAtURL:(NSURL *)url;
 
 // The entries of M3U data this writer wrote — m3uTextForEntries: with a
 // nil directory, so every entry is absolute — in order, with no resolution
@@ -54,7 +54,7 @@ NS_ASSUME_NONNULL_BEGIN
 // relative entry is skipped. It suits an app's own saved list, which may be
 // read on main at launch. A user's playlist file goes through
 // entriesForPlaylistAtURL:.
-+ (NSArray<PlaylistEntry *> *)entriesInM3UData:(nullable NSData *)data;
++ (NSArray<VibePlaylistEntry *> *)entriesInM3UData:(nullable NSData *)data;
 
 #pragma mark - Writing
 
@@ -67,24 +67,24 @@ NS_ASSUME_NONNULL_BEGIN
 // the file sits under it and absolute otherwise; nil means absolute
 // throughout. LF line endings. Names containing backslashes do not round-trip:
 // the reader treats them as Windows path separators.
-+ (NSString *)m3uTextForEntries:(NSArray<PlaylistEntry *> *)entries
++ (NSString *)m3uTextForEntries:(NSArray<VibePlaylistEntry *> *)entries
             relativeToDirectory:(nullable NSURL *)directory;
 
 // That text written atomically as UTF-8 without a BOM: the one spelling of
 // the file's encoding, for every playlist this class writes.
-+ (BOOL)writeM3UForEntries:(NSArray<PlaylistEntry *> *)entries
++ (BOOL)writeM3UForEntries:(NSArray<VibePlaylistEntry *> *)entries
        relativeToDirectory:(nullable NSURL *)directory
                      toURL:(NSURL *)url
                      error:(NSError **)error;
 
 // The deepest folder every entry's file sits under — the directory a saved
 // file makes every entry relative to. nil when nothing below the root is shared.
-+ (nullable NSURL *)commonDirectoryForEntries:(NSArray<PlaylistEntry *> *)entries;
++ (nullable NSURL *)commonDirectoryForEntries:(NSArray<VibePlaylistEntry *> *)entries;
 
 @end
 
-// CUE sheets, beside their files or embedded in a FLAC (PlaylistFile+CUE.m).
-@interface PlaylistFile (CUE)
+// CUE sheets, beside their files or embedded in a FLAC (VibePlaylistFile+CUE.m).
+@interface VibePlaylistFile (CUE)
 
 // A CUE sheet as entries, one per AUDIO TRACK kept, each a window of the FILE
 // its start INDEX sits in. A track starts at INDEX 01, else INDEX 00; one with
@@ -98,7 +98,7 @@ NS_ASSUME_NONNULL_BEGIN
 // duplicates collapsed. resolve maps each FILE name to its URL once, nil for a
 // track before any FILE line; sole is YES when the sheet names at most one
 // file. A nil URL drops that file's entries.
-+ (NSArray<PlaylistEntry *> *)cueEntriesInText:(NSString *)text sheetURL:(nullable NSURL *)sheetURL
++ (NSArray<VibePlaylistEntry *> *)cueEntriesInText:(NSString *)text sheetURL:(nullable NSURL *)sheetURL
                                  resolvingFile:(NSURL *_Nullable (^)(NSString *_Nullable name, BOOL sole))resolve;
 
 // The sheet at url as entries, each FILE resolved through entriesForPlaylistAtURL:'s rungs.
@@ -109,7 +109,7 @@ NS_ASSUME_NONNULL_BEGIN
 // rung's candidate is looked up there before the disk: an exact path wins,
 // else a sole match supplies the listing's spelling, which is what the walk
 // claims, without a probe.
-+ (NSArray<PlaylistEntry *> *)cueEntriesForSheetAtURL:(NSURL *)url
++ (NSArray<VibePlaylistEntry *> *)cueEntriesForSheetAtURL:(NSURL *)url
                                            knownFiles:(nullable NSDictionary<NSString *, NSArray<NSURL *> *> *)knownFiles;
 
 // The entries of a sheet embedded in the FLAC at url, each a window of the
@@ -118,7 +118,7 @@ NS_ASSUME_NONNULL_BEGIN
 // wins over the binary CUESHEET block (which has only marks). Reads the
 // metadata blocks and nothing else — the caller decides the file is worth
 // opening at all.
-+ (NSArray<PlaylistEntry *> *)cueEntriesEmbeddedInFLACAtURL:(NSURL *)url;
++ (NSArray<VibePlaylistEntry *> *)cueEntriesEmbeddedInFLACAtURL:(NSURL *)url;
 
 @end
 

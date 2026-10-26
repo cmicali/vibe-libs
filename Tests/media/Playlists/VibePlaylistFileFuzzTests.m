@@ -1,5 +1,5 @@
 //
-//  PlaylistFileFuzzTests.m
+//  VibePlaylistFileFuzzTests.m
 //
 //  Generated-and-known sheets must read back exactly: the only half that
 //  catches a dropped or reordered entry, since an empty answer satisfies every
@@ -11,18 +11,18 @@
 #import <XCTest/XCTest.h>
 
 #import "FLACFixtures.h"
-#import "PlaylistEntry.h"
-#import "PlaylistFileTestCase.h"
+#import "VibePlaylistEntry.h"
+#import "VibePlaylistFileTestCase.h"
 #import "VibeFuzzRandom.h"
 
 static BOOL FuzzChance(VibeFuzzRandom *random, NSUInteger oneIn) {
     return VibeFuzzBelow(random, oneIn) == 0;
 }
 
-@interface PlaylistFileFuzzTests : XCTestCase
+@interface VibePlaylistFileFuzzTests : XCTestCase
 @end
 
-@implementation PlaylistFileFuzzTests {
+@implementation VibePlaylistFileFuzzTests {
     NSURL *_root;
     uint64_t _baseSeed;
 }
@@ -153,7 +153,7 @@ static NSString *NormalizedSeparators(NSString *name) {
             }
 
             NSArray<NSString *> *expected = CollapsingConsecutiveDuplicates(names);
-            NSArray<NSString *> *entries = [PlaylistFile fileNamesInCueText:sheet];
+            NSArray<NSString *> *entries = [VibePlaylistFile fileNamesInCueText:sheet];
             XCTAssertEqualObjects(entries, expected, @"seed %llu", seed);
         }
     }
@@ -188,7 +188,7 @@ static NSString *NormalizedSeparators(NSString *name) {
                 [list appendFormat:@"%@%@", padded, FuzzLineEnding(&random)];
             }
 
-            NSArray<NSString *> *entries = [PlaylistFile m3uEntriesInText:list];
+            NSArray<NSString *> *entries = [VibePlaylistFile m3uEntriesInText:list];
             XCTAssertEqualObjects(entries, expected, @"seed %llu", seed);
         }
     }
@@ -227,9 +227,9 @@ static NSString *NormalizedSeparators(NSString *name) {
                     [withBOM appendData:data];
                     data = withBOM;
                 }
-                NSString *text = [PlaylistFile textFromData:data];
+                NSString *text = [VibePlaylistFile textFromData:data];
                 XCTAssertNotNil(text, @"seed %llu encoding %@", seed, encoding);
-                XCTAssertEqualObjects([PlaylistFile m3uEntriesInText:text], expected,
+                XCTAssertEqualObjects([VibePlaylistFile m3uEntriesInText:text], expected,
                                       @"seed %llu encoding %@", seed, encoding);
             }
         }
@@ -379,7 +379,7 @@ static NSData *FuzzCorruptData(VibeFuzzRandom *random) {
             VibeFuzzRandom random = {seed};
             NSData *data = FuzzCorruptData(&random);
 
-            NSString *text = [PlaylistFile textFromData:data];
+            NSString *text = [VibePlaylistFile textFromData:data];
             // The Latin-1 rung maps every byte, so one bad byte can never drop
             // the whole playlist.
             if (data.length > 0) {
@@ -388,13 +388,13 @@ static NSData *FuzzCorruptData(VibeFuzzRandom *random) {
             if (!text) {
                 continue;
             }
-            NSArray<NSString *> *cue = [PlaylistFile fileNamesInCueText:text];
-            NSArray<NSString *> *m3u = [PlaylistFile m3uEntriesInText:text];
+            NSArray<NSString *> *cue = [VibePlaylistFile fileNamesInCueText:text];
+            NSArray<NSString *> *m3u = [VibePlaylistFile m3uEntriesInText:text];
             [self assertEntriesAreWellFormed:cue kind:@"cue" seed:seed];
             [self assertEntriesAreWellFormed:m3u kind:@"m3u" seed:seed];
             // A reader with static state would show up here.
-            XCTAssertEqualObjects([PlaylistFile fileNamesInCueText:text], cue, @"seed %llu", seed);
-            XCTAssertEqualObjects([PlaylistFile m3uEntriesInText:text], m3u, @"seed %llu", seed);
+            XCTAssertEqualObjects([VibePlaylistFile fileNamesInCueText:text], cue, @"seed %llu", seed);
+            XCTAssertEqualObjects([VibePlaylistFile m3uEntriesInText:text], m3u, @"seed %llu", seed);
         }
     }
 }
@@ -408,16 +408,16 @@ static NSData *FuzzCorruptData(VibeFuzzRandom *random) {
     for (NSUInteger length = 0; length <= full.length; length++) {
         @autoreleasepool {
             NSData *prefix = [full subdataWithRange:NSMakeRange(0, length)];
-            NSString *text = [PlaylistFile textFromData:prefix];
+            NSString *text = [VibePlaylistFile textFromData:prefix];
             if (length > 0) {
                 XCTAssertNotNil(text, @"truncated to %lu", (unsigned long)length);
             }
             if (!text) {
                 continue;
             }
-            [self assertEntriesAreWellFormed:[PlaylistFile fileNamesInCueText:text]
+            [self assertEntriesAreWellFormed:[VibePlaylistFile fileNamesInCueText:text]
                                         kind:@"cue" seed:length];
-            [self assertEntriesAreWellFormed:[PlaylistFile m3uEntriesInText:text]
+            [self assertEntriesAreWellFormed:[VibePlaylistFile m3uEntriesInText:text]
                                         kind:@"m3u" seed:length];
         }
     }
@@ -441,15 +441,15 @@ static NSData *FuzzCorruptData(VibeFuzzRandom *random) {
                     [NSString stringWithFormat:@"corrupt.%@", extension]];
             XCTAssertTrue([data writeToURL:playlist atomically:YES], @"seed %llu", seed);
 
-            NSArray<NSURL *> *urls = [[PlaylistFile entriesForPlaylistAtURL:playlist] valueForKey:@"url"];
+            NSArray<NSURL *> *urls = [[VibePlaylistFile entriesForPlaylistAtURL:playlist] valueForKey:@"url"];
 
             // One URL per entry, in order, whatever the entries turned out to
             // be: the caller pairs them with the playlist's rows.
-            NSString *text = [PlaylistFile textFromData:data];
+            NSString *text = [VibePlaylistFile textFromData:data];
             NSArray<NSString *> *entries = text
                     ? ([extension isEqualToString:@"cue"]
-                            ? [PlaylistFile fileNamesInCueText:text]
-                            : [PlaylistFile m3uEntriesInText:text])
+                            ? [VibePlaylistFile fileNamesInCueText:text]
+                            : [VibePlaylistFile m3uEntriesInText:text])
                     : @[];
             XCTAssertEqual(urls.count, entries.count, @"seed %llu", seed);
             for (NSURL *url in urls) {
@@ -494,11 +494,11 @@ static NSData *FuzzCorruptData(VibeFuzzRandom *random) {
             }
             XCTAssertTrue([data writeToURL:url atomically:YES], @"seed %llu", seed);
 
-            NSArray<PlaylistEntry *> *rows = [PlaylistFile cueEntriesEmbeddedInFLACAtURL:url];
+            NSArray<VibePlaylistEntry *> *rows = [VibePlaylistFile cueEntriesEmbeddedInFLACAtURL:url];
 
             XCTAssertNotEqual(rows.count, 1u, @"seed %llu", seed);
             NSUInteger next = 0;
-            for (PlaylistEntry *row in rows) {
+            for (VibePlaylistEntry *row in rows) {
                 XCTAssertEqualObjects(row.url, url, @"seed %llu", seed);
                 XCTAssertEqual(row.cueStart, next, @"seed %llu", seed);
                 XCTAssertTrue(row.cueEnd == 0 || row.cueEnd > row.cueStart, @"seed %llu", seed);
@@ -540,7 +540,7 @@ static NSData *FuzzCorruptData(VibeFuzzRandom *random) {
             NSURL *playlist = [dir URLByAppendingPathComponent:@"mix.m3u"];
             [[list dataUsingEncoding:NSUTF8StringEncoding] writeToURL:playlist atomically:YES];
 
-            NSArray<NSURL *> *urls = [[PlaylistFile entriesForPlaylistAtURL:playlist] valueForKey:@"url"];
+            NSArray<NSURL *> *urls = [[VibePlaylistFile entriesForPlaylistAtURL:playlist] valueForKey:@"url"];
             XCTAssertEqual(urls.count, written.count, @"seed %llu", seed);
             for (NSUInteger i = 0; i < urls.count && i < written.count; i++) {
                 // Compared precomposed: the volume stores names decomposed. The

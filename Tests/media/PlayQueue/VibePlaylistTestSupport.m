@@ -1,9 +1,9 @@
 //
-//  PlaylistTestSupport.m
+//  VibePlaylistTestSupport.m
 //  vibe-libs
 //
 
-#import "PlaylistTestSupport.h"
+#import "VibePlaylistTestSupport.h"
 
 @implementation TestRow
 
@@ -43,26 +43,26 @@
     return self;
 }
 
-- (void)playlistDidReplaceAllTracks:(Playlist *)playlist {
+- (void)playlistDidReplaceAllTracks:(VibePlaylist *)playlist {
     self.lastReplacementGeneration = playlist.structureGeneration;
     [self.events addObject:@"replaceAll"];
 }
 
-- (void)playlist:(Playlist *)playlist didAppendTracksAtIndexes:(NSIndexSet *)indexes {
+- (void)playlist:(VibePlaylist *)playlist didAppendTracksAtIndexes:(NSIndexSet *)indexes {
     [self.events addObject:[NSString stringWithFormat:@"append %lu-%lu",
                             (unsigned long)indexes.firstIndex, (unsigned long)indexes.lastIndex]];
 }
 
-- (void)playlist:(Playlist *)playlist didReplaceTrackAtIndex:(NSUInteger)index {
+- (void)playlist:(VibePlaylist *)playlist didReplaceTrackAtIndex:(NSUInteger)index {
     [self.events addObject:[NSString stringWithFormat:@"replace %lu", (unsigned long)index]];
 }
 
-- (void)playlist:(Playlist *)playlist currentIndexDidChangeFromIndex:(NSUInteger)previousIndex {
+- (void)playlist:(VibePlaylist *)playlist currentIndexDidChangeFromIndex:(NSUInteger)previousIndex {
     [self.events addObject:[NSString stringWithFormat:@"index %lu->%lu",
                             (unsigned long)previousIndex, (unsigned long)playlist.currentIndex]];
 }
 
-- (void)playlist:(Playlist *)playlist didRemoveTracksAtIndexes:(NSIndexSet *)indexes {
+- (void)playlist:(VibePlaylist *)playlist didRemoveTracksAtIndexes:(NSIndexSet *)indexes {
     // Records the final state: the model is coherent BEFORE the observer is called.
     [self.events addObject:[NSString stringWithFormat:@"remove %@ cursor %lu count %lu",
                             RowsString(indexes),
@@ -70,14 +70,14 @@
                             (unsigned long)playlist.count]];
 }
 
-- (void)playlist:(Playlist *)playlist didInsertTracksAtIndexes:(NSIndexSet *)indexes {
+- (void)playlist:(VibePlaylist *)playlist didInsertTracksAtIndexes:(NSIndexSet *)indexes {
     [self.events addObject:[NSString stringWithFormat:@"insert %@ cursor %lu count %lu",
                             RowsString(indexes),
                             (unsigned long)playlist.currentIndex,
                             (unsigned long)playlist.count]];
 }
 
-- (void)playlist:(Playlist *)playlist
+- (void)playlist:(VibePlaylist *)playlist
         didMoveTracksFromIndexes:(NSIndexSet *)sourceIndexes
                        toIndexes:(NSIndexSet *)destinationIndexes {
     [self.events addObject:[NSString stringWithFormat:@"move %@->%@ cursor %lu count %lu",

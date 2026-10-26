@@ -9,7 +9,7 @@
 #import <unistd.h>
 
 #import "FLACFixtures.h"
-#import "PlaylistEntry.h"
+#import "VibePlaylistEntry.h"
 #import "PlaceholderFiles+Debug.h"
 #import "FolderWalkInternal.h"
 #import "PlayableExtensions.h"
@@ -118,11 +118,11 @@
 // playlist resolution standardizes, which drops the /private prefix again.
 // A windowed entry reads as its file plus its window, as its row's sourceKey
 // does.
-- (NSArray<NSString *> *)relativePaths:(NSArray<PlaylistEntry *> *)entries {
+- (NSArray<NSString *> *)relativePaths:(NSArray<VibePlaylistEntry *> *)entries {
     NSArray<NSString *> *prefixes = @[[_root.path stringByAppendingString:@"/"],
                                       [_root.path.stringByStandardizingPath stringByAppendingString:@"/"]];
     NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:entries.count];
-    for (PlaylistEntry *entry in entries) {
+    for (VibePlaylistEntry *entry in entries) {
         NSString *name = VibeKeyByAppendingCueWindow(entry.url.path, entry.cueStart, entry.cueEnd) ?: @"";
         for (NSString *prefix in prefixes) {
             if ([name hasPrefix:prefix]) {
@@ -334,7 +334,7 @@ static NSString *const kTwoTrackSheet =
     [self makeFile:@"mix.flac"];
     NSURL *sheet = [self makeText:kTwoTrackSheet at:@"mix.cue"];
 
-    NSArray<PlaylistEntry *> *entries = [FolderWalk expandAndFilterList:@[sheet] sortedBy:VibeFolderOpenSortName
+    NSArray<VibePlaylistEntry *> *entries = [FolderWalk expandAndFilterList:@[sheet] sortedBy:VibeFolderOpenSortName
                                                             folderCount:NULL];
 
     XCTAssertEqualObjects([self relativePaths:entries], (@[@"mix.flac#0-4500", @"mix.flac#4500-0"]));
@@ -463,17 +463,17 @@ static NSString *const kTwoTrackSheet =
                     listed = url.path;
                 }
             }
-            NSDictionary<NSString *, NSArray<PlaylistEntry *> *> *walks = @{
+            NSDictionary<NSString *, NSArray<VibePlaylistEntry *> *> *walks = @{
                 @"walk": [FolderWalk expandAndFilterList:@[folder] sortedBy:VibeFolderOpenSortName
                                              folderCount:NULL],
                 @"listing": [FolderWalk entriesInDirectory:folder sortedBy:VibeFolderOpenSortName],
             };
             for (NSString *walk in walks) {
-                NSArray<PlaylistEntry *> *entries = walks[walk];
+                NSArray<VibePlaylistEntry *> *entries = walks[walk];
                 NSString *context = [NSString stringWithFormat:@"%@, %@, %@: %@", rung[0], spelling[0],
                                                                walk, [self relativePaths:entries]];
                 XCTAssertEqual(entries.count, 2u, @"%@", context);
-                for (PlaylistEntry *entry in entries) {
+                for (VibePlaylistEntry *entry in entries) {
                     XCTAssertEqualObjects(entry.url.path, listed, @"%@", context);
                     XCTAssertTrue(entry.isWindowed, @"%@", context);
                 }
@@ -492,7 +492,7 @@ static NSString *const kTwoTrackSheet =
                                                                               withString:@"\"Uno\""]
                                  at:@"folder/CDImage.cue"];
 
-    NSArray<PlaylistEntry *> *entries = [FolderWalk expandAndFilterList:@[[self makeDirectory:@"folder"]]
+    NSArray<VibePlaylistEntry *> *entries = [FolderWalk expandAndFilterList:@[[self makeDirectory:@"folder"]]
                                                                sortedBy:VibeFolderOpenSortName folderCount:NULL];
     XCTAssertEqualObjects([self relativePaths:entries], (@[@"folder/mix.flac#0-4500", @"folder/mix.flac#4500-0"]));
     XCTAssertEqualObjects(entries.firstObject.cueTitle, @"One");
@@ -802,12 +802,12 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
         XCTestExpectation *expectation = [self expectationWithDescription:folder.lastPathComponent];
         [expectations addObject:expectation];
         [FolderWalk expandAndFilterList:@[folder] sortedBy:VibeFolderOpenSortName
-                             completion:^(NSArray<PlaylistEntry *> *entries, NSUInteger folderCount) {
+                             completion:^(NSArray<VibePlaylistEntry *> *entries, NSUInteger folderCount) {
             // On the worker, so the caller makes its rows off main.
             XCTAssertFalse(NSThread.isMainThread);
             XCTAssertEqual(folderCount, 1u);
             XCTAssertEqual(entries.count, 5u);
-            for (PlaylistEntry *entry in entries) {
+            for (VibePlaylistEntry *entry in entries) {
                 XCTAssertEqualObjects(entry.url.URLByDeletingLastPathComponent.path, folder.path);
             }
             [expectation fulfill];
@@ -845,7 +845,7 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
         XCTestExpectation *expectation = [self expectationWithDescription:playlist.path];
         [expectations addObject:expectation];
         [FolderWalk expandAndFilterList:@[playlist] sortedBy:VibeFolderOpenSortName
-                             completion:^(NSArray<PlaylistEntry *> *entries, NSUInteger folderCount) {
+                             completion:^(NSArray<VibePlaylistEntry *> *entries, NSUInteger folderCount) {
             XCTAssertEqual(entries.count, 0u);
             [expectation fulfill];
         }];
@@ -960,7 +960,7 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
         reported = directories;
     }];
 
-    NSArray<PlaylistEntry *> *files = [FolderWalk expandDirectory:[self makeDirectory:@"library"]
+    NSArray<VibePlaylistEntry *> *files = [FolderWalk expandDirectory:[self makeDirectory:@"library"]
                                                          sortedBy:VibeFolderOpenSortName];
     [FolderWalk setWalkedDirectoriesHandler:nil];
 
@@ -1005,17 +1005,17 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
 
 // Runs a scan to its end. The batches and the completion share one worker, so
 // what they gathered is read here only once the completion has run.
-- (NSArray<NSArray<PlaylistEntry *> *> *)scan:(NSArray<NSURL *> *)roots
+- (NSArray<NSArray<VibePlaylistEntry *> *> *)scan:(NSArray<NSURL *> *)roots
                                        policy:(VibeFolderScanReadPolicy)policy
                                      progress:(NSProgress *)progress
                                      verdicts:(NSArray<NSNumber *> **)verdicts
                                      failures:(NSArray<NSArray<NSError *> *> **)failures {
-    NSMutableArray<NSArray<PlaylistEntry *> *> *batches = [NSMutableArray array];
+    NSMutableArray<NSArray<VibePlaylistEntry *> *> *batches = [NSMutableArray array];
     __block NSArray<NSNumber *> *verdictsSeen = nil;
     __block NSArray<NSArray<NSError *> *> *failuresSeen = nil;
     XCTestExpectation *finished = [self expectationWithDescription:@"scan"];
     [FolderWalk scanRoots:roots readPolicy:policy progress:progress
-                    batch:^(NSArray<PlaylistEntry *> *entries) {
+                    batch:^(NSArray<VibePlaylistEntry *> *entries) {
         XCTAssertFalse(NSThread.isMainThread);
         [batches addObject:entries];
     } completion:^(NSArray<NSNumber *> *rootVerdicts, NSArray<NSArray<NSError *> *> *rootFailures) {
@@ -1033,15 +1033,15 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     return batches;
 }
 
-- (NSArray<NSArray<PlaylistEntry *> *> *)scan:(NSArray<NSURL *> *)roots policy:(VibeFolderScanReadPolicy)policy {
+- (NSArray<NSArray<VibePlaylistEntry *> *> *)scan:(NSArray<NSURL *> *)roots policy:(VibeFolderScanReadPolicy)policy {
     return [self scan:roots policy:policy progress:[NSProgress discreteProgressWithTotalUnitCount:-1]
              verdicts:NULL failures:NULL];
 }
 
 // A scan sorts nothing, so its entries are compared by name.
-- (NSArray<NSString *> *)sortedRelativePaths:(NSArray<NSArray<PlaylistEntry *> *> *)batches {
-    NSMutableArray<PlaylistEntry *> *entries = [NSMutableArray array];
-    for (NSArray<PlaylistEntry *> *batch in batches) {
+- (NSArray<NSString *> *)sortedRelativePaths:(NSArray<NSArray<VibePlaylistEntry *> *> *)batches {
+    NSMutableArray<VibePlaylistEntry *> *entries = [NSMutableArray array];
+    for (NSArray<VibePlaylistEntry *> *batch in batches) {
         [entries addObjectsFromArray:batch];
     }
     return [[self relativePaths:entries] sortedArrayUsingSelector:@selector(compare:)];
@@ -1057,7 +1057,7 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     NSArray<NSNumber *> *verdicts = nil;
     NSArray<NSArray<NSError *> *> *failures = nil;
 
-    NSArray<NSArray<PlaylistEntry *> *> *batches =
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches =
             [self scan:@[[self makeDirectory:@"library"]] policy:VibeFolderScanReadPolicyNone
               progress:[NSProgress discreteProgressWithTotalUnitCount:-1] verdicts:&verdicts failures:&failures];
 
@@ -1077,7 +1077,7 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     NSArray<NSNumber *> *verdicts = nil;
     NSArray<NSArray<NSError *> *> *failures = nil;
 
-    NSArray<NSArray<PlaylistEntry *> *> *batches =
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches =
             [self scan:@[missing, locked, [self makeDirectory:@"open"]] policy:VibeFolderScanReadPolicyNone
               progress:[NSProgress discreteProgressWithTotalUnitCount:-1] verdicts:&verdicts failures:&failures];
 
@@ -1105,7 +1105,7 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     XCTestExpectation *finished = [self expectationWithDescription:@"scan"];
 
     [FolderWalk scanRoots:@[library, library] readPolicy:VibeFolderScanReadPolicyNone progress:progress
-                    batch:^(NSArray<PlaylistEntry *> *entries) {
+                    batch:^(NSArray<VibePlaylistEntry *> *entries) {
         if (progress.isCancelled) {
             deliveredAfterCancel++;
         }
@@ -1142,17 +1142,17 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     NSProgress *progress = [NSProgress discreteProgressWithTotalUnitCount:-1];
     NSArray<NSNumber *> *verdicts = nil;
 
-    NSArray<NSArray<PlaylistEntry *> *> *batches =
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches =
             [self scan:@[[self makeDirectory:@"library"]] policy:VibeFolderScanReadPolicyLocal
               progress:progress verdicts:&verdicts failures:NULL];
 
     NSUInteger total = 0;
     NSUInteger flatBatches = 0;
-    for (NSArray<PlaylistEntry *> *batch in batches) {
+    for (NSArray<VibePlaylistEntry *> *batch in batches) {
         XCTAssertGreaterThan(batch.count, 0u);
         XCTAssertLessThanOrEqual(batch.count, VibeFolderScanBatchLimit);
         NSString *directory = batch.firstObject.url.URLByDeletingLastPathComponent.path;
-        for (PlaylistEntry *entry in batch) {
+        for (VibePlaylistEntry *entry in batch) {
             XCTAssertEqualObjects(entry.url.URLByDeletingLastPathComponent.path, directory);
         }
         flatBatches += [directory.lastPathComponent isEqualToString:@"flat"] ? 1 : 0;
@@ -1226,13 +1226,13 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
         [self makeFile:[NSString stringWithFormat:@"library/album/extra%lu/song.mp3", (unsigned long)extra]];
     }
 
-    NSArray<NSArray<PlaylistEntry *> *> *batches = [self scan:@[[self makeDirectory:@"library"]]
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches = [self scan:@[[self makeDirectory:@"library"]]
                                                        policy:VibeFolderScanReadPolicyLocal];
 
     NSMutableDictionary<NSString *, NSNumber *> *rowsByImage = [NSMutableDictionary dictionary];
-    for (NSArray<PlaylistEntry *> *batch in batches) {
+    for (NSArray<VibePlaylistEntry *> *batch in batches) {
         NSString *directory = batch.firstObject.url.URLByDeletingLastPathComponent.path;
-        for (PlaylistEntry *entry in batch) {
+        for (VibePlaylistEntry *entry in batch) {
             XCTAssertEqualObjects(entry.url.URLByDeletingLastPathComponent.path, directory);
             if ([entry.url.lastPathComponent isEqualToString:@"mix.flac"]) {
                 XCTAssertTrue(entry.isWindowed, @"%@ arrived whole", entry.url.path);
@@ -1266,7 +1266,7 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     NSArray<NSNumber *> *verdicts = nil;
     NSArray<NSArray<NSError *> *> *failures = nil;
 
-    NSArray<NSArray<PlaylistEntry *> *> *batches =
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches =
             [self scan:@[[self makeDirectory:@"library"]] policy:VibeFolderScanReadPolicyLocal
               progress:[NSProgress discreteProgressWithTotalUnitCount:-1] verdicts:&verdicts failures:&failures];
 

@@ -1,17 +1,17 @@
 
 #import <XCTest/XCTest.h>
 
-#import "Playlist.h"
-#import "PlaylistTestSupport.h"
+#import "VibePlaylist.h"
+#import "VibePlaylistTestSupport.h"
 
-@interface PlaylistRepeatAndShuffleTests : XCTestCase
+@interface VibePlaylistRepeatAndShuffleTests : XCTestCase
 @end
 
-@implementation PlaylistRepeatAndShuffleTests
+@implementation VibePlaylistRepeatAndShuffleTests
 
 #pragma mark - Repeat
 
-static Playlist *NumberedPlaylist(NSUInteger count) {
+static VibePlaylist *NumberedPlaylist(NSUInteger count) {
     NSMutableArray<NSString *> *names = [NSMutableArray array];
     for (NSUInteger i = 0; i < count; i++) {
         [names addObject:[NSString stringWithFormat:@"%02lu.mp3", (unsigned long)i]];
@@ -20,7 +20,7 @@ static Playlist *NumberedPlaylist(NSUInteger count) {
 }
 
 - (void)testRepeatModesAnswerNextAndTrackEndAtTheLastRow {
-    Playlist *playlist = NumberedPlaylist(3);
+    VibePlaylist *playlist = NumberedPlaylist(3);
     playlist.currentIndex = 2;
     TestRow *last = playlist.currentTrack;
 
@@ -42,7 +42,7 @@ static Playlist *NumberedPlaylist(NSUInteger count) {
 
 - (void)testPreviousNeverWraps {
     for (NSNumber *mode in @[@(VibeRepeatModeOff), @(VibeRepeatModeAll), @(VibeRepeatModeOne)]) {
-        Playlist *playlist = NumberedPlaylist(3);
+        VibePlaylist *playlist = NumberedPlaylist(3);
         playlist.repeatMode = mode.integerValue;
         XCTAssertFalse(playlist.hasPreviousTrack);
         XCTAssertFalse([playlist previous]);
@@ -51,7 +51,7 @@ static Playlist *NumberedPlaylist(NSUInteger count) {
 }
 
 - (void)testAdvanceAtTrackEndParksWrapsOrReplays {
-    Playlist *playlist = NumberedPlaylist(2);
+    VibePlaylist *playlist = NumberedPlaylist(2);
     RecordingObserver *observer = [RecordingObserver new];
     playlist.observer = observer;
     playlist.currentIndex = 1;
@@ -78,7 +78,7 @@ static Playlist *NumberedPlaylist(NSUInteger count) {
 }
 
 - (void)testPauseAtTrackEndOutranksEveryMode {
-    Playlist *playlist = NumberedPlaylist(3);
+    VibePlaylist *playlist = NumberedPlaylist(3);
     playlist.currentIndex = 0;
     TestRow *first = playlist.currentTrack, *second = [playlist trackAtIndex:1];
     XCTAssertEqual(playlist.trackEndSuccessor, second);
@@ -100,7 +100,7 @@ static Playlist *NumberedPlaylist(NSUInteger count) {
 }
 
 - (void)testGaplessAdoptionFollowsTheTrackEndSuccessor {
-    Playlist *playlist = NumberedPlaylist(3);
+    VibePlaylist *playlist = NumberedPlaylist(3);
     playlist.currentIndex = 2;
     TestRow *last = playlist.currentTrack;
     TestRow *first = [playlist trackAtIndex:0];
@@ -118,14 +118,14 @@ static Playlist *NumberedPlaylist(NSUInteger count) {
 }
 
 - (void)testRepeatOnEmptyAndSingleRowPlaylists {
-    Playlist *empty = NewPlaylist();
+    VibePlaylist *empty = NewPlaylist();
     for (NSNumber *mode in @[@(VibeRepeatModeOff), @(VibeRepeatModeAll), @(VibeRepeatModeOne)]) {
         empty.repeatMode = mode.integerValue;
         XCTAssertNil(empty.nextTrack);
         XCTAssertNil(empty.trackEndSuccessor);
         XCTAssertFalse([empty advanceAtTrackEnd]);
     }
-    Playlist *single = NumberedPlaylist(1);
+    VibePlaylist *single = NumberedPlaylist(1);
     TestRow *only = single.currentTrack;
     single.repeatMode = VibeRepeatModeAll;
     XCTAssertEqual(single.nextTrack, only);
@@ -135,7 +135,7 @@ static Playlist *NumberedPlaylist(NSUInteger count) {
 
 // A removal is not a track end: the landing never wraps.
 - (void)testRemovingThePlayingLastRowUnderRepeatAllParksBackward {
-    Playlist *playlist = NumberedPlaylist(3);
+    VibePlaylist *playlist = NumberedPlaylist(3);
     playlist.repeatMode = VibeRepeatModeAll;
     playlist.currentIndex = 2;
     XCTAssertNil([playlist forwardTrackAfterRemovingTracksAtIndexes:RowSet(2)]);
@@ -154,15 +154,15 @@ static uint32_t (^SeededRandom(uint64_t seed))(uint32_t) {
     };
 }
 
-static Playlist *ShuffledPlaylist(NSUInteger count, uint64_t seed) {
-    Playlist *playlist = NumberedPlaylist(count);
+static VibePlaylist *ShuffledPlaylist(NSUInteger count, uint64_t seed) {
+    VibePlaylist *playlist = NumberedPlaylist(count);
     playlist.randomBelow = SeededRandom(seed);
     playlist.shuffleEnabled = YES;
     return playlist;
 }
 
 // The current track, then every track next lands on, up to limit.
-static NSArray<TestRow *> *WalkNext(Playlist *playlist, NSUInteger limit) {
+static NSArray<TestRow *> *WalkNext(VibePlaylist *playlist, NSUInteger limit) {
     NSMutableArray<TestRow *> *walk = [NSMutableArray arrayWithObject:playlist.currentTrack];
     while (walk.count < limit) {
         TestRow *peek = playlist.nextTrack;
@@ -177,7 +177,7 @@ static NSArray<TestRow *> *WalkNext(Playlist *playlist, NSUInteger limit) {
     return walk;
 }
 
-static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
+static void AssertPermutation(VibePlaylist *playlist, NSArray<TestRow *> *walk) {
     XCTAssertEqual(walk.count, playlist.count);
     XCTAssertEqual([NSSet setWithArray:walk].count, playlist.count);
     XCTAssertTrue([[NSSet setWithArray:walk] isEqualToSet:[NSSet setWithArray:playlist.tracks]]);
@@ -185,7 +185,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 
 - (void)testShuffleVisitsEveryRowOnceFromTheCurrentOneThenParks {
     for (uint64_t seed = 1; seed <= 20; seed++) {
-        Playlist *playlist = NumberedPlaylist(12);
+        VibePlaylist *playlist = NumberedPlaylist(12);
         playlist.randomBelow = SeededRandom(seed);
         playlist.currentIndex = 5;
         TestRow *playing = playlist.currentTrack;
@@ -201,7 +201,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testShuffleLeavesTheRowsInTheirOrder {
-    Playlist *playlist = NumberedPlaylist(8);
+    VibePlaylist *playlist = NumberedPlaylist(8);
     NSArray<TestRow *> *rows = playlist.tracks;
     playlist.randomBelow = SeededRandom(3);
     playlist.shuffleEnabled = YES;
@@ -212,7 +212,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 - (void)testRepeatAllReshufflesEachCycleWithoutRepeatingAcrossTheSeam {
     for (NSUInteger count = 1; count <= 6; count++) {
         for (uint64_t seed = 1; seed <= 40; seed++) {
-            Playlist *playlist = ShuffledPlaylist(count, seed);
+            VibePlaylist *playlist = ShuffledPlaylist(count, seed);
             playlist.repeatMode = VibeRepeatModeAll;
             NSArray<TestRow *> *walk = WalkNext(playlist, count * 4);
             XCTAssertEqual(walk.count, count * 4);
@@ -228,7 +228,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testTheNextCycleIsKeptOnceAsked {
-    Playlist *playlist = ShuffledPlaylist(5, 7);
+    VibePlaylist *playlist = ShuffledPlaylist(5, 7);
     playlist.repeatMode = VibeRepeatModeAll;
     WalkNext(playlist, 5);
     TestRow *peek = playlist.nextTrack;
@@ -239,7 +239,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testShufflePreviousRetracesThePlayedOrder {
-    Playlist *playlist = ShuffledPlaylist(6, 11);
+    VibePlaylist *playlist = ShuffledPlaylist(6, 11);
     NSArray<TestRow *> *walk = WalkNext(playlist, 4);
     for (NSInteger i = (NSInteger)walk.count - 2; i >= 0; i--) {
         XCTAssertTrue([playlist previous]);
@@ -252,7 +252,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 
 - (void)testPickingAnUnplayedRowContinuesWithoutRepeats {
     for (uint64_t seed = 1; seed <= 20; seed++) {
-        Playlist *playlist = ShuffledPlaylist(10, seed);
+        VibePlaylist *playlist = ShuffledPlaylist(10, seed);
         NSMutableArray<TestRow *> *heard = [WalkNext(playlist, 3) mutableCopy];
         NSUInteger unplayed = 0;
         while ([heard containsObject:[playlist trackAtIndex:unplayed]]) {
@@ -266,7 +266,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 
 - (void)testPickingAPlayedRowReplaysItAndStillPlaysTheRest {
     for (uint64_t seed = 1; seed <= 20; seed++) {
-        Playlist *playlist = ShuffledPlaylist(10, seed);
+        VibePlaylist *playlist = ShuffledPlaylist(10, seed);
         NSArray<TestRow *> *played = WalkNext(playlist, 4);
         playlist.currentIndex = (NSUInteger)[playlist getIndexForTrack:played[1]];
         NSArray<TestRow *> *rest = WalkNext(playlist, 100);
@@ -284,7 +284,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 
 - (void)testAnOpenUnderShuffleStartsOnTheOrdersFirstRowAndMarksNothingPlayed {
     for (uint64_t seed = 1; seed <= 20; seed++) {
-        Playlist *playlist = NumberedPlaylist(0);
+        VibePlaylist *playlist = NumberedPlaylist(0);
         playlist.randomBelow = SeededRandom(seed);
         playlist.shuffleEnabled = YES;
         NSMutableArray<NSURL *> *urls = [NSMutableArray array];
@@ -303,7 +303,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testAnOpenWithShuffleOffLandsOnTheGivenRowOrTheFirst {
-    Playlist *playlist = NewPlaylist();
+    VibePlaylist *playlist = NewPlaylist();
     [playlist replaceAllWithTracks:Rows(@[URLNamed(@"a.mp3"), URLNamed(@"b.mp3")]) startingAtIndex:1];
     XCTAssertEqual(playlist.currentIndex, 1u);
     [playlist replaceAllWithTracks:Rows(@[URLNamed(@"a.mp3"), URLNamed(@"b.mp3")]) startingAtIndex:7];
@@ -312,7 +312,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 
 - (void)testAppendedRowsJoinTheUnplayedPart {
     for (uint64_t seed = 1; seed <= 20; seed++) {
-        Playlist *playlist = ShuffledPlaylist(6, seed);
+        VibePlaylist *playlist = ShuffledPlaylist(6, seed);
         NSMutableArray<TestRow *> *heard = [WalkNext(playlist, 3) mutableCopy];
         [playlist appendTracks:Rows(@[URLNamed(@"x.mp3"), URLNamed(@"y.mp3"), URLNamed(@"z.mp3")])];
         [heard removeLastObject];
@@ -323,7 +323,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 
 - (void)testRemovingThePlayingRowLandsOnTheNextUnplayedOne {
     for (uint64_t seed = 1; seed <= 20; seed++) {
-        Playlist *playlist = ShuffledPlaylist(8, seed);
+        VibePlaylist *playlist = ShuffledPlaylist(8, seed);
         NSMutableArray<TestRow *> *heard = [WalkNext(playlist, 3) mutableCopy];
         NSIndexSet *rows = RowSet(playlist.currentIndex);
         TestRow *forward = [playlist forwardTrackAfterRemovingTracksAtIndexes:rows];
@@ -338,7 +338,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testRemovingThePlayingLastEntryLandsOnTheLastPlayed {
-    Playlist *playlist = ShuffledPlaylist(4, 5);
+    VibePlaylist *playlist = ShuffledPlaylist(4, 5);
     NSArray<TestRow *> *walk = WalkNext(playlist, 100);
     NSIndexSet *rows = RowSet(playlist.currentIndex);
     XCTAssertNil([playlist forwardTrackAfterRemovingTracksAtIndexes:rows]);
@@ -349,7 +349,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 
 - (void)testRemovingOtherRowsAndUndoingKeepsEveryRowPlayingOnce {
     for (uint64_t seed = 1; seed <= 20; seed++) {
-        Playlist *playlist = ShuffledPlaylist(9, seed);
+        VibePlaylist *playlist = ShuffledPlaylist(9, seed);
         NSMutableArray<TestRow *> *heard = [WalkNext(playlist, 4) mutableCopy];
         TestRow *playing = playlist.currentTrack;
         NSMutableIndexSet *rows = [NSMutableIndexSet indexSet];
@@ -375,8 +375,8 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testAMoveLeavesThePlayOrderAlone {
-    Playlist *a = ShuffledPlaylist(7, 9);
-    Playlist *b = ShuffledPlaylist(7, 9);
+    VibePlaylist *a = ShuffledPlaylist(7, 9);
+    VibePlaylist *b = ShuffledPlaylist(7, 9);
     WalkNext(a, 2);
     WalkNext(b, 2);
     XCTAssertTrue([a moveTracksAtIndexes:RowRange(0, 2) toIndexes:RowRange(5, 2)]);
@@ -389,7 +389,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testTheConvertSwapKeepsTheRowsPlaceInTheOrder {
-    Playlist *playlist = ShuffledPlaylist(6, 4);
+    VibePlaylist *playlist = ShuffledPlaylist(6, 4);
     WalkNext(playlist, 2);
     TestRow *next = playlist.nextTrack;
     NSUInteger row = (NSUInteger)[playlist getIndexForTrack:next];
@@ -406,7 +406,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 // cycle out from under it. Replacing the armed row itself hands its slot on.
 - (void)testTheConvertSwapKeepsTheNextCycleTheSpliceArmedOn {
     for (uint64_t seed = 1; seed <= 20; seed++) {
-        Playlist *playlist = ShuffledPlaylist(6, seed);
+        VibePlaylist *playlist = ShuffledPlaylist(6, seed);
         playlist.repeatMode = VibeRepeatModeAll;
         WalkNext(playlist, 6);
         TestRow *armed = playlist.trackEndSuccessor;
@@ -429,7 +429,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testShuffleOffKeepsNoRowOfThePastOrders {
-    Playlist *playlist = nil;
+    VibePlaylist *playlist = nil;
     __weak TestRow *departed = nil;
     @autoreleasepool {
         playlist = ShuffledPlaylist(4, 3);
@@ -445,7 +445,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testShuffleOffResumesTheRowOrderFromTheCurrentRow {
-    Playlist *playlist = ShuffledPlaylist(8, 2);
+    VibePlaylist *playlist = ShuffledPlaylist(8, 2);
     WalkNext(playlist, 3);
     NSUInteger row = playlist.currentIndex;
     playlist.shuffleEnabled = NO;
@@ -455,7 +455,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testEnablingShuffleAgainKeepsTheOrder {
-    Playlist *playlist = ShuffledPlaylist(8, 6);
+    VibePlaylist *playlist = ShuffledPlaylist(8, 6);
     TestRow *next = playlist.nextTrack;
     playlist.shuffleEnabled = YES;
     XCTAssertEqual(playlist.nextTrack, next);
@@ -463,7 +463,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 
 - (void)testShuffledGaplessAdoptionRefusesTheRowNeighbor {
     for (uint64_t seed = 1; seed <= 20; seed++) {
-        Playlist *playlist = ShuffledPlaylist(6, seed);
+        VibePlaylist *playlist = ShuffledPlaylist(6, seed);
         TestRow *current = playlist.currentTrack;
         TestRow *next = playlist.nextTrack;
         TestRow *neighbor = [playlist trackAtIndex:(playlist.currentIndex + 1) % 6];
@@ -476,7 +476,7 @@ static void AssertPermutation(Playlist *playlist, NSArray<TestRow *> *walk) {
 }
 
 - (void)testAClearUnderShuffleStartsTheNextOpenFresh {
-    Playlist *playlist = ShuffledPlaylist(5, 8);
+    VibePlaylist *playlist = ShuffledPlaylist(5, 8);
     WalkNext(playlist, 3);
     [playlist clear];
     XCTAssertNil(playlist.nextTrack);

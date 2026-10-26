@@ -9,7 +9,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class PlaylistEntry;
+@class VibePlaylistEntry;
 
 // Asks the user to grant the folder a playlist file's entries live in, and
 // answers whether they did. Runs on an expansion worker and must block until
@@ -78,7 +78,7 @@ FOUNDATION_EXPORT const NSUInteger VibeFolderScanBatchLimit;
 // file's entries keep the order the user gave.
 + (void)expandAndFilterList:(NSArray<NSURL *> *)list
                    sortedBy:(VibeFolderOpenSort)sort
-                 completion:(void (^)(NSArray<PlaylistEntry *> *entries, NSUInteger folderCount))completion;
+                 completion:(void (^)(NSArray<VibePlaylistEntry *> *entries, NSUInteger folderCount))completion;
 
 // Every file under each root, in order, as entries, with nothing sorted. It
 // runs at utility QoS on a worker of its own, never one of the open's four.
@@ -104,7 +104,7 @@ FOUNDATION_EXPORT const NSUInteger VibeFolderScanBatchLimit;
 + (void)scanRoots:(NSArray<NSURL *> *)roots
        readPolicy:(VibeFolderScanReadPolicy)policy
          progress:(NSProgress *)progress
-            batch:(void (^)(NSArray<PlaylistEntry *> *entries))batch
+            batch:(void (^)(NSArray<VibePlaylistEntry *> *entries))batch
        completion:(void (^)(NSArray<NSNumber *> *verdicts, NSArray<NSArray<NSError *> *> *failures))completion;
 
 // Common/PlayableExtensions' set.
@@ -114,7 +114,7 @@ FOUNDATION_EXPORT const NSUInteger VibeFolderScanBatchLimit;
 // large local FLAC's embedded cue sheet, else the file whole. Every expansion
 // makes a file's entries here, so a sheet inside a file applies wherever the
 // file is opened.
-+ (NSArray<PlaylistEntry *> *)entriesForFile:(NSURL *)url;
++ (NSArray<VibePlaylistEntry *> *)entriesForFile:(NSURL *)url;
 
 // YES when the sandbox, not absence, keeps url from being read: the one case
 // a grant would fix. A sheet's entriesForFile: is empty when it is the sheet's
@@ -124,7 +124,7 @@ FOUNDATION_EXPORT const NSUInteger VibeFolderScanBatchLimit;
 // The folder's non-empty audio files as entries, non-recursive, hidden files
 // skipped; a CUE sheet among them stands in for its files, as in a walk.
 // Synchronous. sort is a parameter because this layer may not read a setting.
-+ (NSArray<PlaylistEntry *> *)entriesInDirectory:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort;
++ (NSArray<VibePlaylistEntry *> *)entriesInDirectory:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort;
 
 // The folder's subfolders, its M3U playlists, and the audio files and sheets
 // entriesInDirectory: would make entries of, each sorted by `sort`, hidden

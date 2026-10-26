@@ -1,5 +1,5 @@
 //
-// Playlist.h
+// VibePlaylist.h
 // vibe-libs
 //
 // The ordered list of the caller's entries and its current-index cursor, free
@@ -14,45 +14,45 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class Playlist;
+@class VibePlaylist;
 
 // Change notifications, fired synchronously by the mutation that caused them,
 // carrying the affected rows so a table owner can reload precisely.
-@protocol PlaylistObserver <NSObject>
+@protocol VibePlaylistObserver <NSObject>
 
 // A replacement or a clear: the whole row set changed and currentIndex is
 // final — 0 for a clear, the replacement's start row otherwise.
-- (void)playlistDidReplaceAllTracks:(Playlist *)playlist;
+- (void)playlistDidReplaceAllTracks:(VibePlaylist *)playlist;
 
 // Rows were appended at indexes; existing rows and currentIndex are untouched.
-- (void)playlist:(Playlist *)playlist didAppendTracksAtIndexes:(NSIndexSet *)indexes;
+- (void)playlist:(VibePlaylist *)playlist didAppendTracksAtIndexes:(NSIndexSet *)indexes;
 
 // The entry at index was replaced by the caller's fresh entry.
-- (void)playlist:(Playlist *)playlist didReplaceTrackAtIndex:(NSUInteger)index;
+- (void)playlist:(VibePlaylist *)playlist didReplaceTrackAtIndex:(NSUInteger)index;
 
 // The rows at indexes left the list and currentIndex is final. The ONE event a
 // removal sends — currentIndexDidChangeFromIndex: does not also fire, so a
 // table reconciles one edit once.
-- (void)playlist:(Playlist *)playlist didRemoveTracksAtIndexes:(NSIndexSet *)indexes;
+- (void)playlist:(VibePlaylist *)playlist didRemoveTracksAtIndexes:(NSIndexSet *)indexes;
 
 // The rows at indexes — their landed positions — joined the list and
 // currentIndex is final. The ONE event an insert sends.
-- (void)playlist:(Playlist *)playlist didInsertTracksAtIndexes:(NSIndexSet *)indexes;
+- (void)playlist:(VibePlaylist *)playlist didInsertTracksAtIndexes:(NSIndexSet *)indexes;
 
 // The rows at sourceIndexes (pre-move positions) now occupy
 // destinationIndexes, ascending to ascending, and currentIndex is final. The
 // ONE event a move sends.
-- (void)playlist:(Playlist *)playlist
+- (void)playlist:(VibePlaylist *)playlist
         didMoveTracksFromIndexes:(NSIndexSet *)sourceIndexes
                        toIndexes:(NSIndexSet *)destinationIndexes;
 
 // currentIndex moved; the rows at previousIndex and currentIndex both render
 // playing state and are stale.
-- (void)playlist:(Playlist *)playlist currentIndexDidChangeFromIndex:(NSUInteger)previousIndex;
+- (void)playlist:(VibePlaylist *)playlist currentIndexDidChangeFromIndex:(NSUInteger)previousIndex;
 
 @end
 
-@interface Playlist<__covariant ObjectType> : NSObject
+@interface VibePlaylist<__covariant ObjectType> : NSObject
 
 // A list with no lookup by file. indexesOfTracksWithURL: and trackForURL: find
 // nothing, and stampTracksSounding:usingBlock: stamps nothing.
@@ -65,7 +65,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithURLKey:(NSURL * _Nullable (^)(ObjectType entry))urlKey
                      sourceKey:(NSString * _Nullable (^)(ObjectType entry))sourceKey;
 
-@property (nonatomic, weak, nullable) id<PlaylistObserver> observer;
+@property (nonatomic, weak, nullable) id<VibePlaylistObserver> observer;
 
 // Setting it fires currentIndexDidChangeFromIndex: even when the index is
 // unchanged. So a pick of the row already playing still re-renders it.

@@ -10,7 +10,7 @@ The folder walk: whatever the user opened, a file, a folder, or a playlist file,
 
 ## The walk stays ignorant on purpose
 
-**The walk returns `PlaylistEntry` records, and the caller makes its rows from them.** The walk runs on background workers, never the main thread. `expandAndFilterList:sortedBy:completion:` runs four wide and completes on its worker, so the caller makes its rows there and then goes to main. Callers order overlapping results themselves.
+**The walk returns `VibePlaylistEntry` records, and the caller makes its rows from them.** The walk runs on background workers, never the main thread. `expandAndFilterList:sortedBy:completion:` runs four wide and completes on its worker, so the caller makes its rows there and then goes to main. Callers order overlapping results themselves.
 
 **It calls no one. What it discovers is reported through handler blocks the app installs at launch.** Each is a value the walk copies under a lock and reads from its workers.
 
