@@ -28,6 +28,8 @@
     AudioTrackMetadataLoader*   _cacheOnlyLoader;
     // Serializes construction, invalidation and disk usage at utility QoS.
     dispatch_queue_t            _cacheQueue;
+    // The store's root, for whichever block on _cacheQueue builds it.
+    NSString                    *_rootPath;
     atomic_uint_fast64_t        _cacheGeneration;
     // Kept here, not only on the loader, so a replacement loader inherits them.
     NSArray<NSURL *>            *_neighborhood;
@@ -62,26 +64,43 @@
         _loadingConfiguration = [[AudioLoadingConfiguration productionConfiguration] copy];
         _currentLoader = nil;
         _parseCoordinator = [[MetadataParseCoordinator alloc] init];
+        _rootPath = [rootPath copy];
         _cacheQueue = dispatch_queue_create("vibe-libs.metadata.cache",
                 dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
         // Off main: constructing on main boosts PINCache's init-time disk scan
         // to user-initiated, which priority-inverts against the utility
-        // workers. A load before this lands waits for it (metadataCache).
+        // workers. A load before this lands builds or waits for it
+        // (metadataCache).
         dispatch_async(_cacheQueue, ^{
-            self.store = [PINCache audioCacheWithName:AudioTrackMetadataCache.cacheName rootPath:rootPath];
+            [self storeOnQueue];
         });
     }
     return self;
 }
 
+// On _cacheQueue. The first block to ask builds the store, so nothing depends
+// on which block the queue runs first. A block on the queue calls this, never
+// metadataCache, whose dispatch_sync would deadlock there.
+- (PINCache *)storeOnQueue {
+    PINCache *store = self.store;
+    if (!store) {
+        store = [PINCache audioCacheWithName:AudioTrackMetadataCache.cacheName rootPath:_rootPath];
+        self.store = store;
+    }
+    return store;
+}
+
 - (PINCache *)metadataCache {
     PINCache *store = self.store;
     if (!store) {
-        // The build is the queue's first block, so it has run once this
-        // returns. dispatch_sync lends it the reader's QoS. On the queue
-        // itself the store already exists, so this never waits there.
-        dispatch_sync(_cacheQueue, ^{});
-        store = self.store;
+        // dispatch_sync lends the reader's QoS to the queue, and so to the
+        // build. A group wait lends none. A block wait allows one waiter, and
+        // several workers may wait here at once.
+        __block PINCache *built = nil;
+        dispatch_sync(_cacheQueue, ^{
+            built = [self storeOnQueue];
+        });
+        store = built;
     }
     return store;
 }
@@ -96,10 +115,9 @@
 }
 
 - (void)invalidateWithCompletion:(dispatch_block_t)completion {
-    // Serial behind init's construction, so metadataCache is set.
     dispatch_async(_cacheQueue, ^{
         atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
-        [self.metadataCache removeAllObjects];
+        [[self storeOnQueue] removeAllObjects];
         if (completion) {
             completion();
         }
@@ -108,7 +126,7 @@
 
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
     dispatch_async(_cacheQueue, ^{
-        [self.metadataCache audioDiskUsageWithCompletion:completion];
+        [[self storeOnQueue] audioDiskUsageWithCompletion:completion];
     });
 }
 

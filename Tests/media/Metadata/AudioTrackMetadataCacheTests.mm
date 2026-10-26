@@ -98,4 +98,21 @@
     reopened.delegate = nil;
 }
 
+// The store's name carries its version as DiskCache's removal reads it, so a
+// format bump removes the old store and keeps the current one.
+- (void)testTheStoreNameFollowsTheVersionRule {
+    NSString *root = [_dir URLByAppendingPathComponent:@"stores"].path;
+    NSString *current = [@"com.pinterest.PINDiskCache." stringByAppendingString:AudioTrackMetadataCache.cacheName];
+    for (NSString *store in @[current, @"com.pinterest.PINDiskCache.Audio Track Metadata v1"]) {
+        XCTAssertTrue([NSFileManager.defaultManager createDirectoryAtPath:[root stringByAppendingPathComponent:store]
+                                              withIntermediateDirectories:YES attributes:nil error:nil]);
+    }
+    XCTestExpectation *removed = [self expectationWithDescription:@"removed"];
+    [PINCache removeOtherAudioCacheVersionsKeeping:@[AudioTrackMetadataCache.cacheName] rootPath:root completion:^{
+        [removed fulfill];
+    }];
+    [self waitForExpectations:@[removed] timeout:VIBE_TEST_HANG_TIMEOUT];
+    XCTAssertEqualObjects([NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:nil], @[current]);
+}
+
 @end
