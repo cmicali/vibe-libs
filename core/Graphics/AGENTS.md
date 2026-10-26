@@ -1,6 +1,6 @@
 # core/Graphics
 
-Images, colors, and type for an app on either platform. It depends on nothing. **Today it holds what Vibe moved here**: the platform aliases, the bounded image decode, the hex and blend colors, the dominant color, the OKLCH clamp, the dark-mode helpers, the blur, and the typography table.
+Images, colors, and type for an app on either platform. It depends on nothing. It holds the platform aliases, the bounded image decode, the hex and blend colors, the dominant color, the OKLCH clamp, the dark-mode helpers, the blur, and the typography table. It came from Vibe.
 
 ## Shared
 

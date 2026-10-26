@@ -1,6 +1,6 @@
 # files/FileLoading
 
-From a path to bytes an app can read. The file may be local, a cloud placeholder that must download first, a file still downloading, or a file on a slow network share. Every request for one file shares one download and one open. The file the user is waiting on goes first, and background reads step aside. It depends on `core/Common` and on `audio/AudioTypes`, for the extensions whose tags read by range. **Today it holds what Vibe moved here.** None of it reads an app's settings, strings, or types. It never names the handle it serves. The app's opener makes the handle.
+From a path to bytes an app can read. The file may be local, a cloud placeholder that must download first, a file still downloading, or a file on a slow network share. Every request for one file shares one download and one open. The file the user is waiting on goes first, and background reads step aside. It depends on `core/Common` and on `audio/AudioTypes`, for the extensions whose tags read by range. It came from Vibe. None of it reads an app's settings, strings, or types. It never names the handle it serves. The app's opener makes the handle.
 
 `Claim/` decides which open runs, and when. `Transfer/` moves the bytes and reports how far they have come. `PlaceholderFiles` and the fake cloud sit at the top, because both groups ask them.
 
@@ -24,6 +24,14 @@ From a path to bytes an app can read. The file may be local, a cloud placeholder
 | `VibeFakeCloud` and the five `+Debug` seams | the fake file provider and its injection points (The fake cloud, below) |
 
 The player's side of an open, the deadline, progress identity, and prefetch, is in `audio/Player/AGENTS.md`. Vibe's `docs/file-loading-spec.md` states the behavior it observes. Vibe's root `AGENTS.md` keeps three guarantees this piece implements: the foreground open outranks background downloads, the six-run handle ceiling, and a row shows the loading bar only while a transfer is running.
+
+The comments here cite five of that spec's lettered items. In short:
+
+- **A2.** At most one materialization exists per standardized path. Every interested party joins it.
+- **B4.** A timed-out open stops with no auto-resume. Its file returns to the metadata sweep at its ordinary rank, and is not chased.
+- **C3.** A metadata request for the file playback is downloading joins that materialization.
+- **C6.** When the foreground hold rises, a running scan transfer is cancelled, not waited out. The yield spends no retry budget.
+- **J8.** A transfer lane ends when its materialization settles, never with the handle open. Handle runs are bounded apart, at six (Admission has two lifetimes, below).
 
 ## Placeholder files
 

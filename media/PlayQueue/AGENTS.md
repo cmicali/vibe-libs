@@ -1,6 +1,6 @@
 # media/PlayQueue
 
-The play queue: an order over an app's own entries, with repeat, shuffle, and what follows a track's end. It depends on nothing, not even `core/Common`, since nothing here logs. Beside Foundation, its only import is its own `RepeatMode.h`. **Today it holds what Vibe moved here.** None of it reads an app's settings, strings, or types. It opens no file and touches no player.
+The play queue: an order over an app's own entries, with repeat, shuffle, and what follows a track's end. It depends on nothing, not even `core/Common`, since nothing here logs. Beside Foundation, its only import is its own `RepeatMode.h`. It came from Vibe. None of it reads an app's settings, strings, or types. It opens no file and touches no player.
 
 | File | Owns |
 | --- | --- |

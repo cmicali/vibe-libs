@@ -1,6 +1,6 @@
 # tools/strings
 
-An app's strings extraction and catalog checks. **It is scripts, not code an app compiles**, so it has no template and no targets. An app runs the scripts from its checkout of this repo and passes its own config file. They came from Vibe. They run on a Mac with Xcode's command line tools and `jq`, under the system's bash 3.2.
+An app's strings extraction and catalog checks. **It is scripts, not code an app compiles**, so it has no template and no targets. An app runs the scripts from its checkout of this repo and passes its own config file. It came from Vibe. The scripts run on a Mac with Xcode's command line tools and `jq`, under the system's bash 3.2.
 
 | Script | What it does |
 | --- | --- |

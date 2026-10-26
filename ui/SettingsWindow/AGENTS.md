@@ -1,6 +1,6 @@
 # ui/SettingsWindow
 
-A settings window in the System Settings shape, for a mac app. It depends on `ui/Controls` and `core/Graphics`, and on `core/Common` for `NSString+FormLabel`. **Today it holds what Vibe moved here, and it is macOS only**: the generic window, its sidebar, the pane base, the form views, and the walker's debug seam. They sit in its `Mac/` half. None reads an app's settings, strings, or types. An app pushes in its panes, its strings, and what a change does.
+A settings window in the System Settings shape, for a mac app. It depends on `ui/Controls` and `core/Graphics`, and on `core/Common` for `NSString+FormLabel`. It holds the generic window, its sidebar, the pane base, the form views, and the walker's debug seam. It came from Vibe. **It is macOS only.** Its files sit in its `Mac/` half. None reads an app's settings, strings, or types. An app pushes in its panes, its strings, and what a change does.
 
 ## How an app uses it
 

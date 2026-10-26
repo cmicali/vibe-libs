@@ -1,6 +1,6 @@
 # audio/OutputDevices
 
-What an app plays through, found and described. On the mac it is the HAL's output devices: the list, their names and identifiers, rates, formats, volume, and exclusive use. On iOS it is the audio session and its routes. It knows nothing about a player. It depends only on `core/Common`, for the log macros and the retry scheduler's type. **Today it holds what Vibe moved here.** None of it reads an app's settings, strings, or types.
+What an app plays through, found and described. On the mac it is the HAL's output devices: the list, their names and identifiers, rates, formats, volume, and exclusive use. On iOS it is the audio session and its routes. It knows nothing about a player. It depends only on `core/Common`, for the log macros and the retry scheduler's type. It came from Vibe. None of it reads an app's settings, strings, or types.
 
 There are no shared files. The two halves have nothing in common but their job, since the HAL and `AVAudioSession` share no API.
 

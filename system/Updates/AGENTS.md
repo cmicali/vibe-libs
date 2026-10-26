@@ -1,6 +1,6 @@
 # system/Updates
 
-Sparkle for a mac app that is downloaded directly and updates itself. It depends on `third_party/Sparkle`, the prebuilt framework. **It is macOS only**, and its files sit in its `Mac/` half. **Today it holds what Vibe moved here.** None of it reads an app's settings, strings, or launch arguments. The app passes them in.
+Sparkle for a mac app that is downloaded directly and updates itself. It depends on `third_party/Sparkle`, the prebuilt framework. **It is macOS only**, and its files sit in its `Mac/` half. It came from Vibe. None of it reads an app's settings, strings, or launch arguments. The app passes them in.
 
 | File | Owns |
 | --- | --- |

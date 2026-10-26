@@ -1,6 +1,6 @@
 # audio/Analysis
 
-Tempo and musical key from mono PCM. It depends on `audio/AudioTypes` alone, for the key. **Today it holds what Vibe moved here**: `AudioBPMAnalyzer` and `AudioKeyAnalyzer`, in Objective-C++ over Accelerate, and `AnalysisFramerMath.h`, the stream framer both run behind. Nothing here logs.
+Tempo and musical key from mono PCM. It depends on `audio/AudioTypes` alone, for the key. It holds `AudioBPMAnalyzer` and `AudioKeyAnalyzer`, in Objective-C++ over Accelerate, and `AnalysisFramerMath.h`, the stream framer both run behind. It came from Vibe. Nothing here logs.
 
 ## How an app uses it
 

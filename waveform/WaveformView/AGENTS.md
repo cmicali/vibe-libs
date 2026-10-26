@@ -1,6 +1,6 @@
 # waveform/WaveformView
 
-The views that host a waveform renderer. It depends on `waveform/WaveformStyles` for the renderers, the registry, the morph engine, the theme, and the zoom math, on `waveform/Waveform` for the summary, on `ui/Controls` for the loading indicator, on `core/Graphics` for the appearance helpers, and on `core/Common` for the signpost and tally macros. **Today it holds what Vibe moved here**: the mac view in its `Mac/` half, the iOS scrubber in its `iOS/` half, and the accessibility contract both share. It names no app type. It reads no setting and no string. It loads nothing: the app owns the loader and hands each view what to draw.
+The views that host a waveform renderer. It depends on `waveform/WaveformStyles` for the renderers, the registry, the morph engine, the theme, and the zoom math, on `waveform/Waveform` for the summary, on `ui/Controls` for the loading indicator, on `core/Graphics` for the appearance helpers, and on `core/Common` for the signpost and tally macros. It holds the mac view in its `Mac/` half, the iOS scrubber in its `iOS/` half, and the accessibility contract both share. It came from Vibe. It names no app type. It reads no setting and no string. It loads nothing: the app owns the loader and hands each view what to draw.
 
 | File | Owns |
 | --- | --- |
@@ -212,7 +212,7 @@ A drag moves the content 1:1 under the fixed center, with no hover highlight. A 
 
 ## Tests
 
-`Tests/waveform/WaveformView/Mac/` holds the mac view's tests, which came from Vibe with the code. `WaveformViewTests` draws the real view into a bitmap with no window server, through `Tests/Support/DrawnViewTestSupport.h`, over waveforms built bin by bin through `Tests/Support/WaveformTestSupport.h`. It checks what the view adds over the renderers: the theme it resolves through a provider of the test's own, the playhead line, the three states, the click and the seeking drag, and the accessibility steps. `WaveformViewProbe.m` compiles the mac view's seam.
+`Tests/waveform/WaveformView/Mac/` holds Vibe's tests of the mac view. `WaveformViewTests` draws the real view into a bitmap with no window server, through `Tests/Support/DrawnViewTestSupport.h`, over waveforms built bin by bin through `Tests/Support/WaveformTestSupport.h`. It checks what the view adds over the renderers: the theme it resolves through a provider of the test's own, the playhead line, the three states, the click and the seeking drag, and the accessibility steps. `WaveformViewProbe.m` compiles the mac view's seam.
 
 The scrubber needs a window, a simulator, and touches, so its tests stay in Vibe, which hosts them in its iOS app. The minimal consumer lays the mac view out with a tone's summary and reads back that both sides drew.
 

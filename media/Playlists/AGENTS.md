@@ -1,6 +1,6 @@
 # media/Playlists
 
-CUE sheets, also embedded in FLAC, and M3U playlists, read and written as records. It depends on `audio/AudioTypes`, for the playable extensions and the CD frame rate, and on `core/Common`, for the path spelling. Nothing here logs. **Today it holds what Vibe moved here.** None of it reads an app's settings, strings, or types.
+CUE sheets, also embedded in FLAC, and M3U playlists, read and written as records. It depends on `audio/AudioTypes`, for the playable extensions and the CD frame rate, and on `core/Common`, for the path spelling. Nothing here logs. It came from Vibe. None of it reads an app's settings, strings, or types.
 
 | File | Owns |
 | --- | --- |

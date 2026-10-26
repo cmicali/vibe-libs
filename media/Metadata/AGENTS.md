@@ -1,6 +1,6 @@
 # media/Metadata
 
-The tag record and its CoreAudio fallback, the disk cache of tags, the background scan, embedded art and the shared row thumbnails, and covers beside the files. **Today it holds Vibe's metadata pipeline, moved from Vibe** with the cache's and the loader's debug seams. It depends on `core/Common`, `audio/AudioTypes` for the playable item and the format names, `audio/Decode` for the fallback's handle, `media/Tags` for the TagLib parse, `files/DiskCache` for the store, `files/FileLoading` for the materialization and the ranged read, `core/Graphics` for the image helpers, and `third_party/taglib` and `third_party/PINCache`, whose own headers the parse and the cache read. It reads no app's settings, strings, or types. It builds on both platforms, and no file needs a platform half.
+The tag record and its CoreAudio fallback, the disk cache of tags, the background scan, embedded art and the shared row thumbnails, and covers beside the files. It holds the metadata pipeline, with the cache's and the loader's debug seams. It came from Vibe. It depends on `core/Common`, `audio/AudioTypes` for the playable item and the format names, `audio/Decode` for the fallback's handle, `media/Tags` for the TagLib parse, `files/DiskCache` for the store, `files/FileLoading` for the materialization and the ranged read, `core/Graphics` for the image helpers, and `third_party/taglib` and `third_party/PINCache`, whose own headers the parse and the cache read. It reads no app's settings, strings, or types. It builds on both platforms, and no file needs a platform half.
 
 **What an app gives it.** Its items, any object adopting `AudioTrackMetadataHolder` (below). A cache root, or nil for the user's Caches directory. Folder art's two answers, its switch and its access check, as blocks (Folder art, below). The tracks near the one playing, as they change. How Vibe's shells drive it, and the guarantees Vibe states over it, are Vibe's `Audio/AGENTS.md`.
 
@@ -21,7 +21,17 @@ The tag record and its CoreAudio fallback, the disk cache of tags, the backgroun
 - `AlbumGroupingRules.h` is which album a track belongs to (The tag fields, below).
 - `Artwork/FolderArt/` is the cover fallback (Folder art, below).
 
-**Do not add a runner, driver or second coordinator.** Straight-line metadata work goes in the loader, per-row art work in `AudioTrackArtwork`. The lettered items the comments cite (`spec A1`, `J4`, `J6`) are Vibe's `docs/file-loading-spec.md`'s.
+**Do not add a runner, driver or second coordinator.** Straight-line metadata work goes in the loader, per-row art work in `AudioTrackArtwork`.
+
+The comments cite seven lettered items of Vibe's `docs/file-loading-spec.md`. In short:
+
+- **A1.** A local file never starts a transfer. Every rule that bounds or suspends downloads exempts it.
+- **C3.** A metadata request for the file playback is downloading joins that materialization. A remote tag parse reads by range instead.
+- **D3.** The current track's tags and art come ahead of the sweep, at user-initiated priority.
+- **D7.** Retries are per path and driven by results. A yield spends nothing. A failure spends one attempt of the path's budget. Success clears what the path spent. A path that spends its whole budget is dropped until a fresh playlist load.
+- **D10.** Opening or replacing a playlist drops the old sweep outright: its pending records, its transfer, and its strong references to the old tracks.
+- **J4.** The sweep submits no dataless record while the foreground rule holds, even the file playback is downloading. The current track's request submits and joins that claim instead.
+- **J6.** An art request past the bound is dropped before it marks its row pending. The next redraw asks again.
 
 ## The scan
 

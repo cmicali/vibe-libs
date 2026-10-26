@@ -1,6 +1,6 @@
 # audio/FX
 
-The DJ chain over Apple's audio units, run in place inside a host's render. It depends on `audio/DSP`, for the stereo buffer list and the fade steps its gates take, and on `core/Common`. **Today it holds what Vibe moved here.** None of it reads an app's settings, strings, or types.
+The DJ chain over Apple's audio units, run in place inside a host's render. It depends on `audio/DSP`, for the stereo buffer list and the fade steps its gates take, and on `core/Common`. It came from Vibe. None of it reads an app's settings, strings, or types.
 
 | File | Owns |
 | --- | --- |

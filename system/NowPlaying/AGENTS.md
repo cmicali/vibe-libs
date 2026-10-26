@@ -1,6 +1,6 @@
 # system/NowPlaying
 
-The bridge to the system's Now Playing info and remote commands, over MediaPlayer's `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`. It publishes what is playing and takes transport commands back. It owns no playback state. It depends on `core/Graphics` for the image alias and the mac's artwork resize, on `media/PlayQueue` for the repeat mode, and on `core/Common` for the log and main-thread macros. **Today it holds what Vibe moved here.** None of it reads an app's settings, strings, or types. It builds on both platforms.
+The bridge to the system's Now Playing info and remote commands, over MediaPlayer's `MPNowPlayingInfoCenter` and `MPRemoteCommandCenter`. It publishes what is playing and takes transport commands back. It owns no playback state. It depends on `core/Graphics` for the image alias and the mac's artwork resize, on `media/PlayQueue` for the repeat mode, and on `core/Common` for the log and main-thread macros. It came from Vibe. None of it reads an app's settings, strings, or types. It builds on both platforms.
 
 | File | Owns |
 | --- | --- |

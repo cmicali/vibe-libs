@@ -1,6 +1,6 @@
 # audio/DSP
 
-Realtime signal stages a render can host, the math they share, and the resampler a decode runs. **Today it holds `AudioVarispeed`**, the pitch fader's stage, **`FadeMath.h`**, the fades, **and `AudioResampler`**. All three came from Vibe. The FX math and the band math went to `audio/FX` and `audio/Meter`, their only users. The analysis framing went to `audio/Analysis`, its only user. It depends on `third_party/r8brain` for the resampler.
+Realtime signal stages a render can host, the math they share, and the resampler a decode runs. It holds `AudioVarispeed`, the pitch fader's stage, `FadeMath.h`, the fades, and `AudioResampler`. It came from Vibe. The FX math and the band math went to `audio/FX` and `audio/Meter`, their only users. The analysis framing went to `audio/Analysis`, its only user. It depends on `third_party/r8brain` for the resampler.
 
 ## AudioVarispeed
 

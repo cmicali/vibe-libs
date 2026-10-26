@@ -1,6 +1,6 @@
 # audio/AudioTypes
 
-The words every audio piece shares, so a piece that needs one of them needs neither Decode nor Analysis. **Today it holds** the playable-item protocol, the CUE window math, the musical key, the file format names, and the playable extensions. All of it came from Vibe. It depends on nothing, not even `core/Common`, since no file here logs. Each file imports only Foundation, and the format names import `CoreAudioTypes` too.
+The words every audio piece shares, so a piece that needs one of them needs neither Decode nor Analysis. It holds the playable-item protocol, the CUE window math, the musical key, the file format names, and the playable extensions. It came from Vibe. It depends on nothing, not even `core/Common`, since no file here logs. Each file imports only Foundation, and the format names import `CoreAudioTypes` too.
 
 ## The playable item
 

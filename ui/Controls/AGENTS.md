@@ -1,6 +1,6 @@
 # ui/Controls
 
-Controls an app draws itself. It depends on `core/Graphics`, and on `core/Common` for the weak proxy and the helper macros. **Today it holds what Vibe moved here.** Its shared files are the equalizer bars and the loading indicator, which both platforms draw the same way. Its `Mac/` half holds the symbol button, the drawn slider and switch, the detent slider, the pitch fader and its panel, two image views, the link label, and the window resize timing. None of it reads an app's settings, strings, or types.
+Controls an app draws itself. It depends on `core/Graphics`, and on `core/Common` for the weak proxy and the helper macros. It came from Vibe. Its shared files are the equalizer bars and the loading indicator, which both platforms draw the same way. Its `Mac/` half holds the symbol button, the drawn slider and switch, the detent slider, the pitch fader and its panel, two image views, the link label, and the window resize timing. None of it reads an app's settings, strings, or types.
 
 | File | Owns |
 | --- | --- |

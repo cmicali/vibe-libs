@@ -1,6 +1,6 @@
 # media/Tags
 
-TagLib's fields and embedded art bytes. It depends on `third_party/taglib`, on `audio/AudioTypes` for the format names, and on `core/Common` for the log macros. **Today it holds what Vibe moved here**: `TagLibAudioFile`, Vibe's TagLib wrapper, in Objective-C++. It reads no app's settings, strings, or types.
+TagLib's fields and embedded art bytes. It depends on `third_party/taglib`, on `audio/AudioTypes` for the format names, and on `core/Common` for the log macros. It holds `TagLibAudioFile`, the TagLib wrapper, in Objective-C++. It came from Vibe. It reads no app's settings, strings, or types.
 
 `media/Metadata`'s parse is its one user. It reads the title, the artist, the audio properties, and every tag field from the wrapper's `TagLib::File` (`media/Metadata/AGENTS.md`, The tag fields). What it does with them, the cache, the scan, and the artwork, is `media/Metadata/AGENTS.md`.
 

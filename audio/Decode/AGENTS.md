@@ -1,6 +1,6 @@
 # audio/Decode
 
-One opened audio file, read as PCM. **Today it holds `AudioFileHandle`**, Vibe's file handle, moved from Vibe with its MPEG and stream decodes and its read-ahead seam. It depends on `core/Common`, on `files/FileLoading` for a stream's and a read-ahead's bytes, and on the four decoders it hosts: `third_party/dr_mp3`, `dr_flac`, `dr_wav`, and `vorbis`. Its surface is `AVAudioFile`'s: the file's facts, a cursor in file frames, and reads into a PCM buffer. It also writes, through an `ExtAudioFile`, so an app's converter and its test fixtures share the class. It reads no app's settings, strings, or types.
+One opened audio file, read as PCM. It holds `AudioFileHandle`, the file handle, with its MPEG and stream decodes and its read-ahead seam. It came from Vibe. It depends on `core/Common`, on `files/FileLoading` for a stream's and a read-ahead's bytes, and on the four decoders it hosts: `third_party/dr_mp3`, `dr_flac`, `dr_wav`, and `vorbis`. Its surface is `AVAudioFile`'s: the file's facts, a cursor in file frames, and reads into a PCM buffer. It also writes, through an `ExtAudioFile`, so an app's converter and its test fixtures share the class. It reads no app's settings, strings, or types.
 
 `audio/Player`, `waveform/WaveformLoading`'s loader, and `media/Metadata`'s CoreAudio fallback each open one, and so may an app's own code. What a player does with a handle, its voices, its fades, and its deadline, is `audio/Player/AGENTS.md`. `docs/audio-quality.md` in Vibe has the measurements behind each decoder choice.
 

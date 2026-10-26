@@ -1,6 +1,6 @@
 # files/SandboxAccess
 
-A sandboxed mac app's folder grants. It keeps every folder the user opens, drops, or adds as an app-scoped security bookmark, starts their scopes again at launch, and answers whether a directory is readable before anything touches the disk. It depends only on `core/Common`, for the path spelling and the log and main-thread macros. **Today it holds what Vibe moved here, and it is macOS only.** Its files sit in its `Mac/` half. None reads an app's settings, strings, or types.
+A sandboxed mac app's folder grants. It keeps every folder the user opens, drops, or adds as an app-scoped security bookmark, starts their scopes again at launch, and answers whether a directory is readable before anything touches the disk. It depends only on `core/Common`, for the path spelling and the log and main-thread macros. It came from Vibe. **It is macOS only.** Its files sit in its `Mac/` half. None reads an app's settings, strings, or types.
 
 | File | Owns |
 | --- | --- |
