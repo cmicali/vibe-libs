@@ -7,7 +7,8 @@
 #import "VibeMacros.h"
 
 // generate-git-info.sh writes it, in a pre-build phase of the app's. Without
-// it, the git fields read as unknown.
+// it, the git fields read as unknown. TRAP: an app that runs the script but
+// drops the search path also reads unknown, with no error.
 #if __has_include("VibeGitInfo.h")
 #import "VibeGitInfo.h"
 #else

@@ -147,7 +147,7 @@ VibeVarispeed *VibeVarispeedCreate(uint32_t channels, uint32_t maxFrames) {
         free(stage);
         return NULL;
     }
-    // TRAP: vDSP_vclr, not memset: clang drops a memset(0) after calloc (the app's voice bus's pre-touch).
+    // TRAP: vDSP_vclr, not memset: clang drops a memset(0) after calloc (audio/Player's voice bus's pre-touch).
     vDSP_vclr(stage->ring[0], 1, (vDSP_Length)capacity * 2);
     stage->ring[1] = stage->ring[0] + capacity;
     stage->mask = capacity - 1;

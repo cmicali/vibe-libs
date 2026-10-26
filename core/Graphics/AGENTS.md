@@ -6,7 +6,7 @@ Images, colors, and type for an app on either platform. It depends on nothing. I
 
 `PlatformTypes.h` defines `VibeImage` and `VibeColor`. They are `NSImage` and `NSColor` on macOS, and `UIImage` and `UIColor` on iOS. A model header can then carry an image without importing AppKit or UIKit. **Do not add aliases for their own sake.**
 
-`PlatformImage.h` and `PlatformColor.h` hold free functions over a foreign class. The class differs per platform, so there is no single class to hang a category on. Everything else here is a category.
+`PlatformImage.h` and `PlatformColor.h` hold free functions over a foreign class. The class differs per platform, so there is no single class to hang a category on. Everything else here is a category, except `Fonts`, which is a class of its own.
 
 - `VibeDecodedImageWithData` is the bounded ImageIO decode. It never materializes the full-size bitmap. It takes 10 to 100 ms, so keep it off the main thread.
 - `VibeDominantColorOfImage` is a weighted hue histogram over a fixed 32×32 downsample, so its cost does not depend on the image's size. **It works in a CoreGraphics bitmap context of its own**, not in either platform's bitmap type. `NSBitmapImageRep` and `UIImage`'s backing store share no layout, so one implementation serves both. `NSImage (Util)`'s `dominantColor` and `UIImage (VibeDominantColor)` forward to it.
@@ -28,4 +28,4 @@ Images, colors, and type for an app on either platform. It depends on nothing. I
 
 ## Tests
 
-`Tests/core/Graphics/Mac/` holds the hex color tests and the image tests: the crop, the resize, the lower band's darkness, and the dominant color. They run on macOS. The iOS target builds the shared files and the iOS half. Vibe's tests of its artwork, themes, and waveform colors exercise the rest through Vibe's own classes, so they stay in Vibe.
+`Tests/core/Graphics/Mac/` holds the hex color tests and the image tests: the crop, the resize, the lower band's darkness, and the dominant color. They run on macOS. The iOS target builds the shared files and the iOS half. Vibe's tests of its artwork, themes, and waveform colors exercise the rest through Vibe's own classes, so they stay in Vibe. The minimal consumer round-trips a color with alpha through its hex form.

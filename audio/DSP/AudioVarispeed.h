@@ -70,7 +70,8 @@ void VibeVarispeedFree(VibeVarispeed *_Nullable stage);
 BOOL VibeVarispeedSetPitch(VibeVarispeed *stage, double percent,
                            VibeVarispeedTable *_Nullable *_Nonnull replaced);
 // Frees `replaced`, and any table kept before, unless the render's last
-// slice used it: that one waits for the next retire. With no render inside.
+// slice used it: that one waits for the next retire. TRAP: call it only
+// with no render inside, which the host decides.
 void VibeVarispeedRetire(VibeVarispeed *stage, VibeVarispeedTable *replaced);
 
 // From any thread, for the reports.
