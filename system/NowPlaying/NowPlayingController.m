@@ -40,6 +40,9 @@ static VibeImage *_Nullable VibeArtworkForPublishing(VibeImage *artwork) {
 #endif
 }
 
+@implementation VibeNowPlayingRecord
+@end
+
 @implementation NowPlayingController {
     __weak id<NowPlayingControllerDelegate> _delegate;
 
@@ -282,7 +285,7 @@ static VibeImage *_Nullable VibeArtworkForPublishing(VibeImage *artwork) {
 
 #pragma mark - Now Playing info
 
-- (void)updateWithRecord:(VibeNowPlayingRecord)record {
+- (void)updateWithRecord:(VibeNowPlayingRecord *)record {
     // Before the first publish too: enabling a command claims nothing.
     if (record.hasNext != _publishedHasNext || record.hasPrevious != _publishedHasPrevious) {
         _commandAvailability(record.hasNext, record.hasPrevious);

@@ -19,7 +19,7 @@ NS_ASSUME_NONNULL_BEGIN
     AudioTrackMetadataLoader*   _currentLoader;
 }
 // The store, built on the cache's queue after init. A read before it exists
-// waits for it, so every lookup and write reaches it.
+// builds it or waits for it there, so every lookup and write reaches it.
 @property (nonatomic, readonly) PINCache *metadataCache;
 // Bumped by invalidation. A parse captures it at start, skips its write if it
 // moved and rechecks after, or a parse in flight during Clear Cache would

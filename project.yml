@@ -9,7 +9,7 @@ include:
   - path: vibe-libs.yml
 
 options:
-  bundleIdPrefix: com.commonwealthrecordings.vibelibs
+  bundleIdPrefix: vibe-libs
   deploymentTarget:
     macOS: "13.0"
     iOS: "26.0"
