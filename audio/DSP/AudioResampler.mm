@@ -10,7 +10,7 @@
 #include <new>
 #include <vector>
 
-// The most one input call answers, the size of the app's decode chunk.
+// The most one input call answers, the size of audio/Player's decode chunk.
 static const int kVibeMaxInput = 4096;
 // The 24-bit preset (180 dB stopband) with a 1% transition band, half
 // upstream's default: −0.1 dB at 21.72 kHz from 44.1, for about 20% more cost.

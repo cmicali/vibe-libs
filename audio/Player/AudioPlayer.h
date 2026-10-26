@@ -83,7 +83,8 @@ NS_ASSUME_NONNULL_BEGIN
 // the system default, and an unmatched one stays pending. Discovery never
 // blocks the player queue; a match binds only where
 // VibeCanBindSavedOutputDevice (AudioPlayer+DevicesInternal.h) allows, commits only
-// after the bind succeeds, and later eligible transitions retry it.
+// once the synchronous rebuild accepts the selection, and later eligible
+// transitions retry it.
 - (instancetype)initWithDeviceUID:(NSString *)deviceUID name:(NSString *)deviceName
                          enableFX:(BOOL)enableFX delegate:(id <AudioPlayerDelegate>)delegate;
 

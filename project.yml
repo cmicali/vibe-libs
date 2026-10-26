@@ -35,8 +35,8 @@ settings:
 # its template.
 targets:
   # core/Common, tested on macOS. Verbose logging and the signposts are on, as
-  # in Vibe's Debug builds, so the stall sampler and the work tally compile and
-  # run. The hang bounds match Vibe's.
+  # in Vibe's Debug builds, so the stall sampler compiles, and the work tally
+  # compiles and runs. The hang bounds match Vibe's.
   CommonTests:
     type: bundle.unit-test
     platform: macOS
