@@ -19,27 +19,36 @@
 static VibeDebugChannelExecutor gRunning;
 static NSString *const kChannel = @"vibe-libs.debugchannel.tests";
 
-static void InstallChannelOnce(void) {
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        VibeInstallDebugCommandChannel(kChannel, ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
-            return gRunning(args, commandId);
-        });
-    });
-}
+// The install is a launch. What it did with the two commands it found.
+static NSString *gEarlyReply;
+static BOOL gStaleSwept;
+static BOOL gStaleRan;
 
 static id JSONObject(NSString *json) {
-    return [NSJSONSerialization JSONObjectWithData:[json dataUsingEncoding:NSUTF8StringEncoding] options:0 error:nil];
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    return data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
 }
 
-// Writes the payload as a client does, renamed into place, then posts the
-// wake-up and spins main until the reply lands. Returns the reply, or nil.
-static NSString *Send(NSData *payload, NSString *commandId) {
+// Writes the payload as a client does, renamed into place.
+static NSString *WritePayload(NSData *payload, NSString *commandId) {
     NSString *path = VibeDebugCommandPath(kChannel, commandId);
     NSString *part = [path stringByAppendingString:@".part"];
     [payload writeToFile:part atomically:NO];
     [NSFileManager.defaultManager moveItemAtPath:part toPath:path error:nil];
+    return path;
+}
+
+static NSString *WriteCommand(NSArray *args, NSString *commandId) {
+    NSData *payload = [NSJSONSerialization dataWithJSONObject:@{@"id": commandId, @"args": args} options:0 error:nil];
+    return WritePayload(payload, commandId);
+}
+
+static void Post(void) {
     notify_post(VibeDebugCommandNotificationName(kChannel).UTF8String);
+}
+
+// Spins main until the reply lands. Returns the reply, or nil.
+static NSString *AwaitReply(NSString *commandId) {
     NSString *responsePath = VibeDebugResponsePath(kChannel, commandId);
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
     while (![NSFileManager.defaultManager fileExistsAtPath:responsePath] && deadline.timeIntervalSinceNow > 0) {
@@ -47,14 +56,45 @@ static NSString *Send(NSData *payload, NSString *commandId) {
     }
     NSString *reply = [NSString stringWithContentsOfFile:responsePath encoding:NSUTF8StringEncoding error:nil];
     [NSFileManager.defaultManager removeItemAtPath:responsePath error:nil];
-    [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+    [NSFileManager.defaultManager removeItemAtPath:VibeDebugCommandPath(kChannel, commandId) error:nil];
     return reply;
+}
+
+static NSString *Send(NSData *payload, NSString *commandId) {
+    WritePayload(payload, commandId);
+    Post();
+    return AwaitReply(commandId);
 }
 
 static NSString *SendArgs(NSArray *args) {
     NSString *commandId = NSUUID.UUID.UUIDString;
     NSData *payload = [NSJSONSerialization dataWithJSONObject:@{@"id": commandId, @"args": args} options:0 error:nil];
     return Send(payload, commandId);
+}
+
+// Before the install, a live client writes a command, as one waiting for a
+// launch does. A dead client's command from an earlier run is older than this
+// process.
+static void InstallChannelOnce(void) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSString *earlyId = NSUUID.UUID.UUIDString;
+        WriteCommand(@[@"early"], earlyId);
+        NSString *stale = WriteCommand(@[@"stale"], NSUUID.UUID.UUIDString);
+        [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-86400]}
+                                       ofItemAtPath:stale
+                                              error:nil];
+        gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+            gStaleRan |= [args.firstObject isEqualToString:@"stale"];
+            return VibeJSONString(@{@"verb": args.firstObject});
+        };
+        VibeInstallDebugCommandChannel(kChannel, ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+            return gRunning(args, commandId);
+        });
+        gStaleSwept = ![NSFileManager.defaultManager fileExistsAtPath:stale];
+        gEarlyReply = AwaitReply(earlyId);
+        [NSFileManager.defaultManager removeItemAtPath:stale error:nil];
+    });
 }
 
 - (void)setUp {
@@ -174,6 +214,13 @@ static NSString *SendArgs(NSArray *args) {
 
 #pragma mark - The drain
 
+- (void)testALaunchAnswersALiveClientsEarlyCommandAndSweepsADeadOnes {
+    XCTAssertEqualObjects(JSONObject(gEarlyReply), @{@"verb": @"early"},
+                          @"a command written since the process started is drained at install");
+    XCTAssertTrue(gStaleSwept, @"a command older than the process is swept at install");
+    XCTAssertFalse(gStaleRan, @"and never runs");
+}
+
 - (void)testACommandFileReachesTheExecutorAndItsReplyIsWritten {
     __block NSArray<NSString *> *ran = nil;
     gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
@@ -193,6 +240,48 @@ static NSString *SendArgs(NSArray *args) {
         return nil;
     };
     XCTAssertEqualObjects(JSONObject(SendArgs(@[@"slow"])), @{@"later": @YES});
+}
+
+// A verb runs in a main-queue block, and a run loop it spins services no
+// other. So a command posted meanwhile runs once the verb returns.
+- (void)testACommandPostedWhileAVerbSpinsMainRunsAfterTheVerb {
+    NSString *secondId = NSUUID.UUID.UUIDString;
+    __block BOOL spinning = NO;
+    __block BOOL ranInsideTheSpin = NO;
+    NSMutableArray<NSString *> *ran = [NSMutableArray array];
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        [ran addObject:args.firstObject];
+        ranInsideTheSpin |= spinning;
+        if ([args.firstObject isEqualToString:@"spin"]) {
+            spinning = YES;
+            WriteCommand(@[@"second"], secondId);
+            Post();
+            NSDate *until = [NSDate dateWithTimeIntervalSinceNow:0.3];
+            while (until.timeIntervalSinceNow > 0) {
+                [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:until];
+            }
+            spinning = NO;
+        }
+        return VibeJSONString(@{@"verb": args.firstObject});
+    };
+    XCTAssertEqualObjects(JSONObject(SendArgs(@[@"spin"])), @{@"verb": @"spin"});
+    XCTAssertEqualObjects(JSONObject(AwaitReply(secondId)), @{@"verb": @"second"});
+    XCTAssertFalse(ranInsideTheSpin);
+    XCTAssertEqualObjects(ran, (@[@"spin", @"second"]));
+}
+
+- (void)testTwoCommandsPostedBackToBackAreBothAnswered {
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        return VibeJSONString(@{@"verb": args.firstObject});
+    };
+    NSString *first = NSUUID.UUID.UUIDString;
+    NSString *second = NSUUID.UUID.UUIDString;
+    WriteCommand(@[@"first"], first);
+    Post();
+    WriteCommand(@[@"second"], second);
+    Post();
+    XCTAssertEqualObjects(JSONObject(AwaitReply(first)), @{@"verb": @"first"});
+    XCTAssertEqualObjects(JSONObject(AwaitReply(second)), @{@"verb": @"second"});
 }
 
 // Two unsandboxed apps share one temporary directory. Each drains only its own.

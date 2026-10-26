@@ -8,6 +8,7 @@
 #if DEBUG
 
 #import <notify.h>
+#import <sys/sysctl.h>
 #import "DebugWireFormat.h"
 #import "VibeMacros.h"
 
@@ -99,44 +100,50 @@ static void VibeHandleOneDebugCommandFile(NSString *path) {
 
 // notify_post coalesces back-to-back posts, so one wake-up drains every
 // pending command file.
+// TRAP: call it only from a main-queue block. A verb that spins the run loop
+// inside one services no other main-queue block, so the next client's command
+// waits for the verb to return and never runs inside it.
 static void VibeHandleDebugCommandFiles(void) {
-    // A command can spin the main run loop, which services this handler:
-    // without the guard a second client's command would run reentrantly
-    // inside the first. The deferred pass re-drains once
-    // the outer command finishes. Main thread.
-    static BOOL draining = NO;
-    static BOOL deferred = NO;
-    if (draining) {
-        deferred = YES;
-        return;
-    }
-    draining = YES;
-    do {
-        deferred = NO;
-        NSString *tmpDir = NSTemporaryDirectory();
-        NSString *commandPrefix = VibeDebugFilePrefix(gChannel, @"command");
-        NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:tmpDir error:nil];
-        for (NSString *name in [names sortedArrayUsingSelector:@selector(compare:)]) {
-            if ([name hasPrefix:commandPrefix] && [name hasSuffix:@".json"]) {
-                VibeHandleOneDebugCommandFile([tmpDir stringByAppendingPathComponent:name]);
-            }
+    NSString *tmpDir = NSTemporaryDirectory();
+    NSString *commandPrefix = VibeDebugFilePrefix(gChannel, @"command");
+    NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:tmpDir error:nil];
+    for (NSString *name in [names sortedArrayUsingSelector:@selector(compare:)]) {
+        if ([name hasPrefix:commandPrefix] && [name hasSuffix:@".json"]) {
+            VibeHandleOneDebugCommandFile([tmpDir stringByAppendingPathComponent:name]);
         }
-    } while (deferred);
-    draining = NO;
+    }
 }
 
-// Remove old commands before listening. Replaying a previous run can mutate
-// files. Only this channel's files go. Another app's in the same directory
-// stay.
+// When this process started. Now when the system cannot say, so every file
+// counts as stale.
+static NSDate *VibeProcessStartDate(void) {
+    struct kinfo_proc info;
+    size_t size = sizeof(info);
+    int mib[] = {CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()};
+    if (sysctl(mib, 4, &info, &size, NULL, 0) != 0 || size == 0) {
+        return NSDate.date;
+    }
+    struct timeval start = info.kp_proc.p_starttime;
+    return [NSDate dateWithTimeIntervalSince1970:start.tv_sec + start.tv_usec / 1e6];
+}
+
+// TRAP: only files older than this process go. A dead client's command would
+// replay at the next launch and could change files. A live client's command
+// written between the process start and the install is this run's, and the
+// install drains it. Only this channel's files go. Another app's stay.
 static void VibeSweepStaleChannelFiles(void) {
     NSString *tmpDir = NSTemporaryDirectory();
+    NSDate *started = VibeProcessStartDate();
     NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:tmpDir error:nil];
     for (NSString *name in names) {
         if (([name hasPrefix:VibeDebugFilePrefix(gChannel, @"response")] && [name hasSuffix:@".txt"])
                 || ([name hasPrefix:VibeDebugFilePrefix(gChannel, @"screenshot")] && [name hasSuffix:@".png"])
                 || ([name hasPrefix:VibeDebugFilePrefix(gChannel, @"command")] && [name hasSuffix:@".json"])) {
-            [NSFileManager.defaultManager removeItemAtPath:[tmpDir stringByAppendingPathComponent:name]
-                                                     error:nil];
+            NSString *path = [tmpDir stringByAppendingPathComponent:name];
+            NSDate *modified = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil].fileModificationDate;
+            if (!modified || [modified compare:started] == NSOrderedAscending) {
+                [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+            }
         }
     }
 }
@@ -181,6 +188,21 @@ void VibeInstallDebugCommandChannel(NSString *channel, VibeDebugChannelExecutor 
 #if TARGET_OS_IPHONE
     VibeInstallTmpDirectoryWatcher();
 #endif
+#if TARGET_OS_OSX
+    // TRAP: macOS naps an app whose windows are all hidden and that plays
+    // nothing. Every thread drops to background priority and its timers
+    // stall. On a busy Mac the drain then misses the client's wait. A display
+    // asleep hides every window.
+    static id<NSObject> activity;
+    if (!activity) {
+        activity = [NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep
+                                                                reason:@"debug command channel"];
+    }
+#endif
+    // A command written before the listener existed posted to no one.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        VibeHandleDebugCommandFiles();
+    });
 }
 
 #endif

@@ -26,12 +26,14 @@ extern "C" {
 typedef NSString * _Nullable (^VibeDebugChannelExecutor)(NSArray<NSString *> *args,
                                                          NSString *commandId);
 
-// Names the channel, sweeps its files orphaned by earlier runs, then listens
-// on its notification on the main queue. The name is the app's bundle
+// Names the channel, sweeps its files older than this process, then listens
+// on its notification on the main queue. A command written since the process
+// started is drained on the next main-queue turn. The name is the app's bundle
 // identifier or a name of its own. Every name on the wire derives from it
 // (DebugWireFormat.h). On iOS it also watches the container's tmp directory:
 // the host writes command files straight into it, but a host-side notifyutil
-// posts into the mac's namespace, not the simulator's.
+// posts into the mac's namespace, not the simulator's. On macOS the process
+// holds an activity from then on, so the system never naps it.
 void VibeInstallDebugCommandChannel(NSString *channel, VibeDebugChannelExecutor executor);
 
 // The name the channel was installed under, or nil before. A verb that names
