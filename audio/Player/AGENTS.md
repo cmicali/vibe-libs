@@ -417,7 +417,7 @@ The player's output-recovery category. `AudioPlayerInternal.h` imports its heade
 
 ## Tests
 
-`Tests/audio/Player/` holds Vibe's tests of the player that write their own fixtures. `PlayerTests` runs them on macOS, with the headermap off. It defines `DEBUG` in every configuration, since they drive the seam and the pump.
+`Tests/audio/Player/` holds the player's tests that write their own fixtures. `PlayerTests` runs them on macOS, with the headermap off. It defines `DEBUG` in every configuration, since they drive the seam and the pump.
 
 - `AudioVoiceBusTests` tests the voice bus host-less: the tests own the output buffers and call `VibeVoiceBusRender` with inline decoding, so every frame is compared against its file. `AudioVoiceBusPoolTests` covers starvation, kills and the voice pool. Their harness is `AudioVoiceBusTestCase`, which runs no tests.
 - `ResamplerQualityTests` holds the resampler to its bounds through the voice bus, against `VibeReferenceResample`.

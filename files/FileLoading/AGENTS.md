@@ -213,7 +213,7 @@ The five `+Debug` categories each sit beside the class they open:
 
 ## Tests
 
-`Tests/files/FileLoading/` holds Vibe's tests of every file here, the fake cloud's included. They run on macOS in Debug, with the headermap off, so they prove FileLoading builds and tests alone, with no decoder's header in reach.
+`Tests/files/FileLoading/` holds the tests of every file here, the fake cloud's included. They run on macOS in Debug, with the headermap off, so they prove FileLoading builds and tests alone, with no decoder's header in reach.
 
 - **The coordinator's stage-1 tests** run over a gated dataless probe, hand-completed provider operations, and a clock the test sets. Their harness is `AudioFileMaterializationCoordinatorTestCase`, and their fakes are `Tests/Support/MaterializationTestFakes`. `AudioFileMaterializationCoordinatorTests` covers the path claims, and `…ForegroundTests` the foreground hold.
 - **The stage-2 tests**, `AudioFileMaterializationCoordinatorHandleOpenTests`, open `Tests/Support/VibeTestServedFile`, a served handle with no decoder. A missing or empty file fails with an error, as a real handle's open does. The handle-run ceiling's tests are here. `audio/Decode`'s `AudioFileHandleOpenTests` checks that a real handle is delivered through the coordinator.

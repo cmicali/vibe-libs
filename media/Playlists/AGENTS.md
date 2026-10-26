@@ -45,6 +45,6 @@ These files come from other people's software, so the next two traps are load-be
 
 ## Tests
 
-`Tests/media/Playlists/` holds Vibe's tests of the readers and the writer: the CUE lexing and windows, the encodings, the rungs, the embedded sheet, the M3U round trips, a fuzz suite, and a stress suite of hostile M3U files. They read and write entries. `VibePlaylistFileTestCase` is their harness of temporary folders, with no tests. The embedded-sheet and fuzz tests write their FLAC headers with `Tests/Support/FLACFixtures.h` and draw from `Tests/Support/VibeFuzzRandom.h`. `VIBE_FUZZ_SEED` re-runs one base seed. The minimal consumer writes an M3U, reads it back, and reads a small CUE sheet.
+`Tests/media/Playlists/` holds the tests of the readers and the writer: the CUE lexing and windows, the encodings, the rungs, the embedded sheet, the M3U round trips, a fuzz suite, and a stress suite of hostile M3U files. They read and write entries. `VibePlaylistFileTestCase` is their harness of temporary folders, with no tests. The embedded-sheet and fuzz tests write their FLAC headers with `Tests/Support/FLACFixtures.h` and draw from `Tests/Support/VibeFuzzRandom.h`. `VIBE_FUZZ_SEED` re-runs one base seed. The minimal consumer writes an M3U, reads it back, and reads a small CUE sheet.
 
 What Vibe adds stays in Vibe: its rows made from entries and the session mirror, with their tests. The folder walk's claims are `media/FolderScan`'s.

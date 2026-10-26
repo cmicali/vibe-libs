@@ -20,7 +20,7 @@
     XCTAssertEqual(configuration.localMetadataParseConcurrency, 4u);
     XCTAssertEqual(configuration.prefetchDepth, 1u);
     // The handle-run ceiling is the coordinator's own, not derived from these
-    // (docs/file-loading-spec.md J8).
+    // (J8 in files/FileLoading/AGENTS.md).
     XCTAssertEqual(configuration.maximumInteractiveMaterializations, 3u);
     XCTAssertEqual(configuration.maximumInteractivePendingMaterializations, 1u);
     XCTAssertEqual(configuration.maximumBackgroundPendingMaterializations, 6u);
