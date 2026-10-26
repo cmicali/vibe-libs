@@ -101,7 +101,7 @@ The cache captures the item when the load starts (`_currentLoadTrack`). **The re
 
 Both headers are declaration-only, with no `#if DEBUG`. Each implementation wraps its body in `#if DEBUG`, so a release build ships none of it.
 
-- **`AudioWaveformCache+Debug.h`** paces every decode that starts after it is set (`debugDecodeSeconds`), so a view's progressive fill-in can be watched on any file. The loader reads it in a debug build. It also decodes, dumps, and clears one item's entry through the normal lookup-or-decode path, without touching the current load. The app makes the item. A cue row's entry is its window's, keyed and decoded as a load's is.
+- **`AudioWaveformCache+Debug.h`** paces every decode that starts after it is set (`debugDecodeSeconds`), so a view's progressive fill-in can be watched on any file. The loader reads it in a debug build. It also decodes, dumps, and clears one item's entry through the normal lookup-or-decode path, without touching the current load. The app makes the item. A dump reads the columns it is asked for, or 8,192 for 0: each one's peaks, its loudest window, and each band's. A cue row's entry is its window's, keyed and decoded as a load's is.
 - **`AudioWaveformLoader+Debug.h`** is `AudioLoadTiming`: each pass's phase timings, recorded by the loader in a debug build and read afterwards, since a pass has no reply path. The phases are the read, the mix and the summary, each observer's appends and finish, and the whole pass. They can sum past the whole, since the read is pipelined against the rest. The loader's clock reads 0 in Release, so its call sites need no `#if`.
 
 ## Tests
