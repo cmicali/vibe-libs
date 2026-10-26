@@ -1164,15 +1164,43 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     XCTAssertEqualObjects(verdicts, @[@(VibeFolderScanVerdictComplete)]);
 }
 
-// The fake cloud counts every download its files ask for. Under either
-// policy the scan reads nothing that is a placeholder: a placeholder sheet is
-// a file, and a placeholder FLAC is not opened for its own sheet. The open
-// still reads the sheet, as it reads any file the user picked.
+// An access time long before the file's mtime. A read moves it under every
+// atime rule a volume may use.
+static const time_t kVibeUnreadAccessTime = 1000000000;
+
+- (void)markUnread:(NSURL *)url {
+    struct timespec times[2] = {{kVibeUnreadAccessTime, 0}, {0, UTIME_OMIT}};
+    XCTAssertEqual(utimensat(AT_FDCWD, url.fileSystemRepresentation, times, 0), 0, @"%@", url.path);
+}
+
+// The names of the files read since markUnread:.
+- (NSArray<NSString *> *)readAmong:(NSArray<NSURL *> *)urls {
+    NSMutableArray<NSString *> *read = [NSMutableArray array];
+    for (NSURL *url in urls) {
+        struct stat info;
+        XCTAssertEqual(stat(url.fileSystemRepresentation, &info), 0, @"%@", url.path);
+        if (info.st_atimespec.tv_sec != kVibeUnreadAccessTime) {
+            [read addObject:url.lastPathComponent];
+        }
+    }
+    return read;
+}
+
+// The fake cloud counts every download its files ask for. Under it a
+// placeholder is a local file, so a read that skips the dataless check reads
+// it unseen. The files' access times show every read. Under either policy
+// the scan reads nothing that is a placeholder: a placeholder sheet is a
+// file, and a large placeholder FLAC is not opened for its own sheet. The
+// open still reads the sheet, as it reads any file the user picked. That read
+// is the control: it shows the volume records reads.
 - (void)testAScanOverTheFakeCloudReadsNoPlaceholder {
-    [self makeFile:@"library/a.mp3"];
-    [self makeFile:@"library/mix.flac"];
-    [self makeText:kTwoTrackSheet at:@"library/mix.cue"];
+    NSArray<NSURL *> *files = @[[self makeFile:@"library/a.mp3"],
+                                [self makeFLAC:@"library/mix.flac" sheet:kTwoTrackSheet size:kLargeFLACBytes],
+                                [self makeText:kTwoTrackSheet at:@"library/mix.cue"]];
     NSURL *library = [self makeDirectory:@"library"];
+    for (NSURL *file in files) {
+        [self markUnread:file];
+    }
     [VibeFakeCloud installWithTransferSeconds:0.1 datalessPercent:100];
     [VibeFakeCloud clearTrace];
 
@@ -1180,14 +1208,18 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
                                                                 policy:VibeFolderScanReadPolicyNone]];
     NSArray<NSString *> *local = [self sortedRelativePaths:[self scan:@[library]
                                                                policy:VibeFolderScanReadPolicyLocal]];
+    NSArray<NSString *> *readByScans = [self readAmong:files];
     NSDictionary *statistics = [VibeFakeCloud statistics];
     NSArray<NSString *> *opened = [self expandAndFilter:@[library] folderCount:NULL];
+    NSArray<NSString *> *readByOpen = [self readAmong:files];
     NSArray<NSDictionary *> *trace = [VibeFakeCloud traceEvents];
     [VibeFakeCloud uninstall];
 
     XCTAssertEqualObjects(listed, (@[@"library/a.mp3", @"library/mix.cue", @"library/mix.flac"]));
     XCTAssertEqualObjects(local, listed);
+    XCTAssertEqualObjects(readByScans, @[]);
     XCTAssertEqualObjects(opened, (@[@"library/a.mp3", @"library/mix.flac#0-4500", @"library/mix.flac#4500-0"]));
+    XCTAssertEqualObjects(readByOpen, @[@"mix.cue"], @"the open reads the sheet, and nothing else");
     XCTAssertEqualObjects(statistics[@"materialized"], @0);
     XCTAssertEqualObjects(statistics[@"completed"], @0);
     XCTAssertEqualObjects(statistics[@"cancelled"], @0);

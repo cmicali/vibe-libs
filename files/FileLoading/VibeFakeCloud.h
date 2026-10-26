@@ -9,7 +9,9 @@
 //  hand, so the three chokepoints are injected instead (PlaceholderFiles' dataless
 //  probe, CloudFileMaterializer's transfer, DownloadProgressMonitor's
 //  reporting) and everything above them runs unchanged. It tests the app's
-//  download ordering, not NSFileCoordinator's cancellation.
+//  download ordering, not NSFileCoordinator's cancellation. It sees downloads,
+//  not reads. A placeholder is a local file here, so a read that skips the
+//  dataless probe goes unseen (this piece's AGENTS.md).
 //
 
 #import <Foundation/Foundation.h>

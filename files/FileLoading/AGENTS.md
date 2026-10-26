@@ -211,6 +211,8 @@ The five `+Debug` categories each sit beside the class they open:
 
 **`VibeFakeCloud` stands in for a file provider.** Chosen files answer as placeholders, each takes a fixed time to download, and a cancel leaves the file a placeholder. It injects at exactly three points: `PlaceholderFiles`' dataless probe, `CloudFileMaterializer`'s transfer, and `DownloadProgressMonitor`'s reporting. Everything above them runs unchanged. An app's debug channel installs it. **TRAP: its progress seam replaces the monitor's real sources rather than joining them** (`DownloadProgressMonitor+Debug.h`). Under a fake transfer the file on disk is genuinely local, so the allocated-size poll would answer 100% on its first tick.
 
+**The fake sees downloads, not reads.** Its statistics and trace count each transfer: requested, started, completed, and cancelled. Under it a placeholder is a local file. So a read that skips `isDatalessFile:` and the materializer succeeds, downloads nothing, and leaves no mark in its counts. No single point opens a placeholder's bytes: a tag parse, a decoder's open, and a sheet's read each open the file themselves. So a test that claims nothing read a placeholder also checks the files' access times. It sets them long before their mtime, and a read it expects shows that the volume records reads (`media/FolderScan`'s `testAScanOverTheFakeCloudReadsNoPlaceholder`).
+
 ## Tests
 
 `Tests/files/FileLoading/` holds the tests of every file here, the fake cloud's included. They run on macOS in Debug, with the headermap off, so they prove FileLoading builds and tests alone, with no decoder's header in reach.
