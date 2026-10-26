@@ -69,7 +69,7 @@ STRINGS_REGISTRY=Vibe/Common/VibeStrings.h
 STRINGS_MACROS=STR_
 STRINGS_CATALOG=Resources/Localizable.xcstrings
 STRINGS_SOURCES=(Vibe)
-STRINGS_SKIP=('*/ThirdParty/*' '*/Debug/*')
+STRINGS_SKIP=('*/Debug/*')
 STRINGS_CATALOGS=(Resources/Localizable.xcstrings Resources/InfoPlist.xcstrings Resources/ThemeNames.xcstrings)
 STRINGS_UPDATE='make strings'
 STRINGS_GUIDE='The vibe-strings skill has the register, quote and terminology conventions.'
@@ -87,6 +87,6 @@ The registry, the catalogs, the config, and the translations are the app's. So a
 
 ## The self-test
 
-`make test-strings` runs `Tests/tools/strings/strings-test.sh`. Each case copies `Tests/tools/strings/Fixture/`, a tiny app with a registry, a source, a skipped directory, an extension, two catalogs in English and German, and a config. It runs the scripts there and checks the exit status and the message. The cases cover a clean pass, a byte-identical rewrite, a new key, a reword, two defaults, a lost specifier, a stray extension key, a stale subset, a config with no subset, and GitHub mode. CI runs it. A change to a script gets a case.
+`make test-strings` runs `Tests/tools/strings/strings-test.sh`. Each case copies `Tests/tools/strings/Fixture/`, a tiny app with a registry, a source, a skipped directory, an extension, two catalogs in English and German, and a config. It runs the scripts there and checks the exit status and the message. The cases cover a clean pass, a byte-identical rewrite, a new key, a reword, two defaults, a lost specifier, a stray extension key, a stale subset, a config with no subset, a registry with none of the config's macros, a missing config, and GitHub mode. CI runs it. A change to a script gets a case.
 
 **TRAP: `extract-strings.sh` checks for a macro of the config's prefix before it lists them.** Under `pipefail` an empty `grep` stops the script, so an error placed after it can never print. The self-test pins the message.
