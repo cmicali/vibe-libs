@@ -20,4 +20,4 @@ The keys are the caller's. Both stores are keyed by `core/Common`'s disk key, `N
 
 ## Tests
 
-Vibe had no tests of the store's limits or usage, so those are new here. They root a store in a temporary directory, check the limits, and read the usage back on main. The tests of the removal came from Vibe. They lay out every name a release shipped, keep the current stores, another store, and a directory that is no store, and remove the rest. A missing directory is a no-op. `waveform/WaveformLoading`'s tests check that its store's name follows the rule. The minimal consumer does the same, as an app would.
+The tests of the store's limits and usage are new here. They root a store in a temporary directory, check the limits, and read the usage back on main. The tests of the removal came from Vibe. They lay out every name a release shipped, keep the current stores, another store, and a directory that is no store, and remove the rest. A missing directory is a no-op. `waveform/WaveformLoading`'s tests check that its store's name follows the rule. The minimal consumer does the same, as an app would.

@@ -212,7 +212,7 @@ A drag moves the content 1:1 under the fixed center, with no hover highlight. A 
 
 ## Tests
 
-`Tests/waveform/WaveformView/Mac/` holds Vibe's tests of the mac view. `WaveformViewTests` draws the real view into a bitmap with no window server, through `Tests/Support/DrawnViewTestSupport.h`, over waveforms built bin by bin through `Tests/Support/WaveformTestSupport.h`. It checks what the view adds over the renderers: the theme it resolves through a provider of the test's own, the playhead line, the three states, the click and the seeking drag, and the accessibility steps. `WaveformViewProbe.m` compiles the mac view's seam.
+`Tests/waveform/WaveformView/Mac/` holds the tests of the mac view. `WaveformViewTests` draws the real view into a bitmap with no window server, through `Tests/Support/DrawnViewTestSupport.h`, over waveforms built bin by bin through `Tests/Support/WaveformTestSupport.h`. It checks what the view adds over the renderers: the theme it resolves through a provider of the test's own, the playhead line, the three states, the click and the seeking drag, and the accessibility steps. `WaveformViewProbe.m` compiles the mac view's seam.
 
 The scrubber needs a window, a simulator, and touches, so its tests stay in Vibe, which hosts them in its iOS app. The minimal consumer lays the mac view out with a tone's summary and reads back that both sides drew.
 

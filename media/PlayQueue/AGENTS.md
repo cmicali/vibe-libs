@@ -47,6 +47,6 @@ Under Repeat All the next cycle is a fresh shuffle. With more than one row, its 
 
 ## Tests
 
-`Tests/media/PlayQueue/` holds Vibe's tests of the queue: the order, the indexes, the edits and their cursor, repeat, and shuffle. They run over `TestRow`, a row of the tests' own in `VibePlaylistTestSupport.h`, since the queue reads an entry only through its key blocks. The shuffle tests seed `randomBelow`. The minimal consumer makes a queue of plain `NSURL`s and walks `trackEndSuccessor` under repeat and shuffle.
+`Tests/media/PlayQueue/` holds the tests of the queue: the order, the indexes, the edits and their cursor, repeat, and shuffle. They run over `TestRow`, a row of the tests' own in `VibePlaylistTestSupport.h`, since the queue reads an entry only through its key blocks. The shuffle tests seed `randomBelow`. The minimal consumer makes a queue of plain `NSURL`s and walks `trackEndSuccessor` under repeat and shuffle.
 
 The tests of Vibe's row, its replacement and its keys, stay in Vibe.
