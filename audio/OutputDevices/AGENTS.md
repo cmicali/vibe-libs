@@ -13,7 +13,7 @@ There are no shared files. The two halves have nothing in common but their job, 
 | `Mac/CoreAudioUtil+BitPerfect.m` | transport, rate, physical format, volume, hog, and liveness |
 | `Mac/CoreAudioUtil+Diagnostics.m` | one device's whole description for a debug report, and the event log's formatter |
 | `Mac/CoreAudioUtilInternal.h` | the HAL helpers the three `CoreAudioUtil` files share |
-| `Mac/OutputFormatRules.h` | the device decisions, as static inlines: bit-perfect output's format choice and eligibility, and device liveness |
+| `Mac/OutputFormatRules.h` | the device decisions, as static inlines: device liveness, and bit-perfect output's format choice, channel map, and eligibility |
 | `iOS/AudioSessionController` | activation, idle release, and the route, interruption, and media-services events, each a delegate verdict |
 | `iOS/AudioSessionRecoveryRules.h` | the verdicts, as static inlines |
 | `iOS/OutputRouteRules.h` | what a route is, for an indicator and for the verdicts |
@@ -50,13 +50,13 @@ There are no shared files. The two halves have nothing in common but their job, 
 
 ### CoreAudioUtil
 
-`CoreAudioUtil` is three files. `CoreAudioUtil.m` keeps the bounded read and the device identity reads. Its `+BitPerfect` category holds transport, rate, physical format, volume, and hog. Its `+Diagnostics` category holds the debug report's read and the event log's formatter. All three are declared in `CoreAudioUtil.h`.
+`CoreAudioUtil` is three files. `CoreAudioUtil.m` keeps the bounded read and the device identity reads. Its `+BitPerfect` category holds transport, rate, physical format, volume, hog, and liveness. Its `+Diagnostics` category holds the debug report's read and the event log's formatter. All three are declared in `CoreAudioUtil.h`.
 
 **Each read returns whether the HAL answered, apart from its answer.** A successful default read may answer `kAudioObjectUnknown`. A successful UID read may answer nil when that optional property is absent.
 
 **TRAP: a HAL read on a hung device holds its thread up to 30 s.** So a read that a queue cannot do without goes through `performBoundedRead:within:late:`. That is one serial queue of reads, which the caller waits on for a bounded time. A read that is late finishes there on its own, and its `late` block runs after it. While one read is overdue, nothing waits.
 
-**`deviceIsConfirmedDead:` asks the device itself**, not a snapshot that may lag an unplug. A failed read is unknown, never dead (`VibeDeviceIsConfirmedDead`). A false removal would fall back and save that choice.
+**`deviceIsConfirmedDead:` asks the device itself**, not a snapshot that may lag an unplug. A read that fails because the object no longer exists is dead. Any other failed read is unknown, never dead (`VibeDeviceIsConfirmedDead`). A false removal would fall back and save that choice.
 
 **TRAP: another process's hog halts a running output unit's IO without stopping it.** The unit reports running and gets no IO cycle until the release. A unit started under the hog plays. So `deviceIsHeldByAnotherProcess:` exists, and a caller refuses its start on that answer.
 
@@ -64,7 +64,7 @@ There are no shared files. The two halves have nothing in common but their job, 
 
 `releaseDeviceObligation:attempt:isAbsent:` is a retry loop for a format restore or a hog release. It retries a failure once. A failed attempt keeps the slot unless a published snapshot proves the device gone.
 
-`diagnosticDescriptionOfDeviceID:` is the one read-everything call: formats, declared latency, clock, and exclusive owner. It is for a debug report, and nothing that changes a device reads it. Every read goes through `coreaudiod`, so call it off main.
+`diagnosticDescriptionOfDeviceID:` is the one read-everything call: formats, declared latency, clock, and exclusive owner. It is for a debug report, and nothing that changes a device reads it. The owner is `exclusiveOwnerPID`. `exclusiveOwnedByThisProcess` says whether that owner is this process. Every read goes through `coreaudiod`, so call it off main.
 
 ### Output format rules
 
@@ -110,8 +110,9 @@ Four events, four delegate verdicts:
 - `VibeAudioSessionConfigurationActionForRoutes`: recover on the new route, park because the output is disappearing, or ignore while an interruption, route loss, or reset owns the output.
 - `VibeAudioSessionMayDeliverConfigurationRecovery`: a later route change coalesces an earlier ordinary recovery, and any safety verdict received before main delivery blocks it.
 - `VibeAudioSessionMayAutomaticallyResume`: interruption-ended is a system suggestion, not a fresh user play.
+- `VibeAudioSessionMayDeactivate`: the release, only when it was asked for, no interruption is in progress, and the output is idle.
 
-Existing interruption, route-loss, and reset ownership wins in all three, which makes the rules fail closed.
+Existing interruption, route-loss, and reset ownership wins in the first three. So those rules fail closed.
 
 **One scan classifies a route, and two things read the result.** `OutputRouteRules.h` holds the fine kind an indicator draws: speaker, receiver, wired, Bluetooth, AirPlay, CarPlay, other, or none. It also holds the fold onto the coarse none, built-in, or external kind the verdicts use. Deriving one from the other stops a new port from being external to the indicator and built-in to the headphones rule. The `portType` mapping stays in `AudioSessionController.m`, since the `AVAudioSessionPort*` constants are AVFoundation's. **A Bluetooth route's glyph is guessed from its device name**, because no public API says what the device is. An unrecognized name draws the generic glyph.
 
@@ -120,7 +121,9 @@ Existing interruption, route-loss, and reset ownership wins in all three, which 
 `Tests/audio/OutputDevices/` holds the tests of the manager and the rules. They run on macOS, with the headermap off. The iOS half's rules are Foundation-only, so their tests run on macOS too. The iOS target builds the iOS half. No test assumes a particular output device.
 
 - `Mac/AudioDeviceManagerTests` runs the manager with injected enumeration and retry scheduling, and no HAL registration: snapshot publication, saved-device lookups, and the recovery retry. It also runs the event log's listener, the bounded read, and the release loop with controlled attempts.
-- `Mac/OutputFormatRulesTests` covers the rate and depth rules, eligibility, and device liveness.
+- `Mac/OutputFormatRulesTests` covers the rate and depth rules, the channel map, eligibility, and device liveness.
 - `iOS/AudioSessionRecoveryRulesTests` and `iOS/OutputRouteRulesTests` cover the two rule headers.
+
+The minimal consumer waits for the manager's first snapshot and names the default device. It skips that check when the HAL reads no device list.
 
 The session controller has no tests here. Interruptions, route changes, and a media-services reset need a real device. The manager's HAL listeners, a device's property reads, and hardware settlement stay live tests in Vibe. **A bounded wait is a hang guard or a gate.** A wait for what must happen uses `VIBE_TEST_HANG_TIMEOUT`. A gate the test releases itself uses `VIBE_TEST_GATE_TIMEOUT`, which outlasts the guards it holds across. The test bundle defines both.
