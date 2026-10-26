@@ -13,7 +13,7 @@ Its users are Vibe and another app. Both add it as a git submodule.
 ## Decided
 
 - **The name is vibe-libs, and the one prefix is `Vibe`**, for moved code and new code alike. `CMM` came from the name cm_libs, which is gone, and every moved class already carries `Vibe`. It was retired in one commit on the pilot's branches, before they merged: `CMMMacros.h` became `VibeMacros.h`, `CMM_ROOT` became `VIBE_LIBS_ROOT`, a piece's template is `VibeLibs<piece>`, and the checker and the consumer followed.
-- **Code moved from Vibe keeps its names.** A move is `git mv` and nothing else. The `Vibe` C prefix stays.
+- **Code moved from Vibe keeps its names.** A move is `git mv` and nothing else. The `Vibe` C prefix stays. Four names were renamed on 2026-10-26, in one scripted pull request of their own, because their generic names collide in another app. `Playlist`, `PlaylistObserver`, `PlaylistEntry`, and `PlaylistFile` took the `Vibe` prefix. Every other moved name still stands.
 - **One repo of many pieces, grouped by what they are about.** An app picks pieces, not the whole repo.
 - **Apps compile the pieces' sources in their own targets**, through templates in a shared XcodeGen spec. No static libraries and no Swift package for the apps, for now.
 - **Third-party code is a piece of its own**, one per library.
@@ -30,7 +30,7 @@ Its users are Vibe and another app. Both add it as a git submodule.
 | --- | --- | --- |
 | PlaybackKit, prefix `PBK` | vibe-libs, one prefix `Vibe` (`CMM` from 2026-10-17 to 2026-10-20) | The repo is a toolbox, not only playback, and the moved code already carries `Vibe`. |
 | Four products cut along Vibe's directories | Pieces with one job each | Each piece should be usable without its neighbors. |
-| Rename every class and C symbol on the move | No rename | A rename touches 441 names in 678 files of Vibe and 88 of #294's 111 files. Folded into the move, it would turn every moved file into a content change and break the performance proof. |
+| Rename every class and C symbol on the move | No rename on the move | A rename touches 441 names in 678 files of Vibe and 88 of #294's 111 files. Folded into the move, it would turn every moved file into a content change and break the performance proof. Four generic names took the `Vibe` prefix on 2026-10-26, in a scripted pull request of their own, because they collide in another app. Every other moved name still stands. |
 | Static framework targets in the shared spec | Templates the app compiles in | Same run time, and the app's test targets can still build the code with their own flags (below). |
 | A prefix header per product | Explicit imports of one macros header | A target has one prefix header, so a piece cannot bring its own. |
 | Vendored code inside the engine product | Each library a piece of its own | An app can take TagLib or dr_flac without the engine. |
