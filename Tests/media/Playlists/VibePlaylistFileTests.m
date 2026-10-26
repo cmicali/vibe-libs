@@ -572,20 +572,20 @@ static VibePlaylistEntry *TrackAt(NSString *path) {
 
 // A file whole, with what the #EXTINF line names.
 static VibePlaylistEntry *NamedTrackAt(NSString *path, NSString *_Nullable artist, NSString *title,
-                                   NSTimeInterval duration) {
+                                       NSTimeInterval duration) {
     return [[VibePlaylistEntry alloc] initWithURL:[NSURL fileURLWithPath:path] cueStart:0 cueEnd:0 title:nil
-                                    performer:nil sheet:nil trackNumber:0 duration:duration
-                                 displayTitle:title displayArtist:artist];
+                                        performer:nil sheet:nil trackNumber:0 duration:duration
+                                     displayTitle:title displayArtist:artist];
 }
 
 // A cue row's entry as an app makes it: the sheet's names name it, and a
 // closed window is its length.
 static VibePlaylistEntry *CueRowAt(NSString *path, NSUInteger start, NSUInteger end, NSString *title,
-                               NSString *_Nullable performer, NSString *sheet, NSInteger number) {
+                                   NSString *_Nullable performer, NSString *sheet, NSInteger number) {
     return [[VibePlaylistEntry alloc] initWithURL:[NSURL fileURLWithPath:path] cueStart:start cueEnd:end
-                                        title:title performer:performer sheet:[NSURL fileURLWithPath:sheet]
-                                  trackNumber:number duration:end > start ? (end - start) / 75.0 : -1
-                                 displayTitle:title displayArtist:performer];
+                                            title:title performer:performer sheet:[NSURL fileURLWithPath:sheet]
+                                      trackNumber:number duration:end > start ? (end - start) / 75.0 : -1
+                                     displayTitle:title displayArtist:performer];
 }
 
 static NSURL *Directory(NSString *path) {
@@ -661,7 +661,7 @@ static NSURL *Directory(NSString *path) {
 
 - (void)testM3UTextRoundTripsMixedEntriesInOrder {
     NSArray<VibePlaylistEntry *> *tracks = @[TrackAt(@"/Music/A/x.mp3"), TrackAt(@"/Volumes/USB/y.flac"),
-                                         TrackAt(@"/Music/A/x.mp3"), TrackAt(@"/Music/A/sub/z.wav")];
+                                             TrackAt(@"/Music/A/x.mp3"), TrackAt(@"/Music/A/sub/z.wav")];
     NSString *text = M3UText(tracks, Directory(@"/Music/A"));
     XCTAssertEqualObjects([VibePlaylistFile m3uEntriesInText:text],
                           (@[@"x.mp3", @"/Volumes/USB/y.flac", @"x.mp3", @"sub/z.wav"]));
@@ -676,9 +676,9 @@ static NSURL *Directory(NSString *path) {
     [[NSData data] writeToURL:[sub URLByAppendingPathComponent:@"two.mp3"] atomically:YES];
     NSURL *far = [self makeTempDirWithFiles:@[@"far.mp3"] playlistName:@"seed.m3u" text:@""];
     NSArray<VibePlaylistEntry *> *tracks = @[[VibePlaylistEntry entryWithURL:[dir URLByAppendingPathComponent:@"one.mp3"]],
-                                         [VibePlaylistEntry entryWithURL:[sub URLByAppendingPathComponent:@"two.mp3"]],
-                                         [VibePlaylistEntry entryWithURL:[dir URLByAppendingPathComponent:@"#three.mp3"]],
-                                         [VibePlaylistEntry entryWithURL:[far URLByAppendingPathComponent:@"far.mp3"]]];
+                                             [VibePlaylistEntry entryWithURL:[sub URLByAppendingPathComponent:@"two.mp3"]],
+                                             [VibePlaylistEntry entryWithURL:[dir URLByAppendingPathComponent:@"#three.mp3"]],
+                                             [VibePlaylistEntry entryWithURL:[far URLByAppendingPathComponent:@"far.mp3"]]];
     NSString *text = M3UText(tracks, dir);
     XCTAssertTrue([text containsString:@"\none.mp3\n"]);
     XCTAssertTrue([text containsString:@"\nsub/two.mp3\n"]);
@@ -686,7 +686,7 @@ static NSURL *Directory(NSString *path) {
     XCTAssertTrue([text containsString:@"\n/"]);   // far.mp3, absolute
     NSURL *playlist = [dir URLByAppendingPathComponent:@"mix.m3u"];
     XCTAssertTrue([VibePlaylistFile writeM3UForEntries:tracks relativeToDirectory:dir
-                                             toURL:playlist error:NULL]);
+                                                 toURL:playlist error:NULL]);
 
     NSArray<NSURL *> *urls = [[VibePlaylistFile entriesForPlaylistAtURL:playlist] valueForKey:@"url"];
     XCTAssertEqualObjects([urls valueForKeyPath:@"lastPathComponent"],

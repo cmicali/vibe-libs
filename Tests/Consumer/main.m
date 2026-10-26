@@ -234,12 +234,12 @@ static BOOL PlaylistsRoundTrip(void) {
 
     VibePlaylistEntry *whole = [VibePlaylistEntry entryWithURL:song];
     VibePlaylistEntry *window = [[VibePlaylistEntry alloc] initWithURL:mix cueStart:4500 cueEnd:9000 title:@"Two"
-                                                     performer:@"DJ" sheet:sheet trackNumber:2 duration:60
-                                                  displayTitle:@"Two" displayArtist:@"DJ"];
+                                                             performer:@"DJ" sheet:sheet trackNumber:2 duration:60
+                                                          displayTitle:@"Two" displayArtist:@"DJ"];
     NSURL *list = [directory URLByAppendingPathComponent:@"set.m3u"];
     NSError *error = nil;
     BOOL written = [VibePlaylistFile writeM3UForEntries:@[whole, window] relativeToDirectory:directory toURL:list
-                                              error:&error];
+                                                  error:&error];
     NSArray<VibePlaylistEntry *> *read = [VibePlaylistFile entriesForPlaylistAtURL:list];
     NSString *text = [NSString stringWithContentsOfURL:list encoding:NSUTF8StringEncoding error:NULL];
     BOOL listRead = written && read.count == 2 && [read[0].url.lastPathComponent isEqual:@"song.mp3"]

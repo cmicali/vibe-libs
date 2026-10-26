@@ -222,7 +222,7 @@ static NSURL *AudioFileNamedLikeSheet(NSURL *sheet, NSFileManager *fileManager,
 }
 
 + (NSArray<VibePlaylistEntry *> *)cueEntriesInText:(NSString *)text sheetURL:(NSURL *)sheetURL
-                                 resolvingFile:(NSURL *(^)(NSString *name, BOOL sole))resolve {
+                                     resolvingFile:(NSURL *(^)(NSString *name, BOOL sole))resolve {
     NSMutableArray<NSString *> *files = [NSMutableArray new];
     NSString *sheetPerformer = nil;
     NSArray<NSDictionary *> *tracks = CueTracksInText(text, files, &sheetPerformer);
@@ -261,17 +261,17 @@ static NSURL *AudioFileNamedLikeSheet(NSURL *sheet, NSFileManager *fileManager,
                 continue;
             }
             [entries addObject:[[VibePlaylistEntry alloc] initWithURL:url cueStart:start cueEnd:end
-                                                            title:tracks[i][@"title"]
-                                                        performer:tracks[i][@"performer"] ?: sheetPerformer
-                                                            sheet:sheetURL
-                                                      trackNumber:[tracks[i][@"number"] integerValue]]];
+                                                                title:tracks[i][@"title"]
+                                                            performer:tracks[i][@"performer"] ?: sheetPerformer
+                                                                sheet:sheetURL
+                                                          trackNumber:[tracks[i][@"number"] integerValue]]];
         }
     }
     return entries;
 }
 
 + (NSArray<VibePlaylistEntry *> *)cueEntriesForSheetAtURL:(NSURL *)url
-                                           knownFiles:(NSDictionary<NSString *, NSArray<NSURL *> *> *)knownFiles {
+                                               knownFiles:(NSDictionary<NSString *, NSArray<NSURL *> *> *)knownFiles {
     NSString *text = VibeTextOfFile(url);
     if (!text) {
         return @[];
@@ -423,7 +423,7 @@ static void ReadFLACCueSources(FILE *file, uint32_t *rate, NSString **text, NSDa
         // audio.
         __block BOOL resolved = NO;
         NSArray<VibePlaylistEntry *> *entries = [self cueEntriesInText:sheet sheetURL:url
-                                                     resolvingFile:^NSURL *(NSString *name, BOOL sole) {
+                                                         resolvingFile:^NSURL *(NSString *name, BOOL sole) {
             BOOL first = !resolved;
             resolved = YES;
             return first ? url : nil;

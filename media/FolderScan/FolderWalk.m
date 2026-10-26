@@ -691,7 +691,7 @@ static NSMutableArray<NSURL *> *VibeListedAudioURLs(NSURL *dir, VibeFolderOpenSo
     [[self expansionQueue] addOperationWithBlock:^{
         NSUInteger folderCount = 0;
         NSArray<VibePlaylistEntry*> *results = [self expandAndFilterList:list sortedBy:sort
-                                                         folderCount:&folderCount];
+                                                             folderCount:&folderCount];
         completion(results, folderCount);
     }];
 }
@@ -745,16 +745,16 @@ const NSUInteger VibeFolderScanBatchLimit = 256;
 }
 
 + (NSArray<VibePlaylistEntry*>*) expandAndFilterList:(NSArray<NSURL*>*)list
-                                        sortedBy:(VibeFolderOpenSort)sort
-                                     folderCount:(NSUInteger *)folderCount {
+                                            sortedBy:(VibeFolderOpenSort)sort
+                                         folderCount:(NSUInteger *)folderCount {
     NSUInteger inputCount = list.count;
     NSMutableSet<NSString*> *looseFileDirectories = [NSMutableSet set];
     NSUInteger expandedCount = 0;
     NSArray<VibePlaylistEntry*> *entries = [FolderWalk expandFileList:list
-                                                         sortedBy:sort
-                                                      folderCount:folderCount
-                                             looseFileDirectories:looseFileDirectories
-                                                    expandedCount:&expandedCount];
+                                                             sortedBy:sort
+                                                          folderCount:folderCount
+                                                 looseFileDirectories:looseFileDirectories
+                                                        expandedCount:&expandedCount];
     NSMutableSet<NSString *> *supportedLooseDirectories = [NSMutableSet set];
     for (VibePlaylistEntry *entry in entries) {
         [self noteLooseFileDirectoryOf:entry.url into:supportedLooseDirectories];
@@ -773,10 +773,10 @@ const NSUInteger VibeFolderScanBatchLimit = 256;
 }
 
 + (NSArray<VibePlaylistEntry*>*) expandFileList:(NSArray<NSURL*>*)list
-                                   sortedBy:(VibeFolderOpenSort)sort
-                                folderCount:(NSUInteger *)folderCount
-                       looseFileDirectories:(NSMutableSet<NSString*> *)looseFileDirectories
-                              expandedCount:(NSUInteger *)expandedCount {
+                                       sortedBy:(VibeFolderOpenSort)sort
+                                    folderCount:(NSUInteger *)folderCount
+                           looseFileDirectories:(NSMutableSet<NSString*> *)looseFileDirectories
+                                  expandedCount:(NSUInteger *)expandedCount {
     NSMutableArray<VibePlaylistEntry*> *results = [[NSMutableArray alloc] initWithCapacity:list.count];
     NSSet<NSString*> *supported = [FolderWalk supportedExtensions];
     // Nothing can play an empty file. Second, so only extension matches pay

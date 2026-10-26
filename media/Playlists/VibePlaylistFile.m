@@ -268,10 +268,10 @@ static VibePlaylistEntry *EntryForPayload(NSURL *url, NSString *_Nullable cue) {
     NSString *sheet = [[fields subarrayWithRange:NSMakeRange(5, fields.count - 5)] componentsJoinedByString:@","];
     NSURL *sheetURL = sheet.length ? [NSURL URLWithString:sheet] : nil;
     return [[VibePlaylistEntry alloc] initWithURL:url cueStart:(NSUInteger)start cueEnd:(NSUInteger)end
-                                        title:title.length ? title : nil
-                                    performer:performer.length ? performer : nil
-                                        sheet:sheetURL.isFileURL ? sheetURL : nil
-                                  trackNumber:fields[0].integerValue];
+                                            title:title.length ? title : nil
+                                        performer:performer.length ? performer : nil
+                                            sheet:sheetURL.isFileURL ? sheetURL : nil
+                                      trackNumber:fields[0].integerValue];
 }
 
 #pragma mark - Resolution

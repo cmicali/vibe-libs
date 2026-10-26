@@ -12,7 +12,7 @@
 // Each name at /cue/<name>, and a track before any FILE line at /cue/image.
 static NSArray<VibePlaylistEntry *> *CueRows(NSString *text) {
     return [VibePlaylistFile cueEntriesInText:text sheetURL:[NSURL fileURLWithPath:@"/cue/sheet.cue"]
-                            resolvingFile:^NSURL *(NSString *name, BOOL sole) {
+                                resolvingFile:^NSURL *(NSString *name, BOOL sole) {
         return [NSURL fileURLWithPath:[@"/cue" stringByAppendingPathComponent:name ?: @"image"] isDirectory:NO];
     }];
 }
@@ -491,9 +491,9 @@ static NSArray<NSString *> *CueRowSummaries(NSString *text) {
 - (void)testCueTracksBeforeAnyFileLineAskForTheImplicitImage {
     NSMutableArray *asked = [NSMutableArray new];
     NSArray<VibePlaylistEntry *> *entries = [VibePlaylistFile cueEntriesInText:@"TRACK 01 AUDIO\n  INDEX 01 00:00:00\n"
-                                                                     "TRACK 02 AUDIO\n  INDEX 01 01:00:00\n"
-                                                           sheetURL:nil
-                                                      resolvingFile:^NSURL *(NSString *name, BOOL sole) {
+                                                                                "TRACK 02 AUDIO\n  INDEX 01 01:00:00\n"
+                                                                      sheetURL:nil
+                                                                 resolvingFile:^NSURL *(NSString *name, BOOL sole) {
         [asked addObject:@[name ?: NSNull.null, @(sole)]];
         return [NSURL fileURLWithPath:@"/cue/Mix.flac"];
     }];
@@ -509,10 +509,10 @@ static NSArray<NSString *> *CueRowSummaries(NSString *text) {
         return [NSURL fileURLWithPath:[@"/cue" stringByAppendingPathComponent:name]];
     };
     [VibePlaylistFile cueEntriesInText:@"FILE \"a.flac\" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n"
-                          sheetURL:nil resolvingFile:resolve];
+                              sheetURL:nil resolvingFile:resolve];
     [VibePlaylistFile cueEntriesInText:@"FILE \"a.flac\" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n"
-                                    "FILE \"b.flac\" WAVE\n  TRACK 02 AUDIO\n    INDEX 01 00:00:00\n"
-                          sheetURL:nil resolvingFile:resolve];
+                                        "FILE \"b.flac\" WAVE\n  TRACK 02 AUDIO\n    INDEX 01 00:00:00\n"
+                              sheetURL:nil resolvingFile:resolve];
     XCTAssertEqualObjects(soles, (@[@YES, @NO, @NO]));
 }
 
@@ -520,8 +520,8 @@ static NSArray<NSString *> *CueRowSummaries(NSString *text) {
     NSArray<VibePlaylistEntry *> *entries = [VibePlaylistFile cueEntriesInText:
             @"FILE \"a.flac\" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n"
              "FILE \"b.flac\" WAVE\n  TRACK 02 AUDIO\n    INDEX 01 00:00:00\n"
-                                                           sheetURL:nil
-                                                      resolvingFile:^NSURL *(NSString *name, BOOL sole) {
+                                                                      sheetURL:nil
+                                                                 resolvingFile:^NSURL *(NSString *name, BOOL sole) {
         return [name isEqualToString:@"b.flac"] ? nil : [NSURL fileURLWithPath:@"/cue/a.flac"];
     }];
     XCTAssertEqual(entries.count, 1u);

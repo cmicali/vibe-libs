@@ -25,14 +25,14 @@ NS_ASSUME_NONNULL_BEGIN
 // walking a folder; expandedCount, the entries before unplayable ones were
 // dropped.
 + (NSArray<VibePlaylistEntry *> *)expandFileList:(NSArray<NSURL *> *)list
-                                    sortedBy:(VibeFolderOpenSort)sort
-                                 folderCount:(nullable NSUInteger *)folderCount
-                        looseFileDirectories:(nullable NSMutableSet<NSString *> *)looseFileDirectories
-                               expandedCount:(nullable NSUInteger *)expandedCount;
+                                        sortedBy:(VibeFolderOpenSort)sort
+                                     folderCount:(nullable NSUInteger *)folderCount
+                            looseFileDirectories:(nullable NSMutableSet<NSString *> *)looseFileDirectories
+                                   expandedCount:(nullable NSUInteger *)expandedCount;
 
 + (NSArray<VibePlaylistEntry *> *)expandAndFilterList:(NSArray<NSURL *> *)list
-                                         sortedBy:(VibeFolderOpenSort)sort
-                                      folderCount:(nullable NSUInteger *)folderCount;
+                                             sortedBy:(VibeFolderOpenSort)sort
+                                          folderCount:(nullable NSUInteger *)folderCount;
 
 @end
 

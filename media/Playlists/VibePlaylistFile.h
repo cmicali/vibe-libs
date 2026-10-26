@@ -99,7 +99,7 @@ NS_ASSUME_NONNULL_BEGIN
 // track before any FILE line; sole is YES when the sheet names at most one
 // file. A nil URL drops that file's entries.
 + (NSArray<VibePlaylistEntry *> *)cueEntriesInText:(NSString *)text sheetURL:(nullable NSURL *)sheetURL
-                                 resolvingFile:(NSURL *_Nullable (^)(NSString *_Nullable name, BOOL sole))resolve;
+                                     resolvingFile:(NSURL *_Nullable (^)(NSString *_Nullable name, BOOL sole))resolve;
 
 // The sheet at url as entries, each FILE resolved through entriesForPlaylistAtURL:'s rungs.
 // A sheet naming one image — or none — that no rung finds takes the audio named
@@ -110,7 +110,7 @@ NS_ASSUME_NONNULL_BEGIN
 // else a sole match supplies the listing's spelling, which is what the walk
 // claims, without a probe.
 + (NSArray<VibePlaylistEntry *> *)cueEntriesForSheetAtURL:(NSURL *)url
-                                           knownFiles:(nullable NSDictionary<NSString *, NSArray<NSURL *> *> *)knownFiles;
+                                               knownFiles:(nullable NSDictionary<NSString *, NSArray<NSURL *> *> *)knownFiles;
 
 // The entries of a sheet embedded in the FLAC at url, each a window of the
 // file itself, by the rules of cueEntriesInText:; empty when it carries none,
