@@ -15,14 +15,14 @@ It holds the macros (`VibeMacros.h`), the work tally, the stall sampler, path sp
 `LogError`, `LogWarn`, `LogInfo`, `LogDebug` and `LogTiming` wrap `os_log`. They are Objective-C only.
 
 - **The subsystem is the main bundle's identifier**, read once, so each app's messages stream under its own name. A test bundle's messages land under its runner's identifier.
-- **`VIBE_VERBOSE_LOGGING`** is the app's build setting. At 1, info and debug are written at Default level, so they are kept for a later export. Unset, it reads as 0. `CommonTests` sets it to 1, so the stall sampler compiles and runs here.
+- **`VIBE_VERBOSE_LOGGING`** is the app's build setting. At 1, info and debug are written at Default level, so they are kept for a later export. Unset, it reads as 0. `CommonTests` sets it to 1, so the stall sampler compiles here.
 - **A message is formatted only when `os_log` takes its level.**
 
 **To see messages on stderr, an app sets `OS_ACTIVITY_DT_MODE=1` in the process's environment.** `os_log` then copies every message it keeps to stderr, which is how Xcode's console gets them. On a device, an app passes it through `devicectl`. Debug-level messages need their level enabled, or an app that logs them at Default.
 
 **TRAP: `VibeLogWants` and `VibeLogEmit` hold nothing but the `os_log` calls.** Every log site in every piece inlines them. With a stderr hook there, Vibe's metadata-scan benchmarks retired 2 to 3% more instructions, although they never log. The system's own switch costs the call sites nothing.
 
-**TRAP: `VibeMacros.h` has no `#if DEBUG` and names no app type.** Every piece and every app imports it, and a shipping header may not carry debug surface.
+**`VibeMacros.h` has no `#if DEBUG` and names no app type.** Every piece and every app imports it, and a shipping header may not carry debug surface.
 
 ## Signposts and the work tally
 
@@ -36,11 +36,11 @@ It holds the macros (`VibeMacros.h`), the work tally, the stall sampler, path sp
 
 ## The stall sampler
 
-**`StallWatch` holds the watchdogs and the stack sampler of a beta's stall log.** It reads no app state. An app starts the main thread's watchdog and a serial queue's watchdog. It suspends a queue's watchdog while the queue has nothing that can stall. `VibeFindThread` and `VibeSampleStack` sample any other thread, such as an audio IO thread. Everything but the scene flag compiles only under `VIBE_VERBOSE_LOGGING`. An iOS app reports its scene through `VibeStallWatchNoteSceneActive`. iOS makes an app that just left the screen redraw for the app switcher. That stall is real but unseen, so the log says so. **TRAP: between suspending a thread and resuming it, nothing may allocate or take a lock** (`VibeCaptureStack`).
+**`StallWatch` holds the watchdogs and the stack sampler of a beta's stall log.** It reads no app state. A caller starts the main thread's watchdog and a serial queue's watchdog. It suspends a queue's watchdog while the queue has nothing that can stall. `audio/Player` is that caller today, for the main thread and its own queue. `VibeFindThread` and `VibeSampleStack` sample any other thread, such as an audio IO thread. Everything but the scene flag compiles only under `VIBE_VERBOSE_LOGGING`. An iOS app reports its scene through `VibeStallWatchNoteSceneActive`. iOS makes an app that just left the screen redraw for the app switcher. That stall is real but unseen, so the log says so. **TRAP: between suspending a thread and resuming it, nothing may allocate or take a lock** (`VibeCaptureStack`). **TRAP: the unified log truncates a message near 1 KB**, so a stack spans numbered lines of at most 800 characters. **TRAP: the main thread's watchdog reads the clock after the pass's start, and still clamps.** Main can stamp a pass between the two reads, and the unsigned difference would wrap to a stall of 2^64 ns.
 
 ## Path spelling
 
-**`VibeComparablePath` is path identity from the string alone.** It standardizes the spelling and drops the aliases `VibeAliasFreePath` drops: `/private` before `/tmp`, `/var` and `/etc`, and the data volume's firmlink. It never stats, so any thread may ask about any path. `VibeStandardizedAudioOpenPath` spells a URL the same way. Every loader identity is keyed by it: the claim, the transfer, the parse, and an app's source key. **TRAP: never `stringByStandardizingPath` or `URLByStandardizingPath` here.** Each stats the path, which on a provider's folder is IPC on whichever thread asked.
+**`VibeComparablePath` is path identity from the string alone.** It standardizes the spelling and drops the aliases `VibeAliasFreePath` drops: `/private` before `/tmp`, `/var` and `/etc`, and the data volume's firmlink. It never stats, so any thread may ask about any path. `VibeStandardizedAudioOpenPath` spells a URL the same way. Every loader identity is keyed by it: the claim, the transfer, the parse, and a waveform load's claim. **TRAP: never `stringByStandardizingPath` or `URLByStandardizingPath` here.** Each stats the path, which on a provider's folder is IPC on whichever thread asked.
 
 ## The disk key
 
@@ -54,7 +54,7 @@ It holds the macros (`VibeMacros.h`), the work tally, the stall sampler, path sp
 
 **`NSURL+Emptiness` is `isEmptyOrDirectory` alone**, the stat-only test for list filtering. Its rule is `VibeStatIsEmptyOrDirectory`, so a folder walk can pass the stat it already has. A failed stat answers NO, so the real open reports why. **TRAP: the test is `st_size`, never `st_blocks` or `NSURLFileAllocatedSizeKey`.** A dataless cloud file has its true size but no allocated blocks, so an allocation test would reject every cloud file. `stat()` never downloads the file.
 
-**`NSURL+FileIdentity`'s `vibeRefersToSameFileAsURL:`** compares two file URLs by spelling, then by resolved path, then by device and inode. Matching spellings need no stat. It may block, so call it off main.
+**`NSURL+FileIdentity`'s `vibeRefersToSameFileAsURL:`** compares two file URLs by standardized path, then by resolved path, then by device and inode. Matching paths skip the device and inode stats. Standardizing and resolving a path may stat it too. It may block, so call it off main.
 
 ## The fixed-slot work lanes
 
@@ -80,4 +80,4 @@ It holds the macros (`VibeMacros.h`), the work tally, the stall sampler, path sp
 
 ## Tests
 
-`Tests/core/Common/` holds the tests of the paths, the disk key, file identity, the timer and its math, the token parser, and the work lanes. Those came from Vibe. The tests of the tally, the weak proxy, emptiness, and build provenance are new here. Vibe's tests of the playlist row's memoized disk key stay in Vibe with the row.
+`Tests/core/Common/` holds the tests of the paths, the disk key, file identity, the timer and its math, the token parser, and the work lanes. Those came from Vibe. The tests of the tally, the weak proxy, emptiness, build provenance, and the form label's colon rule are new here. Vibe's tests of the playlist row's memoized disk key stay in Vibe with the row. The minimal consumer keys a temporary file, keys it anew once its size changes, and gets nil once it is gone.
