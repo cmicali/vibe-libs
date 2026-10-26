@@ -8,6 +8,7 @@
 #if DEBUG
 
 #import <notify.h>
+#import <os/lock.h>
 #import <sys/sysctl.h>
 #import "DebugWireFormat.h"
 #import "VibeMacros.h"
@@ -15,8 +16,63 @@
 static VibeDebugChannelExecutor gExecutor;
 static NSString *gChannel;
 
+// A live client reads its reply within 20 ms. A host may read a screenshot's
+// path minutes after its client returns. The bound leaves it that time.
+static const NSTimeInterval kVibeDebugAbandonedFileAge = 10 * 60;
+
+// The longest a verb that never replies holds the latency-critical activity.
+static const NSTimeInterval kVibeDebugInFlightCap = 120;
+
+#if TARGET_OS_OSX
+static os_unfair_lock gInFlightLock = OS_UNFAIR_LOCK_INIT;
+static NSMutableSet<NSString *> *gInFlight;
+static id<NSObject> gLatencyCritical;
+#endif
+
 NSString *VibeDebugChannelName(void) {
     return gChannel;
+}
+
+// A command holds the latency-critical activity from pickup until its reply is
+// written. One activity serves every command in flight. The second TRAP at the
+// install says why.
+static void VibeDebugCommandPickedUp(NSString *commandId) {
+#if TARGET_OS_OSX
+    os_unfair_lock_lock(&gInFlightLock);
+    gInFlight = gInFlight ?: [NSMutableSet set];
+    [gInFlight addObject:commandId];
+    if (!gLatencyCritical) {
+        gLatencyCritical = [NSProcessInfo.processInfo
+                beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical
+                                  reason:@"debug command in flight"];
+    }
+    os_unfair_lock_unlock(&gInFlightLock);
+#endif
+}
+
+// A reply may be written on any thread.
+static void VibeDebugCommandSettled(NSString *commandId) {
+#if TARGET_OS_OSX
+    os_unfair_lock_lock(&gInFlightLock);
+    [gInFlight removeObject:commandId];
+    if (gInFlight.count == 0 && gLatencyCritical) {
+        [NSProcessInfo.processInfo endActivity:gLatencyCritical];
+        gLatencyCritical = nil;
+    }
+    os_unfair_lock_unlock(&gInFlightLock);
+#endif
+}
+
+// For the tests, which declare it. Always 0 on iOS.
+NSUInteger VibeDebugCommandsInFlight(void);
+NSUInteger VibeDebugCommandsInFlight(void) {
+    NSUInteger count = 0;
+#if TARGET_OS_OSX
+    os_unfair_lock_lock(&gInFlightLock);
+    count = gInFlight.count;
+    os_unfair_lock_unlock(&gInFlightLock);
+#endif
+    return count;
 }
 
 static NSString *VibeDebugLogTag(NSString *commandId) {
@@ -53,6 +109,7 @@ void VibeWriteDebugResponse(NSString *commandId, NSString *response) {
                  encoding:NSUTF8StringEncoding
                     error:nil];
     VibeLogDebugReply(commandId, response);
+    VibeDebugCommandSettled(commandId);
 }
 
 static void VibeHandleOneDebugCommandFile(NSString *path) {
@@ -92,25 +149,70 @@ static void VibeHandleOneDebugCommandFile(NSString *path) {
     }
     // Before the verb runs, so one that hangs or crashes has still logged it.
     LogInfo(@"Debug command %@: %@", VibeDebugLogTag(commandId), [args componentsJoinedByString:@" "]);
+    VibeDebugCommandPickedUp(commandId);
     NSString *response = gExecutor(args, commandId);
     if (response) {
         VibeWriteDebugResponse(commandId, response);
     }
+    else {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kVibeDebugInFlightCap * NSEC_PER_SEC)),
+                       dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            VibeDebugCommandSettled(commandId);
+        });
+    }
+}
+
+static NSDate *VibeDebugModificationDate(NSURL *url) {
+    NSDate *date = nil;
+    [url getResourceValue:&date forKey:NSURLContentModificationDateKey error:nil];
+    return date ?: NSDate.distantPast;
+}
+
+// This channel's files of these kinds, oldest first, by name within one date.
+// Another app's files never appear.
+static NSArray<NSURL *> *VibeDebugChannelFiles(NSArray<NSString *> *kinds) {
+    NSDictionary<NSString *, NSString *> *suffixes = @{@"command": @".json", @"response": @".txt", @"screenshot": @".png"};
+    NSURL *tmpDir = [NSURL fileURLWithPath:NSTemporaryDirectory() isDirectory:YES];
+    NSMutableArray<NSURL *> *files = [NSMutableArray array];
+    for (NSURL *url in [NSFileManager.defaultManager contentsOfDirectoryAtURL:tmpDir
+                                                   includingPropertiesForKeys:@[NSURLContentModificationDateKey]
+                                                                      options:0
+                                                                        error:nil]) {
+        NSString *name = url.lastPathComponent;
+        for (NSString *kind in kinds) {
+            if ([name hasPrefix:VibeDebugFilePrefix(gChannel, kind)] && [name hasSuffix:suffixes[kind]]) {
+                [files addObject:url];
+            }
+        }
+    }
+    [files sortUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) {
+        NSComparisonResult order = [VibeDebugModificationDate(a) compare:VibeDebugModificationDate(b)];
+        return order != NSOrderedSame ? order : [a.lastPathComponent compare:b.lastPathComponent];
+    }];
+    return files;
+}
+
+static void VibeRemoveDebugChannelFiles(NSArray<NSString *> *kinds, NSDate *before) {
+    for (NSURL *url in VibeDebugChannelFiles(kinds)) {
+        if ([VibeDebugModificationDate(url) compare:before] == NSOrderedAscending) {
+            [NSFileManager.defaultManager removeItemAtURL:url error:nil];
+        }
+    }
 }
 
 // notify_post coalesces back-to-back posts, so one wake-up drains every
-// pending command file.
+// pending command file. It runs the oldest first. A command's id is a UUID,
+// and name order let a backlog's oldest client run out its wait. A client that
+// gave up leaves its reply behind. The drain removes old replies. A pending
+// command is live. The drain never removes one.
 // TRAP: call it only from a main-queue block. A verb that spins the run loop
 // inside one services no other main-queue block, so the next client's command
 // waits for the verb to return and never runs inside it.
 static void VibeHandleDebugCommandFiles(void) {
-    NSString *tmpDir = NSTemporaryDirectory();
-    NSString *commandPrefix = VibeDebugFilePrefix(gChannel, @"command");
-    NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:tmpDir error:nil];
-    for (NSString *name in [names sortedArrayUsingSelector:@selector(compare:)]) {
-        if ([name hasPrefix:commandPrefix] && [name hasSuffix:@".json"]) {
-            VibeHandleOneDebugCommandFile([tmpDir stringByAppendingPathComponent:name]);
-        }
+    VibeRemoveDebugChannelFiles(@[@"response", @"screenshot"],
+                                [NSDate dateWithTimeIntervalSinceNow:-kVibeDebugAbandonedFileAge]);
+    for (NSURL *url in VibeDebugChannelFiles(@[@"command"])) {
+        VibeHandleOneDebugCommandFile(url.path);
     }
 }
 
@@ -125,27 +227,6 @@ static NSDate *VibeDebugProcessStartDate(void) {
     }
     struct timeval start = info.kp_proc.p_starttime;
     return [NSDate dateWithTimeIntervalSince1970:start.tv_sec + start.tv_usec / 1e6];
-}
-
-// TRAP: only files older than this process go. A dead client's command would
-// replay at the next launch and could change files. A live client's command
-// written between the process start and the install is this run's, and the
-// install drains it. Only this channel's files go. Another app's stay.
-static void VibeSweepStaleChannelFiles(void) {
-    NSString *tmpDir = NSTemporaryDirectory();
-    NSDate *started = VibeDebugProcessStartDate();
-    NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:tmpDir error:nil];
-    for (NSString *name in names) {
-        if (([name hasPrefix:VibeDebugFilePrefix(gChannel, @"response")] && [name hasSuffix:@".txt"])
-                || ([name hasPrefix:VibeDebugFilePrefix(gChannel, @"screenshot")] && [name hasSuffix:@".png"])
-                || ([name hasPrefix:VibeDebugFilePrefix(gChannel, @"command")] && [name hasSuffix:@".json"])) {
-            NSString *path = [tmpDir stringByAppendingPathComponent:name];
-            NSDate *modified = [NSFileManager.defaultManager attributesOfItemAtPath:path error:nil].fileModificationDate;
-            if (!modified || [modified compare:started] == NSOrderedAscending) {
-                [NSFileManager.defaultManager removeItemAtPath:path error:nil];
-            }
-        }
-    }
 }
 
 #if TARGET_OS_IPHONE
@@ -179,7 +260,11 @@ void VibeInstallDebugCommandChannel(NSString *channel, VibeDebugChannelExecutor 
     }
     gChannel = [channel copy];
     gExecutor = [executor copy];
-    VibeSweepStaleChannelFiles();
+    // TRAP: only files older than this process go. A dead client's command
+    // would replay at the next launch and could change files. A live client's
+    // command written between the process start and the install is this
+    // run's, and the install drains it. Only this channel's files go.
+    VibeRemoveDebugChannelFiles(@[@"command", @"response", @"screenshot"], VibeDebugProcessStartDate());
     static int token;
     notify_register_dispatch(VibeDebugCommandNotificationName(gChannel).UTF8String, &token,
                              dispatch_get_main_queue(), ^(int t) {
@@ -193,6 +278,11 @@ void VibeInstallDebugCommandChannel(NSString *channel, VibeDebugChannelExecutor 
     // nothing. Every thread drops to background priority and its timers
     // stall. On a busy Mac the drain then misses the client's wait. A display
     // asleep hides every window.
+    // TRAP: this activity stops the nap, but a hidden window's timers still
+    // fire late once the app is idle. A 1 s timer-driven verb took 2 to 8 s.
+    // So each command also holds a latency-critical activity until its reply
+    // is written (VibeDebugCommandPickedUp). Held for the whole process, it
+    // would skew an app's benchmarks against older versions.
     static id<NSObject> activity;
     if (!activity) {
         activity = [NSProcessInfo.processInfo beginActivityWithOptions:NSActivityUserInitiatedAllowingIdleSystemSleep

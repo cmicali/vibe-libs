@@ -9,6 +9,10 @@
 #import "DebugCommandDispatch.h"
 #import "DebugWireFormat.h"
 
+// The commands holding the latency-critical activity. Only the tests read it,
+// so no header declares it.
+NSUInteger VibeDebugCommandsInFlight(void);
+
 @interface DebugChannelTests : XCTestCase
 @end
 
@@ -282,6 +286,83 @@ static void InstallChannelOnce(void) {
     Post();
     XCTAssertEqualObjects(JSONObject(AwaitReply(first)), @{@"verb": @"first"});
     XCTAssertEqualObjects(JSONObject(AwaitReply(second)), @{@"verb": @"second"});
+}
+
+// In a backlog the client that has waited longest runs first. A client's id is
+// a UUID, so name order is no order at all.
+- (void)testABacklogRunsOldestFirstAndTheNameBreaksATie {
+    NSMutableArray<NSString *> *ran = [NSMutableArray array];
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        [ran addObject:args.firstObject];
+        return VibeJSONString(@{@"verb": args.firstObject});
+    };
+    NSDate *now = NSDate.date;
+    NSDictionary<NSString *, NSDate *> *written = @{
+        @"backlog-a": [now dateByAddingTimeInterval:-2],
+        @"backlog-b": [now dateByAddingTimeInterval:-2],
+        @"backlog-c": [now dateByAddingTimeInterval:-3],
+    };
+    for (NSString *commandId in written) {
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: written[commandId]}
+                                                     ofItemAtPath:WriteCommand(@[commandId], commandId)
+                                                            error:nil]);
+    }
+    Post();
+    for (NSString *commandId in written) {
+        AwaitReply(commandId);
+    }
+    XCTAssertEqualObjects(ran, (@[@"backlog-c", @"backlog-a", @"backlog-b"]));
+}
+
+// A client that gave up leaves its reply behind. A drain removes it once it is
+// old, and leaves a fresh one for its client.
+- (void)testADrainRemovesAbandonedRepliesAndKeepsFreshOnes {
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        return VibeJSONString(@{@"verb": args.firstObject});
+    };
+    NSString *staleReply = VibeDebugResponsePath(kChannel, @"abandoned");
+    NSString *staleScreenshot = VibeDebugScreenshotPathForCommand(kChannel, @"abandoned");
+    NSString *freshReply = VibeDebugResponsePath(kChannel, @"fresh");
+    for (NSString *path in @[staleReply, staleScreenshot, freshReply]) {
+        XCTAssertTrue([NSData.data writeToFile:path atomically:NO]);
+    }
+    for (NSString *path in @[staleReply, staleScreenshot]) {
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-11 * 60]}
+                                                     ofItemAtPath:path
+                                                            error:nil]);
+    }
+    XCTAssertEqualObjects(JSONObject(SendArgs(@[@"ours"])), @{@"verb": @"ours"});
+    XCTAssertFalse([NSFileManager.defaultManager fileExistsAtPath:staleReply]);
+    XCTAssertFalse([NSFileManager.defaultManager fileExistsAtPath:staleScreenshot]);
+    XCTAssertTrue([NSFileManager.defaultManager fileExistsAtPath:freshReply]);
+    [NSFileManager.defaultManager removeItemAtPath:freshReply error:nil];
+}
+
+// A command holds the latency-critical activity until its reply is written. A
+// synchronous one holds it while its executor runs. An asynchronous one holds
+// it until its completion writes.
+- (void)testACommandIsInFlightUntilItsReplyIsWritten {
+    XCTAssertEqual(VibeDebugCommandsInFlight(), 0u);
+    __block NSUInteger whileRunning = 0;
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        whileRunning = VibeDebugCommandsInFlight();
+        return VibeJSONString(@{@"verb": args.firstObject});
+    };
+    XCTAssertEqualObjects(JSONObject(SendArgs(@[@"now"])), @{@"verb": @"now"});
+    XCTAssertEqual(whileRunning, 1u);
+    XCTAssertEqual(VibeDebugCommandsInFlight(), 0u);
+
+    __block NSUInteger beforeReplying = 0;
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            beforeReplying = VibeDebugCommandsInFlight();
+            VibeWriteDebugResponse(commandId, VibeJSONString(@{@"later": @YES}));
+        });
+        return nil;
+    };
+    XCTAssertEqualObjects(JSONObject(SendArgs(@[@"later"])), @{@"later": @YES});
+    XCTAssertEqual(beforeReplying, 1u);
+    XCTAssertEqual(VibeDebugCommandsInFlight(), 0u);
 }
 
 // Two unsandboxed apps share one temporary directory. Each drains only its own.
