@@ -80,16 +80,16 @@ static BOOL Dirty(double publishedRate, BOOL wasPlaying, NSTimeInterval position
 // A track is its path: the path is its source key, and its file name its title.
 - (void)update:(NSString *)track position:(double)position duration:(NSTimeInterval)duration
          state:(NowPlayingPlaybackState)state rate:(double)rate hasNext:(BOOL)hasNext hasPrevious:(BOOL)hasPrevious {
-    [self.publisher updateWithRecord:(VibeNowPlayingRecord){
-        .sourceKey = track,
-        .title = track.lastPathComponent.stringByDeletingPathExtension,
-        .position = position,
-        .duration = duration,
-        .state = state,
-        .rate = rate,
-        .hasNext = hasNext,
-        .hasPrevious = hasPrevious,
-    }];
+    VibeNowPlayingRecord *record = [VibeNowPlayingRecord new];
+    record.sourceKey = track;
+    record.title = track.lastPathComponent.stringByDeletingPathExtension;
+    record.position = position;
+    record.duration = duration;
+    record.state = state;
+    record.rate = rate;
+    record.hasNext = hasNext;
+    record.hasPrevious = hasPrevious;
+    [self.publisher updateWithRecord:record];
 }
 
 - (void)publish:(NSString *)track state:(NowPlayingPlaybackState)state position:(double)position rate:(double)rate {
@@ -172,6 +172,28 @@ static BOOL Dirty(double publishedRate, BOOL wasPlaying, NSTimeInterval position
     XCTAssertEqual(self.publications.count, 2u);
 }
 
+// The update keeps no reference to its record. A change to the record after
+// the call reaches nothing, and the next record is compared with what was
+// published.
+- (void)testTheUpdateKeepsNoReferenceToItsRecord {
+    __weak VibeNowPlayingRecord *weakRecord = nil;
+    @autoreleasepool {
+        VibeNowPlayingRecord *record = [VibeNowPlayingRecord new];
+        record.sourceKey = @"/tests/a.wav";
+        record.title = @"a";
+        record.duration = 120;
+        record.state = NowPlayingPlaybackStatePlaying;
+        record.rate = 1;
+        [self.publisher updateWithRecord:record];
+        record.title = @"changed";
+        weakRecord = record;
+    }
+    XCTAssertNil(weakRecord);
+    [self publish:@"/tests/a.wav" state:NowPlayingPlaybackStatePlaying position:0 rate:1];
+    XCTAssertEqual(self.publications.count, 1u);
+    XCTAssertEqualObjects(self.publishedInfo[MPMediaItemPropertyTitle], @"a");
+}
+
 #pragma mark - Artwork
 
 static NSImage *Image(CGFloat width, CGFloat height) {
@@ -183,14 +205,14 @@ static NSImage *Image(CGFloat width, CGFloat height) {
 }
 
 - (MPMediaItemArtwork *)publish:(NSString *)track artwork:(NSImage *)artwork {
-    [self.publisher updateWithRecord:(VibeNowPlayingRecord){
-        .sourceKey = track,
-        .title = track.lastPathComponent,
-        .artwork = artwork,
-        .duration = 120,
-        .state = NowPlayingPlaybackStatePlaying,
-        .rate = 1,
-    }];
+    VibeNowPlayingRecord *record = [VibeNowPlayingRecord new];
+    record.sourceKey = track;
+    record.title = track.lastPathComponent;
+    record.artwork = artwork;
+    record.duration = 120;
+    record.state = NowPlayingPlaybackStatePlaying;
+    record.rate = 1;
+    [self.publisher updateWithRecord:record];
     return self.publishedInfo[MPMediaItemPropertyArtwork];
 }
 
