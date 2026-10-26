@@ -5,7 +5,7 @@ The transport of a debug command channel: a script drives and inspects a running
 | File | Owns |
 | --- | --- |
 | `DebugWireFormat.{h,m}` | the wire: the notification name and the command, reply, and screenshot paths, each derived from the channel's name, the JSON reply serialization, and the two number parsers a verb's arguments share |
-| `DebugChannel.{h,m}` | the drain: payload validation, reply writing, the stale-file sweep, and the wake-up listeners. The app supplies one executor block. |
+| `DebugChannel.{h,m}` | the drain: payload validation, reply writing, the stale-file sweep, the wake-up listeners, and the activity that keeps macOS from napping the process. The app supplies one executor block. |
 | `DebugCommandDispatch.{h,m}` | a command table's shape, the lookup over it, the unknown-command reply, and the argument helpers. It never invokes a handler. |
 
 ## It compiles in every configuration and ships in none
@@ -30,9 +30,11 @@ The transport of a debug command channel: a script drives and inspects a running
 - **One wake-up drains every pending file**, in name order. `notify_post` coalesces back-to-back posts.
 - **The command is logged before the verb runs**, so a verb that hangs or crashes has still logged it. Every reply is logged, trimmed to bound the log.
 
-**TRAP: a verb that spins the main run loop re-enters the drain.** The drain runs on main, and a spinning verb services the next wake-up. A guard defers that pass until the outer command finishes, so a second client's command never runs inside the first.
+**TRAP: the drain runs only in a main-queue block.** A verb that spins the main run loop inside one services no other main-queue block. So a second client's command waits until the verb returns, and never runs inside it. A drain called from anywhere else could run inside a verb.
 
-**TRAP: the sweep at install deletes every command, reply, and screenshot file of the channel's name.** A command left by a dead client would otherwise run at the next launch and could change files. So a client must not write before the app has installed the channel. A command written too early is swept and never answered.
+**TRAP: the sweep at install deletes the channel's files that are older than the process.** A command left by a dead client would otherwise run at the next launch and could change files. A command written since the process started is a live client's, so the sweep keeps it. Its post reached no listener, so the install drains it on the next main-queue turn. A client may write as soon as the app's process exists. A command written before that is swept and never answered.
+
+**TRAP: macOS naps an app whose windows are all hidden and that plays nothing.** Its threads drop to background priority and its timers stall. A display asleep or a locked screen hides every window. A napped app on a busy Mac ran one command for 12 s, so the next clients gave up, and a 1 s timer reply took 12 s. So on macOS the install begins a user-initiated activity, held for the life of the process. A process with the channel is never napped. The activity still lets the Mac sleep.
 
 **TRAP: on iOS a host's `notifyutil` posts into the mac's namespace, not the simulator's.** So on iOS the channel also watches the tmp directory. The watcher fires on every change there, the channel's own reply writes included. A spurious drain costs one directory read. **The host must rename a complete command file into place.** A file read while it is still being written is deleted unexecuted.
 
@@ -40,6 +42,6 @@ The transport of a debug command channel: a script drives and inspects a running
 
 ## Tests
 
-`Tests/dev/DebugChannel/` holds `DebugChannelTests`. They cover the wire's paths, replies, and parsers, the table lookup and the unknown-command reply, the argument helpers, and the drain. A drain test writes a command file as a client does, posts the notification, and reads the reply: a synchronous verb, an asynchronous one, and two malformed payloads. Another channel's command in the same directory is neither run nor answered. The minimal consumer installs the channel under its own name and answers one registered command from its own table.
+`Tests/dev/DebugChannel/` holds `DebugChannelTests`. They cover the wire's paths, replies, and parsers, the table lookup and the unknown-command reply, the argument helpers, and the drain. A drain test writes a command file as a client does, posts the notification, and reads the reply: a synchronous verb, an asynchronous one, and two malformed payloads. Another channel's command in the same directory is neither run nor answered. The one install is a launch. A command written before it, since the process started, is answered. One older than the process is swept and never runs. A command posted while a verb spins main runs after the verb returns. Two commands posted back to back are both answered. The minimal consumer installs the channel under its own name and answers one registered command from its own table.
 
 Vibe's verbs and their dispatchers are live-app checks, through the vibe-debug skill there.
