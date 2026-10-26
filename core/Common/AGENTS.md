@@ -80,4 +80,4 @@ It holds the macros (`VibeMacros.h`), the work tally, the stall sampler, path sp
 
 ## Tests
 
-`Tests/core/Common/` holds Vibe's tests of the paths, the disk key, file identity, the timer and its math, the token parser, and the work lanes. The tally, the weak proxy, emptiness, and build provenance had no tests in Vibe, so theirs are new here. Vibe's tests of the playlist row's memoized disk key stay in Vibe with the row.
+`Tests/core/Common/` holds the tests of the paths, the disk key, file identity, the timer and its math, the token parser, and the work lanes. Those came from Vibe. The tests of the tally, the weak proxy, emptiness, and build provenance are new here. Vibe's tests of the playlist row's memoized disk key stay in Vibe with the row.

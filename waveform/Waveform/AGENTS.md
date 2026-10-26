@@ -1,6 +1,6 @@
 # waveform/Waveform
 
-The waveform engine: the summary of an audio stream, the reads every display is drawn from, the raster that draws them, and the archive. The engine is plain C++17 over Accelerate and Compression: `WaveformSummary`, `WaveformBandSplit`, and `WaveformRaster`. Beside it, in Objective-C++, `AudioWaveform.h` names the summary for an app, mixes a decode's channels to mono, and archives the summary as a cache entry. It names no app type. It came from Vibe, the engine from its `Packages/WaveformCore`. It depends on `core/Common` alone, for that file's log. The rest of the waveform pieces follow in Phase 3's step 7 (`docs/plan.md`).
+The waveform engine: the summary of an audio stream, the reads every display is drawn from, the raster that draws them, and the archive. The engine is plain C++17 over Accelerate and Compression: `WaveformSummary`, `WaveformBandSplit`, and `WaveformRaster`. Beside it, in Objective-C++, `AudioWaveform.h` names the summary for an app, mixes a decode's channels to mono, and archives the summary as a cache entry. It names no app type. It came from Vibe, the engine from its `Packages/WaveformCore`. It depends on `core/Common` alone, for that file's log. WaveformStyles, WaveformLoading, and WaveformView build on it.
 
 The headers sit beside the sources, and each states its contract. The namespace is `wavecore`, a name no variable takes, so a local `waveform` cannot shadow it. `AudioWaveform` is the summary's name outside the engine.
 
@@ -85,8 +85,6 @@ Rows are written from the top with a signed stride. So a caller whose layer show
 
 ## Tests
 
-`Tests/waveform/Waveform/` holds Vibe's tests of the summary and the raster. They cover the bin sizes, the builder against a summary built whole, the snapshots, exact columns at every range, the loudest windows, the tent, deep zoom's reads and the blocks a read lacks, the archive's round trip and its refusals, and the raster's steps, shares, coverage, and paint. `AudioWaveformMonoMixTests` and `CodableAudioWaveformTests` are Vibe's tests of `AudioWaveform.h`. They cover the mix's pass-through and its average of two or more channels, and the entry's round trip, its refusals, and the results it files. The minimal consumer summarizes a tone, files it as a cache entry, and draws it, as an app would.
-
-`swift test` ran these tests in Vibe while the code was a Swift package. That ended with the move. They run here, in `WaveformTests`.
+`Tests/waveform/Waveform/` holds the tests of the summary and the raster, and `WaveformTests` runs them. They cover the bin sizes, the builder against a summary built whole, the snapshots, exact columns at every range, the loudest windows, the tent, deep zoom's reads and the blocks a read lacks, the archive's round trip and its refusals, and the raster's steps, shares, coverage, and paint. `AudioWaveformMonoMixTests` and `CodableAudioWaveformTests` test `AudioWaveform.h`. They cover the mix's pass-through and its average of two or more channels, and the entry's round trip, its refusals, and the results it files. The minimal consumer summarizes a tone, files it as a cache entry, and draws it, as an app would.
 
 **Measuring.** A change that could move cost is measured in Vibe, with its `vibe-perf` skill, before and after. A change that could move a picture is drawn with its `vibe-waveform` skill at both commits, and the pictures are compared with `cmp`.

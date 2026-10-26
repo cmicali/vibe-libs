@@ -117,7 +117,7 @@ Existing interruption, route-loss, and reset ownership wins in all three, which 
 
 ## Tests
 
-`Tests/audio/OutputDevices/` holds Vibe's tests of the manager and the rules. They run on macOS, with the headermap off. The iOS half's rules are Foundation-only, so their tests run on macOS too. The iOS target builds the iOS half. No test assumes a particular output device.
+`Tests/audio/OutputDevices/` holds the tests of the manager and the rules. They run on macOS, with the headermap off. The iOS half's rules are Foundation-only, so their tests run on macOS too. The iOS target builds the iOS half. No test assumes a particular output device.
 
 - `Mac/AudioDeviceManagerTests` runs the manager with injected enumeration and retry scheduling, and no HAL registration: snapshot publication, saved-device lookups, and the recovery retry. It also runs the event log's listener, the bounded read, and the release loop with controlled attempts.
 - `Mac/OutputFormatRulesTests` covers the rate and depth rules, eligibility, and device liveness.

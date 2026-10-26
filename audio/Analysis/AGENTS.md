@@ -76,4 +76,4 @@ For key: narrowing the chroma band; restricting to spectral peaks, since the run
 
 ## Tests
 
-`Tests/audio/Analysis/` holds Vibe's tests of both analyzers and of the framer. The analyzers' tests feed synthesized click tracks and chords in arbitrary block sizes, so they pin the framing guarantee end to end. `AnalysisFramerMathTests` pins the framer's arithmetic at block sizes a decoder is unlikely to produce but a caller may, and at the edges of its precondition. They also check the tempo at 96 and 192 kHz, and that a short or empty input finds nothing. The minimal consumer finds a click track's tempo, as an app would.
+`Tests/audio/Analysis/` holds the tests of both analyzers and of the framer. The analyzers' tests feed synthesized click tracks and chords in arbitrary block sizes, so they pin the framing guarantee end to end. `AnalysisFramerMathTests` pins the framer's arithmetic at block sizes a decoder is unlikely to produce but a caller may, and at the edges of its precondition. They also check the tempo at 96 and 192 kHz, and that a short or empty input finds nothing. The minimal consumer finds a click track's tempo, as an app would.
