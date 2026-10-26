@@ -55,6 +55,25 @@
                    @"back at full volume, every frame continues the file exactly");
 }
 
+// The app sets the seam's silent output from its launch flag, before it makes
+// the player. The device is driven, the output is zero, and the meter before
+// it still sees the signal.
+- (void)testTheDebugSilentOutputZeroesAfterTheMeter {
+    AudioPlayer.debugSilentOutput = YES;
+    [self addTeardownBlock:^{
+        AudioPlayer.debugSilentOutput = NO;
+    }];
+    [self startPlayerAt:48000 channels:2 fx:NO bitPerfect:NO automatic:NO];
+    _player.levelsEnabled = YES;
+    [self play:[self fixture:@"noise-48000-24-2.wav"] paused:NO position:0];
+    [self assertFinite:[self renderSeconds:0.5] peak:0];
+    XCTAssertEqual(_player.volume, 1.0f, @"the volume is untouched");
+    [_player runSyncOnQueue:^{
+        NSDictionary *signal = [[self->_player debugLevelMeter] signalDiagnosticSnapshot];
+        XCTAssertTrue([signal[@"aboveThreshold"] boolValue], @"the meter is before the zero: %@", signal);
+    }];
+}
+
 - (void)testAStartPlaysAtTheVolumeItWasLeftAt {
     [self startPlayerAt:48000 channels:2 fx:NO bitPerfect:NO automatic:NO];
     _player.declick = NO;

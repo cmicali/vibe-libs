@@ -22,15 +22,19 @@ BOOL ConsumerPublishesNowPlaying(void) {
         [publications addObject:info ?: NSNull.null];
     } commandAvailability:^(BOOL hasNext, BOOL hasPrevious) {
     }];
-    [controller updateWithSourceKey:@"/consumer/now-playing.wav" title:@"Consumer" artist:nil artwork:nil
-                           position:3 duration:42 state:NowPlayingPlaybackStatePlaying rate:1
-                            hasNext:NO hasPrevious:NO];
+    [controller updateWithRecord:(VibeNowPlayingRecord){
+        .sourceKey = @"/consumer/now-playing.wav",
+        .title = @"Consumer",
+        .position = 3,
+        .duration = 42,
+        .state = NowPlayingPlaybackStatePlaying,
+        .rate = 1,
+    }];
     NSDictionary *info = [publications.lastObject isKindOfClass:NSDictionary.class] ? publications.lastObject : nil;
     BOOL published = [info[MPMediaItemPropertyTitle] isEqual:@"Consumer"]
             && [info[MPMediaItemPropertyPlaybackDuration] isEqual:@42]
             && info[MPMediaItemPropertyArtist] == nil;
-    [controller updateWithSourceKey:nil title:nil artist:nil artwork:nil position:0 duration:0
-                              state:NowPlayingPlaybackStateStopped rate:1 hasNext:NO hasPrevious:NO];
+    [controller updateWithRecord:(VibeNowPlayingRecord){.state = NowPlayingPlaybackStateStopped, .rate = 1}];
     BOOL cleared = publications.count == 2 && publications.lastObject == NSNull.null;
     if (!published || !cleared) {
         fprintf(stderr, "consumer: Now Playing published %s, and %s cleared\n", publications.description.UTF8String,

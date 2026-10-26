@@ -42,9 +42,6 @@ static VibeImage *_Nullable VibeArtworkForPublishing(VibeImage *artwork) {
 
 @implementation NowPlayingController {
     __weak id<NowPlayingControllerDelegate> _delegate;
-#if DEBUG
-    BOOL _suppressed;
-#endif
 
     // Publishing even a cleared or paused state before the first play would
     // evict the user's current Now Playing app.
@@ -95,17 +92,6 @@ static VibeImage *_Nullable VibeArtworkForPublishing(VibeImage *artwork) {
     }];
     if (self) {
         _delegate = delegate;
-#if DEBUG
-        // TRAP: see the header. --no-now-playing suppresses this alone,
-        // keeping hardware rendering for loopback tests.
-        NSArray<NSString *> *arguments = NSProcessInfo.processInfo.arguments;
-        _suppressed = [arguments containsObject:@"--no-audio-hw"]
-                || [arguments containsObject:@"--no-now-playing"];
-        if (_suppressed) {
-            LogInfo(@"NowPlayingController: system Now Playing suppressed for this debug launch");
-            return self;
-        }
-#endif
         [self registerCommands];
     }
     return self;
@@ -225,7 +211,7 @@ static VibeImage *_Nullable VibeArtworkForPublishing(VibeImage *artwork) {
         }];
     }];
 
-    // Enabled until updateWithSourceKey: passes hasNext and hasPrevious.
+    // Enabled until updateWithRecord: passes hasNext and hasPrevious.
     center.nextTrackCommand.enabled = YES;
     _publishedHasNext = YES;
     [center.nextTrackCommand addTargetWithHandler:^MPRemoteCommandHandlerStatus(MPRemoteCommandEvent *event) {
@@ -296,27 +282,21 @@ static VibeImage *_Nullable VibeArtworkForPublishing(VibeImage *artwork) {
 
 #pragma mark - Now Playing info
 
-- (void)updateWithSourceKey:(NSString *)sourceKey
-                      title:(NSString *)title
-                     artist:(NSString *)artist
-                    artwork:(VibeImage *)artwork
-                   position:(NSTimeInterval)position
-                   duration:(NSTimeInterval)duration
-                      state:(NowPlayingPlaybackState)state
-                       rate:(double)rate
-                    hasNext:(BOOL)hasNext
-                hasPrevious:(BOOL)hasPrevious {
-#if DEBUG
-    if (_suppressed) {
-        return;
-    }
-#endif
+- (void)updateWithRecord:(VibeNowPlayingRecord)record {
     // Before the first publish too: enabling a command claims nothing.
-    if (hasNext != _publishedHasNext || hasPrevious != _publishedHasPrevious) {
-        _commandAvailability(hasNext, hasPrevious);
-        _publishedHasNext = hasNext;
-        _publishedHasPrevious = hasPrevious;
+    if (record.hasNext != _publishedHasNext || record.hasPrevious != _publishedHasPrevious) {
+        _commandAvailability(record.hasNext, record.hasPrevious);
+        _publishedHasNext = record.hasNext;
+        _publishedHasPrevious = record.hasPrevious;
     }
+    NSString *sourceKey = record.sourceKey;
+    NSString *title = record.title ?: @"";
+    NSString *artist = record.artist;
+    VibeImage *artwork = record.artwork;
+    NSTimeInterval position = record.position;
+    NSTimeInterval duration = record.duration;
+    NowPlayingPlaybackState state = record.state;
+    double rate = record.rate;
 
     if (!_hasPublished && state != NowPlayingPlaybackStatePlaying) {
         return;
@@ -332,8 +312,6 @@ static VibeImage *_Nullable VibeArtworkForPublishing(VibeImage *artwork) {
         _publishedArtworkWrapper = nil;
         return;
     }
-
-    title = title ?: @"";
 
     if (_publishedSource != nil) {
         BOOL unchanged = [_publishedSource isEqualToString:sourceKey]

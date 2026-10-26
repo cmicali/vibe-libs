@@ -40,15 +40,14 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
 
 - (void)createOutputOnQueue {
 #if DEBUG
-    // --no-audio-hw: no output unit; the pump stands in for the IO thread, at
+    // With no hardware output, the pump stands in for the IO thread, at
     // real-time pace or frame-driven by a test. Even muted, hardware IO counts
-    // as playing, which lets macOS pull auto-switching AirPods mid-test.
-    // --silent: the device is driven, and the buffers are zeroed after the
-    // meter.
+    // as playing, which lets macOS pull auto-switching AirPods mid-test. With
+    // silent output, the device is driven, and the buffers are zeroed after
+    // the meter. The app sets both through the seam.
     VibeManualRenderPump *pump = _manualPump;
-    BOOL noAudioHW = pump != nil || [NSProcessInfo.processInfo.arguments containsObject:@"--no-audio-hw"];
-    atomic_store_explicit(&_masterBus->silent, [NSProcessInfo.processInfo.arguments containsObject:@"--silent"] ? 1 : 0,
-                          memory_order_relaxed);
+    BOOL noAudioHW = pump != nil || AudioPlayer.debugNoHardwareOutput;
+    atomic_store_explicit(&_masterBus->silent, AudioPlayer.debugSilentOutput ? 1 : 0, memory_order_relaxed);
     if (noAudioHW) {
         AVAudioFormat *format = pump.format ?: [[AVAudioFormat alloc] initStandardFormatWithSampleRate:44100.0 channels:2];
         if (!pump) {
@@ -67,7 +66,7 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
             return atomic_load_explicit(&master->gate, memory_order_relaxed) != 0;
         }];
         [self setMasterBusFormatOnQueue:format];
-        LogInfo(@"AudioPlayer: --no-audio-hw, no output device");
+        LogInfo(@"AudioPlayer: no hardware output, the pump renders");
         return;
     }
 #endif

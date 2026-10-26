@@ -11,12 +11,12 @@ A sandboxed mac app's folder grants. It keeps every folder the user opens, drops
 
 ## How an app uses it
 
-- **An app makes one store at launch and keeps it** (`initWithDefaults:key:`). The store reads its grants from that key in those defaults, and writes every change back there. There is no shared instance.
+- **An app makes one store at launch and keeps it** (`initWithDefaults:key:entitledFolders:`). The store reads its grants from that key in those defaults, and writes every change back there. There is no shared instance.
 - **The app calls `restoreGrantedAccessWithCompletion:` once at launch**, before any open that may need a remembered grant. The completion runs on main once every scope has started, or at the deadline.
-- **Each open waits for the grants that cover it** (`awaitRestoredAccessForURLs:completion:`), then calls `noteOpenedURLs:` with what it opened. That call bookmarks only directories outside an active grant and outside ~/Music. The caller must hold access to each URL now, from a drag, a panel, or Launch Services. A URL with no access is skipped.
+- **Each open waits for the grants that cover it** (`awaitRestoredAccessForURLs:completion:`), then calls `noteOpenedURLs:` with what it opened. That call bookmarks only directories outside an active grant and outside the entitled folders. The caller must hold access to each URL now, from a drag, a panel, or Launch Services. A URL with no access is skipped.
 - **Background work asks `canReadInsideDirectory:` first**, from any thread. An unsanctioned read of a protected folder raises a system consent panel. A NO can be stale by one grant, so the change notification is the signal to ask again.
 - **A list of grants reads `grantedFolders`**, a snapshot with a state per row, and removes rows with `removeFoldersAtIndexes:`.
-- **The app holds the music read-write entitlement.** The store treats ~/Music as granted without a bookmark, in the read test and the auto-add alike. An app without that entitlement would be told ~/Music is readable when it is not.
+- **The app names the folders its entitlements grant**, none by default. The store treats each as granted without a bookmark, in the read test and the auto-add alike. None is a row of `grantedFolders`. The piece cannot know an app's entitlements. A store that assumed ~/Music would tell an app without the music entitlement that ~/Music is readable when it is not. Vibe holds the music read-write entitlement, so it passes ~/Music.
 
 ## The store
 
@@ -28,7 +28,7 @@ A sandboxed mac app's folder grants. It keeps every folder the user opens, drops
 
 **A failed restore keeps its row.** An unplugged drive is indistinguishable from a deleted folder here. The row stays Unavailable and resolves again at a launch that finds it.
 
-**TRAP: inside the sandbox, `NSHomeDirectory` and `NSHomeDirectoryForUser` both answer the container.** That silently turns the ~/Music rule into a test against a path no music sits under. `+realHomeDirectory` uses `getpwuid`, the documented way to the on-disk home.
+**TRAP: inside the sandbox, `NSHomeDirectory` and `NSHomeDirectoryForUser` both answer the container.** An entitled ~/Music spelled from them names a folder no music sits under. `+realHomeDirectory` uses `getpwuid`, the documented way to the on-disk home. An app spells an entitled folder under the home from it.
 
 **TRAP: coverage has two spellings, and the callers need different ones** (`FolderAccessRules.h`). `path:isCoveredByAnyOf:` is case-**sensitive**. It is the auto-add's duplicate check over canonical spellings. A loose match on a case-sensitive volume would skip a bookmark it needs. `readablePath:isCoveredByAnyOf:` is case-**insensitive**. It is the read test, and the same folding decides whether an open must wait for a grant. Those paths come straight off Launch Services, a pasteboard, or a track's URL. Under-matching them would walk a folder before its grant is restored, or refuse a readable one. Both sides of either test drop the alias spellings first: `/private/tmp` and `/tmp`, and the Data volume's firmlinks.
 
@@ -48,4 +48,4 @@ A sandboxed mac app's folder grants. It keeps every folder the user opens, drops
 
 ## Tests
 
-`Tests/files/SandboxAccess/Mac/` covers the path rules, the read test's case folding, the alias spellings, the ~/Music rule and the on-disk home, a stored bookmark that authorizes nothing, a failed restore, and the restore scheduler: the bounded workers, the promoted lane, nested grants, removal racing promotion, duplicate bookmarks, and a reactivated alias. The scheduler tests override the resolve through the internal header, so they need no real bookmark. Each test stores its grants in a defaults suite of its own and removes it. The panel needs a human, so no test reaches it.
+`Tests/files/SandboxAccess/Mac/` covers the path rules, the read test's case folding, the alias spellings, an entitled folder and the on-disk home, a stored bookmark that authorizes nothing, a failed restore, and the restore scheduler: the bounded workers, the promoted lane, nested grants, removal racing promotion, duplicate bookmarks, and a reactivated alias. The scheduler tests override the resolve through the internal header, so they need no real bookmark. Each test stores its grants in a defaults suite of its own and removes it. The panel needs a human, so no test reaches it.

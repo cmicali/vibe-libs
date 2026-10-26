@@ -3,8 +3,8 @@
 //  vibe-libs
 //
 //  Every folder the user opens, drops or adds is stored as an app-scoped
-//  security bookmark and re-opened at launch. ~/Music needs none: the app's
-//  music read-write entitlement covers it standing.
+//  security bookmark and re-opened at launch. A folder the app's entitlements
+//  grant needs none.
 //
 
 #import <Foundation/Foundation.h>
@@ -35,16 +35,23 @@ typedef NS_ENUM(NSInteger, VibeGrantedFolderState) {
 @interface FolderAccessManager : NSObject
 
 // Reads the grants stored under key in defaults, and writes them back there.
-// An app makes one at launch and keeps it.
+// entitledFolders are the folders the app's entitlements already grant, such
+// as ~/Music under the music read-write entitlement. They count as granted
+// without a bookmark, in the read test and the auto-add alike, and are never
+// rows. Spell one under the home from realHomeDirectory. An app makes one
+// store at launch and keeps it.
 - (instancetype)initWithDefaults:(NSUserDefaults *)defaults
-                             key:(NSString *)key NS_DESIGNATED_INITIALIZER;
+                             key:(NSString *)key
+                 entitledFolders:(NSArray<NSURL *> *)entitledFolders NS_DESIGNATED_INITIALIZER;
+// No entitled folders.
+- (instancetype)initWithDefaults:(NSUserDefaults *)defaults key:(NSString *)key;
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 
 // The granted folders, in the order they were added. Main thread.
 @property (nonatomic, readonly) NSArray<VibeGrantedFolder *> *grantedFolders;
 
-// Under an active scope or ~/Music; a stored bookmark does not count until
+// Under an active scope or an entitled folder; a stored bookmark does not count until
 // restoration starts its scope. Any thread, so background work can decline to
 // touch a folder: an unsanctioned read of a protected folder raises a system
 // consent panel. A NO can be stale by one grant; the change notification is
@@ -74,7 +81,7 @@ typedef NS_ENUM(NSInteger, VibeGrantedFolderState) {
 
 // Asking for a grant is FolderAccessManager+GrantPanel.h.
 
-// At or under one of grantedPaths, or under ~/Music. Compares alias-free
+// At or under one of grantedPaths. Compares alias-free
 // spellings (/tmp and /private/tmp, firmlink paths). noteOpenedURLs:'s
 // duplicate check: case-SENSITIVE, because both sides are canonical there.
 + (BOOL)path:(NSString *)path isCoveredByAnyOf:(NSArray<NSString *> *)grantedPaths;

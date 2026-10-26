@@ -1164,9 +1164,11 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     XCTAssertEqualObjects(verdicts, @[@(VibeFolderScanVerdictComplete)]);
 }
 
-// The fake cloud counts every download its files ask for. A sheet is then
-// either reported as a file or read for its tracks, never downloaded.
-- (void)testAListingOverTheFakeCloudReadsNoAudio {
+// The fake cloud counts every download its files ask for. Under either
+// policy the scan reads nothing that is a placeholder: a placeholder sheet is
+// a file, and a placeholder FLAC is not opened for its own sheet. The open
+// still reads the sheet, as it reads any file the user picked.
+- (void)testAScanOverTheFakeCloudReadsNoPlaceholder {
     [self makeFile:@"library/a.mp3"];
     [self makeFile:@"library/mix.flac"];
     [self makeText:kTwoTrackSheet at:@"library/mix.cue"];
@@ -1176,14 +1178,16 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
 
     NSArray<NSString *> *listed = [self sortedRelativePaths:[self scan:@[library]
                                                                 policy:VibeFolderScanReadPolicyNone]];
-    NSArray<NSString *> *read = [self sortedRelativePaths:[self scan:@[library]
-                                                              policy:VibeFolderScanReadPolicyLocal]];
+    NSArray<NSString *> *local = [self sortedRelativePaths:[self scan:@[library]
+                                                               policy:VibeFolderScanReadPolicyLocal]];
     NSDictionary *statistics = [VibeFakeCloud statistics];
+    NSArray<NSString *> *opened = [self expandAndFilter:@[library] folderCount:NULL];
     NSArray<NSDictionary *> *trace = [VibeFakeCloud traceEvents];
     [VibeFakeCloud uninstall];
 
     XCTAssertEqualObjects(listed, (@[@"library/a.mp3", @"library/mix.cue", @"library/mix.flac"]));
-    XCTAssertEqualObjects(read, (@[@"library/a.mp3", @"library/mix.flac#0-4500", @"library/mix.flac#4500-0"]));
+    XCTAssertEqualObjects(local, listed);
+    XCTAssertEqualObjects(opened, (@[@"library/a.mp3", @"library/mix.flac#0-4500", @"library/mix.flac#4500-0"]));
     XCTAssertEqualObjects(statistics[@"materialized"], @0);
     XCTAssertEqualObjects(statistics[@"completed"], @0);
     XCTAssertEqualObjects(statistics[@"cancelled"], @0);

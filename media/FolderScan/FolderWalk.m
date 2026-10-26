@@ -495,17 +495,28 @@ static NSArray<PlaylistEntry *> *VibePlayableSheetEntries(NSURL *sheet, NSSet<NS
 // and none is cut again by a later sheet: Album.cue beside Album (UTF-8).cue
 // would list every track twice. Sheet entries must name supported, nonempty
 // files, listed or readable. failures as VibePlayableSheetEntries takes it.
-static NSArray<PlaylistEntry *> *VibeEntriesForWalk(NSArray<NSURL *> *urls, NSMutableArray<NSError *> *failures) {
+// Without readsPlaceholderSheets, a sheet that is a cloud placeholder is an
+// entry whole and is not read, since the read would download it. Background
+// work must not download.
+static NSArray<PlaylistEntry *> *VibeEntriesForWalk(NSArray<NSURL *> *urls, NSMutableArray<NSError *> *failures,
+                                                   BOOL readsPlaceholderSheets) {
     NSMutableArray<NSURL *> *sheets = [NSMutableArray array];
+    NSMutableSet<NSURL *> *unreadSheets = [NSMutableSet set];
     for (NSURL *url in urls) {
         if ([PlaylistFile isCueExtension:url.pathExtension.lowercaseString]) {
-            [sheets addObject:url];
+            if (readsPlaceholderSheets || ![PlaceholderFiles isDatalessFile:url]) {
+                [sheets addObject:url];
+            }
+            else {
+                [unreadSheets addObject:url];
+            }
         }
     }
     if (sheets.count == 0) {
         NSMutableArray<PlaylistEntry *> *entries = [NSMutableArray arrayWithCapacity:urls.count];
         for (NSURL *url in urls) {
-            [entries addObjectsFromArray:[FolderWalk entriesForFile:url]];
+            [entries addObjectsFromArray:[unreadSheets containsObject:url] ? @[[PlaylistEntry entryWithURL:url]]
+                                                                            : [FolderWalk entriesForFile:url]];
         }
         return entries;
     }
@@ -532,6 +543,9 @@ static NSArray<PlaylistEntry *> *VibeEntriesForWalk(NSArray<NSURL *> *urls, NSMu
         if (sheetEntries) {
             [entries addObjectsFromArray:sheetEntries];
         }
+        else if ([unreadSheets containsObject:url]) {
+            [entries addObject:[PlaylistEntry entryWithURL:url]];
+        }
         else if (!claimed[url]) {
             [entries addObjectsFromArray:[FolderWalk entriesForFile:url]];
         }
@@ -540,7 +554,7 @@ static NSArray<PlaylistEntry *> *VibeEntriesForWalk(NSArray<NSURL *> *urls, NSMu
 }
 
 + (NSArray<PlaylistEntry *> *)entriesForWalk:(NSArray<NSURL *> *)urls {
-    return VibeEntriesForWalk(urls, nil);
+    return VibeEntriesForWalk(urls, nil, YES);
 }
 
 // A whole album or mix in one FLAC may carry its own sheet, and only such a
@@ -701,7 +715,7 @@ const NSUInteger VibeFolderScanBatchLimit = 256;
                              ^(NSMutableArray<NSURL *> *files) {
                     NSMutableArray<PlaylistEntry *> *entries = [NSMutableArray arrayWithCapacity:files.count];
                     if (policy == VibeFolderScanReadPolicyLocal) {
-                        [entries addObjectsFromArray:VibeEntriesForWalk(files, failures)];
+                        [entries addObjectsFromArray:VibeEntriesForWalk(files, failures, NO)];
                     }
                     else {
                         for (NSURL *file in files) {

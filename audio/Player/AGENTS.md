@@ -20,7 +20,7 @@ Everything between a decoded file and the speaker: the transport, the voice bus,
 | `PlaybackRequestCoordinator` | the in-flight open: identity, row, intent, slow-load state, and what the delegate must be told |
 | `PlaybackIntent.h` | the intent a request must land in |
 | `AudioPrefetchRules.h` | the prefetch request's lifecycle and its dispositions, and the three crossfade decisions of a track change, as static inlines |
-| `PlaybackDeliveryRules.h` | settlement identity, as static inlines, beside three rules an app's shells share |
+| `PlaybackDeliveryRules.h` | settlement identity, as static inlines |
 | `AudioPlayer+Debug` | the seam: manual rendering, the pipeline's counters, and the holds the render suites use. It compiles in every configuration and wraps its body in `#if DEBUG` |
 | `VibeManualRenderPump` | the manual render pump, which stands in for the output unit (The manual render pump, below). Debug only, as the seam is |
 | `Mac/AudioPlayer+Devices` | the unit's device binding, rates and device observations, and the mac's private device header (Mac/, below) |
@@ -38,7 +38,7 @@ The player owns playback and renders it. There is no `AVAudioEngine`. One C func
 - The **voice bus** (`AudioVoiceBus`) is decode → ring → per-frame gain → mix.
 - The **varispeed** is `audio/DSP`'s converter. The **FX** units are Apple's DSP, hosted through the AudioUnit C API (`audio/FX`). Both are skipped while they have nothing to do.
 - The **meter** is `audio/Meter`'s analyzer, which an app's level indicators read.
-- The **volume** is `AudioPlayer.volume`'s gain. It is skipped at exactly 1, so full volume leaves every sample untouched (`testVolumeIsExactAtFullAndSilentAtZero`). It ramps across one slice when it moves under a running output. It lands on its target directly at every output start, so a start plays at the volume it was left at. A debug build's `--silent` is its target of 0.
+- The **volume** is `AudioPlayer.volume`'s gain. It is skipped at exactly 1, so full volume leaves every sample untouched (`testVolumeIsExactAtFullAndSilentAtZero`). It ramps across one slice when it moves under a running output. It lands on its target directly at every output start, so a start plays at the volume it was left at. The debug silent output is its target of 0.
 
 One **output unit** pulls the render on both platforms: `AudioOutputUnit`, an output audio unit the player hosts, calling the render through a C proc. On macOS it is HALOutput bound to the chosen device (Mac/, below). On iOS it is RemoteIO, whose route is `AVAudioSession`'s (iOS/, below).
 
@@ -189,7 +189,7 @@ The bus takes an end frame per voice and per successor: the row's cue end in fil
 
 **TRAP: the counter is `_nextSubmittedPlayIdentifier`, which only increments, never `_lastSubmittedPlayIdentifier`.** That one is the pre-Loading handoff, cleared to 0 once its play reaches Loading. Compared against it, every settlement reads as superseded, nothing is delivered, and whatever an app releases on settlement is stranded.
 
-`PlaybackDeliveryRules.h` also holds three rules an app's shells share, which no player code calls: when Previous is available, when an empty seek's settlement is current, and the deferred metadata sweep's consumption. They came with the header from Vibe.
+**The header holds only what the player decides.** When Previous is available, when an empty seek's settlement is current, and when a deferred metadata sweep runs are each app's own. Vibe keeps them beside its shells.
 
 ## Opening a file
 
@@ -226,13 +226,13 @@ The transport stays Playing. `isBuffering` is the flag, and the optional `didCha
 
 `levelsEnabled` installs the demand-driven meter, and `copyBandLevels:count:sequence:` reads its latest snapshot without the player queue or an allocation. The meter, its analysis, its publisher, its session traps, and its signal probe are `audio/Meter/AGENTS.md`'s. This is the player's side.
 
-**The meter reads the final samples of the render, on both platforms.** It is the last stage of `VibeMasterBusRender` (`AudioMasterBus.h`) but the volume. It is after the bus, the varispeed and the FX returns, and before the volume and the debug `--silent` zero. So an app's bars follow what reaches the device at full volume, wet tails included, and do not shrink with the volume. The meter needs no reconciling against the route, since it is a fixed stage of the render whether the FX segment is in or not.
+**The meter reads the final samples of the render, on both platforms.** It is the last stage of `VibeMasterBusRender` (`AudioMasterBus.h`) but the volume. It is after the bus, the varispeed and the FX returns, and before the volume and the debug silent output's zero. So an app's bars follow what reaches the device at full volume, wet tails included, and do not shrink with the volume. The meter needs no reconciling against the route, since it is a fixed stage of the render whether the FX segment is in or not.
 
 **The meter is created at the first demand and kept.** `applyLevelMeterOnQueue` points the render at it and begins a publisher session while levels are wanted. It withdraws the pointer and ends the session otherwise, live and without waiting. The `AudioLevelPublisher` lives as long as the player, and each installation gets a new session. **The meter is freed only for a replacement**: the output's rate or the normalization mode changing (`setMasterBusFormatOnQueue:`), or the iOS media-services reset. It is freed once the render was seen outside it (`dropLevelMeterOnQueue`). A render stuck past the wait's bound keeps it alive until then.
 
 **The demand is an app's indicators', not play intent.** Outside the beta signal probe, the meter is absent whenever nothing can draw it. An app counts the indicators that want levels (`equalizerLevelsWanted:`) and enables levels only while modeled output audio (`outputAudioActive`, below) and its own visibility rule also hold. Stopping an indicator balances demand at once. The meter is withdrawn too unless a beta signal probe holds it. A failed temporary installation is nil rather than inert, so a later output-start edge can retry.
 
-**`--silent` zeroes the output's buffers *after* the meter** (it is the volume stage's target of 0). So the bars are live under a debug build's `--no-audio-hw --silent` and under `--silent` alone. `--no-audio-hw` drives the same render from the pump. It suits functional bar and counter checks, not audible-start-latency measurements.
+**The debug silent output zeroes the output's buffers *after* the meter** (it is the volume stage's target of 0). So the bars are live with it, with or without hardware output (`testTheDebugSilentOutputZeroesAfterTheMeter`). Without hardware output, the pump drives the same render. That suits functional bar and counter checks, not audible-start-latency measurements. **The seam's two class flags, `debugSilentOutput` and `debugNoHardwareOutput`, are the app's to set** before it makes a player, from its own launch flags. The player reads no launch argument.
 
 **The normalization mode lasts for the process and is never persisted.** `debugSetEqualizerNormalizationMode:` reconciles the player queue synchronously. Changing an active mode ends the publisher session and replaces the meter, with fresh history. Changing it while inactive stores the choice for the next meter.
 
@@ -411,7 +411,7 @@ The player's output-recovery category. `AudioPlayerInternal.h` imports its heade
 
 ## The manual render pump
 
-**`VibeManualRenderPump` stands in for the output unit.** The player hands it the pipeline's render, and the pump pulls it. It is two things. Frame-driven, a test calls `debugRenderFrames:` and gets exactly those frames, and the pump decodes the bus inline before every slice and drains it after, so a voice is live before the first slice that could render it. Automatic, it renders at real-time pace on a timer, which is a debug build's `--no-audio-hw`. Voice ramps, FX sweeps and the idle stop run their production algorithms on its clock. File opens and delegate delivery keep their real queues. It lives with the player, since it fakes the player's output (the plan's rule 8). It compiles in every configuration and wraps its body in `#if DEBUG`, as the seam does.
+**`VibeManualRenderPump` stands in for the output unit.** The player hands it the pipeline's render, and the pump pulls it. It is two things. Frame-driven, a test calls `debugRenderFrames:` and gets exactly those frames, and the pump decodes the bus inline before every slice and drains it after, so a voice is live before the first slice that could render it. Automatic, it renders at real-time pace on a timer, which is the seam's no-hardware output. Voice ramps, FX sweeps and the idle stop run their production algorithms on its clock. File opens and delegate delivery keep their real queues. It lives with the player, since it fakes the player's output (the plan's rule 8). It compiles in every configuration and wraps its body in `#if DEBUG`, as the seam does.
 
 `AudioPlayer+Debug.h` is the seam: `initForManualRendering:enableFX:automatic:delegate:`, the render and capture, the starved and held decoder, the held render, the pipeline's counters, and the rate a test moves under the pump. A player made for manual rendering attaches the pump in place of the output unit, before any voice exists, and binds no device. The pump proves the software path, not DAC samples, hardware negotiation, exclusivity or iOS session recovery.
 

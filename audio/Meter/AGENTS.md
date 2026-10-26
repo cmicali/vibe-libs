@@ -48,4 +48,4 @@ These are **the samples the render hands the meter**, not DAC or acoustic measur
 
 `Tests/audio/Meter/` covers the band math, the analyzer, and the publisher. They build with verbose logging on, so the probe compiles there. The iOS build compiles it off. A probe compiles the stall seam, which only tests import, on both platforms. The minimal consumer plays a tone through a meter and checks the levels it reads.
 
-The meter's render tests stay in Vibe, since they drive it through the whole player: the stalled callback, the session restart, the signal probe, and the bars under `--silent`.
+The meter's render tests stay in Vibe, since they drive it through the whole player: the stalled callback, the session restart, the signal probe, and the bars under the player's debug silent output.
