@@ -6,6 +6,8 @@
 
 **Closing status, 2026-10-23: every planned move is done.** Phase 3's done-when is met, and so is Phase 4. The tree holds 44 pieces. The catalog scan was done on 2026-10-23 (this repo's #56, Vibe #405). What remains is Phase 5. This replaces the plan of 2026-10-09, written when the repo was called PlaybackKit.
 
+**Status, 2026-10-25: the final batch of review fixes landed.** It came as four pairs: the app-specific names (#57, Vibe #406), the tests and fakes (#60, Vibe #407), the cache signals (#58, Vibe #408), and the app policy that left the pieces (#59, Vibe #409). Then one pair renamed the four generic playlist types (#61, Vibe #410). The closing pass over the docs is this repo's #62.
+
 vibe-libs is a toolbox of small libraries for macOS and iOS apps. An app takes only the pieces it wants. The first pieces come from [Vibe](https://github.com/cmicali/vibe): its audio engine, file loading, tags, waveform data and drawing, and the third-party code it vendors. Anything else in Vibe that another app could use is a candidate. **A candidate moves when a second app needs it**, so the toolbox grows from real reuse.
 
 Its users are Vibe and another app. Both add it as a git submodule.
