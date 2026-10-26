@@ -36,8 +36,10 @@ For each piece:
     A header an app may supply, included only under __has_include of its
     own name, may reach nothing.
     A test may also include a helper from Tests/Support, which every test
-    bundle searches, and a header of any piece its test bundle lists. A
-    piece's own file may not.
+    bundle searches, and a header of any piece its test bundle lists. It may
+    include a helper from another piece's tests only through a path its test
+    bundle searches, and only of a piece it may reach. A piece's own file may
+    not.
   - Mac/ and iOS/ are the only platform directories, and only at the top of
     a piece. A shared file imports AppKit or UIKit only under a platform
     guard.
@@ -330,15 +332,37 @@ for base, paths in sorted(headers_by_base.items()):
         fail(f"{base}: {len(paths)} headers share the name ({', '.join(paths)}); an app's headermap picks one")
 
 
+# The directories of other pieces' tests that each test directory's bundle
+# searches, such as files/HTTP's for its HTTPStub.
+test_searches = {}
+for v in targets.values():
+    if v.get("type") != "bundle.unit-test":
+        continue
+    paths = v.get("settings", {}).get("base", {}).get("HEADER_SEARCH_PATHS", [])
+    searched = [os.path.normpath(entry[len("$(SRCROOT)/"):].strip('"'))
+                for entry in ([paths] if isinstance(paths, str) else paths)
+                if entry.startswith("$(SRCROOT)/Tests/")]
+    for s in v.get("sources", []):
+        path = os.path.normpath(s if isinstance(s, str) else s.get("path", ""))
+        if path.startswith("Tests" + os.sep) and os.path.isdir(path):
+            test_searches.setdefault(path, []).extend(d for d in searched if not inside(d, SUPPORT))
+
+
 def resolve(spelling, quoted, including):
     """The headers an include can reach, as the compiler would find them."""
     if quoted:
         local = os.path.normpath(os.path.join(os.path.dirname(including), spelling))
         if os.path.isfile(local):
             return [local]
-        support = os.path.normpath(os.path.join(SUPPORT, spelling))
-        if including.startswith("Tests" + os.sep) and os.path.isfile(support):
-            return [support]
+        if including.startswith("Tests" + os.sep):
+            support = os.path.normpath(os.path.join(SUPPORT, spelling))
+            if os.path.isfile(support):
+                return [support]
+            piece = piece_of(including)
+            for directory in test_searches.get(os.path.join("Tests", piece), []) if piece else []:
+                searched = os.path.normpath(os.path.join(directory, spelling))
+                if os.path.isfile(searched):
+                    return [searched]
     found = []
     for directory, _ in search_roots:
         candidate = os.path.normpath(os.path.join(directory, spelling))

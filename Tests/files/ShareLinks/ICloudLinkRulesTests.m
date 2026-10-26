@@ -1,8 +1,8 @@
 
 #import <XCTest/XCTest.h>
 
-#import "HTTPStub.h"
 #import "ICloudLinkRules.h"
+#import "ICloudLookupFixtures.h"
 #import "LinkRules.h"
 
 @interface ICloudLinkRulesTests : XCTestCase

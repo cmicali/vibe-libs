@@ -49,7 +49,7 @@ Ranged HTTP transfers, for files an app fetches itself rather than through a fil
 
 **`VibeFakeHTTPProtocol` answers a session's requests with no network.** A subclass says what each request gets (`answerForRequest:`): a failure, a redirect, or a response and its body. The engine delivers it. `VibeFakeHTTPRangeStatus` is the one Range rule: 206, 416, or 200. The body goes out in 64 KB pieces after the answer's latency. It can hold, be cut by a lost connection, or be paced. A session takes the fake through `sessionConfiguration`, on the subclass that answers. The client takes that through `useSessionConfiguration:`.
 
-**Two fakes answer through it.** The tests' `HTTPStub` (`Tests/Support`) scripts each answer, on a host of its own per test. `files/ShareLinks`' `VibeFakeHTTP` is the fake web server: a directory that answers as Dropbox, Google Drive, and iCloud would. This piece names no service.
+**Two fakes answer through it.** The tests' `HTTPStub` (`Tests/files/HTTP/`) scripts each answer, on a host of its own per test. `files/ShareLinks`' `VibeFakeHTTP` is the fake web server: a directory that answers as Dropbox, Google Drive, and iCloud would. This piece names no service. An app's fake of its own web API subclasses the engine too, as Vibe's fake Dropbox account does. A change to the engine reaches it.
 
 **TRAP: a lost connection waits until the task holds the bytes sent before it.** Sent at once, the failure overtakes them, and the session resends the whole request itself instead of the client's Range resend.
 
@@ -57,4 +57,4 @@ Ranged HTTP transfers, for files an app fetches itself rather than through a fil
 
 ## Tests
 
-`Tests/files/HTTP/` holds the client's tests and the rules' tests. They run on macOS in Debug, with the headermap off. The client's tests run over `HTTPStub` (`Tests/Support`), a scripted host per test, over this piece's fake. A wait for what must happen uses `VIBE_TEST_HANG_TIMEOUT`, and a gate the test releases uses `VIBE_TEST_GATE_TIMEOUT`.
+`Tests/files/HTTP/` holds the client's tests and the rules' tests. They run on macOS in Debug, with the headermap off. The client's tests run over `HTTPStub`, a scripted host per test, over this piece's fake. It sits beside them, since it is this piece's test double. RemoteFiles' and ShareLinks' test bundles search this directory for it, and Vibe's tests compile it from here. `HTTPStub.h` also holds `PatternBytes`, a byte pattern that shows a misplaced range read, and `StatOf`. A wait for what must happen uses `VIBE_TEST_HANG_TIMEOUT`, and a gate the test releases uses `VIBE_TEST_GATE_TIMEOUT`.

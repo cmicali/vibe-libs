@@ -304,10 +304,10 @@ targets:
     templateAttributes:
       excludedPlatform: Mac
 
-  # files/HTTP, tested on macOS, over HTTPStub. HTTPStub scripts the answers
-  # of this piece's fake, which compiles only under DEBUG. So the bundle
-  # defines it in every configuration, the analyzer's Release build
-  # included. The hang and gate bounds match Vibe's.
+  # files/HTTP, tested on macOS, over HTTPStub, which sits beside the tests.
+  # HTTPStub scripts the answers of this piece's fake, which compiles only
+  # under DEBUG. So the bundle defines it in every configuration, the
+  # analyzer's Release build included. The hang and gate bounds match Vibe's.
   HTTPTests:
     type: bundle.unit-test
     platform: macOS
@@ -317,7 +317,6 @@ targets:
     sources:
       - path: Tests/files/HTTP
         excludes: ["**/*.md"]
-      - path: Tests/Support/HTTPStub.m
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
@@ -338,7 +337,8 @@ targets:
       excludedPlatform: Mac
 
   # files/RemoteFiles, tested on macOS, over HTTPStub and a temporary root,
-  # as HTTPTests are. The tests drive FileLoading's remote backend.
+  # as HTTPTests are. HTTPStub is HTTP's, from that piece's tests. The tests
+  # drive FileLoading's remote backend.
   RemoteFilesTests:
     type: bundle.unit-test
     platform: macOS
@@ -348,11 +348,11 @@ targets:
     sources:
       - path: Tests/files/RemoteFiles
         excludes: ["**/*.md"]
-      - path: Tests/Support/HTTPStub.m
+      - path: Tests/files/HTTP/HTTPStub.m
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support"]
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support", "$(SRCROOT)/Tests/files/HTTP"]
         GCC_PREPROCESSOR_DEFINITIONS:
           - "$(inherited)"
           - "DEBUG=1"
@@ -371,8 +371,9 @@ targets:
   # files/ShareLinks, tested on macOS: the link rules, the fake web server's
   # answers and faults, and an iCloud Drive lookup through the link client.
   # The rules' tests pass AudioTypes' playable extensions, so the bundle
-  # lists that template too. The fake compiles only under DEBUG, so the
-  # bundle defines it in every configuration.
+  # lists that template too. VibeFakeHTTPTests takes PatternBytes from
+  # HTTP's HTTPStub.h and compiles no stub. The fake compiles only under
+  # DEBUG, so the bundle defines it in every configuration.
   ShareLinksTests:
     type: bundle.unit-test
     platform: macOS
@@ -382,11 +383,10 @@ targets:
     sources:
       - path: Tests/files/ShareLinks
         excludes: ["**/*.md"]
-      - path: Tests/Support/HTTPStub.m
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
-        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support"]
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support", "$(SRCROOT)/Tests/files/HTTP"]
         GCC_PREPROCESSOR_DEFINITIONS:
           - "$(inherited)"
           - "DEBUG=1"

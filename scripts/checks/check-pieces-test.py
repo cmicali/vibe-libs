@@ -71,6 +71,7 @@ DSP_TESTS = "  DSPTests:\n    type: bundle.unit-test\n    platform: macOS\n    t
 # The iOS-only cases use the touch driver, the first such piece.
 DRIVER_SOURCE = "dev/iOSDriver/VibeiOSDriverTests.m"
 COMMON_TESTS_TEMPLATES = "  CommonTests:\n    type: bundle.unit-test\n    platform: macOS\n    templates: [VibeLibsCommon]"
+COMMON_TESTS_SEARCH = 'HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support"]\n        GCC_PREPROCESSOR_DEFINITIONS: &common-definitions'
 
 
 def mac_only(root):
@@ -169,6 +170,14 @@ CASES = [
     ("a piece's source including a shared test helper",
      lambda r: append(r, SOURCE, '\n#import "DrawnViewTestSupport.h"\n'),
      "is in no piece"),
+    ("a test including another piece's test helper its bundle does not search",
+     lambda r: append(r, "Tests/audio/DSP/AudioVarispeedTests.m", '\n#import "HTTPStub.h"\n'),
+     "is in no piece"),
+    ("a test bundle searching the tests of a piece the map does not allow",
+     lambda r: (replace(r, "project.yml", COMMON_TESTS_SEARCH,
+                        COMMON_TESTS_SEARCH.replace('/Tests/Support"]', '/Tests/Support", "$(SRCROOT)/Tests/files/HTTP"]')),
+                append(r, "Tests/core/Common/FilePathsTests.m", '\n#import "HTTPStub.h"\n')),
+     "includes HTTPStub.h from files/HTTP, which the map does not allow core/Common"),
     ("#if DEBUG in a shipping header",
      lambda r: append(r, HEADER, "\n#if DEBUG\n#endif\n"),
      "#if DEBUG in a shipping header"),
