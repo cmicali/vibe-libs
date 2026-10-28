@@ -20,9 +20,9 @@
                                         NSDictionary<NSString *, id> *results))completion;
 
 // A track's waveform data, decoded through the same path when it is not
-// cached, combined into columns (0: one per chunk): the peak min and max,
-// the mean square and the frame count per column, and the bands' mean
-// squares over each column's own window, as Spectrum reads them. The
+// cached, read as `columns` equal columns across the window, 8,192 for 0.
+// Each column gives its peak min and max, its loudest window, and each
+// band's loudest window, with the summary's bins, frames, and rate. The
 // entry's results are under "results". Main-thread completion, nil on
 // failure.
 - (void)dumpWaveformForTrack:(id<VibePlayableItem>)track

@@ -51,8 +51,8 @@ typedef NS_ENUM(NSInteger, VibeGrantedFolderState) {
 // The granted folders, in the order they were added. Main thread.
 @property (nonatomic, readonly) NSArray<VibeGrantedFolder *> *grantedFolders;
 
-// Under an active scope or an entitled folder; a stored bookmark does not count until
-// restoration starts its scope. Any thread, so background work can decline to
+// Under an active scope or an entitled folder. TRAP: a stored bookmark does
+// not count until restoration starts its scope. Any thread, so background work can decline to
 // touch a folder: an unsanctioned read of a protected folder raises a system
 // consent panel. A NO can be stale by one grant; the change notification is
 // the signal to reconsider.
