@@ -154,5 +154,6 @@ vendored unmodified, as the prebuilt release. Copyright 2006-2013 Andy
 Matuschak, 2009-2013 Elgato Systems GmbH, 2011-2014 Kornel Lesiński,
 2015-2017 Mayur Pawashe, 2014 C.W. Betts, 2014 Petroules Corporation, and
 2014 Big Nerd Ranch. MIT license. It bundles bsdiff 4.3 (Colin Percival, BSD
-2-clause), sais-lite (Yuta Mori, MIT), and orlp/ed25519 (Orson Peters, zlib).
-Sparkle's license and all three notices are `third_party/Sparkle/LICENSE.txt`.
+2-clause), sais-lite (Yuta Mori, MIT), orlp/ed25519 (Orson Peters, zlib), and
+`SUSignatureVerifier.m` (Mark Hamlin, BSD 2-clause). Sparkle's license and all
+four notices are `third_party/Sparkle/LICENSE.txt`.

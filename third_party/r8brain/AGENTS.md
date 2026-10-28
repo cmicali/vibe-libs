@@ -1,6 +1,6 @@
 # third_party/r8brain
 
-[r8brain-free-src](https://github.com/avaneev/r8brain-free-src), upstream commit `9e73d2dd`, Aleksey Vaneev's sample rate converter. `audio/DSP`'s resampler wraps it (`AudioResampler.mm`), and Vibe's voice bus resamples with that. Other authors' code: **do not restyle it.** It depends on nothing. Its template is `VibeLibsR8brain`.
+[r8brain-free-src](https://github.com/avaneev/r8brain-free-src), upstream commit `9e73d2dd`, Aleksey Vaneev's sample rate converter. `audio/DSP`'s resampler wraps it (`AudioResampler.mm`), and `audio/Player`'s voice bus resamples with that. Other authors' code: **do not restyle it.** It depends on nothing. Its template is `VibeLibsR8brain`.
 
 ## Building
 

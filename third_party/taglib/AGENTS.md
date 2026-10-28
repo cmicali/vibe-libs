@@ -13,7 +13,7 @@ Four packaging edits:
 - `toolkit/tlist.h` carries its `.tcc` file, pasted in where it was included.
 - `toolkit/tmap.h` carries its `.tcc` file the same way.
 - `toolkit/tstring.cpp` includes `utf8-cpp.checked.h` for `<utf8.h>`.
-- `taglib_config.h` defines `TAGLIB_WITH_APE`. Without it, `MPEG::File` compiles its APE reading out (Vibe's `testMP3WithAnAPETag`).
+- `taglib_config.h` defines `TAGLIB_WITH_APE`. Without it, `MPEG::File` compiles its APE reading out (`media/Metadata`'s `testMP3WithAnAPETag`).
 
 ## Building
 

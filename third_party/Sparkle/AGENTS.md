@@ -20,4 +20,4 @@ Replace the four kept files with the new tarball's, and record its version and d
 
 ## License
 
-MIT, in `LICENSE.txt`, with the notices of the three components it bundles: bsdiff 4.3 (BSD 2-clause), sais-lite (MIT), and orlp/ed25519 (zlib). `THIRD-PARTY-NOTICES.md` at the repo root has the notice.
+MIT, in `LICENSE.txt`, with the notices of the four components it bundles: bsdiff 4.3 (BSD 2-clause), sais-lite (MIT), orlp/ed25519 (zlib), and `SUSignatureVerifier.m` (BSD 2-clause). `THIRD-PARTY-NOTICES.md` at the repo root has the notice.

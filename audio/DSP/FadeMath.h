@@ -5,8 +5,8 @@
 //  Every fade exists because a gain step at a non-zero sample clicks. The
 //  ≤10 ms declick is linear, which keeps its per-sample step small at every
 //  rate; a longer fade is equal-power, so the two sides of a crossfade do not
-//  dip at the midpoint. The app's voice bus evaluates both per frame on the
-//  audio thread. AudioFX's send gates step a log curve on the player queue
+//  dip at the midpoint. audio/Player's voice bus evaluates both per frame on
+//  the audio thread. AudioFX's send gates step a log curve on the player queue
 //  instead.
 //
 

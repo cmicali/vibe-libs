@@ -3,9 +3,9 @@
 //
 //  Malformed files through AudioFileHandle: open, read the facts, decode to the
 //  end, seek and decode again, close. Every decoder the handle chooses is fed:
-//  dr_wav, dr_flac, dr_mp3, libvorbis and Apple's (AAC, ALAC, Opus, CAF, and
-//  MPEG when it is chosen). The sources are the generated fixtures, sliced to a few
-//  hundred KB, plus a few written here that no encoder on the machine makes.
+//  dr_wav, dr_flac, dr_mp3, libvorbis and Apple's (AAC, ALAC, Opus, and CAF).
+//  The sources are the generated fixtures, sliced to a few hundred KB, plus a
+//  few written here that no encoder on the machine makes.
 //
 //  Seeded. The seed, the source and the mutator are in every failure message,
 //  and the failing mutant is attached to the result bundle.
@@ -26,7 +26,7 @@
 //  |                                   | G.711, unsigned 8-bit, IMA and MS ADPCM, ima4              |         |            |         |
 //  | AudioFileHandleFuzzDrFLACTests    | every FLAC fixture: 16 to 32 bits, 1 to 8 channels,        | 11      | 8          | 2.1     |
 //  |                                   | block sizes 16 to 65535, 705.6 kHz, 33-bit side channels   |         |            |         |
-//  | AudioFileHandleFuzzMPEGTests      | MP3, MP2, MPEG in WAV, each through dr_mp3 and Apple's,    | 14      | 4          | 2.8     |
+//  | AudioFileHandleFuzzMPEGTests      | MP3, MP2, MPEG in WAV, all through dr_mp3,                 | 14      | 4          | 2.8     |
 //  |                                   | and the MPEG open's framing: ID3v2 tags, Xing, VBRI, LAME  |         |            |         |
 //  |                                   | and iTunes gapless, free format, mode changes, junk, tags  |         |            |         |
 //  | AudioFileHandleFuzzCoreAudioTests | AAC, ADTS, QuickTime, ALAC in MP4 and CAF, LPCM in CAF,    | 10      | 8          | 2.4     |

@@ -2,7 +2,7 @@
 //  AudioVarispeed.h
 //  vibe-libs
 //
-//  A pitch fader's stage: a varispeed between the app's voice bus and the FX.
+//  A pitch fader's stage: a varispeed between audio/Player's voice bus and the FX.
 //  At zero pitch it is a bit-perfect pass-through: the source goes straight
 //  to the output, nothing converted, delayed or copied. Off zero it is a
 //  Kaiser-windowed sinc, β 15.6 for about 150 dB of stopband, with a
