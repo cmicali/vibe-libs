@@ -53,6 +53,7 @@
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
     dispatch_semaphore_t building = dispatch_semaphore_create(0);
     dispatch_semaphore_t gate = dispatch_semaphore_create(0);
+    dispatch_semaphore_t returned = dispatch_semaphore_create(0);
     SEL selector = @selector(audioCacheWithName:rootPath:);
     Method method = class_getClassMethod(PINCache.class, selector);
     IMP original = method_getImplementation(method);
@@ -60,7 +61,10 @@
         dispatch_semaphore_signal(building);
         dispatch_semaphore_wait(gate, dispatch_time(DISPATCH_TIME_NOW,
                                                     (int64_t)(VIBE_TEST_GATE_TIMEOUT * NSEC_PER_SEC)));
-        return ((PINCache *(*)(Class, SEL, NSString *, NSString *))original)(cls, selector, name, rootPath);
+        PINCache *store = ((PINCache *(*)(Class, SEL, NSString *, NSString *))original)(cls, selector, name,
+                                                                                         rootPath);
+        dispatch_semaphore_signal(returned);
+        return store;
     });
     VibeMetadataLoaderDelegate *delegate = [[VibeMetadataLoaderDelegate alloc] init];
     VibeLoaderTestTrack *track = [VibeLoaderTestTrack withURL:url];
@@ -79,7 +83,13 @@
     @finally {
         dispatch_semaphore_signal(gate);
         method_setImplementation(method, original);
-        imp_removeBlock(held);
+        // TRAP: the held block is still running on the cache's queue when
+        // the gate opens. imp_removeBlock frees it, so removing it before
+        // the block returns crashes.
+        if (dispatch_semaphore_wait(returned, dispatch_time(DISPATCH_TIME_NOW,
+                (int64_t)(VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC))) == 0) {
+            imp_removeBlock(held);
+        }
     }
     XCTAssertTrue([self waitFor:^BOOL { return delegate.deliveredTracks.count > 0; }
                          within:VIBE_TEST_HANG_TIMEOUT]);
