@@ -783,7 +783,7 @@ static void VibeFXRestStage(VibeFXChain *chain, VibeFXStage *stage) {
     if (!chain->storage) {
         return NO;
     }
-    // TRAP: vDSP_vclr, not memset: clang drops a memset(0) after calloc (the app's voice bus's pre-touch).
+    // TRAP: vDSP_vclr, not memset: clang drops a memset(0) after calloc (audio/Player's voice bus's pre-touch).
     vDSP_vclr(chain->storage, 1, (vDSP_Length)maximumFrameCount * 12);
     float **pairs[] = { chain->send, chain->wet, chain->halfTap, chain->lane, chain->echoes, chain->returns };
     for (size_t p = 0; p < 6; p++) {

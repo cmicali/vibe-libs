@@ -24,8 +24,9 @@ NS_ASSUME_NONNULL_BEGIN
 // sound clicks, or tears down a live stream. So: stopped; loading while the
 // output is not running (the first open at launch); and a pause whose fade has
 // settled, since an unplug parks playback as Paused and the rebuild restores a
-// paused track as Paused. Loading over a running outgoing fade, and playing,
-// are excluded.
+// paused track as Paused. Playing is excluded. TRAP: an ordinary track change
+// is also Loading, over a running outgoing fade, so the rule checks the
+// output: a rebind there stops it under the fade and clicks.
 static inline BOOL VibeCanBindSavedOutputDevice(BOOL stopped, BOOL loading, BOOL paused,
                                                 BOOL outputRunning, BOOL audioActive) {
     return stopped || (loading && !outputRunning) || (paused && !audioActive);

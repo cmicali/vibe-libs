@@ -36,4 +36,4 @@ The words every audio piece shares, so a piece that needs one of them needs neit
 
 ## Tests
 
-`Tests/audio/AudioTypes/` holds the tests of the CUE window, the musical key, the playable item, the format names, and the playable extensions. The CUE window's and the key's came from Vibe. The rest are new here. The playable item's tests adopt the protocol in a plain object, so they show any object may. `AudioTypesProbe.m` imports the header-only files, and the iOS target compiles it.
+`Tests/audio/AudioTypes/` holds the tests of the CUE window, the musical key, the playable item, the format names, and the playable extensions. The CUE window's and the key's came from Vibe. The rest are new here. The playable item's tests adopt the protocol in a plain object, so they show any object may. `AudioTypesProbe.m` imports the header-only files, and the iOS target compiles it. The minimal consumer turns a CUE window into a file's frames.
