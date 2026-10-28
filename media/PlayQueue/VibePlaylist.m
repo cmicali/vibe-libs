@@ -180,7 +180,7 @@
 
 // With more than one row, keep the previous cycle's last track from opening
 // the new cycle. An independent shuffle would repeat it one time in n.
-- (NSArray *)nextPlayOrder {
+- (NSArray *)madeNextPlayOrder {
     if (!_nextPlayOrder) {
         NSMutableArray *order = [self shuffledTracks:_tracks];
         if (order.count > 1 && order.firstObject == _playOrder.lastObject) {
@@ -268,6 +268,66 @@
     }
     _currentIndex = start ? (NSUInteger)[self getIndexForTrack:start] : 0;
     [self.observer playlistDidReplaceAllTracks:self];
+}
+
+- (NSArray *)playOrder {
+    return [_playOrder copy];
+}
+
+- (NSUInteger)playOrderCursor {
+    return _playOrder ? _playOrderCursor : 0;
+}
+
+- (NSArray *)nextPlayOrder {
+    return [_nextPlayOrder copy];
+}
+
+- (BOOL)replaceAllWithTracks:(NSArray *)tracks
+                   playOrder:(NSArray *)order
+                      cursor:(NSUInteger)cursor
+               nextPlayOrder:(NSArray *)nextOrder {
+    if (![self order:order permutesTracks:tracks]
+            || (order.count > 0 ? cursor >= order.count : cursor != 0)
+            || (nextOrder && ![self order:nextOrder permutesTracks:tracks])) {
+        return NO;
+    }
+    if (!_playOrder) {
+        NSUInteger start = order.count > 0 ? [tracks indexOfObjectIdenticalTo:order[cursor]] : NSNotFound;
+        [self replaceAllWithTracks:tracks startingAtIndex:start];
+        return YES;
+    }
+    [self resetStorage];
+    [self addTracks:tracks];
+    _playOrder = [order mutableCopy];
+    _playOrderCursor = cursor;
+    _nextPlayOrder = [nextOrder mutableCopy];
+    _currentIndex = order.count > 0 ? (NSUInteger)[self getIndexForTrack:order[cursor]] : 0;
+    [self.observer playlistDidReplaceAllTracks:self];
+    return YES;
+}
+
+// By identity, never isEqual:. A row repeated in tracks fails too, since the
+// order could not name both.
+- (BOOL)order:(NSArray *)order permutesTracks:(NSArray *)tracks {
+    if (!order || order.count != tracks.count) {
+        return NO;
+    }
+    NSHashTable *unplaced = [[NSHashTable alloc] initWithOptions:NSPointerFunctionsStrongMemory
+                                                                 | NSPointerFunctionsObjectPointerPersonality
+                                                        capacity:tracks.count];
+    for (id track in tracks) {
+        [unplaced addObject:track];
+    }
+    if (unplaced.count != tracks.count) {
+        return NO;
+    }
+    for (id track in order) {
+        if (![unplaced containsObject:track]) {
+            return NO;
+        }
+        [unplaced removeObject:track];
+    }
+    return YES;
 }
 
 - (void)appendTracks:(NSArray *)tracks {
@@ -371,7 +431,7 @@
     if (_repeatMode != VibeRepeatModeAll) {
         return nil;
     }
-    return _playOrder ? self.nextPlayOrder.firstObject : _tracks.firstObject;
+    return _playOrder ? self.madeNextPlayOrder.firstObject : _tracks.firstObject;
 }
 
 - (NSArray *)neighborhoodTracks {

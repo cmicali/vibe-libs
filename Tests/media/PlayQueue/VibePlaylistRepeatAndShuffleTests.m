@@ -485,4 +485,151 @@ static void AssertPermutation(VibePlaylist *playlist, NSArray<TestRow *> *walk) 
     AssertPermutation(playlist, WalkNext(playlist, 100));
 }
 
+#pragma mark - Saving and restoring the order
+
+// A fresh queue holding playlist's rows and order, shuffled under another
+// seed, so a fresh shuffle would differ from the saved one.
+static VibePlaylist *RestoredPlaylist(VibePlaylist *playlist, uint64_t seed) {
+    VibePlaylist *restored = NewPlaylist();
+    restored.randomBelow = SeededRandom(seed + 1000);
+    restored.shuffleEnabled = YES;
+    restored.repeatMode = playlist.repeatMode;
+    XCTAssertTrue([restored replaceAllWithTracks:playlist.tracks
+                                       playOrder:playlist.playOrder
+                                          cursor:playlist.playOrderCursor
+                                   nextPlayOrder:playlist.nextPlayOrder]);
+    return restored;
+}
+
+- (void)testARestoredOrderWalksAsTheSavedOneToTheCycleEnd {
+    for (uint64_t seed = 1; seed <= 20; seed++) {
+        VibePlaylist *playlist = ShuffledPlaylist(10, seed);
+        NSArray<TestRow *> *played = WalkNext(playlist, 4);
+        VibePlaylist *restored = RestoredPlaylist(playlist, seed);
+        XCTAssertEqualObjects(restored.tracks, playlist.tracks);
+        XCTAssertEqualObjects(restored.playOrder, playlist.playOrder);
+        XCTAssertEqual(restored.playOrderCursor, 3u);
+        XCTAssertEqual(restored.currentTrack, playlist.currentTrack);
+        XCTAssertEqual(restored.currentIndex, playlist.currentIndex);
+
+        NSArray<TestRow *> *rest = WalkNext(restored, 100);
+        XCTAssertEqualObjects(rest, WalkNext(playlist, 100), @"seed %llu", seed);
+        XCTAssertEqual(rest.count, 7u);
+        // Played rows stay played: none of them comes round again this cycle.
+        for (TestRow *row in [played subarrayWithRange:NSMakeRange(0, 3)]) {
+            XCTAssertFalse([rest containsObject:row], @"seed %llu", seed);
+        }
+        XCTAssertNil(restored.nextTrack);
+    }
+}
+
+- (void)testARestoredOrderRetracesItsHistory {
+    VibePlaylist *playlist = ShuffledPlaylist(8, 5);
+    NSArray<TestRow *> *played = WalkNext(playlist, 5);
+    VibePlaylist *restored = RestoredPlaylist(playlist, 5);
+    for (NSUInteger i = played.count - 1; i > 0; i--) {
+        XCTAssertTrue([restored previous]);
+        XCTAssertEqual(restored.currentTrack, played[i - 1]);
+    }
+    XCTAssertFalse(restored.hasPreviousTrack);
+}
+
+// At a cycle's last entry under Repeat All, a gapless splice is armed on the
+// next cycle's first. The restore keeps that cycle, so the splice still lands.
+- (void)testARestoredNextCycleKeepsTheArmedSplice {
+    for (uint64_t seed = 1; seed <= 20; seed++) {
+        VibePlaylist *playlist = ShuffledPlaylist(6, seed);
+        playlist.repeatMode = VibeRepeatModeAll;
+        XCTAssertNil(playlist.nextPlayOrder);
+        WalkNext(playlist, 6);
+        TestRow *armed = playlist.trackEndSuccessor;
+        XCTAssertNotNil(playlist.nextPlayOrder);
+        XCTAssertEqual(playlist.nextPlayOrder.firstObject, armed);
+
+        VibePlaylist *restored = RestoredPlaylist(playlist, seed);
+        XCTAssertEqualObjects(restored.nextPlayOrder, playlist.nextPlayOrder);
+        XCTAssertEqual(restored.trackEndSuccessor, armed, @"seed %llu", seed);
+        XCTAssertTrue([restored advanceFromTrack:restored.currentTrack toTrack:armed]);
+        XCTAssertTrue([playlist advanceFromTrack:playlist.currentTrack toTrack:armed]);
+        XCTAssertEqualObjects(WalkNext(restored, 6), WalkNext(playlist, 6), @"seed %llu", seed);
+    }
+}
+
+- (void)testARestoreRefusesAnOrderThatIsNotThePermutationOfTheRows {
+    VibePlaylist *playlist = ShuffledPlaylist(4, 2);
+    WalkNext(playlist, 2);
+    NSArray<TestRow *> *rows = playlist.tracks;
+    NSArray<TestRow *> *order = playlist.playOrder;
+    TestRow *stranger = [TestRow withURL:URLNamed(@"stranger.mp3")];
+    // The same file, but another object: identity, not equality, decides.
+    TestRow *lookalike = [TestRow withURL:order[0].url];
+    NSArray<NSArray<TestRow *> *> *badOrders = @[
+        [order subarrayWithRange:NSMakeRange(0, 3)],
+        [order arrayByAddingObject:stranger],
+        @[order[0], order[1], order[2], stranger],
+        @[order[0], order[1], order[2], order[2]],
+        @[lookalike, order[1], order[2], order[3]],
+    ];
+
+    VibePlaylist *restored = NewPlaylist();
+    restored.randomBelow = SeededRandom(9);
+    restored.shuffleEnabled = YES;
+    NSArray<TestRow *> *kept = TracksNamed(@"a b c");
+    [restored replaceAllWithTracks:kept startingAtIndex:1];
+    NSArray<TestRow *> *keptOrder = restored.playOrder;
+    RecordingObserver *observer = [RecordingObserver new];
+    restored.observer = observer;
+    NSUInteger generation = restored.structureGeneration;
+
+    for (NSArray<TestRow *> *bad in badOrders) {
+        XCTAssertFalse([restored replaceAllWithTracks:rows playOrder:bad cursor:1 nextPlayOrder:nil]);
+    }
+    XCTAssertFalse([restored replaceAllWithTracks:rows playOrder:order cursor:4 nextPlayOrder:nil]);
+    XCTAssertFalse([restored replaceAllWithTracks:rows playOrder:order cursor:1
+                                    nextPlayOrder:badOrders[3]]);
+    XCTAssertFalse([restored replaceAllWithTracks:[rows arrayByAddingObject:rows[0]]
+                                        playOrder:[order arrayByAddingObject:rows[0]]
+                                           cursor:1 nextPlayOrder:nil]);
+    XCTAssertFalse([restored replaceAllWithTracks:@[] playOrder:@[] cursor:1 nextPlayOrder:nil]);
+    // Refused with shuffle off too.
+    restored.shuffleEnabled = NO;
+    XCTAssertFalse([restored replaceAllWithTracks:rows playOrder:badOrders[2] cursor:1 nextPlayOrder:nil]);
+    restored.shuffleEnabled = YES;
+
+    XCTAssertEqual(observer.events.count, 0u);
+    XCTAssertEqual(restored.structureGeneration, generation);
+    XCTAssertEqualObjects(restored.tracks, kept);
+    XCTAssertEqual(restored.currentTrack, kept[1]);
+    XCTAssertEqualObjects(restored.playOrder, keptOrder);
+}
+
+- (void)testARestoreWithShuffleOffLandsOnTheCursorRow {
+    VibePlaylist *playlist = ShuffledPlaylist(5, 4);
+    WalkNext(playlist, 3);
+    TestRow *current = playlist.currentTrack;
+
+    VibePlaylist *restored = NewPlaylist();
+    RecordingObserver *observer = [RecordingObserver new];
+    restored.observer = observer;
+    XCTAssertTrue([restored replaceAllWithTracks:playlist.tracks
+                                       playOrder:playlist.playOrder
+                                          cursor:playlist.playOrderCursor
+                                   nextPlayOrder:nil]);
+    XCTAssertEqualObjects(observer.events, @[@"replaceAll"]);
+    XCTAssertEqual(restored.currentTrack, current);
+    XCTAssertNil(restored.playOrder);
+    XCTAssertEqual(restored.playOrderCursor, 0u);
+    XCTAssertEqual(restored.nextTrack, [restored trackAtIndex:restored.currentIndex + 1]);
+}
+
+- (void)testARestoreOfNoRowsEmptiesTheQueue {
+    VibePlaylist *playlist = ShuffledPlaylist(3, 1);
+    XCTAssertTrue([playlist replaceAllWithTracks:@[] playOrder:@[] cursor:0 nextPlayOrder:nil]);
+    XCTAssertEqual(playlist.count, 0u);
+    XCTAssertEqualObjects(playlist.playOrder, @[]);
+    XCTAssertNil(playlist.nextTrack);
+    [playlist appendTracks:TracksNamed(@"a b")];
+    AssertPermutation(playlist, WalkNext(playlist, 100));
+}
+
 @end

@@ -127,6 +127,35 @@ NS_ASSUME_NONNULL_BEGIN
 // first entry played without it ever sounding.
 - (void)replaceAllWithTracks:(NSArray<ObjectType> *)tracks startingAtIndex:(NSUInteger)index;
 
+// Under shuffle, a copy of the play order: every row object once, in the
+// order next walks. nil while shuffle is off. With playOrderCursor and
+// nextPlayOrder, it is what a caller saves to restore the queue exactly.
+@property (nonatomic, readonly, nullable) NSArray<ObjectType> *playOrder;
+
+// The current row's position in playOrder. Entries before it are played.
+// 0 while shuffle is off.
+@property (nonatomic, readonly) NSUInteger playOrderCursor;
+
+// Repeat All's next cycle, if nextTrack already made it, else nil. A caller
+// saves it too, so the track a gapless splice armed is still where next lands.
+@property (nonatomic, readonly, nullable) NSArray<ObjectType> *nextPlayOrder;
+
+// Replaces the whole list, as replaceAllWithTracks:startingAtIndex: does, but
+// adopts a saved play order rather than a fresh shuffle. tracks are the rows
+// in row order. order must hold each of them exactly once, by identity, and
+// cursor must be a position in it, or 0 for no rows. nextOrder, when given,
+// must hold them once too. Answers NO, changing nothing and sending no event,
+// otherwise.
+//
+// Under shuffle the queue lands on order[cursor], with the entries before it
+// played. With shuffle off it lands on order[cursor]'s row and keeps neither
+// order, as replaceAllWithTracks:startingAtIndex: would. Set shuffleEnabled
+// first: turning it on after the restore starts a fresh order.
+- (BOOL)replaceAllWithTracks:(NSArray<ObjectType> *)tracks
+                   playOrder:(NSArray<ObjectType> *)order
+                      cursor:(NSUInteger)cursor
+               nextPlayOrder:(nullable NSArray<ObjectType> *)nextOrder;
+
 // Appends without touching currentIndex; an empty tracks is a no-op. Under
 // shuffle each row joins the unplayed part of the order at random.
 - (void)appendTracks:(NSArray<ObjectType> *)tracks;

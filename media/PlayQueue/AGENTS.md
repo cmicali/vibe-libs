@@ -43,10 +43,12 @@ Previous never wraps.
 
 Under Repeat All the next cycle is a fresh shuffle. With more than one row, its first entry cannot be the track that just ended. The next cycle is made on first ask and kept. A gapless splice and Next therefore use the same successor. An edit to the play order drops the next cycle. A replacement replaces its entry in both cycles. `randomBelow` is injectable for seeded tests.
 
+**A shuffled queue saves and restores exactly.** `playOrder`, `playOrderCursor`, and `nextPlayOrder` read the order, the cursor, and the next cycle, if one was made. All are nil or 0 while shuffle is off. `replaceAllWithTracks:playOrder:cursor:nextPlayOrder:` takes them back with the rows in row order. Next then walks the saved order, the played rows stay played, and a splice armed on the next cycle still lands. Each order must hold every row exactly once, by identity, and the cursor must be a position in it. Otherwise the restore answers NO and changes nothing. With shuffle off it lands on the cursor's row and keeps no order, as `replaceAllWithTracks:startingAtIndex:` does. An app sets `shuffleEnabled` before the restore, since turning it on after starts a fresh order. An app that persists rows by its own keys maps both orders through them.
+
 **TRAP: an open passes its start row to `replaceAllWithTracks:startingAtIndex:`. It never sets `currentIndex` after.** Under shuffle that set is a manual pick, which marks the order's random first row played without it ever sounding. `NSNotFound` lets the queue choose: row 0, or under shuffle the order's random first.
 
 ## Tests
 
-`Tests/media/PlayQueue/` holds the tests of the queue: the order, the indexes, the edits and their cursor, repeat, and shuffle. They run over `TestRow`, a row of the tests' own in `VibePlaylistTestSupport.h`, since the queue reads an entry only through its key blocks. The shuffle tests seed `randomBelow`. The minimal consumer makes a queue of plain `NSURL`s and walks `trackEndSuccessor` under repeat and shuffle.
+`Tests/media/PlayQueue/` holds the tests of the queue: the order, the indexes, the edits and their cursor, repeat, shuffle, and the saved order's restore. They run over `TestRow`, a row of the tests' own in `VibePlaylistTestSupport.h`, since the queue reads an entry only through its key blocks. The shuffle tests seed `randomBelow`. The minimal consumer makes a queue of plain `NSURL`s and walks `trackEndSuccessor` under repeat and shuffle.
 
 The tests of Vibe's row, its replacement and its keys, stay in Vibe.
