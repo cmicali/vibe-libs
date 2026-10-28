@@ -6,6 +6,7 @@
 #import "VibeUpdater.h"
 #import "UpdaterRules.h"
 
+// TRAP: renaming this shipped key flags every period again on each copy's next check.
 static NSString *const kReportedCheckPeriodsKey = @"VibeReportedUpdateCheckPeriods";
 
 @implementation VibeUpdater {

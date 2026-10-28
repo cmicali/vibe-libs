@@ -30,7 +30,7 @@
 //  |                                   | and the MPEG open's framing: ID3v2 tags, Xing, VBRI, LAME  |         |            |         |
 //  |                                   | and iTunes gapless, free format, mode changes, junk, tags  |         |            |         |
 //  | AudioFileHandleFuzzCoreAudioTests | AAC, ADTS, QuickTime, ALAC in MP4 and CAF, LPCM in CAF,    | 10      | 8          | 2.4     |
-//  |                                   | Ogg Vorbis (libvorbis), Opus, a WAV past dr_wav's 384 kHz  |         |            |         |
+//  |                                   | Ogg Vorbis (libvorbis), Opus, a WAV past dr_wav's 768 kHz  |         |            |         |
 //
 //  Iterations is how often each random mutator runs per source. A named shape
 //  runs once per source it applies to, whatever the count.
