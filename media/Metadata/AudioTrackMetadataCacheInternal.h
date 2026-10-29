@@ -11,6 +11,7 @@
 #import "MetadataParseCoordinator.h"
 
 @class PINCache;
+@class AudioTrackMetadata;
 @class AudioTrackMetadataLoader;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -28,6 +29,9 @@ NS_ASSUME_NONNULL_BEGIN
 // One parse per standardized path, shared by every loader: duplicate rows and
 // the scan and priority slots would otherwise each parse the same file.
 @property (nonatomic, readonly) MetadataParseCoordinator<id<AudioTrackMetadataHolder>> *parseCoordinator;
+// The reads' parser, nil for the real one. Debug's seam sets it before the
+// first read builds the reading loader.
+@property (atomic, copy, nullable) AudioTrackMetadata *_Nonnull (^readingFileParser)(NSURL *_Nonnull url);
 @end
 
 NS_ASSUME_NONNULL_END

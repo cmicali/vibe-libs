@@ -26,6 +26,9 @@
 @implementation AudioTrackMetadataCache {
     // loadCachedMetadata:'s, never cancelled: a miss is not asked again.
     AudioTrackMetadataLoader*   _cacheOnlyLoader;
+    // readMetadataOfURLs:'s, built on the first read and never cancelled.
+    // Guarded by @synchronized(self), since reads come from any thread.
+    AudioTrackMetadataLoader*   _readingLoader;
     // Serializes construction, invalidation and disk usage at utility QoS.
     dispatch_queue_t            _cacheQueue;
     // The store's root, for whichever block on _cacheQueue builds it.
@@ -167,6 +170,30 @@
     }
     _cacheOnlyLoader.delegate = self.delegate;
     [_cacheOnlyLoader loadFromCacheOnly:[tracks copy]];
+}
+
+- (NSProgress *)readMetadataOfURLs:(NSArray<NSURL *> *)urls
+                            policy:(VibeMetadataReadPolicy)policy
+                     deliveryQueue:(dispatch_queue_t)deliveryQueue
+                            result:(void (^)(VibeMetadataReadResult *result))result
+                        completion:(dispatch_block_t)completion {
+    NSProgress *progress = [NSProgress discreteProgressWithTotalUnitCount:(int64_t)urls.count];
+    AudioTrackMetadataLoader *loader;
+    @synchronized (self) {
+        if (!_readingLoader) {
+            _readingLoader = [[AudioTrackMetadataLoader alloc]
+                     initWithOwner:self
+                          delegate:nil
+              loadingConfiguration:_loadingConfiguration
+        materializationCoordinator:[AudioFileMaterializationCoordinator sharedCoordinator]
+                       cacheReader:nil
+                        fileParser:self.readingFileParser];
+        }
+        loader = _readingLoader;
+    }
+    [loader readURLs:[urls copy] policy:policy progress:progress deliveryQueue:deliveryQueue
+              result:result completion:completion];
+    return progress;
 }
 
 - (void)abandonQueuedTrack:(id<AudioTrackMetadataHolder>)track {
