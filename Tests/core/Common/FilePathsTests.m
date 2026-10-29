@@ -53,4 +53,37 @@
     }
 }
 
+- (void)testAliasesDropInAnyCase {
+    NSDictionary<NSString *, NSString *> *expected = @{
+        @"/PRIVATE/var/folders/a.flac": @"/var/folders/a.flac",
+        @"/Private/tmp/a.flac": @"/tmp/a.flac",
+        @"/private/TMP/a.flac": @"/TMP/a.flac",
+        @"/pRiVaTe/Etc": @"/Etc",
+        @"/system/volumes/data/Users/me/a.flac": @"/Users/me/a.flac",
+        @"/SYSTEM/VOLUMES/DATA/Users/me/a.flac": @"/Users/me/a.flac",
+        @"/System/Volumes/data/PRIVATE/var/a.flac": @"/var/a.flac",
+    };
+    for (NSString *alias in expected) {
+        XCTAssertEqualObjects(VibeAliasFreePath(alias), expected[alias], @"%@", alias);
+        XCTAssertEqualObjects(VibeComparablePath(alias), expected[alias], @"%@", alias);
+    }
+}
+
+- (void)testDataVolumeRootSpellsAsTheRoot {
+    for (NSString *alias in @[@"/System/Volumes/Data", @"/System/Volumes/Data/",
+                              @"/system/volumes/data"]) {
+        XCTAssertEqualObjects(VibeComparablePath(alias), @"/", @"%@", alias);
+    }
+    XCTAssertEqualObjects(VibeAliasFreePath(@"/System/Volumes/Data"), @"/");
+}
+
+- (void)testOnlyWholeAliasRootsDrop {
+    for (NSString *path in @[@"/PRIVATE", @"/Private/music/a.flac", @"/privateer/tmp/a.flac",
+                             @"/private/tmpfiles/a.flac", @"/System/Volumes/DataSet/a.flac",
+                             @"/System/Volumes/Preboot", @"/Volumes/Data/a.flac"]) {
+        XCTAssertEqualObjects(VibeAliasFreePath(path), path, @"%@", path);
+    }
+    XCTAssertEqualObjects(VibeAliasFreePath(@"/System/Volumes/Data/private"), @"/private");
+}
+
 @end

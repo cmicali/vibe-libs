@@ -40,7 +40,7 @@ It holds the macros (`VibeMacros.h`), the work tally, the stall sampler, path sp
 
 ## Path spelling
 
-**`VibeComparablePath` is path identity from the string alone.** It standardizes the spelling and drops the aliases `VibeAliasFreePath` drops: `/private` before `/tmp`, `/var` and `/etc`, and the data volume's firmlink. It never stats, so any thread may ask about any path. `VibeStandardizedAudioOpenPath` spells a URL the same way. Every loader identity is keyed by it: the claim, the transfer, the parse, and a waveform load's claim. **TRAP: never `stringByStandardizingPath` or `URLByStandardizingPath` here.** Each stats the path, which on a provider's folder is IPC on whichever thread asked.
+**`VibeComparablePath` is path identity from the string alone.** It standardizes the spelling and drops the aliases `VibeAliasFreePath` drops: `/private` before `/tmp`, `/var` and `/etc`, and the data volume's firmlink. It drops each in any letter case, since APFS matches names that way. The data volume's root itself spells as `/`. It never stats, so any thread may ask about any path. `VibeStandardizedAudioOpenPath` spells a URL the same way. Every loader identity is keyed by it: the claim, the transfer, the parse, and a waveform load's claim. **TRAP: never `stringByStandardizingPath` or `URLByStandardizingPath` here.** Each stats the path, which on a provider's folder is IPC on whichever thread asked.
 
 ## The disk key
 

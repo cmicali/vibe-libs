@@ -5,24 +5,37 @@
 
 #import "FilePaths.h"
 
-NSString *VibeAliasFreePath(NSString *path) {
-    static NSString *const kDataVolumePrefix = @"/System/Volumes/Data/";
-    // /private itself is real; only these roots are aliases.
-    static NSArray<NSString *> *privateRoots;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        privateRoots = @[@"/private/tmp", @"/private/var", @"/private/etc"];
-    });
-    if ([path hasPrefix:kDataVolumePrefix]) {
-        path = [path substringFromIndex:kDataVolumePrefix.length - 1];
+// Where root ends in path, or 0 when path is neither root nor under it. APFS
+// matches names in any case, so the root does too.
+static NSUInteger VibeAliasRootEnd(NSString *path, NSString *root) {
+    NSRange found = [path rangeOfString:root options:NSAnchoredSearch | NSCaseInsensitiveSearch];
+    if (found.location == NSNotFound) {
+        return 0;
     }
-    if (![path hasPrefix:@"/private/"]) {
+    NSUInteger rootEnd = NSMaxRange(found);
+    if (rootEnd < path.length && [path characterAtIndex:rootEnd] != '/') {
+        return 0;
+    }
+    return rootEnd;
+}
+
+NSString *VibeAliasFreePath(NSString *path) {
+    NSUInteger dataVolumeEnd = VibeAliasRootEnd(path, @"/System/Volumes/Data");
+    if (dataVolumeEnd == path.length) {
+        return @"/";
+    }
+    if (dataVolumeEnd > 0) {
+        path = [path substringFromIndex:dataVolumeEnd];
+    }
+    NSUInteger privateEnd = VibeAliasRootEnd(path, @"/private");
+    if (privateEnd == 0 || privateEnd == path.length) {
         return path;
     }
-    for (NSString *privateRoot in privateRoots) {
-        if ([path isEqualToString:privateRoot] ||
-                [path hasPrefix:[privateRoot stringByAppendingString:@"/"]]) {
-            return [path substringFromIndex:@"/private".length];
+    // /private itself is real; only these roots are aliases.
+    NSString *underPrivate = [path substringFromIndex:privateEnd];
+    for (NSString *root in @[@"/tmp", @"/var", @"/etc"]) {
+        if (VibeAliasRootEnd(underPrivate, root) > 0) {
+            return underPrivate;
         }
     }
     return path;
