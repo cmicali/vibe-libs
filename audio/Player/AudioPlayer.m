@@ -272,14 +272,22 @@ VibeAudioFileOpener const VibePlayerFileOpener =
 #pragma mark - Play
 
 - (void)play:(id<VibePlayableItem>)track {
-    [self playTrack:track atPosition:0 startPaused:NO declick:NO];
+    [self requestPlay:track];
 }
 
 - (void)play:(id<VibePlayableItem>)track atPosition:(NSTimeInterval)position startPaused:(BOOL)startPaused {
-    [self playTrack:track atPosition:position startPaused:startPaused declick:YES];
+    [self requestPlay:track atPosition:position startPaused:startPaused];
 }
 
-- (void)playTrack:(id<VibePlayableItem>)track atPosition:(NSTimeInterval)position startPaused:(BOOL)startPaused declick:(BOOL)declick {
+- (uint64_t)requestPlay:(id<VibePlayableItem>)track {
+    return [self playTrack:track atPosition:0 startPaused:NO declick:NO];
+}
+
+- (uint64_t)requestPlay:(id<VibePlayableItem>)track atPosition:(NSTimeInterval)position startPaused:(BOOL)startPaused {
+    return [self playTrack:track atPosition:position startPaused:startPaused declick:YES];
+}
+
+- (uint64_t)playTrack:(id<VibePlayableItem>)track atPosition:(NSTimeInterval)position startPaused:(BOOL)startPaused declick:(BOOL)declick {
     VibePendingPlaybackIntent intent = VibePendingPlaybackIntentMake(position, startPaused);
     // TRAP: minting and queue admission are one edge under _stateLock, as the
     // media-reset receipt's admission is, so a play cannot be identified on
@@ -293,13 +301,15 @@ VibeAudioFileOpener const VibePlayerFileOpener =
         [self playOnQueue:track intent:intent declick:declick submittedPlayIdentifier:submittedPlayIdentifier];
     });
     os_unfair_lock_unlock(&_stateLock);
+    return submittedPlayIdentifier;
 }
 
 // Under _stateLock: the next submission's identifier, with the pre-Loading
 // handoff and the timeline's note, the same for every play however submitted.
 - (uint64_t)mintSubmittedPlayLockedForTrack:(id<VibePlayableItem>)track position:(NSTimeInterval)position
                                      paused:(BOOL)paused submittedAt:(uint64_t *)submittedAt {
-    uint64_t submittedPlayIdentifier = ++_nextSubmittedPlayIdentifier;
+    uint64_t submittedPlayIdentifier = ++_lastRequestIdentifier;
+    _nextSubmittedPlayIdentifier = submittedPlayIdentifier;
     _lastSubmittedPlayIdentifier = submittedPlayIdentifier;
     _lastSubmittedPlayTrack = track;
     *submittedAt = [self noteSubmittedPlay:submittedPlayIdentifier track:track position:position paused:paused];
@@ -334,6 +344,7 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     // audibly playing track is being replaced.
     [self retireCurrentVoiceOnQueueWithDeclick:declick];
     self.currentTrack = nil;
+    _currentRequestIdentifier = 0;
     LogDebug(@"play file: %@", path);
     uint64_t openId = [_pendingRequest beginWithTrack:track path:path intent:intent
                                  submittedPlayIdentifier:submittedPlayIdentifier];
@@ -459,6 +470,7 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     // the current track its own successor.
     [self retirePrefetchOnQueueAtPoint:VibeAudioPrefetchAtPlaySettlement playKey:request.track.sourceKey];
     id<VibePlayableItem> track = request.track;
+    uint64_t requestIdentifier = [self requestIdentifierForSubmittedPlay:request.submittedPlayIdentifier];
     VibePendingPlaybackIntent startIntent = request.intent;
     [self noteOpenSettledForPlay:request.submittedPlayIdentifier track:track file:file error:error];
     // From the request's track, which a Loading rebind may have moved to
@@ -477,8 +489,9 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     }
     if (window.length == 0) {
         [self resetToStoppedStateOnQueue];
-        [self sendDelegateError:VibeAudioErrorForTrack(VibeAudioErrorFileOpenFailed,
+        [self sendDelegateError:[self error:VibeAudioErrorForTrack(VibeAudioErrorFileOpenFailed,
                 [NSString stringWithFormat:@"Could not open %@", track.url.lastPathComponent], error, track.url)
+                                 aboutTrack:track requestIdentifier:requestIdentifier]
                forSubmittedPlay:request.submittedPlayIdentifier];
         return;
     }
@@ -493,8 +506,10 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
 #endif
     if (![self ensureSourceSegmentOnQueueRebuilt:NULL]) {
         [self resetToStoppedStateOnQueue];
-        [self sendDelegateError:VibeAudioErrorForTrack(VibeAudioErrorEngineStartFailed,
+        // The bus is the output's, never the file's, so this is the output's.
+        [self sendDelegateError:[self error:VibeAudioErrorForTrack(VibeAudioErrorEngineStartFailed,
                 [NSString stringWithFormat:@"Could not play %@ (unsupported format)", track.url.lastPathComponent], nil, track.url)
+                                 aboutTrack:track requestIdentifier:requestIdentifier]
                forSubmittedPlay:request.submittedPlayIdentifier];
         return;
     }
@@ -516,8 +531,9 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
         if (![self startOutputOnQueue:&startError]) {
             [_voiceBus killVoice:voice];
             [self resetToStoppedStateOnQueue];
-            [self sendDelegateError:VibeAudioErrorForTrack(VibeAudioErrorEngineStartFailed,
+            [self sendDelegateError:[self error:VibeAudioErrorForTrack(VibeAudioErrorEngineStartFailed,
                     @"Could not start audio engine", startError, track.url)
+                                     aboutTrack:track requestIdentifier:requestIdentifier]
                    forSubmittedPlay:request.submittedPlayIdentifier];
             return;
         }
@@ -526,6 +542,7 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
         [self armSignalProbeOnQueue:@"voice started"];
     }
     self.currentTrack = track;
+    _currentRequestIdentifier = requestIdentifier;
     _activeSubmittedPlayIdentifier = request.submittedPlayIdentifier;
     if ([self submittedPlayIsCurrent:request.submittedPlayIdentifier]) {
         [self playbackDidSucceedForPrefetchOnQueue];
@@ -544,7 +561,13 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
             LogInfo(@"Dropping didStartPlaying for superseded play %llu", settledPlay);
             return;
         }
-        [self.delegate audioPlayer:self didStartPlaying:track];
+        id<AudioPlayerDelegate> delegate = self.delegate;
+        if ([delegate respondsToSelector:@selector(audioPlayer:didStartPlaying:requestIdentifier:)]) {
+            [delegate audioPlayer:self didStartPlaying:track requestIdentifier:requestIdentifier];
+        }
+        else {
+            [delegate audioPlayer:self didStartPlaying:track];
+        }
     });
 }
 
@@ -579,7 +602,9 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     NSError *timedOut = VibeAudioErrorForTrack(VibeAudioErrorFileOpenTimedOut,
             [NSString stringWithFormat:@"Timed out opening %@ — it may still be downloading from iCloud/Dropbox or the network may be unavailable",
                                        track.url.lastPathComponent], nil, track.url);
-    [self sendDelegateError:timedOut forSubmittedPlay:request.submittedPlayIdentifier];
+    [self sendDelegateError:[self error:timedOut aboutTrack:track
+                      requestIdentifier:[self requestIdentifierForSubmittedPlay:request.submittedPlayIdentifier]]
+           forSubmittedPlay:request.submittedPlayIdentifier];
 }
 
 - (void)noteOpenProgressForOpenRequestIdentifier:(uint64_t)openRequestIdentifier {
@@ -600,16 +625,28 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
 }
 
 - (void)prefetchTrack:(id<VibePlayableItem>)track {
+    [self requestPrefetchTrack:track];
+}
+
+- (uint64_t)requestPrefetchTrack:(id<VibePlayableItem>)track {
+    os_unfair_lock_lock(&_stateLock);
+    uint64_t requestIdentifier = track ? ++_lastRequestIdentifier : 0;
     dispatch_async(_queue, ^{
         id<VibePlayableItem> target = VibeAudioPrefetchDepthAllowsSuccessor(self->_loadingConfiguration.prefetchDepth) ? track : nil;
-        [self prefetchOnQueue:target];
+        [self prefetchOnQueue:target requestIdentifier:target ? requestIdentifier : 0];
     });
+    os_unfair_lock_unlock(&_stateLock);
+    return requestIdentifier;
 }
 
 #pragma mark - Pause and resume
 
 - (void)playPause {
     uint64_t submittedAt = [self noteSubmittedAction:@"playPause" position:-1];
+    // TRAP: read and enqueued under the lock plays mint under, so every
+    // request at or below it is queued ahead of this toggle, and none above.
+    os_unfair_lock_lock(&_stateLock);
+    uint64_t precedingRequestIdentifier = _lastRequestIdentifier;
     dispatch_async(_queue, ^{
         [self noteAdmittedAction:@"playPause" submittedAt:submittedAt position:-1];
         switch (self->_state) {
@@ -622,11 +659,16 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
             case VibePlayerStatePaused:
                 [self resumeOnQueue];
                 return;
-            case VibePlayerStateStopped:
-                [self sendDelegateError:VibeAudioError(VibeAudioErrorNotPlaying, @"Nothing is playing", nil)];
+            case VibePlayerStateStopped: {
+                NSError *error = VibeAudioError(VibeAudioErrorNotPlaying, @"Nothing is playing", nil);
+                NSMutableDictionary *info = [error.userInfo mutableCopy];
+                info[kVibeAudioErrorPrecedingRequestIdentifierKey] = @(precedingRequestIdentifier);
+                [self sendDelegateError:[NSError errorWithDomain:error.domain code:error.code userInfo:info]];
                 return;
+            }
         }
     });
+    os_unfair_lock_unlock(&_stateLock);
 }
 
 - (void)pause {
@@ -735,6 +777,8 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     if (!newest) {
         return;
     }
+    _replaySubmittedPlayIdentifier = submittedPlayIdentifier;
+    _replayRequestIdentifier = _currentRequestIdentifier;
     [self noteAdmittedPlay:submittedPlayIdentifier submittedAt:submittedAt];
     [self playOnQueue:track intent:VibePendingPlaybackIntentMake(position, NO) declick:YES
             submittedPlayIdentifier:submittedPlayIdentifier];
@@ -1051,6 +1095,7 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
 
 - (void)stopOnQueue {
     self.currentTrack = nil;
+    _currentRequestIdentifier = 0;
     [self resetToStoppedStateOnQueue];
 }
 
@@ -1137,9 +1182,11 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
         }
         id<VibePlayableItem> track = self.currentTrack;
         uint64_t submittedPlay = _activeSubmittedPlayIdentifier;
+        uint64_t requestIdentifier = _currentRequestIdentifier;
         [self resetToStoppedStateOnQueue];
-        [self sendDelegateError:VibeAudioErrorForTrack(VibeAudioErrorEngineStartFailed,
+        [self sendDelegateError:[self error:VibeAudioErrorOfKind(VibeAudioErrorKindTrack, VibeAudioErrorEngineStartFailed,
                 [NSString stringWithFormat:@"Could not decode %@", track.url.lastPathComponent], failure, failedURL ?: track.url)
+                                 aboutTrack:track requestIdentifier:requestIdentifier]
                forSubmittedPlay:submittedPlay];
         return;
     }
@@ -1152,6 +1199,7 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
 - (void)finishPlaybackOnQueue {
     id<VibePlayableItem> track = self.currentTrack;
     uint64_t owningSubmittedPlayIdentifier = _activeSubmittedPlayIdentifier;
+    uint64_t requestIdentifier = _currentRequestIdentifier;
     VibeVoiceID voice = [self unpublishVoiceOnQueueEnteringTerminalState:VibePlayerStateStopped];
     [self retireVoiceOnQueue:voice milliseconds:kFadeDurationMilliseconds];
     [self refreshOutputAudioActiveOnQueue];
@@ -1167,7 +1215,13 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
         if (!accepted) {
             return;
         }
-        [self.delegate audioPlayer:self didFinishPlaying:track];
+        id<AudioPlayerDelegate> delegate = self.delegate;
+        if ([delegate respondsToSelector:@selector(audioPlayer:didFinishPlaying:requestIdentifier:)]) {
+            [delegate audioPlayer:self didFinishPlaying:track requestIdentifier:requestIdentifier];
+        }
+        else {
+            [delegate audioPlayer:self didFinishPlaying:track];
+        }
     });
 }
 
@@ -1433,8 +1487,16 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     id<VibePlayableItem> track = request.track;
     uint64_t openRequestIdentifier = request.identifier;
     uint64_t submittedPlayIdentifier = request.submittedPlayIdentifier;
+    uint64_t requestIdentifier = [self requestIdentifierForSubmittedPlay:submittedPlayIdentifier];
     [self deliverOnMainForSubmittedPlay:submittedPlayIdentifier named:@"didBeginLoading" block:^{
-        [self.delegate audioPlayer:self didBeginLoading:track openRequestIdentifier:openRequestIdentifier];
+        id<AudioPlayerDelegate> delegate = self.delegate;
+        if ([delegate respondsToSelector:@selector(audioPlayer:didBeginLoading:requestIdentifier:openRequestIdentifier:)]) {
+            [delegate audioPlayer:self didBeginLoading:track requestIdentifier:requestIdentifier
+                    openRequestIdentifier:openRequestIdentifier];
+        }
+        else {
+            [delegate audioPlayer:self didBeginLoading:track openRequestIdentifier:openRequestIdentifier];
+        }
     }];
 }
 
@@ -1567,7 +1629,43 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
 
 #pragma mark - Delegate delivery
 
+- (NSError *)error:(NSError *)error aboutTrack:(id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier {
+    if (!track && !requestIdentifier) {
+        return error;
+    }
+    NSMutableDictionary *info = [error.userInfo mutableCopy] ?: [NSMutableDictionary new];
+    info[kVibeAudioErrorTrackKey] = track;
+    info[kVibeAudioErrorRequestIdentifierKey] = requestIdentifier ? @(requestIdentifier) : nil;
+    return [NSError errorWithDomain:error.domain code:error.code userInfo:info];
+}
+
+- (NSError *)errorAboutCurrentPlayOnQueue:(NSError *)error {
+    if (error.userInfo[kVibeAudioErrorTrackKey] || error.userInfo[kVibeAudioErrorRequestIdentifierKey]) {
+        return error;
+    }
+    switch (_state) {
+        case VibePlayerStateLoading: {
+            VibePlaybackRequest *request = _pendingRequest.currentRequest;
+            return [self error:error aboutTrack:request.track
+             requestIdentifier:[self requestIdentifierForSubmittedPlay:request.submittedPlayIdentifier]];
+        }
+        case VibePlayerStatePlaying:
+        case VibePlayerStatePaused:
+            return [self error:error aboutTrack:self.currentTrack requestIdentifier:_currentRequestIdentifier];
+        case VibePlayerStateStopped:
+            return error;
+    }
+}
+
+- (uint64_t)requestIdentifierForSubmittedPlay:(uint64_t)submittedPlayIdentifier {
+    if (submittedPlayIdentifier && submittedPlayIdentifier == _replaySubmittedPlayIdentifier) {
+        return _replayRequestIdentifier;
+    }
+    return submittedPlayIdentifier;
+}
+
 - (void)sendDelegateError:(NSError *)error {
+    error = [self errorAboutCurrentPlayOnQueue:error];
     LogError(@"AudioPlayer Error: %@", error.localizedDescription);
     run_on_main_thread({
         [self.delegate audioPlayer:self error:error];
@@ -1600,6 +1698,7 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
 // So the old error tears down the newer play. A rebind adopts the new
 // submission's identifier, so its error is still delivered.
 - (void)sendDelegateError:(NSError *)error forSubmittedPlay:(uint64_t)submittedPlayIdentifier {
+    error = [self errorAboutCurrentPlayOnQueue:error];
     LogError(@"AudioPlayer Error: %@", error.localizedDescription);
     [self deliverOnMainForSubmittedPlay:submittedPlayIdentifier named:@"error" block:^{
         [self.delegate audioPlayer:self error:error];

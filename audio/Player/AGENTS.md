@@ -16,7 +16,7 @@ Everything between a decoded file and the speaker: the transport, the voice bus,
 | `AudioPlayer+Diagnostics` | source/decode/path report assembly in every build; beta hooks, the stall watchers' start and suspension, and the signal probe. The watchdogs and the stack sampler are `core/Common`'s `StallWatch` |
 | `AudioOutputUnit` | the hosted output unit both platforms pull the render with: its callback, gate, counters and its own HAL queue |
 | `AudioVoiceBus` | decode → ring → per-frame gain → mix (The voice bus, below) |
-| `AudioError` | the play path's error vocabulary: the domain, the URL key, the codes |
+| `AudioError` | the play path's error vocabulary: the domain, the userInfo keys, the codes, and the kinds |
 | `PlaybackRequestCoordinator` | the in-flight open: identity, row, intent, slow-load state, and what the delegate must be told |
 | `PlaybackIntent.h` | the intent a request must land in, and a start's clamp into its window (`VibeClampedStartFrame`) |
 | `AudioPrefetchRules.h` | the prefetch request's lifecycle and its dispositions, and the three crossfade decisions of a track change, as static inlines |
@@ -161,7 +161,7 @@ The player-level tests of the stage render it through the player. `testPitchEnga
 
 ## Prefetch and gapless
 
-**An app's `prefetchTrack:` on every track start pre-opens what follows the track at its end.** What follows is the app's to decide. The next `play:` of that source consumes the parked `AudioFileHandle`. The request state is `AudioPrefetchRules.h`. A prefetch of another source (`sourceKey`, so another window of the file being opened too) requested during an open is retained and suppressed. That open's success resumes it. Its failure, abandonment, a newer play (same-path rebind included) or a later prefetch drops it. Its identity also drops every late callback. There is no handshake with the loading side, because the foreground rule is derived inside the coordinator (`files/FileLoading/AGENTS.md`).
+**An app's `prefetchTrack:` (or `requestPrefetchTrack:`) on every track start pre-opens what follows the track at its end.** What follows is the app's to decide. The next `play:` of that source consumes the parked `AudioFileHandle`. The request state is `AudioPrefetchRules.h`. A prefetch of another source (`sourceKey`, so another window of the file being opened too) requested during an open is retained and suppressed. That open's success resumes it. Its failure, abandonment, a newer play (same-path rebind included) or a later prefetch drops it. Its identity also drops every late callback. There is no handshake with the loading side, because the foreground rule is derived inside the coordinator (`files/FileLoading/AGENTS.md`).
 
 **At play submission an unrelated prefetch is cancelled before the foreground open starts**, so its transfer cannot compete with the file the user chose. A prefetch of the track being played stays alive. Its handle run and the playback run ride one path claim, and whichever succeeds first consumes the play request. The winner retires the loser's park state, so a play never leaves its own track parked. A repeat of one track parks it again on purpose, by the prefetch after its start.
 
@@ -191,6 +191,8 @@ The bus takes an end frame per voice and per successor: the row's cue end in fil
 
 **Resume and seek-restart failures use the same identity, though their errors carry no URL.** They belong to the sounding voice, whose `_activeSubmittedPlayIdentifier` survives gapless promotion. A same-row replay could otherwise make the app accept the old error and tear down the newer play's state.
 
+**Every callback about a play names it by request identifier** (`AudioPlayer.h`, Request identifiers). The request identifier is the submission identity made public. `requestPlay:` returns it. Plays and prefetches draw from one sequence, `_lastRequestIdentifier`, under `_stateLock`, so no two requests share one. `_currentRequestIdentifier` names `currentTrack`'s play and is written with it. An advance moves it to the identifier `requestPrefetchTrack:` returned, carried through the park and the successor. `_activeSubmittedPlayIdentifier` stays the original play's, since delivery is still matched against the newest play. A stalled play's replay is a new submission that keeps the stalled play's identifier (`requestIdentifierForSubmittedPlay:`), so the app sees one play throughout. The four transport callbacks that carry it have an identifier form beside the plain one. The player sends the identifier form when the delegate has it, and the plain one otherwise, so a delegate written before them keeps working.
+
 **TRAP: the counter is `_nextSubmittedPlayIdentifier`, which only increments, never `_lastSubmittedPlayIdentifier`.** That one is the pre-Loading handoff, cleared to 0 once its play reaches Loading. Compared against it, every settlement reads as superseded, nothing is delivered, and whatever an app releases on settlement is stranded.
 
 **The header holds only what the player decides.** When Previous is available, when an empty seek's settlement is current, and when a deferred metadata sweep runs are each app's own. Vibe keeps them beside its shells.
@@ -201,7 +203,7 @@ The bus takes an end frame per voice and per successor: the row's cue end in fil
 
 The coordinator's accepted dataless verdict surfaces Loading for a provider file as soon as the probe settles. A probe still running falls back to the half-second delay, as do local files and a remote streaming backend. Both paths match the open identifier and notify once. The player never repeats the filesystem probe on its queue, where a stalled stat would also block stop and the deadline.
 
-**Progress is matched by the underlying open identifier, never by path or submitted-play identity.** A same-row replay changes submission identity but keeps the same `PlaybackRequestCoordinator.identifier`, transfer and timeout snapshot. A later retry of that URL gets a new identifier, so an older open's movement cannot extend it. `didBeginLoading:` carries the open identifier to the app. The app forwards `CloudTransferRegistry`'s movement for that file under it (`files/FileLoading/AGENTS.md`). The player accepts `noteOpenProgressForOpenRequestIdentifier:` only while both the pending request and the playback-open slot carry the identifier.
+**Progress is matched by the underlying open identifier, never by path or submitted-play identity.** A same-row replay changes submission identity but keeps the same `PlaybackRequestCoordinator.identifier`, transfer and timeout snapshot. A later retry of that URL gets a new identifier, so an older open's movement cannot extend it. `didBeginLoading:` carries the open identifier to the app, beside the request identifier in its identifier form. A rebind keeps the open identifier and takes the new play's request identifier. The app forwards `CloudTransferRegistry`'s movement for that file under it (`files/FileLoading/AGENTS.md`). The player accepts `noteOpenProgressForOpenRequestIdentifier:` only while both the pending request and the playback-open slot carry the identifier.
 
 ### Reading a file still downloading, or on a network mount
 
@@ -245,6 +247,10 @@ The transport stays Playing. `isBuffering` is the flag, and the optional `didCha
 ## Error text
 
 **`VibeAudioError*` descriptions are for logs and are never localized.** An app maps `VibeAudioErrorCode` to the line it shows. The player reads no strings.
+
+**Every error says whose it is** (`VibeAudioErrorKindOf`): the track's, the output's, or the reply that nothing is playing. The code alone cannot, since `VibeAudioErrorEngineStartFailed` covers both an output that would not start and a file that would not decode. The kind is stamped at construction under `kVibeAudioErrorKindKey`. Each code implies one, and `VibeAudioErrorOfKind` states a decode failure as the track's and a rebind that lost its file as the output's. The settlement's "unsupported format" is the output's: the bus it could not build is at the output's format, never the file's.
+
+**An error about a play names its item and request identifier** (`kVibeAudioErrorTrackKey`, `kVibeAudioErrorRequestIdentifierKey`), beside the URL, so two rows of one file stay apart. Both `sendDelegateError` variants name the play current when they are called. **TRAP: a caller that resets the player first names the play before the reset** (`errorAboutCurrentPlayOnQueue:`), since a Stopped player has none. A Pause on a stopped player answers `VibeAudioErrorNotPlaying` with `kVibeAudioErrorPrecedingRequestIdentifierKey`, read and enqueued under the lock plays mint under. So it settles exactly the requests at or below it.
 
 **The error domain is the app's, pushed once at launch.** `VibeAudioErrorSetDomain` takes it, in the shape of `ui/Shortcuts`' `VibeShortcutSetKeyNames`, and `VibeAudioErrorDomain()` reads it. The piece builds every play-path error under it, and an app's error rules compare against the same getter. An app may push its main bundle's identifier, which is the string `AudioError.m` held before the move. **An unset domain is a programmer error.** It asserts in a debug build and answers `@"VibeAudioErrorDomain"` in a release build. The tests and the minimal consumer push their own.
 

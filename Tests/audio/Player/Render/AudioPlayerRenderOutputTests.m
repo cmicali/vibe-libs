@@ -419,10 +419,15 @@
         _player = [[AudioPlayer alloc] initWithDeviceUID:@"" name:@"" enableFX:NO delegate:self];
         [self settleUntil:^BOOL { return [self count:@"init"] == 1; }];
         XCTAssertFalse(_player.manualRenderingActive);
-        [_player play:[VibeTestTrack withURL:[self fixture:@"noise-48000-24-2.wav"]]];
+        VibeTestTrack *track = [VibeTestTrack withURL:[self fixture:@"noise-48000-24-2.wav"]];
+        uint64_t request = [_player requestPlay:track];
         [self settleUntil:^BOOL { return [self count:@"start"] > 0 || self->_playError; }];
         XCTAssertNotNil(_playError, @"a missing output unit must fail the start");
         XCTAssertEqual(_playError.code, VibeAudioErrorEngineStartFailed);
+        // The output's, though the code is the one a decode failure has.
+        XCTAssertEqual(VibeAudioErrorKindOf(_playError), VibeAudioErrorKindOutput);
+        XCTAssertEqual(_playError.userInfo[kVibeAudioErrorTrackKey], track);
+        XCTAssertEqualObjects(_playError.userInfo[kVibeAudioErrorRequestIdentifierKey], @(request));
         XCTAssertTrue(_player.isStopped);
         XCTAssertFalse(_player.outputAudioActive);
         XCTAssertEqual([self count:@"start"], 0u);
@@ -609,6 +614,7 @@
         [self->_player runSyncOnQueue:^{}];
         XCTAssertNotNil(self->_playError, @"the refusal was never reported");
         XCTAssertEqual(self->_playError.code, VibeAudioErrorEngineStartFailed);
+        XCTAssertEqual(VibeAudioErrorKindOf(self->_playError), VibeAudioErrorKindOutput);
         XCTAssertTrue(self->_player.isPaused, @"the refused start left the play Playing over nothing");
         XCTAssertFalse(self->_player.outputAudioActive);
         __block BOOL running = YES;
@@ -941,6 +947,7 @@
             else {
                 XCTAssertNotNil(_playError);
                 XCTAssertEqualObjects(_playError.userInfo[kVibeAudioErrorTrackURLKey], failedURL);
+                XCTAssertEqual(VibeAudioErrorKindOf(_playError), VibeAudioErrorKindTrack);
                 XCTAssertEqual([self count:@"finish"], 0u, @"a failed decode auto-advanced as clean EOF");
                 XCTAssertTrue(_player.isStopped);
                 if (successor) {

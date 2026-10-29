@@ -495,9 +495,10 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
         return NO;
     }
     if (![self reconcileSourceSegmentOnQueue]) {
-        [self resetToStoppedStateOnQueue];
-        [self sendDelegateError:VibeAudioError(VibeAudioErrorEngineStartFailed,
+        NSError *error = [self errorAboutCurrentPlayOnQueue:VibeAudioError(VibeAudioErrorEngineStartFailed,
                 @"Could not restore the track at the output's new format", nil)];
+        [self resetToStoppedStateOnQueue];
+        [self sendDelegateError:error];
         return NO;
     }
     if (![self resumeOutputAfterEditOnQueue:wasPlaying reason:@"output format change"]) {

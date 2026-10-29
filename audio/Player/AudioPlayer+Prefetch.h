@@ -29,8 +29,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 // nil drops the park, which is what a play past the last track does. A
 // request for another track suppressed behind playback retains its track and
-// resumes only after that playback succeeds.
-- (void)prefetchOnQueue:(nullable id<VibePlayableItem>)track;
+// resumes only after that playback succeeds. The request identifier goes
+// with the track to the park, the successor, and the advance.
+- (void)prefetchOnQueue:(nullable id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier;
 
 - (void)clearPrefetchOnQueue;
 - (void)terminallyRetirePrefetchRequestOnQueue;

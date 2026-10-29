@@ -125,7 +125,10 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
     BOOL                    _stalled;
     BOOL                    _outputIdle;
     float                   _pitch;             // percent; see the trap below
-    // Minted under _stateLock at submission or a stalled play's replay.
+    // The request identifiers' one sequence, which plays and prefetches draw
+    // from under _stateLock (AudioPlayer.h, Request identifiers).
+    uint64_t                _lastRequestIdentifier;
+    // The newest play's, drawn at submission or a stalled play's replay.
     uint64_t                _nextSubmittedPlayIdentifier;
 
     // ---- Queue-confined transport state.
@@ -133,6 +136,13 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
     // The play that owns the current voice. A promote keeps it; a newer play,
     // stop or failure clears it.
     uint64_t                _activeSubmittedPlayIdentifier;
+    // The request identifier currentTrack answers to: its play's, or after an
+    // advance its prefetch's. Written with currentTrack.
+    uint64_t                _currentRequestIdentifier;
+    // A stalled play's replay is a new submission that keeps the stalled
+    // play's request identifier (requestIdentifierForSubmittedPlay:).
+    uint64_t                _replaySubmittedPlayIdentifier;
+    uint64_t                _replayRequestIdentifier;
     // The published window came from an estimated length, which the drain
     // grows and, once settled, republishes (republishEstimatedWindowOnQueue).
     BOOL                    _windowEstimated;
@@ -148,12 +158,15 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
     NSString                *_prefetchedKey;
     AudioFileHandle             *_prefetchedFile;
     id<VibePlayableItem>    _prefetchedTrack;
+    uint64_t                _prefetchedRequestIdentifier; // the request identifier of _prefetchedTrack
     uint64_t                _prefetchGeneration;
     id<VibePlayableItem>    _requestedPrefetchTrack;
     NSString                *_requestedPrefetchKey;
+    uint64_t                _requestedPrefetchRequestIdentifier;
     VibeAudioPrefetchRequestState _prefetchRequestState;
     AudioFileOpenToken      *_prefetchOpenToken;
     id<VibePlayableItem>    _successorTrack;   // the row queued on the current voice, else nil
+    uint64_t                _successorRequestIdentifier;
     AudioFileHandle             *_successorFile;    // the park's instance the bus was handed
 
     // ---- The render pipeline (AudioPlayer+Pipeline.m).
@@ -297,12 +310,25 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
 // Publishes outputIdle; only the YES edge reaches the delegate.
 - (void)publishOutputIdleOnQueue:(BOOL)idle;
 
+// Both name the play current when they are called (errorAboutCurrentPlayOnQueue:),
+// unless the error already names one.
 - (void)sendDelegateError:(NSError *)error;
 // Any thread. Check inside an identity-guarded delivery, after it reaches main.
 - (BOOL)submittedPlayIsCurrent:(uint64_t)submittedPlayIdentifier;
 // The play-path variant drops an error whose submission a newer play has
 // replaced. Every error carrying kVibeAudioErrorTrackURLKey must use it.
 - (void)sendDelegateError:(NSError *)error forSubmittedPlay:(uint64_t)submittedPlayIdentifier;
+// The error with its item and request identifier (kVibeAudioErrorTrackKey).
+// A caller about to reset the player names the play first, since the reset
+// leaves none current.
+- (NSError *)error:(NSError *)error aboutTrack:(nullable id<VibePlayableItem>)track
+ requestIdentifier:(uint64_t)requestIdentifier;
+// About Loading's request, or the current track while Playing or Paused;
+// unchanged while Stopped.
+- (NSError *)errorAboutCurrentPlayOnQueue:(NSError *)error;
+// The public identifier of a submission: its own, but for a stalled play's
+// replay.
+- (uint64_t)requestIdentifierForSubmittedPlay:(uint64_t)submittedPlayIdentifier;
 
 - (void)handleVoiceEventOnQueue:(VibeVoiceEvent)event voice:(VibeVoiceID)voice;
 // The buffering hold's decision, after every drain.

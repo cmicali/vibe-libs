@@ -9,6 +9,10 @@
 #import "AudioError.h"
 
 NSString *const kVibeAudioErrorTrackURLKey = @"VibeAudioErrorTrackURL";
+NSString *const kVibeAudioErrorTrackKey = @"VibeAudioErrorTrack";
+NSString *const kVibeAudioErrorRequestIdentifierKey = @"VibeAudioErrorRequestIdentifier";
+NSString *const kVibeAudioErrorPrecedingRequestIdentifierKey = @"VibeAudioErrorPrecedingRequestIdentifier";
+NSString *const kVibeAudioErrorKindKey = @"VibeAudioErrorKind";
 
 static NSString *sDomain;
 
@@ -22,9 +26,29 @@ NSString *VibeAudioErrorDomain(void) {
     return domain ?: @"VibeAudioErrorDomain";
 }
 
-// Descriptions are for logs and are never localized. An app chooses the
-// line it shows from the error code, with its own rule.
-NSError *VibeAudioError(VibeAudioErrorCode code, NSString *description, NSError *underlying) {
+static VibeAudioErrorKind VibeAudioErrorKindOfCode(VibeAudioErrorCode code) {
+    switch (code) {
+        case VibeAudioErrorFileOpenFailed:
+        case VibeAudioErrorFileOpenTimedOut:
+        case VibeAudioErrorConnectionLost:
+            return VibeAudioErrorKindTrack;
+        case VibeAudioErrorNotPlaying:
+            return VibeAudioErrorKindNotPlaying;
+        case VibeAudioErrorEngineStartFailed:
+        case VibeAudioErrorDeviceUnavailable:
+        case VibeAudioErrorDeviceInUse:
+            return VibeAudioErrorKindOutput;
+    }
+    return VibeAudioErrorKindUnknown;
+}
+
+VibeAudioErrorKind VibeAudioErrorKindOf(NSError *error) {
+    id kind = error.userInfo[kVibeAudioErrorKindKey];
+    return [kind isKindOfClass:NSNumber.class] ? (VibeAudioErrorKind)[kind integerValue] : VibeAudioErrorKindUnknown;
+}
+
+NSError *VibeAudioErrorOfKind(VibeAudioErrorKind kind, VibeAudioErrorCode code, NSString *description,
+                              NSError *underlying, NSURL *trackURL) {
     NSMutableDictionary *info = [NSMutableDictionary new];
     if (underlying) {
         info[NSUnderlyingErrorKey] = underlying;
@@ -33,16 +57,19 @@ NSError *VibeAudioError(VibeAudioErrorCode code, NSString *description, NSError 
         }
     }
     info[NSLocalizedDescriptionKey] = description;
+    info[kVibeAudioErrorKindKey] = @(kind);
+    if (trackURL) {
+        info[kVibeAudioErrorTrackURLKey] = trackURL;
+    }
     return [NSError errorWithDomain:VibeAudioErrorDomain() code:code userInfo:info];
 }
 
-// Stamps the failing track's URL (kVibeAudioErrorTrackURLKey).
+// Descriptions are for logs and are never localized. An app chooses the
+// line it shows from the error code, with its own rule.
+NSError *VibeAudioError(VibeAudioErrorCode code, NSString *description, NSError *underlying) {
+    return VibeAudioErrorOfKind(VibeAudioErrorKindOfCode(code), code, description, underlying, nil);
+}
+
 NSError *VibeAudioErrorForTrack(VibeAudioErrorCode code, NSString *description, NSError *underlying, NSURL *trackURL) {
-    NSError *error = VibeAudioError(code, description, underlying);
-    if (!trackURL) {
-        return error;
-    }
-    NSMutableDictionary *info = [error.userInfo mutableCopy];
-    info[kVibeAudioErrorTrackURLKey] = trackURL;
-    return [NSError errorWithDomain:error.domain code:error.code userInfo:info];
+    return VibeAudioErrorOfKind(VibeAudioErrorKindOfCode(code), code, description, underlying, trackURL);
 }
