@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 // Runs block with this thread unable to materialize a dataless file: a read
@@ -71,7 +72,11 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
                     break;
                 }
                 VibeMetadataReadResult *answer = nil;
-                {
+                // TRAP: one pool per file. The parse autoreleases its
+                // display-art rendition through an out-parameter, so without
+                // it every file's buffers live until the worker's whole list
+                // is done.
+                @autoreleasepool {
                     __typeof(self) strongSelf = weakSelf;
                     answer = (strongSelf && !progress.cancelled)
                             ? [strongSelf readURL:url policy:policy]
@@ -108,14 +113,26 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
         return [self answerFor:url outcome:VibeMetadataReadOutcomeCacheMiss cacheKey:cacheKey metadata:nil error:nil];
     }
     // The open alone tells an unreadable file from one that is not audio.
-    // O_NONBLOCK, so a FIFO under an audio name cannot wedge the worker.
+    // TRAP: only a regular file reaches the parse. The parse reopens the path
+    // with a blocking fopen, so a FIFO under an audio name would hold the
+    // worker until a writer came, and no cancel reaches a begun parse.
+    // O_NONBLOCK keeps this open itself from waiting on one.
     int fd = open(url.fileSystemRepresentation, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-    if (fd < 0) {
-        NSError *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:@{NSURLErrorKey: url}];
+    int code = fd < 0 ? errno : 0;
+    if (fd >= 0) {
+        struct stat info;
+        if (fstat(fd, &info) != 0) {
+            code = errno;
+        } else if (!S_ISREG(info.st_mode)) {
+            code = EFTYPE;
+        }
+        close(fd);
+    }
+    if (code != 0) {
+        NSError *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:code userInfo:@{NSURLErrorKey: url}];
         return [self answerFor:url outcome:VibeMetadataReadOutcomeUnreadable cacheKey:cacheKey metadata:nil
                          error:error];
     }
-    close(fd);
     // Before the parse: an invalidate during it makes the result stale for
     // the cache.
     uint64_t generation = _owner.cacheGeneration;

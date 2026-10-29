@@ -20,8 +20,39 @@
 
 #include <stdatomic.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
 
 static const void *const kVibeReadingTestQueueKey = &kVibeReadingTestQueueKey;
+
+// Counts its live instances. A weak reference would not do: reading one
+// back autoreleases the object into the reader's pool, which keeps it alive.
+static atomic_int sVibeReadingTestTemporariesAlive;
+
+@interface VibeReadingTestTemporary : NSObject
+@end
+
+@implementation VibeReadingTestTemporary
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        atomic_fetch_add(&sVibeReadingTestTemporariesAlive, 1);
+    }
+    return self;
+}
+
+- (void)dealloc {
+    atomic_fetch_sub(&sVibeReadingTestTemporariesAlive, 1);
+}
+
+@end
+
+// Hands back a new object through an autoreleasing out-parameter, as the
+// parse hands back its display-art rendition. Returns the live count.
+static int VibeAutoreleasedTemporary(VibeReadingTestTemporary *__autoreleasing *object) {
+    *object = [[VibeReadingTestTemporary alloc] init];
+    return atomic_load(&sVibeReadingTestTemporariesAlive);
+}
 
 @interface AudioTrackMetadataReadingTests : XCTestCase
 @end
@@ -371,6 +402,47 @@ static const void *const kVibeReadingTestQueueKey = &kVibeReadingTestQueueKey;
     }
     XCTAssertEqual(read, workers);
     XCTAssertEqual(cancelled, urls.count - workers);
+}
+
+// A FIFO under an audio name is refused before the parse, whose blocking
+// open would wait for a writer that never comes.
+- (void)testAFIFOIsUnreadableAndNeverParsed {
+    [self countParses];
+    NSURL *url = [_dir URLByAppendingPathComponent:@"pipe.wav"];
+    XCTAssertEqual(mkfifo(url.fileSystemRepresentation, 0644), 0);
+    VibeMetadataReadResult *result = [self read:@[url] policy:VibeMetadataReadPolicyLocal].firstObject;
+    XCTAssertEqual(result.outcome, VibeMetadataReadOutcomeUnreadable);
+    XCTAssertEqualObjects(result.error.domain, NSPOSIXErrorDomain);
+    XCTAssertEqual(result.error.code, EFTYPE);
+    XCTAssertEqual(atomic_load(&_parses), 0);
+}
+
+// Each file's autoreleased objects are gone before its worker begins the
+// next, so a long list holds no more than the files in flight.
+- (void)testEachFilesTemporariesAreDrainedBeforeTheNext {
+    NSURL *source = [self taggedFile];
+    NSMutableArray<NSURL *> *urls = [NSMutableArray array];
+    for (NSUInteger i = 0; i < 48; i++) {
+        NSURL *copy = [_dir URLByAppendingPathComponent:[NSString stringWithFormat:@"drained %lu.wav", (unsigned long)i]];
+        XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:source toURL:copy error:NULL]);
+        [urls addObject:copy];
+    }
+    atomic_store(&sVibeReadingTestTemporariesAlive, 0);
+    __block atomic_int mostAlive = 0;
+    [_cache debugSetReadingFileParser:^AudioTrackMetadata *(NSURL *url) {
+        VibeReadingTestTemporary *temporary = nil;
+        int alive = VibeAutoreleasedTemporary(&temporary);
+        int seen = atomic_load(&mostAlive);
+        while (alive > seen && !atomic_compare_exchange_weak(&mostAlive, &seen, alive)) {
+        }
+        return [AudioTrackMetadata metadataWithURL:url displayArtData:NULL];
+    }];
+    for (VibeMetadataReadResult *result in [self read:urls policy:VibeMetadataReadPolicyLocal]) {
+        XCTAssertEqual(result.outcome, VibeMetadataReadOutcomeRead);
+    }
+    NSUInteger workers = _cache.loadingConfiguration.localMetadataParseConcurrency;
+    XCTAssertLessThanOrEqual((NSUInteger)atomic_load(&mostAlive), workers,
+                             @"a worker kept earlier files' temporaries");
 }
 
 - (void)testNoFilesCompleteAtOnce {

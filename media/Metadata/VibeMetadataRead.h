@@ -30,7 +30,8 @@ typedef NS_ENUM(NSInteger, VibeMetadataReadOutcome) {
     // The policy allowed the cache alone, and it had no entry for this
     // version: a placeholder, or any file under CacheOnly.
     VibeMetadataReadOutcomeCacheMiss,
-    // The file could not be opened. error is the open's.
+    // The file could not be opened, or is not a regular file. error is the
+    // open's, or EFTYPE for a FIFO, a directory, or a device.
     VibeMetadataReadOutcomeUnreadable,
     // Neither TagLib nor CoreAudio read it. metadata is the fallback: the
     // file name's title and any facts read before the failure. Not cached.
