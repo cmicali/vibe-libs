@@ -586,9 +586,10 @@ static const NSTimeInterval kSlowDeviceRebindLogThresholdSeconds = 0.25;
     }
 
     if (deviceID != kAudioObjectUnknown && ![self setOutputUnitDevice:deviceID]) {
-        [self resetToStoppedStateOnQueue];
-        [self sendDelegateError:VibeAudioError(VibeAudioErrorDeviceUnavailable,
+        NSError *error = [self errorAboutCurrentPlayOnQueue:VibeAudioError(VibeAudioErrorDeviceUnavailable,
                 @"Could not switch audio output device", nil)];
+        [self resetToStoppedStateOnQueue];
+        [self sendDelegateError:error];
         return NO;
     }
     [self followOutputDeviceRateOnQueue];
@@ -601,9 +602,11 @@ static const NSTimeInterval kSlowDeviceRebindLogThresholdSeconds = 0.25;
         // new voice on the existing file is safe.
         AudioFileHandle *file = _file; // safe: _file is only written on _queue, and we are on it
         if (!file) {
+            // The rebind's, not the file's: there was no file to restore.
+            NSError *error = [self errorAboutCurrentPlayOnQueue:VibeAudioErrorOfKind(VibeAudioErrorKindOutput,
+                    VibeAudioErrorFileOpenFailed, @"Could not restore track on the new audio device", nil, nil)];
             [self resetToStoppedStateOnQueue];
-            [self sendDelegateError:VibeAudioError(VibeAudioErrorFileOpenFailed,
-                    @"Could not restore track on the new audio device", nil)];
+            [self sendDelegateError:error];
             return NO;
         }
         if (_bitPerfectWanted) {
@@ -614,9 +617,10 @@ static const NSTimeInterval kSlowDeviceRebindLogThresholdSeconds = 0.25;
         // at the retained intent, so the voice either survived, ring and all,
         // or stands replaced where it was.
         if (![self reconcileSourceSegmentOnQueue]) {
-            [self resetToStoppedStateOnQueue];
-            [self sendDelegateError:VibeAudioError(VibeAudioErrorEngineStartFailed,
+            NSError *error = [self errorAboutCurrentPlayOnQueue:VibeAudioError(VibeAudioErrorEngineStartFailed,
                     @"Could not restore track on the new audio device", nil)];
+            [self resetToStoppedStateOnQueue];
+            [self sendDelegateError:error];
             return NO;
         }
     

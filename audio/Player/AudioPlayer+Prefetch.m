@@ -8,7 +8,7 @@
 #import "HelperMacros.h"
 
 @interface AudioPlayer (PrefetchPrivate)
-- (void)beginPrefetchRequestOnQueueForTrack:(nullable id<VibePlayableItem>)track;
+- (void)beginPrefetchRequestOnQueueForTrack:(nullable id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier;
 - (void)settlePrefetchRequestOnQueueForIdentifier:(uint64_t)requestIdentifier;
 - (void)processPrefetchRequestOnQueueForIdentifier:(uint64_t)requestIdentifier;
 @end
@@ -25,6 +25,7 @@
 
 - (void)clearSuccessorOnQueue {
     _successorTrack = nil;
+    _successorRequestIdentifier = 0;
     _successorFile = nil;
     [self setSuccessorArmedForUI:NO];
 }
@@ -65,6 +66,7 @@
         return;
     }
     _successorTrack = _prefetchedTrack;
+    _successorRequestIdentifier = _prefetchedRequestIdentifier;
     _successorFile = _prefetchedFile;
     [self setSuccessorArmedForUI:YES];
 }
@@ -86,6 +88,7 @@
 // its own file.
 - (void)promoteSuccessorOnQueue {
     id<VibePlayableItem> startedTrack = _successorTrack;
+    uint64_t startedRequestIdentifier = _successorRequestIdentifier;
     AudioFileHandle *startedFile = _successorFile;
     if (!startedTrack || !startedFile) {
         return;
@@ -99,8 +102,8 @@
     // after the window is taken is republished.
     BOOL estimated = NO;
     NSRange window = VibeTrackWindowInFile(startedTrack, startedFile, &estimated);
-    [self adoptTrack:startedTrack file:startedFile window:window estimated:estimated
-               voice:_voice baseFrames:snapshot.boundary reason:@"gapless boundary"];
+    [self adoptTrack:startedTrack requestIdentifier:startedRequestIdentifier file:startedFile window:window
+           estimated:estimated voice:_voice baseFrames:snapshot.boundary reason:@"gapless boundary"];
 }
 
 // A long crossfade's track end: the park starts as a voice of its own while
@@ -108,6 +111,7 @@
 // gives the outgoing fade audio to play.
 - (void)maybeCrossfadeIntoParkOnQueue {
     id<VibePlayableItem> startedTrack = _prefetchedTrack;
+    uint64_t startedRequestIdentifier = _prefetchedRequestIdentifier;
     AudioFileHandle *startedFile = _prefetchedFile;
     if (_successorTrack || !startedTrack || !startedFile || startedFile == _file
             || _state != VibePlayerStatePlaying || _buffering || _windowEstimated
@@ -132,19 +136,22 @@
     VibeVoiceID voice = [self startVoiceOnQueueForFile:startedFile atFrame:(AVAudioFramePosition)window.location
                                               endFrame:VibeTrackEndFrameInFile(startedTrack, startedFile)
                                       fadeMilliseconds:milliseconds paused:NO];
-    [self adoptTrack:startedTrack file:startedFile window:window estimated:estimated
-               voice:voice baseFrames:0 reason:@"track-end crossfade"];
+    [self adoptTrack:startedTrack requestIdentifier:startedRequestIdentifier file:startedFile window:window
+           estimated:estimated voice:voice baseFrames:0 reason:@"track-end crossfade"];
 }
 
 // Both auto-advances end here: the started track is current at its window's
 // start on `voice`, `baseFrames` being the bus frames that voice consumed
 // before it, and the delegate is told.
-- (void)adoptTrack:(id<VibePlayableItem>)startedTrack file:(AudioFileHandle *)file window:(NSRange)window
-         estimated:(BOOL)estimated voice:(VibeVoiceID)voice baseFrames:(uint64_t)baseFrames reason:(NSString *)reason {
+- (void)adoptTrack:(id<VibePlayableItem>)startedTrack requestIdentifier:(uint64_t)startedRequestIdentifier
+              file:(AudioFileHandle *)file window:(NSRange)window estimated:(BOOL)estimated voice:(VibeVoiceID)voice
+        baseFrames:(uint64_t)baseFrames reason:(NSString *)reason {
     id<VibePlayableItem> finishedTrack = self.currentTrack;
+    uint64_t finishedRequestIdentifier = _currentRequestIdentifier;
     _windowEstimated = estimated;
     [self publishState:_state voice:voice file:file window:window startSeconds:0 baseFrames:baseFrames];
     self.currentTrack = startedTrack;
+    _currentRequestIdentifier = startedRequestIdentifier;
     [self armSignalProbeOnQueue:reason];
     uint64_t owningSubmittedPlayIdentifier = _activeSubmittedPlayIdentifier;
     // A play or stop queued behind this rewrites currentTrack before the hop
@@ -153,7 +160,15 @@
         if (self.currentTrack != startedTrack || ![self submittedPlayIsCurrent:owningSubmittedPlayIdentifier]) {
             return;
         }
-        [self.delegate audioPlayer:self didAutoAdvanceFromTrack:finishedTrack toTrack:startedTrack];
+        id<AudioPlayerDelegate> delegate = self.delegate;
+        SEL identified = @selector(audioPlayer:didAutoAdvanceFromTrack:finishedRequestIdentifier:toTrack:startedRequestIdentifier:);
+        if ([delegate respondsToSelector:identified]) {
+            [delegate audioPlayer:self didAutoAdvanceFromTrack:finishedTrack finishedRequestIdentifier:finishedRequestIdentifier
+                          toTrack:startedTrack startedRequestIdentifier:startedRequestIdentifier];
+        }
+        else {
+            [delegate audioPlayer:self didAutoAdvanceFromTrack:finishedTrack toTrack:startedTrack];
+        }
     });
 }
 
@@ -168,6 +183,7 @@
     _prefetchedKey = nil;
     _prefetchedFile = nil;
     _prefetchedTrack = nil;
+    _prefetchedRequestIdentifier = 0;
 }
 
 - (void)retirePrefetchOnQueueAtPoint:(VibeAudioPrefetchRetirementPoint)point
@@ -185,13 +201,15 @@
     if (!_prefetchRequestState.requestActive) {
         _requestedPrefetchTrack = nil;
         _requestedPrefetchKey = nil;
+        _requestedPrefetchRequestIdentifier = 0;
     }
 }
 
-- (void)beginPrefetchRequestOnQueueForTrack:(id<VibePlayableItem>)track {
+- (void)beginPrefetchRequestOnQueueForTrack:(id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier {
     _prefetchRequestState = VibeAudioPrefetchRequestBegin(_prefetchRequestState).state;
     _requestedPrefetchTrack = track;
     _requestedPrefetchKey = track.sourceKey;
+    _requestedPrefetchRequestIdentifier = requestIdentifier;
 }
 
 - (void)settlePrefetchRequestOnQueueForIdentifier:(uint64_t)requestIdentifier {
@@ -213,11 +231,11 @@
     }
 }
 
-- (void)prefetchOnQueue:(id<VibePlayableItem>)track {
+- (void)prefetchOnQueue:(id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier {
     if (_terminating) {
         return;
     }
-    [self beginPrefetchRequestOnQueueForTrack:track];
+    [self beginPrefetchRequestOnQueueForTrack:track requestIdentifier:requestIdentifier];
     [self processPrefetchRequestOnQueueForIdentifier:_prefetchRequestState.currentRequestIdentifier];
 }
 
@@ -228,6 +246,7 @@
     }
     id<VibePlayableItem> track = _requestedPrefetchTrack;
     NSString *key = _requestedPrefetchKey;
+    uint64_t trackRequestIdentifier = _requestedPrefetchRequestIdentifier;
     VibePlaybackRequest *pending = self.pendingRequest.currentRequest;
     // By the pending play's track, not its path: another window of the file
     // being opened is a prefetch of its own, parked behind that open.
@@ -248,10 +267,13 @@
     if (disposition == VibeAudioPrefetchDispositionReuseParked
             || disposition == VibeAudioPrefetchDispositionJoinPrefetchClaim) {
         // A re-prefetch of the same track can carry a fresh item object,
-        // which the promote must deliver, and a gate may have opened since.
+        // which the promote must deliver with its own request identifier,
+        // and a gate may have opened since.
         _prefetchedTrack = track;
+        _prefetchedRequestIdentifier = trackRequestIdentifier;
         if (_successorTrack) {
             _successorTrack = track;
+            _successorRequestIdentifier = trackRequestIdentifier;
         }
         else {
             [self maybeArmSuccessorOnQueue];
@@ -268,6 +290,7 @@
     // opens.
     _prefetchedKey = key;
     _prefetchedTrack = track;
+    _prefetchedRequestIdentifier = trackRequestIdentifier;
     _prefetchedFile = nil;
     if (!key) {
         [self settlePrefetchRequestOnQueueForIdentifier:requestIdentifier];

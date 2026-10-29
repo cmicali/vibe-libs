@@ -103,9 +103,35 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Transport
 
+// Request identifiers. Every play gets one at submission, and so does every
+// prefetch. They come from one sequence, never repeat, and only grow, so a
+// later submission always has a larger one. A callback about a play carries
+// its identifier: didBeginLoading:, didStartPlaying:, didFinishPlaying:, and
+// error: (kVibeAudioErrorRequestIdentifierKey). A gapless or crossfaded
+// advance carries both: the finished play's and the identifier its
+// prefetchTrack: returned for the started one, which then names that play.
+// A stalled play's replay keeps its identifier.
+//
+// A newer play supersedes every older one the moment it is submitted. A
+// superseded play gets no further callback: its open, its start, its finish,
+// its advance, and its errors are all dropped, so an open it left in flight
+// ends with nothing. Only an output error raised before the newer play
+// reached the queue may still name it. So an app keeps the identifier of its
+// newest play, moves it to the started one at an advance, and treats a
+// callback that names any other as stale.
+//
+// Each form below is the plain verb of its name, returning the identifier.
+- (uint64_t)requestPlay:(id<VibePlayableItem>)track;
+- (uint64_t)requestPlay:(id<VibePlayableItem>)track atPosition:(NSTimeInterval)position startPaused:(BOOL)startPaused;
+// 0 for nil. The identifier names the track only if the park is the one
+// that starts it: a later prefetch, or a play, takes its place.
+- (uint64_t)requestPrefetchTrack:(nullable id<VibePlayableItem>)track;
+
 - (void)play:(id<VibePlayableItem>)track;
 // The user's toggle, of the state when it reaches the player queue,
-// including an in-flight open's landing intent.
+// including an in-flight open's landing intent. Stopped, it answers error:
+// with VibeAudioErrorNotPlaying, which names the newest request submitted
+// before it (kVibeAudioErrorPrecedingRequestIdentifierKey).
 - (void)playPause;
 // The system's verdicts: idempotent, so a duplicate notification cannot
 // toggle playback back.
@@ -202,16 +228,50 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 // Transport callbacks are required. Optional observation hooks follow them.
+// Four transport callbacks come in two forms, plain and with the request
+// identifier (Request identifiers, above). A delegate implements one form
+// of each. When it implements the identifier form, the player sends that
+// form only.
 @protocol AudioPlayerDelegate <NSObject>
 
 - (void)audioPlayerDidInitialize:(AudioPlayer *)audioPlayer;
 
+@optional
 // A pending open classified as a provider placeholder, or still pending after
 // the grace period. Remote streams use the grace period. Followed by
 // didStartPlaying: or error:; a superseded load gets no terminal callback.
+// openRequestIdentifier is the open's, for
+// noteOpenProgressForOpenRequestIdentifier:. A rebind to another row of the
+// file keeps it, so it is not the request identifier.
 - (void)audioPlayer:(AudioPlayer *)audioPlayer
      didBeginLoading:(id<VibePlayableItem>)track
 openRequestIdentifier:(uint64_t)openRequestIdentifier;
+- (void)audioPlayer:(AudioPlayer *)audioPlayer
+     didBeginLoading:(id<VibePlayableItem>)track
+   requestIdentifier:(uint64_t)requestIdentifier
+openRequestIdentifier:(uint64_t)openRequestIdentifier;
+
+// Sent once the play's voice is started and the output is running. It does
+// not wait for the first decoded frames, so a file whose first read fails
+// follows it with error:.
+- (void)audioPlayer:(AudioPlayer *)audioPlayer didStartPlaying:(id<VibePlayableItem>)track;
+- (void)audioPlayer:(AudioPlayer *)audioPlayer didStartPlaying:(id<VibePlayableItem>)track
+  requestIdentifier:(uint64_t)requestIdentifier;
+- (void)audioPlayer:(AudioPlayer *)audioPlayer didFinishPlaying:(id<VibePlayableItem>)track;
+- (void)audioPlayer:(AudioPlayer *)audioPlayer didFinishPlaying:(id<VibePlayableItem>)track
+  requestIdentifier:(uint64_t)requestIdentifier;
+// startedTrack, the object handed to prefetchTrack:, is already sounding:
+// advance the playlist WITHOUT play:. A track's end fires exactly one of
+// didFinishPlaying: or this.
+- (void)audioPlayer:(AudioPlayer *)audioPlayer
+    didAutoAdvanceFromTrack:(id<VibePlayableItem>)finishedTrack
+                    toTrack:(id<VibePlayableItem>)startedTrack;
+- (void)audioPlayer:(AudioPlayer *)audioPlayer
+    didAutoAdvanceFromTrack:(id<VibePlayableItem>)finishedTrack
+  finishedRequestIdentifier:(uint64_t)finishedRequestIdentifier
+                    toTrack:(id<VibePlayableItem>)startedTrack
+   startedRequestIdentifier:(uint64_t)startedRequestIdentifier;
+@required
 
 // Play/pause changed what an in-flight open will land as, or a same-file
 // rebind replaced its row. No audio has changed: refresh transport and Now
@@ -220,20 +280,14 @@ openRequestIdentifier:(uint64_t)openRequestIdentifier;
     didChangeLoadingPaused:(BOOL)paused
                   forTrack:(id<VibePlayableItem>)track;
 
-- (void)audioPlayer:(AudioPlayer *)audioPlayer didStartPlaying:(id<VibePlayableItem>)track;
 - (void)audioPlayer:(AudioPlayer *)audioPlayer didPausePlaying:(id<VibePlayableItem>)track;
 - (void)audioPlayer:(AudioPlayer *)audioPlayer didResumePlaying:(id<VibePlayableItem>)track;
 // track is nil for a seek with nothing playable loaded; still delivered so
 // the UI can settle.
 - (void)audioPlayer:(AudioPlayer *)audioPlayer didFinishSeeking:(nullable id<VibePlayableItem>)track;
-- (void)audioPlayer:(AudioPlayer *)audioPlayer didFinishPlaying:(id<VibePlayableItem>)track;
-// startedTrack, the object handed to prefetchTrack:, is already sounding:
-// advance the playlist WITHOUT play:. A track's end fires exactly one of
-// didFinishPlaying: or this.
-- (void)audioPlayer:(AudioPlayer *)audioPlayer
-    didAutoAdvanceFromTrack:(id<VibePlayableItem>)finishedTrack
-                    toTrack:(id<VibePlayableItem>)startedTrack;
 
+// Every error carries its kind (VibeAudioErrorKindOf). One about a play
+// carries its item and request identifier (kVibeAudioErrorTrackKey).
 - (void)audioPlayer:(AudioPlayer *)audioPlayer error:(NSError *)error;
 
 @optional
