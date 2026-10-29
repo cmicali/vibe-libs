@@ -5,6 +5,7 @@
 
 #import <Foundation/Foundation.h>
 #import "AudioTrackMetadataHolder.h"
+#import "VibeMetadataRead.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -29,6 +30,22 @@ NS_ASSUME_NONNULL_BEGIN
 // nothing. Apart from the scan, so loadMetadata: and cancelScan never drop
 // it. Main thread only.
 - (void)loadCachedMetadata:(NSArray<id<AudioTrackMetadataHolder>> *)tracks;
+
+// Tags for files a client tracks itself, such as a library's index, by URL
+// and with no holder. Apart from the sweep: loadMetadata: and cancelScan
+// never touch it, and it joins no sweep's parse. Each URL is answered once,
+// in any order, on deliveryQueue, which must be serial. completion runs there
+// after the last answer. Each file is read from the disk cache, then parsed
+// under policy, and a successful parse is filed in the cache. The parses run
+// at the configured local parse concurrency, at utility QoS. A URL given
+// twice is read twice. Cancelling the progress answers each file not begun
+// as Cancelled. A parse already begun finishes. Nothing is held once
+// completion has run. Any thread.
+- (NSProgress *)readMetadataOfURLs:(NSArray<NSURL *> *)urls
+                            policy:(VibeMetadataReadPolicy)policy
+                     deliveryQueue:(dispatch_queue_t)deliveryQueue
+                            result:(void (^)(VibeMetadataReadResult *result))result
+                        completion:(dispatch_block_t)completion;
 
 // Cancels the scan and releases its loader, which holds every queued track.
 // For a playlist that is closed or replaced. Main thread only.

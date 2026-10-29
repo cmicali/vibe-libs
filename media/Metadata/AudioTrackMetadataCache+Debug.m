@@ -30,6 +30,10 @@
     return [_currentLoader debugScanLaneState] ?: @{};
 }
 
+- (void)debugSetReadingFileParser:(AudioTrackMetadata *(^)(NSURL *url))parser {
+    self.readingFileParser = parser;
+}
+
 @end
 
 #endif

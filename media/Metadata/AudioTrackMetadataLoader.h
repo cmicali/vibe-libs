@@ -10,6 +10,7 @@
 
 #import <Foundation/Foundation.h>
 #import "AudioTrackMetadataCache.h"
+#import "VibeMetadataRead.h"
 
 @class AudioTrackMetadata;
 @class AudioLoadingConfiguration;
@@ -82,6 +83,22 @@ NS_ASSUME_NONNULL_BEGIN
 // record, no materialization and no parse, so the file is never read. Any
 // thread.
 - (void)loadFromCacheOnly:(NSArray<id<AudioTrackMetadataHolder>> *)tracks;
+
+@end
+
+// A client's reads by URL, apart from the sweep
+// (AudioTrackMetadataLoader+Reading.m).
+@interface AudioTrackMetadataLoader (Reading)
+
+// The cache's readMetadataOfURLs:, which states the contract. progress counts
+// the answers, and cancelling it answers each file not begun as Cancelled.
+// Any thread.
+- (void)readURLs:(NSArray<NSURL *> *)urls
+          policy:(VibeMetadataReadPolicy)policy
+        progress:(NSProgress *)progress
+   deliveryQueue:(dispatch_queue_t)deliveryQueue
+          result:(void (^)(VibeMetadataReadResult *result))result
+      completion:(dispatch_block_t)completion;
 
 @end
 

@@ -115,6 +115,15 @@ NS_ASSUME_NONNULL_BEGIN
                 userInitiated:(BOOL)userInitiatedParse;
 - (void)finishTracks:(NSArray<id<AudioTrackMetadataHolder>> *)tracks;
 - (void)settleTracks:(NSArray<id<AudioTrackMetadataHolder>> *)tracks withMetadata:(AudioTrackMetadata *)metadata;
+// The store's entry for a version, with its rendition's provider installed.
+// nil on a miss. Reads no audio.
+- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey;
+// Files a successful parse under its version, unless the cache was
+// invalidated since generation was taken.
+- (void)fileMetadata:(AudioTrackMetadata *)metadata
+          displayArt:(nullable NSData *)displayArt
+              forKey:(NSString *)cacheKey
+          generation:(uint64_t)generation;
 
 @end
 

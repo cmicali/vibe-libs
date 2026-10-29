@@ -59,6 +59,10 @@ static void VibeInstallArchivedDisplayArtProvider(AudioTrackMetadata *metadata,
         LogWarn(@"No cache key for %@ — loading metadata uncached", track.url.path);
         return nil;
     }
+    return [self cachedMetadataForKey:cacheKey];
+}
+
+- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey {
     PINCache *metadataCache = _owner.metadataCache;
     // Bypasses PINMemoryCache: on macOS it never evicts (its pressure hooks
     // are iOS-only), so every track ever loaded would stay pinned.
@@ -334,29 +338,38 @@ static void VibeInstallArchivedDisplayArtProvider(AudioTrackMetadata *metadata,
     }
     [metadata setCacheKey:cacheKey];
     if (metadata.parsedOK && cacheKey) {
-        // A failed parse is never cached: its fallback would shadow the real
-        // tags until the cache key changed. The write is synchronous so its
-        // back-pressure paces the workers; async writes back up PINDiskCache's
-        // queue. The generation is rechecked after the write because
-        // removeAllObjects can slip between check and write, and the remove
-        // keeps Clear Cache empty. Use the strong `owner`, never _owner, so
-        // the pair cannot see the cache vanish midway.
-        if (generation == owner.cacheGeneration) {
-            [owner.metadataCache.diskCache setObject:metadata forKey:cacheKey];
-            // Same write-then-recheck pair for the rendition.
-            if (displayArt) {
-                [owner.metadataCache.diskCache setObject:displayArt
-                                                  forKey:VibeArchivedDisplayArtKey(cacheKey)];
-            }
-            if (generation != owner.cacheGeneration) {
-                [owner.metadataCache.diskCache removeObjectForKey:cacheKey];
-                [owner.metadataCache.diskCache
-                        removeObjectForKey:VibeArchivedDisplayArtKey(cacheKey)];
-            }
-            VibeInstallArchivedDisplayArtProvider(metadata, owner.metadataCache, cacheKey);
-        }
+        [self fileMetadata:metadata displayArt:displayArt forKey:cacheKey generation:generation];
     }
     return metadata;
+}
+
+- (void)fileMetadata:(AudioTrackMetadata *)metadata
+          displayArt:(nullable NSData *)displayArt
+              forKey:(NSString *)cacheKey
+          generation:(uint64_t)generation {
+    // A failed parse is never cached: its fallback would shadow the real
+    // tags until the cache key changed. The write is synchronous so its
+    // back-pressure paces the workers; async writes back up PINDiskCache's
+    // queue. The generation is rechecked after the write because
+    // removeAllObjects can slip between check and write, and the remove
+    // keeps Clear Cache empty. Use the strong `owner`, never _owner, so
+    // the pair cannot see the cache vanish midway.
+    AudioTrackMetadataCache *owner = _owner;
+    if (!owner || generation != owner.cacheGeneration) {
+        return;
+    }
+    [owner.metadataCache.diskCache setObject:metadata forKey:cacheKey];
+    // Same write-then-recheck pair for the rendition.
+    if (displayArt) {
+        [owner.metadataCache.diskCache setObject:displayArt
+                                          forKey:VibeArchivedDisplayArtKey(cacheKey)];
+    }
+    if (generation != owner.cacheGeneration) {
+        [owner.metadataCache.diskCache removeObjectForKey:cacheKey];
+        [owner.metadataCache.diskCache
+                removeObjectForKey:VibeArchivedDisplayArtKey(cacheKey)];
+    }
+    VibeInstallArchivedDisplayArtProvider(metadata, owner.metadataCache, cacheKey);
 }
 
 // Not gated on isCancelled: every caller won an install. The identity guard

@@ -10,6 +10,7 @@
 #import "AudioTrackMetadataCache.h"
 
 @class AudioLoadingConfiguration;
+@class AudioTrackMetadata;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -40,6 +41,11 @@ NS_ASSUME_NONNULL_BEGIN
 // The scan lane apart from priority rows, so a scenario can prove stage-1
 // completion and scan demand without subtracting aggregates.
 - (NSDictionary *)debugScanLaneState;
+
+// Replaces readMetadataOfURLs:'s parse, so a test can count parses or stand
+// in for one. Before the first read only: the reading loader keeps the parser
+// it was built with.
+- (void)debugSetReadingFileParser:(nullable AudioTrackMetadata *_Nonnull (^)(NSURL *url))parser;
 
 @end
 
