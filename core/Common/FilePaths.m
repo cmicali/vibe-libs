@@ -27,15 +27,11 @@ NSString *VibeAliasFreePath(NSString *path) {
     if (dataVolumeEnd > 0) {
         path = [path substringFromIndex:dataVolumeEnd];
     }
-    NSUInteger privateEnd = VibeAliasRootEnd(path, @"/private");
-    if (privateEnd == 0 || privateEnd == path.length) {
-        return path;
-    }
     // /private itself is real; only these roots are aliases.
-    NSString *underPrivate = [path substringFromIndex:privateEnd];
-    for (NSString *root in @[@"/tmp", @"/var", @"/etc"]) {
-        if (VibeAliasRootEnd(underPrivate, root) > 0) {
-            return underPrivate;
+    static NSString *const privateRoots[] = {@"/private/tmp", @"/private/var", @"/private/etc"};
+    for (size_t i = 0; i < sizeof(privateRoots) / sizeof(privateRoots[0]); i++) {
+        if (VibeAliasRootEnd(path, privateRoots[i]) > 0) {
+            return [path substringFromIndex:@"/private".length];
         }
     }
     return path;
