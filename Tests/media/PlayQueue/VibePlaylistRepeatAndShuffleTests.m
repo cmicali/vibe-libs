@@ -754,6 +754,37 @@ static NSArray<TestRow *> *LookAhead(VibePlaylist *playlist, NSUInteger limit) {
     }
 }
 
+// A row played this cycle comes back only in the next one, after any rows
+// the two cycles share. So count steps can miss it, and a scan for a row to
+// play runs to the first nil.
+- (void)testAShuffledScanReachesEveryRowOnlyByTheFirstNil {
+    NSArray<TestRow *> *rows = TracksNamed(@"a b c d");
+    VibePlaylist *playlist = NewPlaylist();
+    playlist.shuffleEnabled = YES;
+    playlist.repeatMode = VibeRepeatModeAll;
+    NSArray<TestRow *> *nextOrder = @[rows[2], rows[3], rows[0], rows[1]];
+    XCTAssertTrue([playlist replaceAllWithTracks:rows playOrder:rows cursor:1 nextPlayOrder:nextOrder]);
+    NSArray<TestRow *> *firstCount = [LookAhead(playlist, playlist.count + 1)
+                                      subarrayWithRange:NSMakeRange(1, playlist.count)];
+    XCTAssertEqualObjects(NamesOf(firstCount), @"c d c d");
+    XCTAssertEqual([playlist trackAtStep:5], rows[0]);
+
+    for (NSUInteger count = 1; count <= 6; count++) {
+        for (uint64_t seed = 1; seed <= 20; seed++) {
+            for (NSUInteger played = 1; played <= count; played++) {
+                VibePlaylist *shuffled = ShuffledPlaylist(count, seed);
+                shuffled.repeatMode = VibeRepeatModeAll;
+                WalkNext(shuffled, played);
+                NSArray<TestRow *> *ahead = LookAhead(shuffled, 100);
+                XCTAssertNil([shuffled trackAtStep:ahead.count]);
+                NSArray<TestRow *> *scan = [ahead subarrayWithRange:NSMakeRange(1, ahead.count - 1)];
+                XCTAssertTrue([[NSSet setWithArray:scan] isEqualToSet:[NSSet setWithArray:shuffled.tracks]],
+                              @"%lu rows, seed %llu, %lu played", (unsigned long)count, seed, (unsigned long)played);
+            }
+        }
+    }
+}
+
 - (void)testLookingAheadThenAdvancingLandsOnTheSameTracks {
     for (NSNumber *mode in @[@(VibeRepeatModeOff), @(VibeRepeatModeAll), @(VibeRepeatModeOne)]) {
         for (NSNumber *shuffle in @[@NO, @YES]) {
