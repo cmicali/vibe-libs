@@ -56,6 +56,7 @@ The control is `ui/Controls`' `LoadingIndicator`, and its traps are in `ui/Contr
 - **The step is 5% of the track (`kWaveformAccessibilityStep`), not seconds.** Each view knows a 0 to 1 progress and reports a 0 to 1 seek, never the duration.
 - **An adjustment reports the seek and waits for the position to come back** through the owner's normal progress write. Writing local progress would show a playhead that has not moved, and it would fight the next tick.
 - **The value is a whole percentage** (`VibeWaveformAccessibilityValue`), since VoiceOver reads a bare 0.5 as "zero point five".
+- **The mac view's `accessibilityValueProvider` replaces it.** An app that knows the duration gives a block that turns the progress into a time, such as "1:23 of 4:56". The view hands it the progress clamped to 0 to 1, and reads no string itself.
 
 Neither view is adjustable with nothing loaded. The scrubber's `accessibilityIdentifier`, `waveform-scrubber`, names the element for a UI test's pinch and is unrelated to the above.
 
@@ -105,6 +106,8 @@ While the cursor is over a loaded waveform, the waveform marks the column under 
 - **On**: the window stays put and the drag scrubs. Past the hysteresis the column under the cursor shows through `setHoverHighlightX:`, clamped to the bounds, while real progress keeps painting. The audio seeks once on release, to the clamped fraction. The release skips the containment test, since the drag may end outside the view.
 
 With no waveform, or outside the renderer's seek hit band, `mouseDown:` hands the event to `performWindowDragWithEvent:` at once in every mode. So the empty and loading states and the view's margins always drag the window. A window that declines the handoff, as an app's locked window does, leaves a disarmed drag doing nothing. A stationary click still seeks.
+
+**`dragsWindow` turns every handoff off.** It is YES by default. An app sets NO for a view in a window that has a title bar to move it by, where a press on an empty waveform should not move the window. Each handoff above then does nothing, as a declining window does: the press is disarmed, so a stationary click in the seek band still seeks, and nothing else does. The view stashes it at each mouse-down, as it does `dragSeeks`.
 
 ### The convert sweep
 

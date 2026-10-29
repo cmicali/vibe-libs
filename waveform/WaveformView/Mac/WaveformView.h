@@ -48,6 +48,18 @@ NS_ASSUME_NONNULL_BEGIN
 // moves the window. Read once per mouse-down.
 @property (nonatomic) BOOL dragSeeks;
 
+// Whether a gesture the view does not seek with moves the window: a press
+// while nothing is loaded, a press outside the seek band, and a drag with
+// dragSeeks off. YES, the default. NO leaves those gestures doing nothing,
+// for a view in a window that has a title bar to move it by. Read once per
+// mouse-down.
+@property (nonatomic) BOOL dragsWindow;
+
+// The spoken value for a progress from 0 to 1. nil, the default, speaks a
+// whole percentage (WaveformAccessibility.h). An app that knows the duration
+// can speak a time instead. Called on main, whenever VoiceOver reads it.
+@property (nonatomic, copy, nullable) NSString *(^accessibilityValueProvider)(CGFloat progress);
+
 // A WaveformRendererRegistry key, never a display name. Also the one draw
 // for the pushed properties above, so the app sets it last.
 - (void)setWaveformStyle:(NSString *)identifier;
