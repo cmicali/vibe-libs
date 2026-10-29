@@ -53,4 +53,31 @@
     }
 }
 
+- (void)testAliasesDropInAnyCase {
+    NSDictionary<NSString *, NSString *> *expected = @{
+        @"/PRIVATE/var/folders/a.flac": @"/var/folders/a.flac",
+        @"/Private/tmp/a.flac": @"/tmp/a.flac",
+        @"/private/TMP/a.flac": @"/TMP/a.flac",
+        @"/pRiVaTe/Etc": @"/Etc",
+        @"/SYSTEM/VOLUMES/DATA/Users/me/a.flac": @"/Users/me/a.flac",
+        @"/System/Volumes/data/PRIVATE/var/a.flac": @"/var/a.flac",
+        @"/System/Volumes/Data/private": @"/private",
+        @"/System/Volumes/Data": @"/",
+        @"/System/Volumes/Data/": @"/",
+        @"/system/volumes/data": @"/",
+    };
+    for (NSString *alias in expected) {
+        XCTAssertEqualObjects(VibeAliasFreePath(alias), expected[alias], @"%@", alias);
+        XCTAssertEqualObjects(VibeComparablePath(alias), expected[alias], @"%@", alias);
+    }
+}
+
+- (void)testOnlyWholeAliasRootsDrop {
+    for (NSString *path in @[@"", @"/PRIVATE", @"/privateer/tmp/a.flac", @"/private/tmpfiles/a.flac",
+                             @"/System/Volumes/DataSet/a.flac"]) {
+        XCTAssertEqualObjects(VibeAliasFreePath(path), path, @"%@", path);
+        XCTAssertEqualObjects(VibeComparablePath(path), path, @"%@", path);
+    }
+}
+
 @end

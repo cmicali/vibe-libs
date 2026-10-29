@@ -13,7 +13,8 @@ FOUNDATION_EXPORT NSString *_Nullable VibeComparablePath(NSString *_Nullable pat
 
 // /tmp, /var and /etc are symlinks into /private, and every path also exists
 // under the data volume's firmlink: the spelling with neither, from the string
-// alone.
+// alone. Each alias is dropped in any case, as APFS matches it. The data
+// volume's root itself spells as /.
 FOUNDATION_EXPORT NSString *VibeAliasFreePath(NSString *path);
 
 // One spelling of a file's URL, for every loader identity: the claim, the

@@ -5,23 +5,32 @@
 
 #import "FilePaths.h"
 
+// Where root ends in path, or 0 when path is neither root nor under it. APFS
+// matches names in any case, so the root does too.
+static NSUInteger VibeAliasRootEnd(NSString *path, NSString *root) {
+    NSRange found = [path rangeOfString:root options:NSAnchoredSearch | NSCaseInsensitiveSearch];
+    if (found.location == NSNotFound) {
+        return 0;
+    }
+    NSUInteger rootEnd = NSMaxRange(found);
+    if (rootEnd < path.length && [path characterAtIndex:rootEnd] != '/') {
+        return 0;
+    }
+    return rootEnd;
+}
+
 NSString *VibeAliasFreePath(NSString *path) {
-    static NSString *const kDataVolumePrefix = @"/System/Volumes/Data/";
+    NSUInteger dataVolumeEnd = VibeAliasRootEnd(path, @"/System/Volumes/Data");
+    if (dataVolumeEnd > 0) {
+        if (dataVolumeEnd == path.length) {
+            return @"/";
+        }
+        path = [path substringFromIndex:dataVolumeEnd];
+    }
     // /private itself is real; only these roots are aliases.
-    static NSArray<NSString *> *privateRoots;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        privateRoots = @[@"/private/tmp", @"/private/var", @"/private/etc"];
-    });
-    if ([path hasPrefix:kDataVolumePrefix]) {
-        path = [path substringFromIndex:kDataVolumePrefix.length - 1];
-    }
-    if (![path hasPrefix:@"/private/"]) {
-        return path;
-    }
-    for (NSString *privateRoot in privateRoots) {
-        if ([path isEqualToString:privateRoot] ||
-                [path hasPrefix:[privateRoot stringByAppendingString:@"/"]]) {
+    static NSString *const privateRoots[] = {@"/private/tmp", @"/private/var", @"/private/etc"};
+    for (size_t i = 0; i < sizeof(privateRoots) / sizeof(privateRoots[0]); i++) {
+        if (VibeAliasRootEnd(path, privateRoots[i]) > 0) {
             return [path substringFromIndex:@"/private".length];
         }
     }
