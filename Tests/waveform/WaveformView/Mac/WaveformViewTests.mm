@@ -46,6 +46,17 @@
 }
 @end
 
+// Counts the gestures the view hands to the window, and moves nothing.
+@interface WindowDragRecordingWindow : NSWindow
+@property (nonatomic) NSUInteger windowDrags;
+@end
+
+@implementation WindowDragRecordingWindow
+- (void)performWindowDragWithEvent:(NSEvent *)event {
+    self.windowDrags++;
+}
+@end
+
 static const CGFloat kWidth = 400;
 static const CGFloat kHeight = 60;
 
@@ -283,6 +294,49 @@ static NSColor *Opaque(NSColor *color) {
     XCTAssertEqualWithAccuracy(_delegate.seeks.firstObject.floatValue, 0.7, 1e-6);
 }
 
+- (WindowDragRecordingWindow *)recordingWindow {
+    WindowDragRecordingWindow *window =
+        [[WindowDragRecordingWindow alloc] initWithContentRect:NSMakeRect(0, 0, kWidth, kHeight)
+                                                     styleMask:NSWindowStyleMaskBorderless
+                                                       backing:NSBackingStoreBuffered
+                                                         defer:YES];
+    window.releasedWhenClosed = NO;
+    [window.contentView addSubview:_view];
+    return window;
+}
+
+// The default hands an empty view's press, and a drag that does not seek,
+// to the window.
+- (void)testByDefaultTheGesturesThatDoNotSeekMoveTheWindow {
+    WindowDragRecordingWindow *window = [self recordingWindow];
+    XCTAssertTrue(_view.dragsWindow);
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    XCTAssertEqual(window.windowDrags, 1u, @"nothing loaded");
+    [self showStyle:@"detailed" progress:0];
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseDragged at:kWidth * 0.5 in:window];
+    XCTAssertEqual(window.windowDrags, 2u, @"a drag with dragSeeks off");
+}
+
+// Off: no gesture reaches the window, a drag seeks nothing, and a click
+// still seeks.
+- (void)testWithDraggingTheWindowOffNoGestureReachesTheWindow {
+    WindowDragRecordingWindow *window = [self recordingWindow];
+    _view.dragsWindow = NO;
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.3 in:window];
+    [self showStyle:@"detailed" progress:0];
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseDragged at:kWidth * 0.5 in:window];
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.5 in:window];
+    XCTAssertEqual(window.windowDrags, 0u);
+    XCTAssertEqual(_delegate.seeks.count, 0u, @"an empty press and a drag seek nothing");
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.3 in:window];
+    XCTAssertEqual(_delegate.seeks.count, 1u);
+    XCTAssertEqualWithAccuracy(_delegate.seeks.firstObject.floatValue, 0.3, 1e-6);
+}
+
 - (void)mouse:(NSEventType)type at:(CGFloat)x in:(NSWindow *)window {
     NSEvent *event = [NSEvent mouseEventWithType:type location:NSMakePoint(x, kHeight / 2) modifierFlags:0
                                        timestamp:0 windowNumber:window.windowNumber context:nil
@@ -304,6 +358,24 @@ static NSColor *Opaque(NSColor *color) {
     XCTAssertEqualObjects(_delegate.seeks, (@[@0.55f, @0.45f]));
     _view.progress = 1;
     XCTAssertFalse([_view accessibilityPerformIncrement], @"already at the end");
+}
+
+// An app's provider speaks the value instead, from the clamped progress.
+- (void)testAProviderSpeaksTheValueFromTheProgress {
+    [self showStyle:@"detailed" progress:0.25];
+    __block CGFloat asked = -1;
+    _view.accessibilityValueProvider = ^NSString *(CGFloat progress) {
+        asked = progress;
+        return @"1:00 of 4:00";
+    };
+    XCTAssertEqualObjects(_view.accessibilityValue, @"1:00 of 4:00");
+    XCTAssertEqualWithAccuracy(asked, 0.25, 1e-9);
+    _view.progress = 1.5;
+    (void)_view.accessibilityValue;
+    XCTAssertEqualWithAccuracy(asked, 1, 1e-9, @"clamped, as the percentage is");
+    _view.accessibilityValueProvider = nil;
+    XCTAssertEqualObjects(_view.accessibilityValue,
+                          [NSNumberFormatter localizedStringFromNumber:@1 numberStyle:NSNumberFormatterPercentStyle]);
 }
 
 @end

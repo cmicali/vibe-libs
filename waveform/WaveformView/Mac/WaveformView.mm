@@ -24,6 +24,8 @@ static const CGFloat kWaveformDragHysteresis = 4;
     // The gesture's state, valid while _didClickInside: dragSeeks is stashed
     // at mouse-down so a push cannot change it mid-drag.
     BOOL                        _gestureSeeks;
+    // dragsWindow, stashed at every mouse-down for the same reason.
+    BOOL                        _gestureDragsWindow;
     NSPoint                     _mouseDownPoint;
     NSPoint                     _windowOriginAtMouseDown;
     BOOL                        _isDragSeeking;
@@ -72,6 +74,7 @@ static const CGFloat kWaveformDragHysteresis = 4;
     _barDensity = 1;
     _barWidthScale = 1;
     _centered = YES;
+    _dragsWindow = YES;
 }
 
 - (void)setWaveformStyle:(NSString*)identifier {
@@ -165,10 +168,11 @@ static const CGFloat kWaveformDragHysteresis = 4;
 - (void)mouseDown:(NSEvent *)event {
     _didClickInside = NO;
     _isDragSeeking = NO;
+    _gestureDragsWindow = _dragsWindow;
     if (!_waveform || !_currentWaveformRenderer || self.bounds.size.width <= 0) {
         // Nothing to scrub (empty, loading, parked): the surface drags the
         // window.
-        [self.window performWindowDragWithEvent:event];
+        [self dragWindowWithEvent:event];
         return;
     }
     NSPoint e = [event locationInWindow];
@@ -184,7 +188,7 @@ static const CGFloat kWaveformDragHysteresis = 4;
         }
     }
     // Outside the seek band the drag is the window's in every mode.
-    [self.window performWindowDragWithEvent:event];
+    [self dragWindowWithEvent:event];
 }
 
 // Past the hysteresis a seeking drag tracks the cursor with the hover
@@ -202,7 +206,7 @@ static const CGFloat kWaveformDragHysteresis = 4;
     if (!_gestureSeeks) {
         // Disarmed first: a mouseUp that still arrives must not seek.
         _didClickInside = NO;
-        [self.window performWindowDragWithEvent:event];
+        [self dragWindowWithEvent:event];
         return;
     }
     // Once past the hysteresis the drag tracks even outside the band or the
@@ -248,6 +252,14 @@ static const CGFloat kWaveformDragHysteresis = 4;
         CGFloat x = mouseLoc.x - self.bounds.origin.x;
         float p = (float) (x / self.bounds.size.width);
         [self.delegate waveformView:self didSeek:p];
+    }
+}
+
+// The gesture goes to the window, unless the app turned that off. Then it
+// does nothing: the press is already disarmed, so its mouse-up cannot seek.
+- (void)dragWindowWithEvent:(NSEvent *)event {
+    if (_gestureDragsWindow) {
+        [self.window performWindowDragWithEvent:event];
     }
 }
 
@@ -451,6 +463,9 @@ static const CGFloat kWaveformDragHysteresis = 4;
 }
 
 - (id)accessibilityValue {
+    if (_accessibilityValueProvider) {
+        return _accessibilityValueProvider(MAX(0.0, MIN(1.0, isfinite(_progress) ? _progress : 0))) ?: @"";
+    }
     return VibeWaveformAccessibilityValue(_progress);
 }
 
