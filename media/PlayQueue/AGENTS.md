@@ -4,7 +4,7 @@ The play queue: an order over an app's own entries, with repeat, shuffle, and wh
 
 | File | Owns |
 | --- | --- |
-| `VibePlaylist.{h,m}` | the queue: its rows, the cursor, the two indexes, the structural edits, repeat, shuffle, `nextTrack`, and `trackEndSuccessor`. `VibePlaylist.h` states each method's contract |
+| `VibePlaylist.{h,m}` | the queue: its rows, the cursor, the two indexes, the structural edits, repeat, shuffle, `nextTrack`, the lookahead, and `trackEndSuccessor`. `VibePlaylist.h` states each method's contract |
 | `RepeatMode.h` | `VibeRepeatMode`: Off, One, and All, with MPRepeatType's raw values, so Now Playing converts by cast |
 
 ## Entries
@@ -39,6 +39,8 @@ The play queue: an order over an app's own entries, with repeat, shuffle, and wh
 
 Previous never wraps.
 
+**`trackAtStep:` reads ahead without moving the cursor.** It answers where next would land after that many calls: step 0 is the current track, and step 1 is `nextTrack`. It walks as next does, so a caller that skips rows can look past them without a write. It is nil past the end without Repeat All. Under Repeat All every step up to `count` answers a track. Under shuffle it reads into the next cycle, which it makes and keeps as `nextTrack` does, and it is nil past that cycle. Each step is O(1).
+
 **Shuffle is a play order of row objects walked by a cursor.** Entries before the cursor are played, the cursor is the current row, and entries after it are unplayed. The rows themselves never reorder. Because the order holds objects, a move needs nothing, and a remove or insert only drops or adds its own entries. A **manual pick** (`setCurrentIndex:` from outside next and previous) swaps the picked row into the next slot, or moves a played one out of the history. Nothing else repeats. Appends and an undo's inserts join the unplayed part at random. A removal never wraps.
 
 Under Repeat All the next cycle is a fresh shuffle. With more than one row, its first entry cannot be the track that just ended. The next cycle is made on first ask and kept. A gapless splice and Next therefore use the same successor. An edit to the play order drops the next cycle. A replacement replaces its entry in both cycles. `randomBelow` is injectable for seeded tests.
@@ -49,6 +51,6 @@ Under Repeat All the next cycle is a fresh shuffle. With more than one row, its 
 
 ## Tests
 
-`Tests/media/PlayQueue/` holds the tests of the queue: the order, the indexes, the edits and their cursor, repeat, shuffle, and the saved order's restore. They run over `TestRow`, a row of the tests' own in `VibePlaylistTestSupport.h`, since the queue reads an entry only through its key blocks. The shuffle tests seed `randomBelow`. The minimal consumer makes a queue of plain `NSURL`s and walks `trackEndSuccessor` under repeat and shuffle.
+`Tests/media/PlayQueue/` holds the tests of the queue: the order, the indexes, the edits and their cursor, repeat, shuffle, the lookahead, and the saved order's restore. They run over `TestRow`, a row of the tests' own in `VibePlaylistTestSupport.h`, since the queue reads an entry only through its key blocks. The shuffle tests seed `randomBelow`. The minimal consumer makes a queue of plain `NSURL`s and walks `trackEndSuccessor` under repeat and shuffle.
 
 The tests of Vibe's row, its replacement and its keys, stay in Vibe.

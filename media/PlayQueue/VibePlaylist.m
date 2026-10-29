@@ -420,18 +420,28 @@
 }
 
 - (id)nextTrack {
-    if (_tracks.count == 0) {
-        return nil;
-    }
+    return [self trackAtStep:1];
+}
+
+// Index arithmetic, never a walk. Written so a huge step cannot overflow.
+- (id)trackAtStep:(NSUInteger)step {
     NSArray *order = self.activeOrder;
     NSUInteger cursor = self.activeCursor;
-    if (cursor + 1 < order.count) {
-        return order[cursor + 1];
+    if (cursor >= order.count) {
+        return nil;
+    }
+    NSUInteger ahead = order.count - 1 - cursor;
+    if (step <= ahead) {
+        return order[cursor + step];
     }
     if (_repeatMode != VibeRepeatModeAll) {
         return nil;
     }
-    return _playOrder ? self.madeNextPlayOrder.firstObject : _tracks.firstObject;
+    NSUInteger wrapped = step - ahead - 1;
+    if (!_playOrder) {
+        return _tracks[wrapped % _tracks.count];
+    }
+    return wrapped < _tracks.count ? self.madeNextPlayOrder[wrapped] : nil;
 }
 
 - (NSArray *)neighborhoodTracks {
