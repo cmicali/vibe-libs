@@ -73,9 +73,10 @@
 }
 
 - (void)testOnlyWholeAliasRootsDrop {
-    for (NSString *path in @[@"/PRIVATE", @"/privateer/tmp/a.flac", @"/private/tmpfiles/a.flac",
+    for (NSString *path in @[@"", @"/PRIVATE", @"/privateer/tmp/a.flac", @"/private/tmpfiles/a.flac",
                              @"/System/Volumes/DataSet/a.flac"]) {
         XCTAssertEqualObjects(VibeAliasFreePath(path), path, @"%@", path);
+        XCTAssertEqualObjects(VibeComparablePath(path), path, @"%@", path);
     }
 }
 

@@ -21,10 +21,10 @@ static NSUInteger VibeAliasRootEnd(NSString *path, NSString *root) {
 
 NSString *VibeAliasFreePath(NSString *path) {
     NSUInteger dataVolumeEnd = VibeAliasRootEnd(path, @"/System/Volumes/Data");
-    if (dataVolumeEnd == path.length) {
-        return @"/";
-    }
     if (dataVolumeEnd > 0) {
+        if (dataVolumeEnd == path.length) {
+            return @"/";
+        }
         path = [path substringFromIndex:dataVolumeEnd];
     }
     // /private itself is real; only these roots are aliases.
