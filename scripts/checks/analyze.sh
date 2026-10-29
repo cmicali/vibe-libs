@@ -4,11 +4,13 @@
 # on any finding outside third_party/. Vendored code is not restyled. Modeled
 # on Vibe's scripts/build/analyze.sh.
 #
-# Usage: scripts/checks/analyze.sh [Debug|Release]
-#   Release by default, as CI runs it.
+# Usage: scripts/checks/analyze.sh [Debug|Release] [K/N]
+#   Release by default, as CI runs it. With K/N it analyzes only the Kth of N
+#   shards of the test bundles, as scripts/checks/test-bundles.py splits them.
 set -euo pipefail
 
 CONFIGURATION="${1:-Release}"
+SHARD="${2:-}"
 case "$CONFIGURATION" in
     Debug|Release) ;;
     *) echo "error: configuration must be Debug or Release (got '$CONFIGURATION')" >&2; exit 1 ;;
@@ -17,6 +19,18 @@ esac
 cd "$(dirname "$0")/../.."
 mkdir -p build
 LOG="build/analyze-$CONFIGURATION.log"
+ONLY=()
+if [[ -n "$SHARD" ]]; then
+    BUNDLES="$(python3 -I scripts/checks/test-bundles.py --shard "$SHARD")"
+    if [[ -z "$BUNDLES" ]]; then
+        echo "error: shard $SHARD has no test bundles" >&2
+        exit 1
+    fi
+    echo "analyzing shard $SHARD:" $BUNDLES
+    for bundle in $BUNDLES; do
+        ONLY+=("-only-testing:$bundle")
+    done
+fi
 DERIVED="build/AnalyzeDD"
 
 # The scheme builds the test bundles only for testing, so the analyze action
@@ -33,6 +47,7 @@ xcodebuild build-for-testing \
     -configuration "$CONFIGURATION" \
     -derivedDataPath "$DERIVED" \
     -quiet \
+    ${ONLY[@]+"${ONLY[@]}"} \
     RUN_CLANG_STATIC_ANALYZER=YES \
     CLANG_STATIC_ANALYZER_MODE=deep 2>&1 | tee "$LOG"
 BUILD_STATUS="${PIPESTATUS[0]}"
@@ -54,4 +69,4 @@ if [[ -n "$FINDINGS" ]]; then
     exit 1
 fi
 
-echo "static analyzer: clean ($CONFIGURATION)"
+echo "static analyzer: clean ($CONFIGURATION${SHARD:+, shard $SHARD})"

@@ -13,13 +13,15 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# The macOS jobs run side by side, five at most, so a run fits an account's
+# macOS concurrency. The pieces and analyze jobs at the end keep the check
+# names branch protection asks for, and pass only when their jobs pass.
 jobs:
-  pieces:
+  checks:
     runs-on: macos-26
-    # Checks the piece rules, tests the strings tools, tests every piece on
-    # macOS, builds every piece for iOS, and builds and runs the minimal
-    # consumer. The analyzer runs in the analyze job beside it. The limit grows with the piece count.
-    timeout-minutes: 60
+    # Checks the piece rules, tests the strings tools, builds every piece for
+    # iOS, and builds and runs the minimal consumer.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v7
@@ -31,6 +33,22 @@ jobs:
 
       - name: Test the strings tools
         run: make test-strings
+
+      - name: Build every piece for iOS
+        run: make build-ios
+
+      - name: Build and run a minimal consumer
+        run: make consumer
+
+  test:
+    runs-on: macos-26
+    # Tests every piece on macOS. The limit grows with the piece count.
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: ./.github/actions/setup-xcodegen
 
       - name: Test every piece on macOS
         id: test
@@ -51,23 +69,44 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-      - name: Build every piece for iOS
-        run: make build-ios
-
-      - name: Build and run a minimal consumer
-        run: make consumer
-
-  analyze:
+  analyze-shard:
+    name: analyze (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: macos-26
-    # Runs clang's static analyzer over every piece's macOS test bundle. It
-    # runs on its own runner, in parallel with the pieces job, with a limit of
-    # its own. The workflow's one concurrency group covers both jobs.
-    timeout-minutes: 60
+    # Runs clang's static analyzer over one shard of the macOS test bundles.
+    # scripts/checks/test-bundles.py splits them by the files each compiles.
+    timeout-minutes: 30
+    strategy:
+      # A finding in one shard still lets the others report theirs.
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
 
     steps:
       - uses: actions/checkout@v7
 
       - uses: ./.github/actions/setup-xcodegen
 
-      - name: Analyze every piece
-        run: make analyze
+      - name: Analyze one shard of the pieces
+        run: make analyze SHARD=${{ matrix.shard }}/${{ strategy.job-total }}
+
+  pieces:
+    if: always()
+    needs: [checks, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Pass only when the checks and the tests pass
+        run: test "$PASSED" = true
+        env:
+          PASSED: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+
+  analyze:
+    if: always()
+    needs: [analyze-shard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Pass only when every shard passes
+        run: test "$PASSED" = true
+        env:
+          PASSED: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
