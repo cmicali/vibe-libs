@@ -174,6 +174,18 @@ NS_ASSUME_NONNULL_BEGIN
 // splice armed is the one next lands on.
 - (nullable ObjectType)nextTrack;
 
+// Where next would land after step calls, read without moving the cursor:
+// step 0 is the current track, and step 1 is nextTrack. It walks as next
+// does, so Repeat One walks as Off. It answers nil past the end without
+// Repeat All. Under shuffled Repeat All a step past this cycle reads the next
+// cycle, made and kept as nextTrack makes it, and nil past that cycle, so
+// every row appears before the first nil. Repeat All without shuffle never
+// answers nil, and every row appears within count steps. O(1).
+// TRAP: a shuffled scan that skips rows runs to the first nil, never count
+// steps. The rest of this cycle can repeat rows of the next one, and a row
+// already played this cycle first comes back after them.
+- (nullable ObjectType)trackAtStep:(NSUInteger)step;
+
 // The next track, the row two slots ahead in this cycle, and the previous
 // one. Missing entries are omitted. A background scan may rank these first.
 - (NSArray<ObjectType> *)neighborhoodTracks;

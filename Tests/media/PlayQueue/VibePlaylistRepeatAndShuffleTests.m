@@ -632,4 +632,213 @@ static VibePlaylist *RestoredPlaylist(VibePlaylist *playlist, uint64_t seed) {
     AssertPermutation(playlist, WalkNext(playlist, 100));
 }
 
+
+#pragma mark - Looking ahead
+
+// Every step the lookahead answers, from 0 until its first nil or limit.
+static NSArray<TestRow *> *LookAhead(VibePlaylist *playlist, NSUInteger limit) {
+    NSMutableArray<TestRow *> *ahead = [NSMutableArray array];
+    for (NSUInteger step = 0; step < limit; step++) {
+        TestRow *track = [playlist trackAtStep:step];
+        if (!track) {
+            break;
+        }
+        [ahead addObject:track];
+    }
+    return ahead;
+}
+
+- (void)testLookingAheadReadsTheRowsAndMovesNothing {
+    for (NSNumber *mode in @[@(VibeRepeatModeOff), @(VibeRepeatModeOne)]) {
+        VibePlaylist *playlist = NumberedPlaylist(4);
+        playlist.repeatMode = mode.integerValue;
+        playlist.currentIndex = 1;
+        RecordingObserver *observer = [RecordingObserver new];
+        playlist.observer = observer;
+
+        // One changes only the track end, so the lookahead walks as under Off.
+        XCTAssertEqualObjects(LookAhead(playlist, 10), [playlist.tracks subarrayWithRange:NSMakeRange(1, 3)]);
+        XCTAssertEqual([playlist trackAtStep:1], playlist.nextTrack);
+        XCTAssertNil([playlist trackAtStep:3]);
+        XCTAssertNil([playlist trackAtStep:NSUIntegerMax]);
+        XCTAssertEqual(playlist.currentIndex, 1u);
+        XCTAssertEqual(observer.events.count, 0u);
+    }
+}
+
+- (void)testRepeatAllLookAheadWrapsTheRowsWithoutEnd {
+    VibePlaylist *playlist = NumberedPlaylist(3);
+    playlist.repeatMode = VibeRepeatModeAll;
+    playlist.currentIndex = 2;
+    for (NSUInteger step = 0; step < 10; step++) {
+        XCTAssertEqual([playlist trackAtStep:step], [playlist trackAtIndex:(2 + step) % 3]);
+    }
+    XCTAssertEqual([playlist trackAtStep:NSUIntegerMax], [playlist trackAtIndex:(2 + NSUIntegerMax % 3) % 3]);
+    XCTAssertEqual(playlist.currentIndex, 2u);
+}
+
+- (void)testLookingAheadOnEmptyAndSingleRowQueues {
+    for (NSNumber *mode in @[@(VibeRepeatModeOff), @(VibeRepeatModeAll), @(VibeRepeatModeOne)]) {
+        for (NSNumber *shuffle in @[@NO, @YES]) {
+            VibePlaylist *empty = NumberedPlaylist(0);
+            empty.repeatMode = mode.integerValue;
+            empty.shuffleEnabled = shuffle.boolValue;
+            XCTAssertNil([empty trackAtStep:0]);
+            XCTAssertNil([empty trackAtStep:1]);
+
+            VibePlaylist *single = NumberedPlaylist(1);
+            single.repeatMode = mode.integerValue;
+            single.shuffleEnabled = shuffle.boolValue;
+            TestRow *only = single.currentTrack;
+            XCTAssertEqual([single trackAtStep:0], only);
+            if (mode.integerValue == VibeRepeatModeAll) {
+                XCTAssertEqual([single trackAtStep:1], only);
+            }
+            else {
+                XCTAssertNil([single trackAtStep:1]);
+            }
+        }
+    }
+}
+
+- (void)testShuffledLookAheadReadsTheOrderAndMakesNoCycleItDoesNotReach {
+    for (uint64_t seed = 1; seed <= 20; seed++) {
+        VibePlaylist *playlist = ShuffledPlaylist(8, seed);
+        WalkNext(playlist, 3);
+        NSArray<TestRow *> *order = playlist.playOrder;
+        XCTAssertEqualObjects(LookAhead(playlist, 100), [order subarrayWithRange:NSMakeRange(2, 6)]);
+        XCTAssertNil([playlist trackAtStep:NSUIntegerMax]);
+
+        // Under Repeat All, a read inside this cycle makes no next one.
+        playlist.repeatMode = VibeRepeatModeAll;
+        for (NSUInteger step = 0; step <= 5; step++) {
+            XCTAssertEqual([playlist trackAtStep:step], order[2 + step]);
+        }
+        XCTAssertNil(playlist.nextPlayOrder);
+        XCTAssertEqualObjects(playlist.playOrder, order);
+        XCTAssertEqual(playlist.playOrderCursor, 2u);
+    }
+}
+
+- (void)testShuffledRepeatAllLookAheadReachesIntoTheNextCycleAndKeepsIt {
+    for (uint64_t seed = 1; seed <= 20; seed++) {
+        VibePlaylist *playlist = ShuffledPlaylist(6, seed);
+        playlist.repeatMode = VibeRepeatModeAll;
+        WalkNext(playlist, 3);
+        RecordingObserver *observer = [RecordingObserver new];
+        playlist.observer = observer;
+        NSArray<TestRow *> *order = playlist.playOrder;
+        NSUInteger current = playlist.currentIndex;
+
+        // Three left in this cycle, then the next one whole, then nothing.
+        TestRow *first = [playlist trackAtStep:4];
+        NSArray<TestRow *> *next = playlist.nextPlayOrder;
+        XCTAssertEqual(next.count, 6u);
+        XCTAssertEqual(first, next.firstObject);
+        XCTAssertNotEqual(first, order.lastObject);
+        for (NSUInteger step = 4; step <= 9; step++) {
+            XCTAssertEqual([playlist trackAtStep:step], next[step - 4]);
+        }
+        XCTAssertNil([playlist trackAtStep:10]);
+        XCTAssertNil([playlist trackAtStep:NSUIntegerMax]);
+        for (NSUInteger step = 1; step <= playlist.count; step++) {
+            XCTAssertNotNil([playlist trackAtStep:step]);
+        }
+
+        // The read made the cycle once. Nothing else moved.
+        XCTAssertEqualObjects(playlist.nextPlayOrder, next);
+        XCTAssertEqualObjects(playlist.playOrder, order);
+        XCTAssertEqual(playlist.playOrderCursor, 2u);
+        XCTAssertEqual(playlist.currentIndex, current);
+        XCTAssertEqual(observer.events.count, 0u);
+    }
+}
+
+// A row played this cycle comes back only in the next one, after any rows
+// the two cycles share. So count steps can miss it, and a scan for a row to
+// play runs to the first nil.
+- (void)testAShuffledScanReachesEveryRowOnlyByTheFirstNil {
+    NSArray<TestRow *> *rows = TracksNamed(@"a b c d");
+    VibePlaylist *playlist = NewPlaylist();
+    playlist.shuffleEnabled = YES;
+    playlist.repeatMode = VibeRepeatModeAll;
+    NSArray<TestRow *> *nextOrder = @[rows[2], rows[3], rows[0], rows[1]];
+    XCTAssertTrue([playlist replaceAllWithTracks:rows playOrder:rows cursor:1 nextPlayOrder:nextOrder]);
+    NSArray<TestRow *> *firstCount = [LookAhead(playlist, playlist.count + 1)
+                                      subarrayWithRange:NSMakeRange(1, playlist.count)];
+    XCTAssertEqualObjects(NamesOf(firstCount), @"c d c d");
+    XCTAssertEqual([playlist trackAtStep:5], rows[0]);
+
+    for (NSUInteger count = 1; count <= 6; count++) {
+        for (uint64_t seed = 1; seed <= 20; seed++) {
+            for (NSUInteger played = 1; played <= count; played++) {
+                VibePlaylist *shuffled = ShuffledPlaylist(count, seed);
+                shuffled.repeatMode = VibeRepeatModeAll;
+                WalkNext(shuffled, played);
+                NSArray<TestRow *> *ahead = LookAhead(shuffled, 100);
+                XCTAssertNil([shuffled trackAtStep:ahead.count]);
+                NSArray<TestRow *> *scan = [ahead subarrayWithRange:NSMakeRange(1, ahead.count - 1)];
+                XCTAssertTrue([[NSSet setWithArray:scan] isEqualToSet:[NSSet setWithArray:shuffled.tracks]],
+                              @"%lu rows, seed %llu, %lu played", (unsigned long)count, seed, (unsigned long)played);
+            }
+        }
+    }
+}
+
+- (void)testLookingAheadThenAdvancingLandsOnTheSameTracks {
+    for (NSNumber *mode in @[@(VibeRepeatModeOff), @(VibeRepeatModeAll), @(VibeRepeatModeOne)]) {
+        for (NSNumber *shuffle in @[@NO, @YES]) {
+            for (uint64_t seed = 1; seed <= 10; seed++) {
+                VibePlaylist *playlist = NumberedPlaylist(7);
+                playlist.randomBelow = SeededRandom(seed);
+                playlist.repeatMode = mode.integerValue;
+                playlist.currentIndex = seed % 7;
+                playlist.shuffleEnabled = shuffle.boolValue;
+                WalkNext(playlist, 3);
+
+                NSArray<TestRow *> *ahead = LookAhead(playlist, 30);
+                XCTAssertEqualObjects(WalkNext(playlist, ahead.count), ahead,
+                                      @"mode %@, shuffle %@, seed %llu", mode, shuffle, seed);
+                if (mode.integerValue != VibeRepeatModeAll) {
+                    XCTAssertFalse(playlist.hasNextTrack);
+                }
+            }
+        }
+    }
+}
+
+// The lookahead made the next cycle, so a save carries it, and the restored
+// queue looks ahead and walks into exactly that cycle.
+- (void)testALookedAheadCycleSurvivesSaveAndRestore {
+    for (uint64_t seed = 1; seed <= 20; seed++) {
+        VibePlaylist *playlist = ShuffledPlaylist(6, seed);
+        playlist.repeatMode = VibeRepeatModeAll;
+        WalkNext(playlist, 2);
+        NSArray<TestRow *> *ahead = LookAhead(playlist, 100);
+        XCTAssertEqual(ahead.count, 11u);
+        XCTAssertNotNil(playlist.nextPlayOrder);
+
+        VibePlaylist *restored = RestoredPlaylist(playlist, seed);
+        XCTAssertEqualObjects(restored.nextPlayOrder, playlist.nextPlayOrder);
+        XCTAssertEqualObjects(LookAhead(restored, 100), ahead, @"seed %llu", seed);
+        XCTAssertEqualObjects(WalkNext(restored, ahead.count), ahead, @"seed %llu", seed);
+    }
+}
+
+// Each step is index arithmetic, so a scan over every step of a large queue
+// is linear. A walk per step would be quadratic, far past the bound.
+- (void)testLookingAheadThroughALargeQueueStaysFast {
+    VibePlaylist *playlist = ShuffledPlaylist(100000, 1);
+    playlist.repeatMode = VibeRepeatModeAll;
+    uint64_t began = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    NSUInteger answered = 0;
+    for (NSUInteger step = 1; step <= 2 * playlist.count; step++) {
+        answered += [playlist trackAtStep:step] != nil;
+    }
+    double elapsed = (clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - began) / 1e6;
+    XCTAssertEqual(answered, 2 * playlist.count - 1);
+    XCTAssertLessThan(elapsed, 1000.0);
+    XCTAssertEqual(playlist.playOrderCursor, 0u);
+}
+
 @end
