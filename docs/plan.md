@@ -621,7 +621,8 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | First slice | the catalog scan | behavior | 3 | the tests in Scanning a catalog | 2d8ff5a (#56) |
 | First slice, from its first UI string | `tools/strings` | tool | 3 | the consumer's own catalog passes the checks | 9aef74c (#40) |
 | First slice: tags for its index, with no download | Metadata's reads by URL, with a read policy | behavior | 3 | `AudioTrackMetadataReadingTests`, and a probe of the I/O policy on iCloud Drive and Dropbox | |
-| First slice: the waveform in a titled window's player bar | WaveformView's `dragsWindow` and `accessibilityValueProvider` | behavior | 3 | `WaveformViewTests`' drag and spoken-value tests | |
+| First slice: the waveform in a titled window's player bar | WaveformView's `dragsWindow` and `accessibilityValueProvider` | behavior | 3 | `WaveformViewTests`' drag and spoken-value tests | 820660f (#78) |
+| First slice: a seek from the player bar at a gapless splice | `AudioPlayer`'s `seekToPosition:ofTrack:` | behavior | 3 | `testASeekNamingTheOutgoingTrackAfterASpliceIsDropped` | |
 | Full app: song matching and leveling | the tag fields, identifiers, audio MD5, and loudness tags | behavior | 4 | a parse fixture for each field | 5cca1ea (#52) |
 | Full app: background analysis | WaveformLoading's scan requests | behavior | 5 | a throttled source yields within one block | |
 | Full app: leveling from tags | a gain per file through a gapless splice | behavior | 5 | the boundary-frame render test | |

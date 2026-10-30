@@ -282,6 +282,32 @@
     }
 }
 
+// A splice makes the parked track current on the player's queue, before the
+// app hears of it. A seek that names the outgoing track then lands nowhere,
+// and still settles. One that names the incoming track lands on it.
+- (void)testASeekNamingTheOutgoingTrackAfterASpliceIsDropped {
+    [self startPlayerAt:48000 channels:2 fx:NO bitPerfect:NO automatic:NO];
+    NSArray<VibeTestTrack *> *tracks = [self toneTracksOfSeconds:0.5 and:2];
+    [self playParked:tracks];
+    [self settleUntil:^BOOL { return self->_player.gaplessArmed; }];
+    [self render:(NSUInteger)(0.6 * 48000)];
+    [self settleUntil:^BOOL { return self->_player.currentTrack == tracks[1]; }];
+    NSTimeInterval spliced = _player.position;
+    XCTAssertLessThan(spliced, 0.5, @"the incoming track has just begun");
+
+    [_player seekToPosition:1.5 ofTrack:tracks[0]];
+    [self render:2048];
+    [self settleUntil:^BOOL { return [self count:@"seek"] >= 1; }];
+    XCTAssertEqual([self count:@"seek"], 1u, @"a dropped seek still settles");
+    XCTAssertLessThan(_player.position, 1.0, @"the incoming track did not move");
+
+    [_player seekToPosition:1.5 ofTrack:tracks[1]];
+    [self render:2048];
+    [self settleUntil:^BOOL { return [self count:@"seek"] >= 2; }];
+    XCTAssertGreaterThanOrEqual(_player.position, 1.5);
+    XCTAssertLessThan(_player.position, 1.6);
+}
+
 #pragma mark - Track-end crossfade
 
 // Two tones, so each track's level reads apart from the other's in any window.
