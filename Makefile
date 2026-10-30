@@ -14,16 +14,26 @@ help:
 project:
 	xcodegen generate --quiet
 
+# SINCE=<rev> limits test, build-ios, and analyze to the targets a change since
+# that commit reaches. CI sets it on a pull request.
+SINCE ?=
+
 # Runs every piece's tests on macOS, Debug, with the headermap off.
 test: project
 	rm -rf build/TestResults.xcresult
-	xcodebuild test -project $(PROJECT) -scheme vibe-libs -destination 'platform=macOS' \
-		-derivedDataPath $(DERIVED) -resultBundlePath build/TestResults.xcresult -quiet
-	@python3 -I scripts/checks/test-summary.py build/TestResults.xcresult
+	@set -e; \
+	chosen="$$(python3 -I scripts/checks/targets.py $(if $(SINCE),--since '$(SINCE)') --scheme vibe-libs-test)"; \
+	if [ -z "$$chosen" ]; then echo "test: no test bundle reaches a change since $(SINCE)"; exit 0; fi; \
+	xcodebuild test -project $(PROJECT) -scheme vibe-libs-test -destination 'platform=macOS' \
+		-derivedDataPath $(DERIVED) -resultBundlePath build/TestResults.xcresult -quiet; \
+	python3 -I scripts/checks/test-summary.py build/TestResults.xcresult
 
 # Builds every piece for the iOS simulator, so an AppKit leak fails here.
 build-ios: project
-	xcodebuild build -project $(PROJECT) -scheme vibe-libs -destination 'generic/platform=iOS Simulator' \
+	@set -e; \
+	chosen="$$(python3 -I scripts/checks/targets.py --ios $(if $(SINCE),--since '$(SINCE)') --scheme vibe-libs-ios)"; \
+	if [ -z "$$chosen" ]; then echo "build-ios: no iOS target reaches a change since $(SINCE)"; exit 0; fi; \
+	xcodebuild build -project $(PROJECT) -scheme vibe-libs-ios -destination 'generic/platform=iOS Simulator' \
 		-derivedDataPath $(DERIVED) -quiet
 
 # Builds and runs a minimal app that takes the pieces as another app would.
@@ -47,7 +57,7 @@ test-strings:
 # SHARD=K/N analyzes only the Kth of N shards of the bundles, as CI does.
 # Runs clang's static analyzer over every piece's macOS test bundle, in Release by default.
 analyze: project
-	scripts/checks/analyze.sh "$(CONFIG)" "$(SHARD)"
+	scripts/checks/analyze.sh "$(CONFIG)" "$(SHARD)" "$(SINCE)"
 
 # Removes build output and the generated project.
 clean:
