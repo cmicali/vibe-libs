@@ -601,6 +601,7 @@ Each remaining candidate moves when a second app needs it, with the cuts it was 
 - **HTTP, RemoteFiles, and ShareLinks**, when the other app adds a server source. Cut 2 and seam 20 come with them.
 - **SandboxAccess, AppOpening, DebugChannel, and iOSDriver**, each with its part of seam 21, when a consumer needs it.
 - **The pitch fader** joins `ui/Controls` with its part of seam 21. It moved on 2026-10-23 in this repo's #51 and Vibe #399. The fader and its panel joined `ui/Controls`' `Mac/` half. Their 4 files and their test moved with their history, the test runs here, and Vibe compiles them through Controls' template. Their part of seam 21 was four values, which a prep commit in Vibe turned into pushes. The panel takes its title, the fader's VoiceOver label, one formatter for its readout and the fader's spoken value, and its corner radius. So Controls' map row and template are unchanged.
+- **The standard debug verbs and the debug client**, since Vibe, the other app, and the third app each need them. [debug-verbs.md](debug-verbs.md) is the plan: a new piece, `dev/DebugVerbs`, the client's move into DebugChannel's `Mac/` half, and each app taking them. Planned on 2026-10-30.
 
 **Wave 10 moved the rest but the pitch fader on 2026-10-23**, in this order:
 
