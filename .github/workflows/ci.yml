@@ -16,6 +16,12 @@ concurrency:
 # The macOS jobs run side by side, five at most, so a run fits an account's
 # macOS concurrency. The pieces and analyze jobs at the end keep the check
 # names branch protection asks for, and pass only when their jobs pass.
+#
+# On a pull request, make takes SINCE from here. The checkout is the merge
+# commit, so its first parent is the base, and a depth of 2 reaches it.
+env:
+  SINCE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}
+
 jobs:
   checks:
     runs-on: macos-26
@@ -25,6 +31,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
 
       - uses: ./.github/actions/setup-xcodegen
 
@@ -47,6 +55,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
 
       - uses: ./.github/actions/setup-xcodegen
 
@@ -73,7 +83,7 @@ jobs:
     name: analyze (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: macos-26
     # Runs clang's static analyzer over one shard of the macOS test bundles.
-    # scripts/checks/test-bundles.py splits them by the files each compiles.
+    # scripts/checks/targets.py splits them by the files each compiles.
     timeout-minutes: 30
     strategy:
       # A finding in one shard still lets the others report theirs.
@@ -83,6 +93,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
 
       - uses: ./.github/actions/setup-xcodegen
 

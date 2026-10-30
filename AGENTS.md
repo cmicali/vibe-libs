@@ -17,7 +17,7 @@ The Xcode project is generated from `project.yml` by XcodeGen and is not checked
 | `make test-strings` | The strings tools' self-test, over a tiny app of their own. |
 | `make analyze [CONFIG=Debug] [SHARD=K/N]` | clang's static analyzer over every piece's macOS test bundle, Release by default. It fails on any finding outside `third_party/`. `SHARD` takes one of N shards of the bundles, as CI does. |
 
-CI runs all six on every pull request.
+CI runs all six on every pull request. There, `make test`, `make build-ios`, and `make analyze` take `SINCE=HEAD^1`, so they build only the targets the pull request's changes reach, as `scripts/checks/targets.py` finds them. A change outside every target, such as to a spec, the Makefile, or a script, reaches them all. Every push to main runs them in full.
 
 ## What this repo is for
 
