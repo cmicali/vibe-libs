@@ -4,11 +4,14 @@
 # on any finding outside third_party/. Vendored code is not restyled. Modeled
 # on Vibe's scripts/build/analyze.sh.
 #
-# Usage: scripts/checks/analyze.sh [Debug|Release]
-#   Release by default, as CI runs it.
+# Usage: scripts/checks/analyze.sh [Debug|Release] [K/N]
+#   Release by default, as CI runs it. With K/N it analyzes only the Kth of N
+#   shards of the test bundles, through a scheme scripts/checks/test-bundles.py
+#   writes for them.
 set -euo pipefail
 
 CONFIGURATION="${1:-Release}"
+SHARD="${2:-}"
 case "$CONFIGURATION" in
     Debug|Release) ;;
     *) echo "error: configuration must be Debug or Release (got '$CONFIGURATION')" >&2; exit 1 ;;
@@ -17,6 +20,16 @@ esac
 cd "$(dirname "$0")/../.."
 mkdir -p build
 LOG="build/analyze-$CONFIGURATION.log"
+SCHEME=vibe-libs
+if [[ -n "$SHARD" ]]; then
+    SCHEME=vibe-libs-shard
+    BUNDLES="$(python3 -I scripts/checks/test-bundles.py --shard "$SHARD" --scheme "$SCHEME")"
+    if [[ -z "$BUNDLES" ]]; then
+        echo "error: shard $SHARD has no test bundles" >&2
+        exit 1
+    fi
+    echo "analyzing shard $SHARD:" $BUNDLES
+fi
 DERIVED="build/AnalyzeDD"
 
 # The scheme builds the test bundles only for testing, so the analyze action
@@ -28,7 +41,7 @@ rm -rf "$DERIVED"
 set +e
 xcodebuild build-for-testing \
     -project vibe-libs.xcodeproj \
-    -scheme vibe-libs \
+    -scheme "$SCHEME" \
     -destination 'platform=macOS' \
     -configuration "$CONFIGURATION" \
     -derivedDataPath "$DERIVED" \
@@ -54,4 +67,4 @@ if [[ -n "$FINDINGS" ]]; then
     exit 1
 fi
 
-echo "static analyzer: clean ($CONFIGURATION)"
+echo "static analyzer: clean ($CONFIGURATION${SHARD:+, shard $SHARD})"

@@ -15,7 +15,7 @@ The Xcode project is generated from `project.yml` by XcodeGen and is not checked
 | `make check-pieces` | The piece rules below, the dependency map in the plan, each target's excluded platform, no `#if DEBUG` in a header, the other app's name nowhere, no merge conflict marker, no doc line over 1,500 characters, `VibeUpdater.m` as the one source of `system/Updates` that reaches Sparkle, and the piece count this file and the README give. Then it breaks each rule in a copy of the repo and fails unless the check catches it. Last, it tests the message filter a move runs. |
 | `make consumer` | A minimal app outside this repo's project includes `vibe-libs.yml` as an app would, builds with no prefix header and no headermap, and runs. |
 | `make test-strings` | The strings tools' self-test, over a tiny app of their own. |
-| `make analyze [CONFIG=Debug]` | clang's static analyzer over every piece's macOS test bundle, Release by default. It fails on any finding outside `third_party/`. |
+| `make analyze [CONFIG=Debug] [SHARD=K/N]` | clang's static analyzer over every piece's macOS test bundle, Release by default. It fails on any finding outside `third_party/`. `SHARD` takes one of N shards of the bundles, as CI does. |
 
 CI runs all six on every pull request.
 
