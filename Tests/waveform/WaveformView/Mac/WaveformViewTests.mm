@@ -341,6 +341,21 @@ static NSColor *Opaque(NSColor *color) {
     XCTAssertEqual(_delegate.seeks.count, 0u, @"the release seeks nothing");
 }
 
+// A drag whose release cannot seek still says it ended.
+- (void)testADragThatCannotSeekStillEnds {
+    NSWindow *window = VibeOffscreenWindow(NSMakeSize(kWidth, kHeight));
+    [window.contentView addSubview:_view];
+    [self showStyle:@"detailed" progress:0];
+    _view.dragSeeks = YES;
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseDragged at:kWidth * 0.6 in:window];
+    _view.frame = NSMakeRect(0, 0, 0, kHeight);
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.6 in:window];
+    XCTAssertEqual(_delegate.scrubs.count, 2u);
+    XCTAssertLessThan(_delegate.scrubs.lastObject.doubleValue, 0);
+    XCTAssertEqual(_delegate.seeks.count, 0u);
+}
+
 - (WindowDragRecordingWindow *)recordingWindow {
     WindowDragRecordingWindow *window =
         [[WindowDragRecordingWindow alloc] initWithContentRect:NSMakeRect(0, 0, kWidth, kHeight)

@@ -232,6 +232,9 @@ static const CGFloat kWaveformDragHysteresis = 4;
     }
     _didClickInside = NO;
     if (!_waveform || !_currentWaveformRenderer || self.bounds.size.width <= 0) {
+        if (wasDragSeeking) {
+            [self reportScrubProgress:-1];
+        }
         return;
     }
     NSPoint e = [event locationInWindow];
