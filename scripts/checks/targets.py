@@ -1,6 +1,6 @@
 """Prints the targets a build takes, one per line.
 
-Usage: python3 -I scripts/checks/targets.py [--ios] [--since REV] [--shard K/N] [--scheme NAME]
+Usage: python3 -I scripts/checks/targets.py [--ios] [--since REV] [--scheme NAME]
 
 By default it prints the macOS test bundles the vibe-libs scheme tests. With
 --ios it prints the iOS targets the scheme builds instead.
@@ -12,18 +12,12 @@ piece that lists it. A Markdown file, LICENSE, or a tools/ piece reaches no
 target. Any other file outside every target, such as a spec, the Makefile, or
 a script, reaches them all. Uncommitted and untracked files count too.
 
-With --shard it prints the Kth of N shards. Each target lands in exactly one
-shard. A target weighs the source files it compiles, its templates' and its
-own, since every target compiles its whole stack again. The heaviest go
-first, each to the lightest shard, so a new piece rebalances the shards by
-itself. A shard may be empty.
-
 With --scheme it also writes a copy of the generated vibe-libs scheme, named
 NAME, that builds and tests only the targets it prints. Run it after
 `make project`.
 
 TRAP: xcodebuild's -only-testing picks the tests a scheme runs, not the
-targets it builds. A build for testing with it still builds every bundle.
+targets it builds. A test run with it still builds every bundle.
 """
 import argparse
 import fnmatch
@@ -33,7 +27,6 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 
-SOURCE = (".c", ".cc", ".cpp", ".m", ".mm")
 # Files no build reads. check-pieces and the strings test run on every change.
 BUILDS_NOTHING = ["*.md", "LICENSE", "tools/*", "Tests/tools/*"]
 ROOTS = ("$(SRCROOT)/", "$(VIBE_LIBS_ROOT)/")
@@ -41,7 +34,6 @@ ROOTS = ("$(SRCROOT)/", "$(VIBE_LIBS_ROOT)/")
 parser = argparse.ArgumentParser(usage=__doc__.split("\n\n")[1])
 parser.add_argument("--ios", action="store_true")
 parser.add_argument("--since")
-parser.add_argument("--shard")
 parser.add_argument("--scheme")
 args = parser.parse_args()
 
@@ -102,19 +94,6 @@ def reads(target):
     return paths
 
 
-def files(target):
-    n = 0
-    for entry in stack(target):
-        for path in source_paths(entry):
-            if os.path.isfile(path):
-                n += path.endswith(SOURCE)
-            for dirpath, dirs, names in os.walk(path):
-                # A macOS target excludes every iOS/ half.
-                dirs[:] = [d for d in dirs if d != "iOS"]
-                n += sum(1 for f in names if f.endswith(SOURCE))
-    return n
-
-
 def write_scheme(name, keep):
     schemes = "vibe-libs.xcodeproj/xcshareddata/xcschemes"
     tree = ET.parse(f"{schemes}/vibe-libs.xcscheme")
@@ -157,21 +136,6 @@ if args.since:
             break
         reached |= by
     chosen = [t for t in chosen if t in reached]
-
-if args.shard:
-    try:
-        k, n = (int(x) for x in args.shard.split("/"))
-    except ValueError:
-        sys.exit(f"error: a shard is K/N, such as 1/3 (got '{args.shard}')")
-    if not 1 <= k <= n:
-        sys.exit(f"error: shard {k} is not between 1 and {n}")
-    weights = {t: files(t) for t in chosen}
-    shards = [[0, []] for _ in range(n)]
-    for target in sorted(chosen, key=lambda t: (-weights[t], t)):
-        lightest = min(shards, key=lambda s: s[0])
-        lightest[0] += weights[target]
-        lightest[1].append(target)
-    chosen = shards[k - 1][1]
 
 if args.scheme:
     write_scheme(args.scheme, set(chosen))

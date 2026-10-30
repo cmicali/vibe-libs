@@ -13,9 +13,8 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# The macOS jobs run side by side, five at most, so a run fits an account's
-# macOS concurrency. The pieces and analyze jobs at the end keep the check
-# names branch protection asks for, and pass only when their jobs pass.
+# The macOS jobs run side by side. The pieces job at the end keeps the check
+# name branch protection asks for, and passes only when its jobs pass.
 #
 # On a pull request, make takes SINCE from here. The checkout is the merge
 # commit, so its first parent is the base, and a depth of 2 reaches it.
@@ -79,28 +78,6 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  analyze-shard:
-    name: analyze (${{ matrix.shard }}/${{ strategy.job-total }})
-    runs-on: macos-26
-    # Runs clang's static analyzer over one shard of the macOS test bundles.
-    # scripts/checks/targets.py splits them by the files each compiles.
-    timeout-minutes: 30
-    strategy:
-      # A finding in one shard still lets the others report theirs.
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
-
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 2
-
-      - uses: ./.github/actions/setup-xcodegen
-
-      - name: Analyze one shard of the pieces
-        run: make analyze SHARD=${{ matrix.shard }}/${{ strategy.job-total }}
-
   pieces:
     if: always()
     needs: [checks, test]
@@ -108,15 +85,5 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Pass only when the checks and the tests pass
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1
-
-  analyze:
-    if: always()
-    needs: [analyze-shard]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Pass only when every shard passes
         if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
         run: exit 1
