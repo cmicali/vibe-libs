@@ -96,9 +96,8 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Pass only when the checks and the tests pass
-        run: test "$PASSED" = true
-        env:
-          PASSED: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
 
   analyze:
     if: always()
@@ -107,6 +106,5 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Pass only when every shard passes
-        run: test "$PASSED" = true
-        env:
-          PASSED: ${{ !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') }}
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

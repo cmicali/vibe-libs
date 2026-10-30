@@ -63,9 +63,10 @@ except ValueError:
 if not 1 <= k <= n:
     sys.exit(f"error: shard {k} is not between 1 and {n}")
 
+weights = {b: weight(b) for b in bundles}
 shards = [[0, []] for _ in range(n)]
-for bundle in sorted(bundles, key=lambda b: (-weight(b), b)):
+for bundle in sorted(bundles, key=lambda b: (-weights[b], b)):
     lightest = min(shards, key=lambda s: s[0])
-    lightest[0] += weight(bundle)
+    lightest[0] += weights[bundle]
     lightest[1].append(bundle)
 print("\n".join(sorted(shards[k - 1][1])))
