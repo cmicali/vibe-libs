@@ -6,7 +6,8 @@
 #
 # Usage: scripts/checks/analyze.sh [Debug|Release] [K/N]
 #   Release by default, as CI runs it. With K/N it analyzes only the Kth of N
-#   shards of the test bundles, as scripts/checks/test-bundles.py splits them.
+#   shards of the test bundles, through a scheme scripts/checks/test-bundles.py
+#   writes for them.
 set -euo pipefail
 
 CONFIGURATION="${1:-Release}"
@@ -19,17 +20,15 @@ esac
 cd "$(dirname "$0")/../.."
 mkdir -p build
 LOG="build/analyze-$CONFIGURATION.log"
-ONLY=()
+SCHEME=vibe-libs
 if [[ -n "$SHARD" ]]; then
-    BUNDLES="$(python3 -I scripts/checks/test-bundles.py --shard "$SHARD")"
+    SCHEME=vibe-libs-shard
+    BUNDLES="$(python3 -I scripts/checks/test-bundles.py --shard "$SHARD" --scheme "$SCHEME")"
     if [[ -z "$BUNDLES" ]]; then
         echo "error: shard $SHARD has no test bundles" >&2
         exit 1
     fi
     echo "analyzing shard $SHARD:" $BUNDLES
-    for bundle in $BUNDLES; do
-        ONLY+=("-only-testing:$bundle")
-    done
 fi
 DERIVED="build/AnalyzeDD"
 
@@ -42,12 +41,11 @@ rm -rf "$DERIVED"
 set +e
 xcodebuild build-for-testing \
     -project vibe-libs.xcodeproj \
-    -scheme vibe-libs \
+    -scheme "$SCHEME" \
     -destination 'platform=macOS' \
     -configuration "$CONFIGURATION" \
     -derivedDataPath "$DERIVED" \
     -quiet \
-    ${ONLY[@]+"${ONLY[@]}"} \
     RUN_CLANG_STATIC_ANALYZER=YES \
     CLANG_STATIC_ANALYZER_MODE=deep 2>&1 | tee "$LOG"
 BUILD_STATUS="${PIPESTATUS[0]}"
