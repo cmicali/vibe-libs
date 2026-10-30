@@ -85,6 +85,14 @@ NS_ASSUME_NONNULL_BEGIN
 // color.
 - (void)waveformViewDidResolveTheme:(WaveformView *)waveformView;
 
+@optional
+
+// Where a seeking drag sits, from 0 to 1: the place its release will seek
+// to, so an app can show that time. Sent on each move past the hysteresis.
+// Then once below 0 when the drag ends: after its release's seek, or when a
+// presentation reset cancels it.
+- (void)waveformView:(WaveformView *)waveformView didScrubToProgress:(CGFloat)progress;
+
 @end
 
 NS_ASSUME_NONNULL_END

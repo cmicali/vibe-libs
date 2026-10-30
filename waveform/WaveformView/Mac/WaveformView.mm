@@ -212,7 +212,16 @@ static const CGFloat kWaveformDragHysteresis = 4;
     // Once past the hysteresis the drag tracks even outside the band or the
     // view; the clamp decides the column, like every system slider.
     _isDragSeeking = YES;
-    [_currentWaveformRenderer setHoverHighlightX:[self clampedSeekX:p.x]];
+    CGFloat x = [self clampedSeekX:p.x];
+    [_currentWaveformRenderer setHoverHighlightX:x];
+    [self reportScrubProgress:x / self.bounds.size.width];
+}
+
+- (void)reportScrubProgress:(CGFloat)progress {
+    id<WaveformViewDelegate> delegate = self.delegate;
+    if ([delegate respondsToSelector:@selector(waveformView:didScrubToProgress:)]) {
+        [delegate waveformView:self didScrubToProgress:progress];
+    }
 }
 
 - (void)mouseUp:(NSEvent *)event {
@@ -231,6 +240,7 @@ static const CGFloat kWaveformDragHysteresis = 4;
         // May legitimately end outside the view: no containment test.
         [self.delegate waveformView:self
                             didSeek:(float) ([self clampedSeekX:mouseLoc.x] / self.bounds.size.width)];
+        [self reportScrubProgress:-1];
         if (!NSPointInRect(mouseLoc, self.bounds)) {
             [self hideHoverIndicator];
         }
@@ -362,8 +372,12 @@ static const CGFloat kWaveformDragHysteresis = 4;
 // Callers hide their overlays and redraw themselves.
 - (void)resetWaveformContentState {
     [self hideHoverIndicator];
+    BOOL wasDragSeeking = _isDragSeeking;
     _didClickInside = NO;
     _isDragSeeking = NO;
+    if (wasDragSeeking) {
+        [self reportScrubProgress:-1];
+    }
     _convertSweepFraction = 0;
     _waveform = nil;
     self.progress = 0;

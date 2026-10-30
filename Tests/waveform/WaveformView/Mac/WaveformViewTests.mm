@@ -28,6 +28,8 @@
 
 @interface RecordingWaveformDelegate : NSObject <WaveformViewDelegate>
 @property (nonatomic) NSMutableArray<NSNumber *> *seeks;
+// Each scrub report, with a seek recorded as "seek" between them.
+@property (nonatomic) NSMutableArray<NSNumber *> *scrubs;
 @property (nonatomic) NSUInteger resolutions;
 @end
 
@@ -35,11 +37,16 @@
 - (instancetype)init {
     if ((self = [super init])) {
         _seeks = [NSMutableArray array];
+        _scrubs = [NSMutableArray array];
     }
     return self;
 }
 - (void)waveformView:(WaveformView *)waveformView didSeek:(float)percentage {
     [self.seeks addObject:@(percentage)];
+    [self.scrubs addObject:@(NAN)];
+}
+- (void)waveformView:(WaveformView *)waveformView didScrubToProgress:(CGFloat)progress {
+    [self.scrubs addObject:@(progress)];
 }
 - (void)waveformViewDidResolveTheme:(WaveformView *)waveformView {
     self.resolutions++;
@@ -292,6 +299,46 @@ static NSColor *Opaque(NSColor *color) {
     [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.7 in:window];
     XCTAssertEqual(_delegate.seeks.count, 1u);
     XCTAssertEqualWithAccuracy(_delegate.seeks.firstObject.floatValue, 0.7, 1e-6);
+}
+
+// The drag reports each place it sits, clamped to the view, then its end
+// after the release's seek. A click reports nothing.
+- (void)testASeekingDragReportsWhereItSits {
+    NSWindow *window = VibeOffscreenWindow(NSMakeSize(kWidth, kHeight));
+    [window.contentView addSubview:_view];
+    [self showStyle:@"detailed" progress:0];
+    _view.dragSeeks = YES;
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.3 in:window];
+    XCTAssertEqual(_delegate.scrubs.count, 1u);
+    XCTAssertTrue(isnan(_delegate.scrubs.firstObject.doubleValue), @"a click only seeks");
+    [_delegate.scrubs removeAllObjects];
+
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseDragged at:kWidth * 0.5 in:window];
+    [self mouse:NSEventTypeLeftMouseDragged at:kWidth * 1.5 in:window];
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.7 in:window];
+    NSArray<NSNumber *> *scrubs = _delegate.scrubs;
+    XCTAssertEqual(scrubs.count, 4u);
+    XCTAssertEqualWithAccuracy(scrubs[0].doubleValue, 0.5, 1e-6);
+    XCTAssertEqualWithAccuracy(scrubs[1].doubleValue, 1, 1e-6, @"clamped to the view");
+    XCTAssertTrue(isnan(scrubs[2].doubleValue), @"the seek comes first");
+    XCTAssertLessThan(scrubs[3].doubleValue, 0, @"then the drag's end");
+}
+
+// A presentation reset cancels a drag in flight, and says it ended.
+- (void)testAResetEndsADragInFlight {
+    NSWindow *window = VibeOffscreenWindow(NSMakeSize(kWidth, kHeight));
+    [window.contentView addSubview:_view];
+    [self showStyle:@"detailed" progress:0];
+    _view.dragSeeks = YES;
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseDragged at:kWidth * 0.6 in:window];
+    [_view prepareForWaveformLoad];
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.6 in:window];
+    XCTAssertEqual(_delegate.scrubs.count, 2u);
+    XCTAssertLessThan(_delegate.scrubs.lastObject.doubleValue, 0);
+    XCTAssertEqual(_delegate.seeks.count, 0u, @"the release seeks nothing");
 }
 
 - (WindowDragRecordingWindow *)recordingWindow {
