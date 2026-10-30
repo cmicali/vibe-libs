@@ -12,7 +12,7 @@ The transport of a debug command channel: a script drives and inspects a running
 
 **An app lists the template in every configuration.** Each `.m` wraps its body in `#if DEBUG`, so a release build compiles each to an empty object. The headers carry no `#if DEBUG`, since no header here may. So a call from release code compiles and then fails to link. An app keeps every caller under its own `#if DEBUG`.
 
-`DebugChannelTests` defines `DEBUG` in every configuration, so the analyzer's Release build reaches the code. `DebugChannel-iOS` does too, so the iOS watcher compiles.
+`DebugChannelTests` defines `DEBUG` in every configuration, so its tests reach the code in any build. `DebugChannel-iOS` does too, so the iOS watcher compiles.
 
 ## The app's side
 

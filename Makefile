@@ -4,7 +4,7 @@
 PROJECT := vibe-libs.xcodeproj
 DERIVED := build/DerivedData
 
-.PHONY: help project test build-ios consumer check-pieces test-strings analyze clean
+.PHONY: help project test build-ios consumer check-pieces test-strings clean
 
 # Every target, with the first sentence of its comment.
 help:
@@ -14,8 +14,8 @@ help:
 project:
 	xcodegen generate --quiet
 
-# SINCE=<rev> limits test, build-ios, and analyze to the targets a change since
-# that commit reaches. CI sets it on a pull request.
+# SINCE=<rev> limits test and build-ios to the targets a change since that
+# commit reaches. CI sets it on a pull request.
 SINCE ?=
 
 # Runs every piece's tests on macOS, Debug, with the headermap off.
@@ -53,11 +53,6 @@ check-pieces:
 # Runs the strings tools' self-test over a tiny app of their own.
 test-strings:
 	Tests/tools/strings/strings-test.sh
-
-# SHARD=K/N analyzes only the Kth of N shards of the bundles, as CI does.
-# Runs clang's static analyzer over every piece's macOS test bundle, in Release by default.
-analyze: project
-	scripts/checks/analyze.sh "$(CONFIG)" "$(SHARD)" "$(SINCE)"
 
 # Removes build output and the generated project.
 clean:

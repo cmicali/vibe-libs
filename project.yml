@@ -247,7 +247,7 @@ targets:
 
   # files/FileLoading, tested on macOS. The tests drive the seams and the fake
   # cloud, which compile only under DEBUG, so the bundle defines it in every
-  # configuration, the analyzer's Release build included. The coordinator's
+  # configuration. The coordinator's
   # tests take their provider operations and served handle from Tests/Support.
   # Verbose logging is on, as in Vibe's tests. The hang and gate bounds match
   # Vibe's.
@@ -306,8 +306,7 @@ targets:
 
   # files/HTTP, tested on macOS, over HTTPStub, which sits beside the tests.
   # HTTPStub scripts the answers of this piece's fake, which compiles only
-  # under DEBUG. So the bundle defines it in every configuration, the
-  # analyzer's Release build included. The hang and gate bounds match Vibe's.
+  # under DEBUG. So the bundle defines it in every configuration. The hang and gate bounds match Vibe's.
   HTTPTests:
     type: bundle.unit-test
     platform: macOS
@@ -404,8 +403,7 @@ targets:
 
   # audio/Decode, tested on macOS. The tests drive the read-ahead's seam and
   # the coordinator's test seams, which compile only under DEBUG, so the
-  # bundle defines it in every configuration, the analyzer's Release build
-  # included. The file fixtures and the read-ahead script come from
+  # bundle defines it in every configuration. The file fixtures and the read-ahead script come from
   # Tests/Support. The fuzz tests also read the fixtures an app generates,
   # when VIBE_AUDIO_FIXTURES names their folder. Verbose logging is on, as in
   # Vibe's tests. The hang and gate bounds match Vibe's.
@@ -443,8 +441,7 @@ targets:
 
   # audio/Player, tested on macOS. The tests drive the player's seam, the
   # manual render pump, and the coordinator's test seams, which compile only
-  # under DEBUG, so the bundle defines it in every configuration, the
-  # analyzer's Release build included. The render suite in Render/ plays an
+  # under DEBUG, so the bundle defines it in every configuration. The render suite in Render/ plays an
   # app's generated fixtures, so it is not compiled here. An app's test target
   # compiles it over them (AGENTS.md, Tests). The test track and the reference
   # fixtures come from Tests/Support. Verbose logging is on, as in Vibe's tests.
@@ -506,7 +503,7 @@ targets:
 
   # media/Metadata, tested on macOS. The loader tests drive the loader's seam
   # and the file loader's, which compile only under DEBUG, so the bundle defines
-  # it in every configuration, the analyzer's Release build included. The tag
+  # it in every configuration. The tag
   # and fuzz tests write their own files through TagLib's writers, the file
   # handle, and AVFoundation, which the bundle links. Ogg's audio comes from an
   # app's generated fixtures, when VIBE_AUDIO_FIXTURES names their folder, and
@@ -644,7 +641,7 @@ targets:
   # waveform/WaveformLoading, tested on macOS. The tests drive the loader's
   # and the cache's seams, the read-ahead's seam, and the coordinator's test
   # seams, which compile only under DEBUG, so the bundle defines it in every
-  # configuration, the analyzer's Release build included. They write their
+  # configuration. They write their
   # own files. The test track, the file fixtures, and the read-ahead script
   # come from Tests/Support. Verbose logging is on, as in Vibe's tests. The
   # hang and gate bounds match Vibe's.
@@ -847,8 +844,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
 
   # dev/DebugChannel, tested on macOS. Its sources compile only under DEBUG,
-  # so the bundle defines it in every configuration, the analyzer's Release
-  # build included. The hang bound matches Vibe's.
+  # so the bundle defines it in every configuration. The hang bound matches Vibe's.
   DebugChannelTests:
     type: bundle.unit-test
     platform: macOS
