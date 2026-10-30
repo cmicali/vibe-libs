@@ -809,6 +809,16 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
 // A gapless boundary can promote the next track before the block runs, so the
 // intended track is snapshotted here and the seek dropped if it moved on.
 - (void)seekToPosition:(NSTimeInterval)position {
+    [self submitSeekToPosition:position requiredTrack:nil];
+}
+
+// The caller names the track, so a splice before this call drops the seek
+// too: the queue's check compares the current track with the caller's.
+- (void)seekToPosition:(NSTimeInterval)position ofTrack:(id<VibePlayableItem>)track {
+    [self submitSeekToPosition:position requiredTrack:track];
+}
+
+- (void)submitSeekToPosition:(NSTimeInterval)position requiredTrack:(nullable id<VibePlayableItem>)requiredTrack {
     uint64_t submittedAt = [self noteSubmittedAction:@"seek" position:position];
     id<VibePlayableItem> intendedTrack = self.currentTrack;
     uint64_t intendedSubmittedPlayIdentifier = 0;
@@ -824,6 +834,12 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
         intendedSubmittedPlayIdentifier = self.loadingSubmittedPlayIdentifier;
     }
     os_unfair_lock_unlock(&_stateLock);
+    if (requiredTrack && requiredTrack != intendedTrack) {
+        // The player has moved past the caller's track, or never held it.
+        // Aimed at it, the seek lands only if the queue finds it current.
+        intendedTrack = requiredTrack;
+        intendedSubmittedPlayIdentifier = 0;
+    }
     dispatch_async(_queue, ^{
         [self seekOnQueueToPosition:position intendedTrack:intendedTrack
    intendedSubmittedPlayIdentifier:intendedSubmittedPlayIdentifier submittedAt:submittedAt];

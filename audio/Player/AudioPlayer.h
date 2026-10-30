@@ -155,6 +155,15 @@ NS_ASSUME_NONNULL_BEGIN
 // seek, one dropped because the track changed or nothing was loaded included.
 - (void)seekToPosition:(NSTimeInterval)position;
 
+// The same, aimed only at track: the play the app's control showed. It is
+// dropped, and still settled, unless track is the play the seek lands on.
+// seekToPosition: aims at the play the player holds when it is called, and a
+// gapless splice changes that on the player's queue before
+// didAutoAdvanceFromTrack:toTrack: reaches main. An app whose queue moves only
+// at that callback names its track here, so a seek made for the outgoing
+// track never moves the incoming one.
+- (void)seekToPosition:(NSTimeInterval)position ofTrack:(id<VibePlayableItem>)track;
+
 // Unloads the current track, superseding any in-flight open. Fires no
 // transport or track-end callback, so it never drives auto-advance; the
 // caller owns the UI reset.
