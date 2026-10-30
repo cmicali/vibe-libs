@@ -44,8 +44,8 @@ check-pieces:
 test-strings:
 	Tests/tools/strings/strings-test.sh
 
-# Runs clang's static analyzer over every piece's macOS test bundle, in Release by default.
 # SHARD=K/N analyzes only the Kth of N shards of the bundles, as CI does.
+# Runs clang's static analyzer over every piece's macOS test bundle, in Release by default.
 analyze: project
 	scripts/checks/analyze.sh "$(CONFIG)" "$(SHARD)"
 
