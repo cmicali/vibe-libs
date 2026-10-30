@@ -107,6 +107,8 @@ While the cursor is over a loaded waveform, the waveform marks the column under 
 
 With no waveform, or outside the renderer's seek hit band, `mouseDown:` hands the event to `performWindowDragWithEvent:` at once in every mode. So the empty and loading states and the view's margins always drag the window. A window that declines the handoff, as an app's locked window does, leaves a disarmed drag doing nothing. A stationary click still seeks.
 
+**A seeking drag reports where it sits**, through the delegate's optional `waveformView:didScrubToProgress:`, so an app can show the time its release will land on. It fires on each move past the hysteresis, with the clamped fraction. It fires once more below 0 when the drag ends: after the release's seek, from a release that cannot seek, as at zero width, or from a presentation reset, which cancels the drag. A click that never passes the hysteresis reports nothing.
+
 **`dragsWindow` turns every handoff off.** It is YES by default. An app sets NO for a view in a window that has a title bar to move it by, where a press on an empty waveform should not move the window. Each handoff above then does nothing, as a declining window does: the press is disarmed, so a stationary click in the seek band still seeks, and nothing else does. The view stashes it at each mouse-down, as it does `dragSeeks`.
 
 ### The convert sweep
