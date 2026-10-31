@@ -60,6 +60,17 @@ NS_ASSUME_NONNULL_BEGIN
 // can speak a time instead. Called on main, whenever VoiceOver reads it.
 @property (nonatomic, copy, nullable) NSString *(^accessibilityValueProvider)(CGFloat progress);
 
+// Whether the view seeks at all. YES, the default. NO turns off the hover
+// column, the seek of a click and of a drag, and the steps of VoiceOver and
+// the keys, for a track that cannot be sought now. A press then does what a
+// press on an empty view does. Setting NO ends a press or a drag in flight.
+@property (nonatomic) BOOL seekable;
+
+// Whether the keyboard reaches the view. NO, the default. YES lets it take
+// focus while keyboard navigation is on in System Settings, as a slider
+// does, and the left and right arrows then step as VoiceOver does.
+@property (nonatomic) BOOL takesKeyboardFocus;
+
 // A WaveformRendererRegistry key, never a display name. Also the one draw
 // for the pushed properties above, so the app sets it last.
 - (void)setWaveformStyle:(NSString *)identifier;

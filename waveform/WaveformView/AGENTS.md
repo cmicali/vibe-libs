@@ -58,7 +58,9 @@ The control is `ui/Controls`' `LoadingIndicator`, and its traps are in `ui/Contr
 - **The value is a whole percentage** (`VibeWaveformAccessibilityValue`), since VoiceOver reads a bare 0.5 as "zero point five".
 - **The mac view's `accessibilityValueProvider` replaces it.** An app that knows the duration gives a block that turns the progress into a time, such as "1:23 of 4:56". The view hands it the progress clamped to 0 to 1, and reads no string itself.
 
-Neither view is adjustable with nothing loaded. The scrubber's `accessibilityIdentifier`, `waveform-scrubber`, names the element for a UI test's pinch and is unrelated to the above.
+Neither view is adjustable with nothing loaded, and the mac view is not adjustable while it is not seekable. The scrubber's `accessibilityIdentifier`, `waveform-scrubber`, names the element for a UI test's pinch and is unrelated to the above.
+
+**The keyboard reaches the mac view only when an app asks**, with `takesKeyboardFocus`. It is NO by default. With it on, the view takes focus while keyboard navigation is on in System Settings, as a slider does, with a focus ring over its bounds. The left and right arrows, with no modifier, step as VoiceOver's adjustments do. Every other key goes up the responder chain, so an app's Space still reaches its own handler.
 
 ## ObjC++ boundary
 
@@ -108,6 +110,8 @@ While the cursor is over a loaded waveform, the waveform marks the column under 
 With no waveform, or outside the renderer's seek hit band, `mouseDown:` hands the event to `performWindowDragWithEvent:` at once in every mode. So the empty and loading states and the view's margins always drag the window. A window that declines the handoff, as an app's locked window does, leaves a disarmed drag doing nothing. A stationary click still seeks.
 
 **A seeking drag reports where it sits**, through the delegate's optional `waveformView:didScrubToProgress:`, so an app can show the time its release will land on. It fires on each move past the hysteresis, with the clamped fraction. It fires once more below 0 when the drag ends: after the release's seek, from a release that cannot seek, as at zero width, or from a presentation reset, which cancels the drag. A click that never passes the hysteresis reports nothing.
+
+**`seekable` turns seeking off.** It is YES by default. An app sets NO while its track cannot be sought, such as one that waits to play. Then there is no hover column, a press does what a press on an empty view does, and VoiceOver's and the keys' steps do nothing. Setting it NO ends a press or a drag in flight, as a presentation reset does, so a drag reports its end and its release seeks nothing.
 
 **`dragsWindow` turns every handoff off.** It is YES by default. An app sets NO for a view in a window that has a title bar to move it by, where a press on an empty waveform should not move the window. Each handoff above then does nothing, as a declining window does: the press is disarmed, so a stationary click in the seek band still seeks, and nothing else does. The view stashes it at each mouse-down, as it does `dragSeeks`.
 
