@@ -1345,7 +1345,7 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
     [VibeFakeCloud uninstall];
 
     XCTAssertEqualObjects(listed, (@[@"library/a.mp3", @"library/mix.cue", @"library/mix.flac"]));
-    XCTAssertEqualObjects(local, listed);
+    XCTAssertEqualObjects(local, (@[@"library/a.mp3", @"library/mix.flac"]), @"the unread sheet is no entry");
     XCTAssertEqualObjects(readByScans, @[]);
     XCTAssertEqualObjects(opened, (@[@"library/a.mp3", @"library/mix.flac#0-4500", @"library/mix.flac#4500-0"]));
     XCTAssertEqualObjects(readByOpen, @[@"mix.cue"], @"the open reads the sheet, and nothing else");
@@ -1355,6 +1355,43 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
     XCTAssertEqualObjects(statistics[@"executing"], @0);
     XCTAssertEqualObjects(statistics[@"queued"], @0);
     XCTAssertEqualObjects(trace, @[]);
+}
+
+// Under the Local policy, a placeholder sheet is no entry. Every entry of its
+// directory names it, in every batch of a directory the scan splits.
+- (void)testEveryBatchBesideAnUnreadSheetNamesIt {
+    NSUInteger count = VibeFolderScanBatchLimit + 44;
+    for (NSUInteger index = 0; index < count; index++) {
+        [self makeFile:[NSString stringWithFormat:@"library/%03lu.mp3", (unsigned long)index]];
+    }
+    [self makeText:kTwoTrackSheet at:@"library/mix.cue"];
+    [self makeFile:@"library/other/a.mp3"];
+    NSURL *library = [self makeDirectory:@"library"];
+    [PlaceholderFiles setDatalessProbe:^BOOL(NSURL *url) {
+        return [url.pathExtension isEqualToString:@"cue"];
+    }];
+
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches = [self scan:@[library] policy:VibeFolderScanReadPolicyLocal];
+    [PlaceholderFiles setDatalessProbe:nil];
+
+    NSUInteger beside = 0;
+    NSUInteger batchesBeside = 0;
+    for (NSArray<VibePlaylistEntry *> *batch in batches) {
+        BOOL any = NO;
+        for (VibePlaylistEntry *entry in batch) {
+            XCTAssertFalse([entry.url.pathExtension isEqualToString:@"cue"], @"the sheet is no entry");
+            if ([entry.url.path.stringByDeletingLastPathComponent hasSuffix:@"other"]) {
+                XCTAssertNil(entry.unreadCueSheetURL, @"another directory's file is beside no unread sheet");
+                continue;
+            }
+            XCTAssertEqualObjects(entry.unreadCueSheetURL.lastPathComponent, @"mix.cue");
+            beside += 1;
+            any = YES;
+        }
+        batchesBeside += any ? 1 : 0;
+    }
+    XCTAssertEqual(beside, count);
+    XCTAssertGreaterThan(batchesBeside, 1u, @"the directory came in several batches");
 }
 
 // The only other content a walk reads is a large local FLAC's own sheet.
