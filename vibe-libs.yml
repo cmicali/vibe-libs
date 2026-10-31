@@ -506,7 +506,23 @@ targetTemplates:
         excludes: ["**/*.md", "${excludedPlatform}/**"]
     settings:
       base:
-        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/dev/DebugChannel"]
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/dev/DebugChannel", "$(VIBE_LIBS_ROOT)/dev/DebugChannel/Mac"]
+
+  # The standard debug verbs over the channel, and the mac's input table. Each
+  # source wraps its body in #if DEBUG, so an app lists the template in every
+  # configuration. It lists Graphics for the menu dump's image digest.
+  VibeLibsDebugVerbs:
+    templates: [VibeLibsCommon, VibeLibsDebugChannel, VibeLibsGraphics]
+    sources:
+      - path: dev/DebugVerbs
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(VIBE_LIBS_ROOT)/dev/DebugVerbs"
+          - "$(VIBE_LIBS_ROOT)/dev/DebugVerbs/Mac"
+          - "$(VIBE_LIBS_ROOT)/dev/DebugVerbs/iOS"
 
   # iOS only: the touch driver, a resident XCUITest. Only an iOS UI-testing
   # bundle lists it, and that bundle links XCTest itself. It has no headers,

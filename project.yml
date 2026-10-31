@@ -871,6 +871,35 @@ targets:
       base:
         GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "DEBUG=1"]
 
+  # dev/DebugVerbs, tested on macOS. Its sources compile only under DEBUG, and
+  # work_tally counts only under VIBE_SIGNPOSTS, so the bundle defines both in
+  # every configuration.
+  DebugVerbsTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsDebugVerbs]
+    templateAttributes:
+      excludedPlatform: iOS
+    sources:
+      - path: Tests/dev/DebugVerbs
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "DEBUG=1", "VIBE_SIGNPOSTS=1", "VIBE_TEST_HANG_TIMEOUT=10"]
+
+  # dev/DebugVerbs built for iOS, with DEBUG in every configuration, so its iOS
+  # half compiles.
+  DebugVerbs-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsDebugVerbs]
+    templateAttributes:
+      excludedPlatform: Mac
+    settings:
+      base:
+        GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "DEBUG=1"]
+
   # dev/iOSDriver, which is iOS only. Its build is this UI-testing bundle,
   # with no host app: the driver drives an app by bundle identifier, so an
   # app's bundle names its own app. Nothing runs it here, since it waits for
@@ -1123,6 +1152,8 @@ schemes:
         UpdatesTests: [test]
         DebugChannelTests: [test]
         DebugChannel-iOS: all
+        DebugVerbsTests: [test]
+        DebugVerbs-iOS: all
         iOSDriver: all
         TaglibTests: [test]
         Taglib-iOS: all
@@ -1149,6 +1180,6 @@ schemes:
                 RemoteFilesTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
                 MetadataTests, PlayQueueTests, PlaylistsTests, FolderScanTests, WaveformTests, WaveformLoadingTests,
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests,
-                SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, TaglibTests, PINCacheTests,
-                PINOperationTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests, OggTests, VorbisTests,
-                SparkleTests]
+                SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, DebugVerbsTests,
+                TaglibTests, PINCacheTests, PINOperationTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
+                OggTests, VorbisTests, SparkleTests]
