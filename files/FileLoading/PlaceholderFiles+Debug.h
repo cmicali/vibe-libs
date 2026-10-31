@@ -22,6 +22,10 @@ typedef BOOL (^VibeDatalessProbe)(NSURL *url);
 
 + (void)setDatalessProbe:(nullable VibeDatalessProbe)probe;
 
+// The same for isDatalessDirectory:, since no directory can be staged as an
+// unfetched listing by hand either.
++ (void)setDatalessDirectoryProbe:(nullable VibeDatalessProbe)probe;
+
 // The lane-routing measurement for a REAL provider: while enabled, every stat
 // the dataless test performs is tallied per directory (verdicts and the last
 // raw st_flags, capped in directories), to confirm or rule out a provider
@@ -39,6 +43,7 @@ typedef BOOL (^VibeDatalessProbe)(NSURL *url);
 // isDatalessFile:'s hooks. The probe, when installed, answers instead of the
 // stat. The stat path reads the flag, then records only while it is set.
 VibeDatalessProbe _Nullable VibeDatalessProbeHook(void);
+VibeDatalessProbe _Nullable VibeDatalessDirectoryProbeHook(void);
 extern _Atomic(BOOL) VibeDatalessDiagEnabled;
 void VibeRecordDatalessStat(NSURL *url, BOOL dataless, uint32_t flags, BOOL statFailed);
 

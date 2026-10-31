@@ -59,6 +59,15 @@ typedef NS_ENUM(NSInteger, VibeFolderScanVerdict) {
 // No batch holds more entries than this.
 FOUNDATION_EXPORT const NSUInteger VibeFolderScanBatchLimit;
 
+// A catalog scan's own failures. Each names its directory under
+// NSURLErrorKey, as an enumeration failure does.
+FOUNDATION_EXPORT NSErrorDomain const VibeFolderScanErrorDomain;
+typedef NS_ERROR_ENUM(VibeFolderScanErrorDomain, VibeFolderScanError) {
+    // A directory whose listing the provider has not fetched. The scan did
+    // not list it, so nothing under it was seen.
+    VibeFolderScanErrorNotFetched = 1,
+};
+
 
 @interface FolderWalk : NSObject
 
@@ -97,6 +106,11 @@ FOUNDATION_EXPORT const NSUInteger VibeFolderScanBatchLimit;
 // is an NSError with the directory it met under NSURLErrorKey, in the order
 // met. A root that cannot be read at all is partial with one failure naming
 // it. A cancelled token makes every verdict cancelled.
+//
+// The scan lists with its thread unable to materialize, so it never waits on
+// a file provider and downloads nothing. A directory whose listing the
+// provider has not fetched is not listed. It is a failure with
+// VibeFolderScanErrorNotFetched, and the scan goes on with the rest.
 //
 // The scan never asks the grant handler, since background work must never
 // raise a panel. The walked-file and walked-directories handlers run as they

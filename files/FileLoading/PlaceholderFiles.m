@@ -106,4 +106,15 @@ NSString *const VibeRemotePlaceholderPartSuffix = @".vibe-download";
     return dataless;
 }
 
++ (BOOL)isDatalessDirectory:(NSURL *)url {
+#if DEBUG
+    VibeDatalessProbe probe = VibeDatalessDirectoryProbeHook();
+    if (probe) {
+        return probe(url);
+    }
+#endif
+    struct stat st;
+    return lstat(url.fileSystemRepresentation, &st) == 0 && S_ISDIR(st.st_mode) && (st.st_flags & SF_DATALESS) != 0;
+}
+
 @end

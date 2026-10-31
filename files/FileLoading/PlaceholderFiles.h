@@ -32,6 +32,12 @@ static inline BOOL VibeFileModeIsRemotePlaceholder(mode_t mode) {
 // YES too.
 + (BOOL)isDatalessFile:(NSURL *)url;
 
+// YES for a directory whose listing the provider has not fetched yet. Listing
+// one blocks until the provider fetches it, so a background walk asks first.
+// One stat of SF_DATALESS, materializing nothing; NO when the stat fails or
+// the path is not a directory.
++ (BOOL)isDatalessDirectory:(NSURL *)url;
+
 // Under a remote backend's root (the Links store, and on iOS the Dropbox
 // mirror), a regular file its owner may not read is a placeholder for a
 // remote file. Its stat is the remote file's: size, mtime, and the cache
