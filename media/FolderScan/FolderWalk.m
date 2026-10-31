@@ -15,6 +15,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -216,6 +217,41 @@ static NSError *VibeWalkFailure(NSURL *directory, NSError *error) {
     return [NSError errorWithDomain:error.domain code:error.code userInfo:info];
 }
 
+NSErrorDomain const VibeFolderScanErrorDomain = @"VibeFolderScanErrorDomain";
+
+static NSError *VibeNotFetchedFailure(NSURL *directory) {
+    return [NSError errorWithDomain:VibeFolderScanErrorDomain code:VibeFolderScanErrorNotFetched
+                           userInfo:@{NSURLErrorKey: directory}];
+}
+
+// What a listing under the scan's policy fails with when the provider has
+// not fetched the directory, in case the walk reaches one before its check.
+static BOOL VibeErrorIsNotFetched(NSError *error) {
+    for (NSError *e = error; e; e = e.userInfo[NSUnderlyingErrorKey]) {
+        if ([e.domain isEqualToString:NSPOSIXErrorDomain] && e.code == EDEADLK) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+// Runs block with this thread unable to materialize a dataless file or
+// directory: a listing or a read of one fails with EDEADLK, and nothing
+// downloads. TRAP: thread scope, restored after. The thread is a global
+// queue's, and runs other work next.
+static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
+    int previous = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
+    BOOL set = setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD,
+                              IOPOL_MATERIALIZE_DATALESS_FILES_OFF) == 0;
+    if (!set) {
+        LogWarn(@"Could not turn materialization off for a scan: %s", strerror(errno));
+    }
+    block();
+    if (set && previous >= 0) {
+        setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, previous);
+    }
+}
+
 // Hands listed every directory deeper than depth, deepest first: an entry at
 // that depth means they are listed in full. An empty one is skipped.
 static void VibeCloseListedDirectories(NSMutableArray<NSMutableArray<NSURL *> *> *open, NSUInteger depth,
@@ -233,15 +269,17 @@ static void VibeCloseListedDirectories(NSMutableArray<NSMutableArray<NSURL *> *>
 // files and the CUE sheets anywhere under dir, unsorted. With byDirectory,
 // listed gets each directory's files once that directory is listed in full.
 // Without it, listed gets every file once, in enumeration order. failures,
-// when given, collects each directory the enumeration could not read. A
-// cancelled progress stops it between entries. It then reports nothing more
-// and returns NO.
+// when given, collects each directory the enumeration could not read. With
+// skipsUnfetched, a directory the provider has not fetched is a failure of
+// its own, and is not listed. A cancelled progress stops it between entries.
+// It then reports nothing more and returns NO.
 //
 // The walk ranks each file through the walked-file handler on the way past,
 // so the walked-directories handler gets each folder's best file for free.
 // Only directories with playable audio are reported.
 static BOOL VibeWalkTree(NSURL *dir, VibeFolderOpenSort sort, NSProgress *progress, BOOL byDirectory,
-                         NSMutableArray<NSError *> *failures, void (^listed)(NSMutableArray<NSURL *> *files)) {
+                         BOOL skipsUnfetched, NSMutableArray<NSError *> *failures,
+                         void (^listed)(NSMutableArray<NSURL *> *files)) {
 
     NSMutableArray<NSURL*> *results = byDirectory ? nil : [[NSMutableArray alloc] init];
     NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -279,6 +317,10 @@ static BOOL VibeWalkTree(NSURL *dir, VibeFolderOpenSort sort, NSProgress *progre
             continue;
         }
         [covered addObject:rootPath];
+        if (skipsUnfetched && [PlaceholderFiles isDatalessDirectory:[NSURL fileURLWithPath:rootPath isDirectory:YES]]) {
+            [failures addObject:VibeNotFetchedFailure([NSURL fileURLWithPath:rootPath isDirectory:YES])];
+            continue;
+        }
         // Held back until this root is enumerated in full, so each is tested
         // against everything it covered.
         NSMutableArray<NSString*> *linkedRoots = [NSMutableArray array];
@@ -294,6 +336,10 @@ static BOOL VibeWalkTree(NSURL *dir, VibeFolderOpenSort sort, NSProgress *progre
      includingPropertiesForKeys:keys
                         options:NSDirectoryEnumerationSkipsHiddenFiles | NSDirectoryEnumerationSkipsPackageDescendants
                    errorHandler:^(NSURL *url, NSError *error) {
+                       if (skipsUnfetched && VibeErrorIsNotFetched(error)) {
+                           [failures addObject:VibeNotFetchedFailure(url)];
+                           return YES;
+                       }
                        LogWarn(@"Error enumerating %@: %@", url, error);
                        if (failures) {
                            [failures addObject:VibeWalkFailure(url, error)];
@@ -334,6 +380,11 @@ static BOOL VibeWalkTree(NSURL *dir, VibeFolderOpenSort sort, NSProgress *progre
                 }
                 else {
                     [covered addObject:path];
+                }
+                // Before the enumerator descends, so the listing is never asked.
+                if (skipsUnfetched && [PlaceholderFiles isDatalessDirectory:url]) {
+                    [enumerator skipDescendants];
+                    [failures addObject:VibeNotFetchedFailure(url)];
                 }
                 continue;
             }
@@ -406,7 +457,7 @@ static BOOL VibeWalkTree(NSURL *dir, VibeFolderOpenSort sort, NSProgress *progre
 
 + (NSArray<VibePlaylistEntry*>*) expandDirectory:(NSURL*)dir sortedBy:(VibeFolderOpenSort)sort {
     __block NSMutableArray<NSURL*> *results = nil;
-    VibeWalkTree(dir, sort, nil, NO, nil, ^(NSMutableArray<NSURL *> *files) {
+    VibeWalkTree(dir, sort, nil, NO, NO, nil, ^(NSMutableArray<NSURL *> *files) {
         results = files;
     });
     VibeSortAudioURLs(results, sort, YES);
@@ -708,10 +759,10 @@ const NSUInteger VibeFolderScanBatchLimit = 256;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSMutableArray<NSArray<NSError *> *> *failureLists = [NSMutableArray arrayWithCapacity:roots.count];
         NSMutableArray<NSNumber *> *verdicts = [NSMutableArray arrayWithCapacity:roots.count];
-        for (NSURL *root in roots) {
+        VibeWithoutMaterializing(^{ for (NSURL *root in roots) {
             NSMutableArray<NSError *> *failures = [NSMutableArray array];
             if (!progress.isCancelled) {
-                VibeWalkTree(root, VibeFolderOpenSortAsReceived, progress, YES, failures,
+                VibeWalkTree(root, VibeFolderOpenSortAsReceived, progress, YES, YES, failures,
                              ^(NSMutableArray<NSURL *> *files) {
                     NSMutableArray<VibePlaylistEntry *> *entries = [NSMutableArray arrayWithCapacity:files.count];
                     if (policy == VibeFolderScanReadPolicyLocal) {
@@ -734,7 +785,7 @@ const NSUInteger VibeFolderScanBatchLimit = 256;
             }
             [failureLists addObject:failures];
             [verdicts addObject:@(failures.count > 0 ? VibeFolderScanVerdictPartial : VibeFolderScanVerdictComplete)];
-        }
+        } });
         if (progress.isCancelled) {
             for (NSUInteger index = 0; index < verdicts.count; index++) {
                 verdicts[index] = @(VibeFolderScanVerdictCancelled);

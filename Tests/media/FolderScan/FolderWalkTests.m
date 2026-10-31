@@ -5,6 +5,7 @@
 #import <limits.h>
 #import <stdatomic.h>
 #import <stdlib.h>
+#import <sys/resource.h>
 #import <sys/stat.h>
 #import <unistd.h>
 
@@ -774,6 +775,12 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     XCTAssertFalse(VibePathIsUnderRemotePlaceholderRoot(first.path));
 }
 
+- (void)testALocalDirectoryIsNotDataless {
+    XCTAssertFalse([PlaceholderFiles isDatalessDirectory:[self makeDirectory:@"here"]]);
+    XCTAssertFalse([PlaceholderFiles isDatalessDirectory:[self makeFile:@"here/a.mp3"]], @"a file is no directory");
+    XCTAssertFalse([PlaceholderFiles isDatalessDirectory:[_root URLByAppendingPathComponent:@"gone" isDirectory:YES]]);
+}
+
 - (void)testAMaterializedFileIsNotDataless {
     XCTAssertFalse([PlaceholderFiles isDatalessFile:[self makeFile:@"local.mp3"]]);
     // A stat that fails is unknown, not dataless.
@@ -1090,6 +1097,93 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     XCTAssertEqualObjects([failures[1].firstObject.userInfo[NSURLErrorKey] path], locked.path);
     XCTAssertEqualObjects(failures[2], @[]);
     XCTAssertEqualObjects([self sortedRelativePaths:batches], (@[@"open/a.mp3"]));
+}
+
+// A directory the provider has not fetched is a failure of its own kind. The
+// scan lists nothing under it, and goes on with the rest.
+- (void)testAnUnfetchedDirectoryIsNotListedAndFailsAsNotFetched {
+    [self makeFile:@"library/a.mp3"];
+    [self makeFile:@"library/cloud/b.mp3"];
+    [self makeFile:@"library/cloud/deeper/c.mp3"];
+    [self makeFile:@"library/z/d.mp3"];
+    NSURL *library = [self makeDirectory:@"library"];
+    NSString *cloud = [library.path stringByAppendingPathComponent:@"cloud"];
+    NSMutableArray<NSString *> *asked = [NSMutableArray array];
+    [PlaceholderFiles setDatalessDirectoryProbe:^BOOL(NSURL *url) {
+        @synchronized (asked) {
+            [asked addObject:url.path];
+        }
+        return [url.path isEqualToString:cloud];
+    }];
+    NSArray<NSNumber *> *verdicts = nil;
+    NSArray<NSArray<NSError *> *> *failures = nil;
+
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches =
+            [self scan:@[library] policy:VibeFolderScanReadPolicyLocal
+              progress:[NSProgress discreteProgressWithTotalUnitCount:-1] verdicts:&verdicts failures:&failures];
+    [PlaceholderFiles setDatalessDirectoryProbe:nil];
+
+    XCTAssertEqualObjects(verdicts, @[@(VibeFolderScanVerdictPartial)]);
+    XCTAssertEqual(failures.firstObject.count, 1u, @"%@", failures);
+    NSError *failure = failures.firstObject.firstObject;
+    XCTAssertEqualObjects(failure.domain, VibeFolderScanErrorDomain);
+    XCTAssertEqual(failure.code, VibeFolderScanErrorNotFetched);
+    XCTAssertEqualObjects([failure.userInfo[NSURLErrorKey] path], cloud);
+    XCTAssertEqualObjects([self sortedRelativePaths:batches], (@[@"library/a.mp3", @"library/z/d.mp3"]));
+    XCTAssertFalse([asked containsObject:[cloud stringByAppendingPathComponent:@"deeper"]],
+                   @"nothing under it is reached");
+}
+
+- (void)testAnUnfetchedRootIsPartialWithOneFailure {
+    [self makeFile:@"library/a.mp3"];
+    NSURL *library = [self makeDirectory:@"library"];
+    [PlaceholderFiles setDatalessDirectoryProbe:^BOOL(NSURL *url) { return YES; }];
+    NSArray<NSNumber *> *verdicts = nil;
+    NSArray<NSArray<NSError *> *> *failures = nil;
+
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches =
+            [self scan:@[library] policy:VibeFolderScanReadPolicyNone
+              progress:[NSProgress discreteProgressWithTotalUnitCount:-1] verdicts:&verdicts failures:&failures];
+    [PlaceholderFiles setDatalessDirectoryProbe:nil];
+
+    XCTAssertEqualObjects(verdicts, @[@(VibeFolderScanVerdictPartial)]);
+    XCTAssertEqual(failures.firstObject.count, 1u, @"%@", failures);
+    XCTAssertEqual(failures.firstObject.firstObject.code, VibeFolderScanErrorNotFetched);
+    XCTAssertEqualObjects([self sortedRelativePaths:batches], @[]);
+}
+
+// The open lists what the user picked, so it still waits on the provider.
+- (void)testTheOpenListsADirectoryTheScanWouldNot {
+    [self makeFile:@"library/cloud/b.mp3"];
+    NSURL *library = [self makeDirectory:@"library"];
+    [PlaceholderFiles setDatalessDirectoryProbe:^BOOL(NSURL *url) { return YES; }];
+
+    NSArray<NSString *> *opened = [self expandAndFilter:@[library] folderCount:NULL];
+    [PlaceholderFiles setDatalessDirectoryProbe:nil];
+
+    XCTAssertEqualObjects(opened, @[@"library/cloud/b.mp3"]);
+}
+
+// The scan's thread cannot materialize while it lists and reads, and gets its
+// policy back after. The batch runs inside the walk, so it sees the policy.
+- (void)testTheScanListsWithMaterializationOffAndRestoresIt {
+    [self makeFile:@"library/a.mp3"];
+    NSURL *library = [self makeDirectory:@"library"];
+    __block int during = -1;
+    __block int after = -1;
+    XCTestExpectation *finished = [self expectationWithDescription:@"scan"];
+    [FolderWalk scanRoots:@[library] readPolicy:VibeFolderScanReadPolicyLocal
+                 progress:[NSProgress discreteProgressWithTotalUnitCount:-1]
+                    batch:^(NSArray<VibePlaylistEntry *> *entries) {
+        during = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
+    } completion:^(NSArray<NSNumber *> *verdicts, NSArray<NSArray<NSError *> *> *failures) {
+        after = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
+        [finished fulfill];
+    }];
+    [self waitForExpectations:@[finished] timeout:VIBE_TEST_HANG_TIMEOUT];
+
+    XCTAssertEqual(during, IOPOL_MATERIALIZE_DATALESS_FILES_OFF);
+    XCTAssertNotEqual(after, IOPOL_MATERIALIZE_DATALESS_FILES_OFF);
 }
 
 // Each folder is a batch of its own, so the cancel lands between two.

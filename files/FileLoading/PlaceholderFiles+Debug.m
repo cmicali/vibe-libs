@@ -14,10 +14,17 @@
 #include <sys/mount.h>
 
 static VibeDatalessProbe sDatalessProbe;
+static VibeDatalessProbe sDatalessDirectoryProbe;
 
 VibeDatalessProbe VibeDatalessProbeHook(void) {
     @synchronized (PlaceholderFiles.class) {
         return sDatalessProbe;
+    }
+}
+
+VibeDatalessProbe VibeDatalessDirectoryProbeHook(void) {
+    @synchronized (PlaceholderFiles.class) {
+        return sDatalessDirectoryProbe;
     }
 }
 
@@ -73,6 +80,12 @@ void VibeRecordDatalessStat(NSURL *url, BOOL dataless, uint32_t flags, BOOL stat
 + (void)setDatalessProbe:(VibeDatalessProbe)probe {
     @synchronized (self) {
         sDatalessProbe = [probe copy];
+    }
+}
+
++ (void)setDatalessDirectoryProbe:(VibeDatalessProbe)probe {
+    @synchronized (self) {
+        sDatalessDirectoryProbe = [probe copy];
     }
 }
 

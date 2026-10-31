@@ -41,6 +41,8 @@ The comments here cite six of that spec's lettered items. In short:
 
 **TRAP: `isDatalessFile:` is `SF_DATALESS` alone, never an `NSURL` resource value.** NSURL memoizes those per instance, so a placeholder would read "not downloaded" for its item's whole life.
 
+**`isDatalessDirectory:` answers whether a directory's listing is here**, by `SF_DATALESS` on its own stat. A file provider fetches a directory's listing the first time it is listed, and that listing blocks. A background walk asks first, and lists only what is here (`media/FolderScan`'s catalog scan).
+
 **The one other dataless verdict is the remote placeholder**, and only under a root that a remote backend installs (The remote fetch, below). A regular file its owner may not read (`VibeFileModeIsRemotePlaceholder`) stands for a remote file of its size and mtime. Its stat is real, so listing, sorting, and the disk key treat it as the file. Any direct open fails rather than reading zeros, so a decoder or a tag reader may open without asking. `remotePlaceholderPartURL:` names the hidden sibling its bytes stream into. The path is tested before any stat, so a file under no root pays nothing. Under no root an unreadable file is merely unreadable. `readsRemotePlaceholderByRange:` says a remote placeholder's tags read by range. It asks `audio/AudioTypes`' `PlayableExtensions.tagParsed`.
 
 ## One claim, two stages
@@ -209,7 +211,7 @@ The five `+Debug` categories each sit beside the class they open:
 - `AudioLoadingConfiguration+Debug` reads a configuration as a dictionary, and builds one from `key=value` arguments.
 - `CloudFileMaterializer+Debug` runs a fake transfer of a fixed duration in place of a coordinated read.
 - `DownloadProgressMonitor+Debug` replaces a monitor's sources with a fake fraction.
-- `PlaceholderFiles+Debug` installs a dataless probe, and tallies a real provider's stats per directory.
+- `PlaceholderFiles+Debug` installs a dataless probe for files, and one for directories, and tallies a real provider's stats per directory.
 
 **TRAP: the fake transfer's blocks and the fake progress are set by the debug channel and read on download workers and monitors, so both are read under a lock.** An unlocked read of a block global is a retain racing a release.
 
