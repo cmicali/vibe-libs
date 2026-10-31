@@ -1,6 +1,6 @@
 # The standard debug verbs
 
-**Status: planned on 2026-10-30. Nothing has started.** This is the plan for `dev/DebugVerbs`, a new piece holding the debug verbs every app's channel answers, and for the debug client's move into `dev/DebugChannel`. It also covers each app taking them: Vibe, the other app, and the third app. Read [plan.md](plan.md)'s "The work, in order" first. Every rule there holds here.
+**Status: planned on 2026-10-30. Step 1 merged on 2026-10-30 (Vibe #428). Step 2 is this repo's #87.** This is the plan for `dev/DebugVerbs`, a new piece holding the debug verbs every app's channel answers, and for the debug client's move into `dev/DebugChannel`. It also covers each app taking them: Vibe, the other app, and the third app. Read [plan.md](plan.md)'s "The work, in order" first. Every rule there holds here.
 
 ## Why
 
@@ -166,6 +166,8 @@ Steps 4, 6, and 7 can go together once their pins exist. Step 1 must merge with 
 
 ## Step 1: Vibe's prep
 
+**Merged on 2026-10-30 as Vibe #428**, with a merge commit, `18a23258`.
+
 One pull request in Vibe, under Vibe's gates. It stages every file the piece will hold, at paths filter-repo maps to the piece:
 
 | Staging path in Vibe | Becomes, here |
@@ -210,6 +212,8 @@ Both must print nothing.
 **Done when** Vibe's gates pass, and the contract run (below) gives the same replies before and after on both platforms. The one expected difference is the order of the unknown-command reply's list.
 
 ## Step 2: the move here
+
+**This repo's #87.** It carried 35 commits of the 19 files from `18a23258`.
 
 On a fresh, full clone of Vibe at step 1's merge, list each staged file's earlier paths:
 
@@ -366,6 +370,20 @@ sed -n '7p;11p' run.ndjson | jq -c '[paths(scalars)] | sort'
 ```
 
 Decode line 6's `pngBase64` from each run and compare the PNG files by bytes. The script stops at `not_a_verb`, whose error lists every usage. Compare that list sorted. On iOS, `debug-ios.sh` runs `dump_build`, `dump_view_tree`, `dump_screenshot`, `set_clipboard hello`, `sample_frame_rate 1`, `dump_frame_rate`, `dump_health`, and `block_main 0.2 dump_state`, compared the same way.
+
+## What changed in the doing
+
+Each is a small fix to the plan, made while doing it.
+
+- **`work_tally` compiles its tally only under `VIBE_SIGNPOSTS`** (step 1). The work tally exists only where the app defines it. Vibe does in Debug, and the other app and the third app do not. So an unguarded call fails to link there, as the minimal consumer showed. Without the flag, the verb answers an error.
+- **`block_main` checks for itself first** (step 1). It is no longer in the table it chains from, so the old order would answer "can only chain a shared verb" for itself. The errors are unchanged.
+- **`dump_build`'s eight keys win over `buildExtras` of the same name**, so an app cannot break them. Each `.m` of the standard table declares `VibeDebugStandardPlatformVerbs` in `DebugStandardVerbs.h`, since `-Wmissing-prototypes` needs a prototype. Only `VibeDebugStandardVerbs` calls it.
+- **The mouse verbs, `scroll`, `raise_window`, and the key verbs answer an error when there is no window to aim at.** Before, the controller's window was never nil.
+- **The client's options have defaults**: the bundle identifier, the process name, and no file verbs. A file verb whose file is missing says "no file at", not "no screenshot at". Every stdout line and exit code is unchanged.
+- **Step 1 also fixed the `vibe-debug` skill's paths**, the ones the staging moved, so they were right at every commit. Step 4 moves them to vibe-libs' paths.
+- **The filter's earlier paths were six**: `Vibe/Debug/DebugClient.m`, `DebugInput.m`, and `DebugScreenshot.m`, each also under `Vibe/Debug/Mac/`. TRAP: name the filtered clone's branch so no Vibe branch sits under it. A local branch `move` blocked filter-repo from writing Vibe's `move/waveform`.
+- **`DebugVerbsTests` lives in `Tests/dev/DebugVerbs/Mac/`**, since a shared test file may not import AppKit unguarded.
+- **The mac contract run starts from a reset container and an active app.** Two things outside the app changed its replies between runs of one build: whether the window was key, and whether the transport buttons had faded with no pointer over the window. The drag at (20, 20) can also move the window, whose place persists, or start a native drag. So each run starts with `scripts/build/reset-state.sh --mac -y` and `open -a`, and each line is compared between runs in the same state. The welcome track's path inside each build's bundle is masked. On iOS, `set_clipboard`'s `changeCount` is masked too.
 
 ## TRAPs
 
