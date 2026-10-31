@@ -212,6 +212,19 @@ static void InstallChannelOnce(void) {
     XCTAssertEqualObjects(VibeDebugDuplicateVerbs(@[]), @[]);
 }
 
+- (void)testADuplicateIsAlsoAVerbOneTableHoldsTwice {
+    VibeDebugCommandHandler none = ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id c) {
+        return nil;
+    };
+    NSArray<NSDictionary *> *joined = @[VibeDebugCmd(@"pong", 0, none), VibeDebugCmd(@"ping <x>", 0, none),
+                                        VibeDebugCmd(@"quit", 0, none), VibeDebugCmd(@"ping", 0, none),
+                                        VibeDebugCmd(@"pong", 0, none), VibeDebugCmd(@"pong", 0, none)];
+    XCTAssertEqualObjects(VibeDebugDuplicateVerbs(@[joined]), (@[@"pong", @"ping"]),
+                          @"by verb, not by usage, each once, in the order it first appears");
+    XCTAssertEqualObjects(VibeDebugDuplicateVerbs(@[@[VibeDebugCmd(@"ping", 0, none)], joined]), (@[@"ping", @"pong"]),
+                          @"a verb twice in one table and once in another is answered once");
+}
+
 - (void)testArgumentsKeepTheirTokens {
     XCTAssertEqualObjects(VibeRestArgument(@[@"open"]), @"");
     XCTAssertEqualObjects(VibeRestArgument(@[@"open", @"a b", @"c"]), @"a b c");
