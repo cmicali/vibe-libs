@@ -197,6 +197,21 @@ static void InstallChannelOnce(void) {
                           @{@"error": @"unknown command 'nope'. Commands: greet <name>, ping"});
 }
 
+- (void)testADuplicateIsAVerbTwoTablesHold {
+    VibeDebugCommandHandler none = ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id c) {
+        return nil;
+    };
+    NSArray<NSDictionary *> *first = @[VibeDebugCmd(@"quit", 0, none), VibeDebugCmd(@"ping <x>", 0, none),
+                                       VibeDebugCmd(@"dump_build", 0, none)];
+    NSArray<NSDictionary *> *second = @[VibeDebugCmd(@"dump_build", 0, none), VibeDebugCmd(@"pong", 0, none),
+                                        VibeDebugCmd(@"ping", 0, none)];
+    NSArray<NSDictionary *> *third = @[VibeDebugCmd(@"dump_build [-]", 0, none)];
+    XCTAssertEqualObjects(VibeDebugDuplicateVerbs(@[first, second, third]), (@[@"ping", @"dump_build"]),
+                          @"by verb, not by usage, each once, in the order it first appears");
+    XCTAssertEqualObjects(VibeDebugDuplicateVerbs(@[first, @[VibeDebugCmd(@"pong", 0, none)]]), @[]);
+    XCTAssertEqualObjects(VibeDebugDuplicateVerbs(@[]), @[]);
+}
+
 - (void)testArgumentsKeepTheirTokens {
     XCTAssertEqualObjects(VibeRestArgument(@[@"open"]), @"");
     XCTAssertEqualObjects(VibeRestArgument(@[@"open", @"a b", @"c"]), @"a b c");

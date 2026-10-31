@@ -42,6 +42,28 @@ NSString *VibeDebugUnknownCommandReply(NSString *verb,
                          verb, [usages componentsJoinedByString:@", "]);
 }
 
+NSArray<NSString *> *VibeDebugDuplicateVerbs(NSArray<NSArray<NSDictionary *> *> *tables) {
+    NSCountedSet<NSString *> *holders = [NSCountedSet set];
+    NSMutableOrderedSet<NSString *> *order = [NSMutableOrderedSet orderedSet];
+    for (NSArray<NSDictionary *> *table in tables) {
+        NSMutableSet<NSString *> *own = [NSMutableSet set];
+        for (NSDictionary *spec in table) {
+            [own addObject:VibeDebugVerbFromUsage(spec[@"usage"])];
+            [order addObject:VibeDebugVerbFromUsage(spec[@"usage"])];
+        }
+        for (NSString *verb in own) {
+            [holders addObject:verb];
+        }
+    }
+    NSMutableArray<NSString *> *duplicates = [NSMutableArray array];
+    for (NSString *verb in order) {
+        if ([holders countForObject:verb] > 1) {
+            [duplicates addObject:verb];
+        }
+    }
+    return duplicates;
+}
+
 BOOL VibeParseOnOff(NSArray<NSString *> *tokens, BOOL *on) {
     NSString *arg = tokens.count > 1 ? tokens[1].lowercaseString : @"";
     *on = [arg isEqualToString:@"on"];

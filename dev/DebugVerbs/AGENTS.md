@@ -25,7 +25,7 @@ The standard debug verbs: the ones that know nothing of the app, so every app's 
 
 **`VibeDebugStandardVerbs(options)` answers the standard table**: the shared verbs, then the verbs for the platform it is built on. **`VibeDebugInputVerbs(options)` answers the input table**, on macOS. An app opts into it beside the standard table, so a later app can leave synthetic input out. The app builds each table once, at install, and adds it to the tables its dispatcher looks a verb up in. The unknown-command reply lists the same tables. The verbs' names, usages, waits, and reply keys are Vibe's, since its scripts and skills depend on them.
 
-**TRAP: a verb in two tables runs from the first one, silently.** So an app keeps no verb of its own under a standard verb's name.
+**TRAP: a verb in two tables runs from the first one, silently.** So an app keeps no verb of its own under a standard verb's name. Its install asserts that `VibeDebugDuplicateVerbs`, in `dev/DebugChannel`, finds none in its tables.
 
 ## The options
 
