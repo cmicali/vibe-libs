@@ -75,6 +75,7 @@ static const CGFloat kWaveformDragHysteresis = 4;
     _barWidthScale = 1;
     _centered = YES;
     _dragsWindow = YES;
+    _seekable = YES;
 }
 
 - (void)setWaveformStyle:(NSString*)identifier {
@@ -169,9 +170,9 @@ static const CGFloat kWaveformDragHysteresis = 4;
     _didClickInside = NO;
     _isDragSeeking = NO;
     _gestureDragsWindow = _dragsWindow;
-    if (!_waveform || !_currentWaveformRenderer || self.bounds.size.width <= 0) {
-        // Nothing to scrub (empty, loading, parked): the surface drags the
-        // window.
+    if (!_waveform || !_currentWaveformRenderer || self.bounds.size.width <= 0 || !_seekable) {
+        // Nothing to scrub (empty, loading, parked, or not seekable): the
+        // surface drags the window.
         [self dragWindowWithEvent:event];
         return;
     }
@@ -322,7 +323,7 @@ static const CGFloat kWaveformDragHysteresis = 4;
 
 - (void)updateHoverForEvent:(NSEvent *)event {
     NSPoint p = [self convertPoint:event.locationInWindow fromView:nil];
-    if (!_waveform || !NSPointInRect(p, self.bounds)) {
+    if (!_waveform || !_seekable || !NSPointInRect(p, self.bounds)) {
         [self hideHoverIndicator];
         return;
     }
@@ -371,9 +372,8 @@ static const CGFloat kWaveformDragHysteresis = 4;
     _convertSweepFraction = fraction;
 }
 
-// Every presentation reset's shared teardown, so the three cannot drift.
-// Callers hide their overlays and redraw themselves.
-- (void)resetWaveformContentState {
+// A press or a drag in flight ends with no seek, and a drag says so.
+- (void)cancelGesture {
     [self hideHoverIndicator];
     BOOL wasDragSeeking = _isDragSeeking;
     _didClickInside = NO;
@@ -381,6 +381,19 @@ static const CGFloat kWaveformDragHysteresis = 4;
     if (wasDragSeeking) {
         [self reportScrubProgress:-1];
     }
+}
+
+- (void)setSeekable:(BOOL)seekable {
+    _seekable = seekable;
+    if (!seekable) {
+        [self cancelGesture];
+    }
+}
+
+// Every presentation reset's shared teardown, so the three cannot drift.
+// Callers hide their overlays and redraw themselves.
+- (void)resetWaveformContentState {
+    [self cancelGesture];
     _convertSweepFraction = 0;
     _waveform = nil;
     self.progress = 0;
@@ -497,7 +510,7 @@ static const CGFloat kWaveformDragHysteresis = 4;
 // The position comes back through setProgress:, as for a click. Writing
 // _progress here would show a playhead that has not moved and fight the tick.
 - (BOOL)seekAccessibilityByDelta:(CGFloat)delta {
-    if (!_waveform || !_currentWaveformRenderer) {
+    if (!_waveform || !_currentWaveformRenderer || !_seekable) {
         return NO;
     }
     CGFloat target = MAX(0.0, MIN(1.0, _progress + delta));
@@ -506,6 +519,40 @@ static const CGFloat kWaveformDragHysteresis = 4;
     }
     [self.delegate waveformView:self didSeek:(float)target];
     return YES;
+}
+
+#pragma mark - Keyboard
+
+// Only for an app that asks, while keyboard navigation is on, as a slider
+// takes focus, and only with something to seek.
+- (BOOL)acceptsFirstResponder {
+    return _takesKeyboardFocus && _seekable && _waveform && NSApp.isFullKeyboardAccessEnabled;
+}
+
+- (BOOL)canBecomeKeyView {
+    return self.acceptsFirstResponder;
+}
+
+// The arrows step as VoiceOver does. Every other key goes up the chain.
+- (void)keyDown:(NSEvent *)event {
+    NSString *characters = event.charactersIgnoringModifiers;
+    unichar key = characters.length ? [characters characterAtIndex:0] : 0;
+    NSEventModifierFlags flags = event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagOption |
+                                                        NSEventModifierFlagControl | NSEventModifierFlagShift);
+    if (_takesKeyboardFocus && !flags && (key == NSRightArrowFunctionKey || key == NSLeftArrowFunctionKey)) {
+        [self seekAccessibilityByDelta:key == NSRightArrowFunctionKey ? kWaveformAccessibilityStep
+                                                                      : -kWaveformAccessibilityStep];
+        return;
+    }
+    [super keyDown:event];
+}
+
+- (NSRect)focusRingMaskBounds {
+    return self.bounds;
+}
+
+- (void)drawFocusRingMask {
+    NSRectFill(self.bounds);
 }
 
 #if DEBUG

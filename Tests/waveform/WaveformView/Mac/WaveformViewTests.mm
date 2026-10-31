@@ -440,4 +440,76 @@ static NSColor *Opaque(NSColor *color) {
                           [NSNumberFormatter localizedStringFromNumber:@1 numberStyle:NSNumberFormatterPercentStyle]);
 }
 
+#pragma mark - Seekable, and the keyboard
+
+// Not seekable: a click, a drag, and VoiceOver seek nothing, and a press
+// goes where an empty view's does.
+- (void)testANotSeekableViewSeeksNothing {
+    WindowDragRecordingWindow *window = [self recordingWindow];
+    [self showStyle:@"detailed" progress:0.5];
+    XCTAssertTrue(_view.seekable);
+    _view.seekable = NO;
+    _view.dragSeeks = YES;
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.3 in:window];
+    XCTAssertEqual(window.windowDrags, 1u, @"as an empty view's press");
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseDragged at:kWidth * 0.6 in:window];
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.6 in:window];
+    XCTAssertFalse([_view accessibilityPerformIncrement]);
+    XCTAssertEqual(_delegate.seeks.count, 0u);
+    XCTAssertEqual(_delegate.scrubs.count, 0u);
+    _view.seekable = YES;
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.3 in:window];
+    XCTAssertEqual(_delegate.seeks.count, 1u, @"seekable again");
+}
+
+// Turning seeking off ends a drag in flight, which says so, and its release
+// seeks nothing.
+- (void)testTurningSeekingOffEndsADrag {
+    NSWindow *window = VibeOffscreenWindow(NSMakeSize(kWidth, kHeight));
+    [window.contentView addSubview:_view];
+    [self showStyle:@"detailed" progress:0];
+    _view.dragSeeks = YES;
+    [self mouse:NSEventTypeLeftMouseDown at:kWidth * 0.3 in:window];
+    [self mouse:NSEventTypeLeftMouseDragged at:kWidth * 0.6 in:window];
+    _view.seekable = NO;
+    [self mouse:NSEventTypeLeftMouseUp at:kWidth * 0.6 in:window];
+    XCTAssertEqual(_delegate.scrubs.count, 2u);
+    XCTAssertLessThan(_delegate.scrubs.lastObject.doubleValue, 0);
+    XCTAssertEqual(_delegate.seeks.count, 0u);
+}
+
+- (NSEvent *)arrow:(unichar)key modifiers:(NSEventModifierFlags)modifiers {
+    NSString *characters = [NSString stringWithCharacters:&key length:1];
+    return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint
+                       modifierFlags:modifiers | NSEventModifierFlagFunction | NSEventModifierFlagNumericPad
+                           timestamp:0 windowNumber:0 context:nil characters:characters
+         charactersIgnoringModifiers:characters isARepeat:NO
+                             keyCode:key == NSRightArrowFunctionKey ? 124 : 123];
+}
+
+// The arrows step as VoiceOver does, only for an app that asks, and only
+// while the view can seek. A modified arrow is not the view's.
+- (void)testTheArrowsStepOnlyWhenAsked {
+    NSWindow *window = VibeOffscreenWindow(NSMakeSize(kWidth, kHeight));
+    [window.contentView addSubview:_view];
+    [self showStyle:@"detailed" progress:0.5];
+    XCTAssertFalse(_view.takesKeyboardFocus);
+    XCTAssertFalse(_view.acceptsFirstResponder, @"no focus unless asked");
+    [_view keyDown:[self arrow:NSRightArrowFunctionKey modifiers:0]];
+    XCTAssertEqual(_delegate.seeks.count, 0u);
+
+    _view.takesKeyboardFocus = YES;
+    [_view keyDown:[self arrow:NSRightArrowFunctionKey modifiers:0]];
+    [_view keyDown:[self arrow:NSLeftArrowFunctionKey modifiers:0]];
+    XCTAssertEqualObjects(_delegate.seeks, (@[@0.55f, @0.45f]));
+    [_view keyDown:[self arrow:NSRightArrowFunctionKey modifiers:NSEventModifierFlagCommand]];
+    _view.seekable = NO;
+    XCTAssertFalse(_view.acceptsFirstResponder);
+    [_view keyDown:[self arrow:NSRightArrowFunctionKey modifiers:0]];
+    XCTAssertEqual(_delegate.seeks.count, 2u);
+}
+
 @end
