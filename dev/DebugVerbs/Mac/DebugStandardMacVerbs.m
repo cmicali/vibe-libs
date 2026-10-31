@@ -15,6 +15,7 @@
 #import "DebugChannel.h"
 #import "DebugCommandDispatch.h"
 #import "DebugScreenshot.h"
+#import "DebugSyntheticInput.h"
 #import "DebugViewTree.h"
 #import "DebugWireFormat.h"
 
@@ -41,7 +42,11 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             return VibeViewTreeDump();
         }),
         VibeDebugCmd(@"dump_menu", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
-            return VibeJSONString(@{@"menu": VibeMenuArray(NSApp.mainMenu)});
+            __block NSArray *menu = nil;
+            VibeWithStandInKeyWindow(NSApp.keyWindow ? nil : VibeDebugTargetWindow(options, controller), ^{
+                menu = VibeMenuArray(NSApp.mainMenu);
+            });
+            return VibeJSONString(@{@"menu": menu});
         }),
         VibeDebugCmd(@"dump_screenshot [- | <label>]", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
             // The arguments are the client's; see DebugClient.m.
@@ -74,8 +79,13 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             if (!item) {
                 return VibeErrorJSON(@"no menu item with identifier or title '%@' (run `dump_menu` to list)", name);
             }
-            BOOL performed = options.performMenuItem ? options.performMenuItem(controller, item)
-                                                     : VibeDebugPerformMenuItem(item);
+            // With no key window, as when the app is not active, the target
+            // window stands in for it, so an item with no target finds one.
+            __block BOOL performed = NO;
+            VibeWithStandInKeyWindow(NSApp.keyWindow ? nil : VibeDebugTargetWindow(options, controller), ^{
+                performed = options.performMenuItem ? options.performMenuItem(controller, item)
+                                                    : VibeDebugPerformMenuItem(item);
+            });
             if (!performed) {
                 if (item.hasSubmenu) {
                     return VibeErrorJSON(@"menu item '%@' opens a submenu; click one of its items", item.title);

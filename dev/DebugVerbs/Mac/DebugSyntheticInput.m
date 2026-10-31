@@ -10,6 +10,8 @@
 
 #if DEBUG
 
+#import <objc/runtime.h>
+
 #import "DebugCommandDispatch.h"
 #import "DebugStandardVerbs.h"
 #import "DebugWireFormat.h"
@@ -141,6 +143,68 @@ BOOL VibeParseModifiers(NSArray<NSString *> *tokens, NSUInteger start,
     return YES;
 }
 
+#pragma mark The stand-in key window
+
+static NSWindow *VibeStandInKeyWindow;
+static IMP VibeTargetForActionIMP;
+static IMP VibeSendActionIMP;
+
+static id VibeStandInTarget(SEL action) {
+    for (NSResponder *responder = VibeStandInKeyWindow.firstResponder; responder; responder = responder.nextResponder) {
+        if ([responder respondsToSelector:action]) {
+            return responder;
+        }
+    }
+    id delegate = VibeStandInKeyWindow.delegate;
+    return [delegate respondsToSelector:action] ? delegate : nil;
+}
+
+static id VibeTargetForAction(id app, SEL cmd, SEL action, id target, id sender) {
+    id found = ((id (*)(id, SEL, SEL, id, id))VibeTargetForActionIMP)(app, cmd, action, target, sender);
+    return found ?: ((VibeStandInKeyWindow && !target) ? VibeStandInTarget(action) : nil);
+}
+
+static BOOL VibeSendAction(id app, SEL cmd, SEL action, id target, id sender) {
+    if (VibeStandInKeyWindow && !target) {
+        target = [app targetForAction:action to:nil from:sender];
+    }
+    return ((BOOL (*)(id, SEL, SEL, id, id))VibeSendActionIMP)(app, cmd, action, target, sender);
+}
+
+// TRAP: AppKit finds a nil target's action from the key window, then the main
+// window, and an app that is not active has neither. No public call names a
+// window for that lookup, so NSApplication's two lookups gain a fallback,
+// once. It answers only while a stand-in is set, and only where AppKit found
+// nothing, so the app's own dispatch is unchanged at every other moment.
+void VibeWithStandInKeyWindow(NSWindow *window, void (NS_NOESCAPE ^block)(void)) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        Class app = NSApplication.class;
+        VibeTargetForActionIMP = method_setImplementation(
+                class_getInstanceMethod(app, @selector(targetForAction:to:from:)), (IMP)VibeTargetForAction);
+        VibeSendActionIMP = method_setImplementation(
+                class_getInstanceMethod(app, @selector(sendAction:to:from:)), (IMP)VibeSendAction);
+    });
+    NSWindow *outer = VibeStandInKeyWindow;
+    VibeStandInKeyWindow = window ?: outer;
+    block();
+    VibeStandInKeyWindow = outer;
+}
+
+// NSApp's order for a key window: a key with Command or Control asks the
+// window's views for a key equivalent first, then the main menu. Every key
+// then goes to the window, whose keyDown: reaches the main menu.
+void VibeSendKeyToWindow(NSWindow *window, NSEvent *event) {
+    VibeWithStandInKeyWindow(window, ^{
+        if (event.type == NSEventTypeKeyDown &&
+            (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl)) &&
+            [window performKeyEquivalent:event]) {
+            return;
+        }
+        [window sendEvent:event];
+    });
+}
+
 // key posts a down and an up; key_down and key_up post one edge each, which
 // is how a held key is driven: a handler that latches on a tap and reverts on
 // a hold decides on key up.
@@ -175,26 +239,45 @@ NSString *VibeInjectKey(NSWindow *window, NSArray<NSString *> *tokens, BOOL down
     // matching reads it — a lowercase char there makes ⇧⌘C match a plain ⌘C
     // equivalent instead of the ⇧⌘C one.
     NSString *charsWithMods = (flags & NSEventModifierFlagShift) ? VibeShiftedKeyCharacters(chars) : chars;
-    void (^post)(NSEventType) = ^(NSEventType type) {
-        NSEvent *event = [NSEvent keyEventWithType:type
-                                          location:NSZeroPoint
-                                     modifierFlags:flags
-                                         timestamp:VibeEventTimestamp()
-                                      windowNumber:window.windowNumber
-                                           context:nil
-                                        characters:charsWithMods
-                       charactersIgnoringModifiers:charsWithMods
-                                         isARepeat:isRepeat
-                                           keyCode:code.unsignedShortValue];
-        [NSApp postEvent:event atStart:NO];
+    NSEvent * (^make)(NSEventType) = ^NSEvent *(NSEventType type) {
+        return [NSEvent keyEventWithType:type
+                                location:NSZeroPoint
+                           modifierFlags:flags
+                               timestamp:VibeEventTimestamp()
+                            windowNumber:window.windowNumber
+                                 context:nil
+                              characters:charsWithMods
+             charactersIgnoringModifiers:charsWithMods
+                               isARepeat:isRepeat
+                                 keyCode:code.unsignedShortValue];
     };
+    NSMutableArray<NSEvent *> *events = [NSMutableArray array];
     if (down) {
-        post(NSEventTypeKeyDown);
+        [events addObject:make(NSEventTypeKeyDown)];
     }
     if (up) {
-        post(NSEventTypeKeyUp);
+        [events addObject:make(NSEventTypeKeyUp)];
     }
-    return VibeJSONString(@{@"ok": @YES, @"posted": verb, @"key": name, @"repeat": @(isRepeat)});
+    // TRAP: NSApp sends a queued key event to its key window, and an app that
+    // is not active has none, so the key went nowhere. With no key window the
+    // key goes to window itself, as NSApp would hand it to a key window, with
+    // window standing in for the key window, and the app stays behind. Local
+    // monitors never see a key sent this way.
+    BOOL queued = NSApp.keyWindow != nil;
+    if (queued) {
+        for (NSEvent *event in events) {
+            [NSApp postEvent:event atStart:NO];
+        }
+    }
+    else {
+        // After the reply, as a queued event runs.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            for (NSEvent *event in events) {
+                VibeSendKeyToWindow(window, event);
+            }
+        });
+    }
+    return VibeJSONString(@{@"ok": @YES, @"posted": verb, @"key": name, @"repeat": @(isRepeat), @"queued": @(queued)});
 }
 
 NSPoint VibeWindowPointForContentPoint(NSWindow *window, double x, double y) {
@@ -421,7 +504,7 @@ NSArray<NSDictionary *> *VibeDebugInputVerbs(VibeDebugStandardOptions *options) 
         return window ? VibeInjectMouse(window, tokens) : VibeErrorJSON(@"no window to aim at");
     };
     // Into the key window, as a real press goes, so a press reaches whichever
-    // window is key. The target window when none is.
+    // window is key. Straight to the target window when none is.
     VibeDebugCommandHandler (^key)(BOOL, BOOL) = ^VibeDebugCommandHandler(BOOL down, BOOL up) {
         return ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
             NSWindow *window = NSApp.keyWindow ?: VibeDebugTargetWindow(options, controller);

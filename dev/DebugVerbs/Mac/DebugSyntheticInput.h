@@ -18,11 +18,26 @@ NS_ASSUME_NONNULL_BEGIN
 // The input table: key, key_down, key_up, click, mouse_down, mouse_up,
 // mouse_move, drag, and scroll. An app opts into it beside the standard
 // table. The mouse verbs and scroll aim at the options' targetWindow. The key
-// verbs post into the key window, or the target window when none is key.
+// verbs post into the key window. When the app has none, as when it is not
+// active, they send to the target window directly, and the app stays behind.
 NSArray<NSDictionary *> *VibeDebugInputVerbs(VibeDebugStandardOptions *options);
 
-// tokens[0] is the verb: key, key_down, or key_up. Posts into window.
+// tokens[0] is the verb: key, key_down, or key_up. Posts into window while
+// the app has a key window. With none, sends to window after the reply, through
+// VibeSendKeyToWindow. The reply's queued says which.
 NSString *VibeInjectKey(NSWindow *window, NSArray<NSString *> *tokens, BOOL down, BOOL up);
+
+// Hands a key event to window as NSApp hands one to its key window, but with
+// no key status needed, and with window standing in for the key window.
+// Local monitors never see it.
+void VibeSendKeyToWindow(NSWindow *window, NSEvent *event);
+
+// Runs block with window standing in for the key window when AppKit looks up
+// an action's target. A menu item with no target, or a sendAction:to:nil,
+// that finds none then looks in window's responder chain, then its delegate.
+// An app that is not active has no key window, so without one such an item
+// reads as disabled. A nil window runs block as it is. Main thread only.
+void VibeWithStandInKeyWindow(NSWindow *_Nullable window, void (NS_NOESCAPE ^block)(void));
 
 // tokens[0] is the verb: click, mouse_down, mouse_up, or mouse_move. Makes
 // window key first.

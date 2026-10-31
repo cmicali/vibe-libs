@@ -29,6 +29,54 @@
 }
 @end
 
+// A window that keeps each key event it is sent, and handles none.
+@interface DebugVerbsKeyWindow : NSWindow
+@property (nonatomic, readonly) NSMutableArray<NSEvent *> *keys;
+@property (nonatomic, readonly) NSMutableArray<NSEvent *> *equivalents;
+@end
+
+@implementation DebugVerbsKeyWindow {
+    NSMutableArray<NSEvent *> *_keys;
+    NSMutableArray<NSEvent *> *_equivalents;
+}
+- (NSMutableArray<NSEvent *> *)keys {
+    if (!_keys) {
+        _keys = [NSMutableArray array];
+    }
+    return _keys;
+}
+- (NSMutableArray<NSEvent *> *)equivalents {
+    if (!_equivalents) {
+        _equivalents = [NSMutableArray array];
+    }
+    return _equivalents;
+}
+- (void)sendEvent:(NSEvent *)event {
+    if (event.type == NSEventTypeKeyDown || event.type == NSEventTypeKeyUp) {
+        [self.keys addObject:event];
+        return;
+    }
+    [super sendEvent:event];
+}
+- (BOOL)performKeyEquivalent:(NSEvent *)event {
+    [self.equivalents addObject:event];
+    return NO;
+}
+@end
+
+// A window's controller, in its responder chain, which a menu item with no
+// target reaches.
+@interface DebugVerbsWindowController : NSWindowController
+@property (nonatomic) NSUInteger fired;
+- (void)fire:(id)sender;
+@end
+
+@implementation DebugVerbsWindowController
+- (void)fire:(id)sender {
+    self.fired++;
+}
+@end
+
 @implementation DebugVerbsTests {
     NSMutableArray<NSWindow *> *_windows;
     NSMenu *_mainMenu;
@@ -407,17 +455,40 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
 
 #pragma mark - The input table
 
-- (void)testTheKeyVerbsPostWhatARealKeyCarries {
-    NSWindow *window = [self windowOfSize:NSMakeSize(100, 100)];
+// The key events a key verb sent, oldest first: from the queue while the app
+// has a key window, and from window once the run loop delivers them when not.
+static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json) {
+    if ([JSONObject(json)[@"queued"] boolValue]) {
+        return QueuedEvents(NSEventMaskKeyDown | NSEventMaskKeyUp);
+    }
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    NSArray<NSEvent *> *keys = [window.keys copy];
+    [window.keys removeAllObjects];
+    return keys;
+}
+
+- (DebugVerbsKeyWindow *)keyWindowOfSize:(NSSize)size {
+    DebugVerbsKeyWindow *window = [[DebugVerbsKeyWindow alloc] initWithContentRect:NSMakeRect(100, 100, size.width, size.height)
+                                                                         styleMask:NSWindowStyleMaskTitled
+                                                                           backing:NSBackingStoreBuffered
+                                                                             defer:NO];
+    window.releasedWhenClosed = NO;
+    [_windows addObject:window];
+    return window;
+}
+
+- (void)testTheKeyVerbsSendWhatARealKeyCarries {
+    DebugVerbsKeyWindow *window = [self keyWindowOfSize:NSMakeSize(100, 100)];
     VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
     options.targetWindow = ^NSWindow *(id controller) {
         return window;
     };
     NSArray<NSDictionary *> *table = VibeDebugInputVerbs(options);
 
-    XCTAssertEqualObjects(JSONObject(Run(table, @[@"key", @"a", @"shift"], NSNull.null)),
-                          (@{@"ok": @YES, @"posted": @"key", @"key": @"a", @"repeat": @NO}));
-    NSArray<NSEvent *> *events = QueuedEvents(NSEventMaskKeyDown | NSEventMaskKeyUp);
+    NSString *json = Run(table, @[@"key", @"a", @"shift"], NSNull.null);
+    XCTAssertEqualObjects(JSONObject(json), (@{@"ok": @YES, @"posted": @"key", @"key": @"a", @"repeat": @NO,
+                                               @"queued": @(NSApp.keyWindow != nil)}));
+    NSArray<NSEvent *> *events = SentKeys(window, json);
     XCTAssertEqual(events.count, 2u);
     XCTAssertEqual(events[0].type, NSEventTypeKeyDown);
     XCTAssertEqual(events[1].type, NSEventTypeKeyUp);
@@ -427,20 +498,20 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
                           @"hardware carries the shifted character in both fields");
     XCTAssertTrue(events[0].modifierFlags & NSEventModifierFlagShift);
 
-    Run(table, @[@"key", @"1", @"shift"], NSNull.null);
-    XCTAssertEqualObjects(QueuedEvents(NSEventMaskKeyDown | NSEventMaskKeyUp).firstObject.characters, @"!");
+    json = Run(table, @[@"key", @"1", @"shift"], NSNull.null);
+    XCTAssertEqualObjects(SentKeys(window, json).firstObject.characters, @"!");
 
-    Run(table, @[@"key_down", @"left", @"repeat"], NSNull.null);
-    events = QueuedEvents(NSEventMaskKeyDown | NSEventMaskKeyUp);
-    XCTAssertEqual(events.count, 1u, @"key_down posts one edge");
+    json = Run(table, @[@"key_down", @"left", @"repeat"], NSNull.null);
+    events = SentKeys(window, json);
+    XCTAssertEqual(events.count, 1u, @"key_down sends one edge");
     XCTAssertEqual(events[0].keyCode, 123);
     XCTAssertTrue(events[0].isARepeat);
     XCTAssertTrue(events[0].modifierFlags & NSEventModifierFlagFunction);
     XCTAssertTrue(events[0].modifierFlags & NSEventModifierFlagNumericPad);
     XCTAssertEqual([events[0].characters characterAtIndex:0], (unichar)NSLeftArrowFunctionKey);
 
-    Run(table, @[@"key_up", @"space", @"cmd"], NSNull.null);
-    events = QueuedEvents(NSEventMaskKeyDown | NSEventMaskKeyUp);
+    json = Run(table, @[@"key_up", @"space", @"cmd"], NSNull.null);
+    events = SentKeys(window, json);
     XCTAssertEqual(events.count, 1u);
     XCTAssertEqual(events[0].type, NSEventTypeKeyUp);
     XCTAssertTrue(events[0].modifierFlags & NSEventModifierFlagCommand);
@@ -448,6 +519,84 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
 
     XCTAssertNotNil(JSONObject(Run(table, @[@"key", @"nope"], NSNull.null))[@"error"]);
     XCTAssertNotNil(JSONObject(Run(table, @[@"key", @"a", @"hyper"], NSNull.null))[@"error"]);
+}
+
+- (void)testWithNoKeyWindowAKeyReachesTheTargetWindowAsAKeyWindowGetsIt {
+    if (NSApp.keyWindow) {
+        XCTSkip(@"an earlier test left a key window");
+    }
+    DebugVerbsKeyWindow *window = [self keyWindowOfSize:NSMakeSize(100, 100)];
+    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    options.targetWindow = ^NSWindow *(id controller) {
+        return window;
+    };
+    NSArray<NSDictionary *> *table = VibeDebugInputVerbs(options);
+
+    NSString *json = Run(table, @[@"key", @"k", @"cmd"], NSNull.null);
+    XCTAssertEqualObjects(JSONObject(json)[@"queued"], @NO);
+    XCTAssertEqual(window.keys.count, 0u, @"nothing arrives before the reply");
+    NSArray<NSEvent *> *events = SentKeys(window, json);
+    XCTAssertEqual(window.equivalents.count, 1u, @"Command asks the window's views first");
+    XCTAssertEqual(window.equivalents.firstObject.type, NSEventTypeKeyDown);
+    XCTAssertEqual(events.count, 2u, @"then the window gets the down, and the up");
+    XCTAssertEqual(QueuedEvents(NSEventMaskKeyDown | NSEventMaskKeyUp).count, 0u, @"nothing went to the queue");
+
+    [window.equivalents removeAllObjects];
+    json = Run(table, @[@"key", @"space"], NSNull.null);
+    XCTAssertEqual(SentKeys(window, json).count, 2u);
+    XCTAssertEqual(window.equivalents.count, 0u, @"a key with no Command goes to the window alone");
+}
+
+- (void)testWithNoKeyWindowAShortcutFindsAMenuItemsTargetInTheWindowsChain {
+    if (NSApp.keyWindow) {
+        XCTSkip(@"an earlier test left a key window");
+    }
+    NSWindow *window = [self windowOfSize:NSMakeSize(100, 100)];
+    DebugVerbsWindowController *controller = [[DebugVerbsWindowController alloc] initWithWindow:window];
+    NSMenu *bar = [NSMenu new];
+    NSMenuItem *top = [NSMenuItem new];
+    [bar addItem:top];
+    top.submenu = [[NSMenu alloc] initWithTitle:@"File"];
+    [top.submenu addItemWithTitle:@"Fire" action:@selector(fire:) keyEquivalent:@"k"];
+    NSApp.mainMenu = bar;
+    XCTAssertNil([NSApp targetForAction:@selector(fire:)], @"with no key window, NSApp finds no target");
+
+    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    options.targetWindow = ^NSWindow *(id unused) {
+        return window;
+    };
+    Run(VibeDebugInputVerbs(options), @[@"key", @"k", @"cmd"], NSNull.null);
+    XCTAssertEqual(controller.fired, 0u, @"it fires after the reply");
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+    XCTAssertEqual(controller.fired, 1u, @"the window's own chain reached its controller");
+}
+
+- (void)testWithNoKeyWindowClickMenuFindsAnItemsTargetInTheTargetWindowsChain {
+    if (NSApp.keyWindow) {
+        XCTSkip(@"an earlier test left a key window");
+    }
+    NSWindow *window = [self windowOfSize:NSMakeSize(100, 100)];
+    DebugVerbsWindowController *controller = [[DebugVerbsWindowController alloc] initWithWindow:window];
+    NSMenu *bar = [NSMenu new];
+    NSMenuItem *top = [NSMenuItem new];
+    [bar addItem:top];
+    top.submenu = [[NSMenu alloc] initWithTitle:@"File"];
+    [top.submenu addItemWithTitle:@"Fire" action:@selector(fire:) keyEquivalent:@"k"];
+    NSApp.mainMenu = bar;
+    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs(options);
+
+    XCTAssertEqualObjects(JSONObject(Run(table, @[@"click_menu", @"Fire"], NSNull.null))[@"error"],
+                          @"menu item 'Fire' is disabled", @"with no target window, the item finds no target");
+    options.targetWindow = ^NSWindow *(id unused) {
+        return window;
+    };
+    NSDictionary *items = JSONObject(Run(table, @[@"dump_menu"], NSNull.null));
+    XCTAssertEqualObjects(items[@"menu"][0][@"items"][0][@"enabled"], @YES, @"the dump validates as a click would");
+    XCTAssertEqualObjects(JSONObject(Run(table, @[@"click_menu", @"Fire"], NSNull.null)),
+                          (@{@"ok": @YES, @"clicked": @"Fire", @"action": @"fire:"}));
+    XCTAssertEqual(controller.fired, 1u);
+    XCTAssertNil([NSApp targetForAction:@selector(fire:)], @"outside a verb, AppKit's lookup is its own");
 }
 
 - (void)testClickPostsADownAndAnUpPerCountWithTheCountAscending {
