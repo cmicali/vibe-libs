@@ -6,9 +6,10 @@
 //  placeholders, each takes a fixed time to "download", and a cancelled
 //  download leaves the file a placeholder. A real provider is slow,
 //  nondeterministic and needs an account, and placeholders cannot be staged by
-//  hand, so the three chokepoints are injected instead (PlaceholderFiles' dataless
-//  probe, CloudFileMaterializer's transfer, DownloadProgressMonitor's
-//  reporting) and everything above them runs unchanged. It tests the app's
+//  hand, so the chokepoints are injected instead (PlaceholderFiles' dataless
+//  probes, CloudFileMaterializer's transfer, CloudListingFetcher's fetches,
+//  DownloadProgressMonitor's reporting) and everything above them runs
+//  unchanged. It tests the app's
 //  download ordering, not NSFileCoordinator's cancellation. It sees downloads,
 //  not reads. A placeholder is a local file here, so a read that skips the
 //  dataless probe goes unseen (this piece's AGENTS.md).
@@ -61,7 +62,27 @@ typedef NS_ENUM(NSInteger, VibeFakeCloudProgressMode) {
 // shape, which spends the metadata retry budget. nil clears.
 + (void)setFailingBasename:(NSString * _Nullable)basename;
 
-// Restores the real dataless test and the real coordinated read.
+// Directories whose listing reads as not fetched, by PlaceholderFiles'
+// isDatalessDirectory:, until CloudListingFetcher fetches them. A fetch takes
+// fetchSeconds, then marks the directory and every unfetched one under it
+// fetched. A placeholder file's fetch by CloudListingFetcher takes the same
+// time. Both are counted apart from the transfers: as listingFetches and
+// fileFetches in statistics. Replaces the set. Install clears the set and
+// both counts.
++ (void)setUnfetchedDirectories:(NSArray<NSURL *> *)directories fetchSeconds:(NSTimeInterval)fetchSeconds;
+
+// The provider frees a listing again.
++ (void)unfetchDirectory:(NSURL *)directory;
+
+// The provider frees a file again: it answers as a placeholder once more.
++ (void)evictFile:(NSURL *)file;
+
+// While YES, a listing fetch runs its time, then fails, and the directory
+// stays unfetched. Install resets to NO.
++ (void)setListingFetchesFail:(BOOL)fail;
+
+// Restores the real dataless test, the real coordinated read, and the real
+// fetches.
 + (void)uninstall;
 
 + (BOOL)isInstalled;

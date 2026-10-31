@@ -15,6 +15,7 @@
 #import "FolderWalkInternal.h"
 #import "PlayableExtensions.h"
 #import "VibeFakeCloud.h"
+#import "CloudListingFetcher.h"
 #import "VibePlayableItem.h"
 
 @interface FolderWalkTests : XCTestCase
@@ -1150,6 +1151,40 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     XCTAssertEqual(failures.firstObject.count, 1u, @"%@", failures);
     XCTAssertEqual(failures.firstObject.firstObject.code, VibeFolderScanErrorNotFetched);
     XCTAssertEqualObjects([self sortedRelativePaths:batches], @[]);
+}
+
+// Over the fake provider: the scan meets the unfetched directory, the fetch
+// lists it, and the next scan is complete. Neither downloads audio.
+- (void)testAFetchedDirectoryScansCompleteOverTheFakeCloud {
+    [self makeFile:@"library/a.mp3"];
+    [self makeFile:@"library/cloud/b.mp3"];
+    [self makeFile:@"library/cloud/deeper/c.mp3"];
+    NSURL *library = [self makeDirectory:@"library"];
+    NSURL *cloud = [library URLByAppendingPathComponent:@"cloud" isDirectory:YES];
+    [VibeFakeCloud installWithTransferSeconds:0.1 datalessPercent:100];
+    [VibeFakeCloud setUnfetchedDirectories:@[cloud, [cloud URLByAppendingPathComponent:@"deeper" isDirectory:YES]]
+                              fetchSeconds:0];
+    NSArray<NSNumber *> *verdicts = nil;
+    NSArray<NSArray<NSError *> *> *failures = nil;
+
+    NSArray<NSString *> *before = [self sortedRelativePaths:
+            [self scan:@[library] policy:VibeFolderScanReadPolicyLocal
+              progress:[NSProgress discreteProgressWithTotalUnitCount:-1] verdicts:&verdicts failures:&failures]];
+    XCTAssertEqualObjects(verdicts, @[@(VibeFolderScanVerdictPartial)]);
+    NSURL *unfetched = failures.firstObject.firstObject.userInfo[NSURLErrorKey];
+    NSError *error = nil;
+    XCTAssertTrue([CloudListingFetcher fetchListingOfDirectory:unfetched error:&error], @"%@", error);
+    NSArray<NSString *> *after = [self sortedRelativePaths:
+            [self scan:@[library] policy:VibeFolderScanReadPolicyLocal
+              progress:[NSProgress discreteProgressWithTotalUnitCount:-1] verdicts:&verdicts failures:&failures]];
+    NSDictionary *statistics = [VibeFakeCloud statistics];
+    [VibeFakeCloud uninstall];
+
+    XCTAssertEqualObjects(before, @[@"library/a.mp3"]);
+    XCTAssertEqualObjects(verdicts, @[@(VibeFolderScanVerdictComplete)]);
+    XCTAssertEqualObjects(after, (@[@"library/a.mp3", @"library/cloud/b.mp3", @"library/cloud/deeper/c.mp3"]));
+    XCTAssertEqualObjects(statistics[@"listingFetches"], @1);
+    XCTAssertEqualObjects(statistics[@"completed"], @0);
 }
 
 // The open lists what the user picked, so it still waits on the provider.

@@ -6,6 +6,7 @@
 
 #import "AudioFileMaterializationCoordinator.h"
 #import "CloudFileMaterializer.h"
+#import "CloudListingFetcher.h"
 #import "DownloadProgressMonitor.h"
 #import "PlaceholderFiles.h"
 #import "VibeFakeCloud.h"
@@ -495,6 +496,104 @@
         XCTAssertEqualObjects(metadataError.domain, NSCocoaErrorDomain);
         XCTAssertEqual(metadataError.code, NSUserCancelledError);
     }
+}
+
+#pragma mark - Listings
+
+- (NSURL *)temporaryDirectory {
+    NSURL *root = [NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString]
+                             isDirectory:YES];
+    [NSFileManager.defaultManager createDirectoryAtURL:root withIntermediateDirectories:YES attributes:nil error:NULL];
+    [self addTeardownBlock:^{
+        [NSFileManager.defaultManager removeItemAtURL:root error:NULL];
+    }];
+    return root;
+}
+
+// A fetch takes its time, then the directory and every unfetched one under it
+// list. Fetches are counted apart from the transfers.
+- (void)testAListingFetchTakesItsTimeAndFetchesTheSubtree {
+    NSURL *root = [self temporaryDirectory];
+    NSURL *album = [root URLByAppendingPathComponent:@"album" isDirectory:YES];
+    NSURL *disc = [album URLByAppendingPathComponent:@"disc 2" isDirectory:YES];
+    NSURL *other = [root URLByAppendingPathComponent:@"other" isDirectory:YES];
+    [VibeFakeCloud installWithTransferSeconds:0.1 datalessPercent:100];
+    [VibeFakeCloud setUnfetchedDirectories:@[album, disc, other] fetchSeconds:0.2];
+    XCTAssertTrue([PlaceholderFiles isDatalessDirectory:album]);
+    XCTAssertFalse([PlaceholderFiles isDatalessDirectory:root]);
+
+    NSDate *start = [NSDate date];
+    NSError *error = nil;
+    XCTAssertTrue([CloudListingFetcher fetchListingOfDirectory:album error:&error], @"%@", error);
+    XCTAssertGreaterThanOrEqual(-start.timeIntervalSinceNow, 0.2);
+
+    XCTAssertFalse([PlaceholderFiles isDatalessDirectory:album]);
+    XCTAssertFalse([PlaceholderFiles isDatalessDirectory:disc]);
+    XCTAssertTrue([PlaceholderFiles isDatalessDirectory:other]);
+    NSDictionary *statistics = [VibeFakeCloud statistics];
+    XCTAssertEqualObjects(statistics[@"listingFetches"], @1);
+    XCTAssertEqualObjects(statistics[@"completed"], @0);
+    XCTAssertEqualObjects(statistics[@"unfetchedDirectories"], @1);
+
+    [VibeFakeCloud unfetchDirectory:album];
+    XCTAssertTrue([PlaceholderFiles isDatalessDirectory:album]);
+}
+
+- (void)testAFailingListingFetchLeavesTheDirectoryUnfetched {
+    NSURL *album = [[self temporaryDirectory] URLByAppendingPathComponent:@"album" isDirectory:YES];
+    [VibeFakeCloud installWithTransferSeconds:0.1 datalessPercent:0];
+    [VibeFakeCloud setUnfetchedDirectories:@[album] fetchSeconds:0];
+    [VibeFakeCloud setListingFetchesFail:YES];
+
+    NSError *error = nil;
+    XCTAssertFalse([CloudListingFetcher fetchListingOfDirectory:album error:&error]);
+    XCTAssertEqualObjects(error.domain, VibeCloudFetchErrorDomain);
+    XCTAssertTrue([PlaceholderFiles isDatalessDirectory:album]);
+}
+
+// A small placeholder downloads, counted apart from the transfers. A large one
+// does not, whatever the fake says.
+- (void)testAFileFetchKeepsItsLimitAndCountsApart {
+    NSURL *root = [self temporaryDirectory];
+    NSURL *sheet = [root URLByAppendingPathComponent:@"album.cue"];
+    NSURL *large = [root URLByAppendingPathComponent:@"large.cue"];
+    [@"FILE \"a.flac\" WAVE\n" writeToURL:sheet atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+    [[NSMutableData dataWithLength:2048] writeToURL:large atomically:YES];
+    [VibeFakeCloud installWithTransferSeconds:0.1 datalessPercent:100];
+    [VibeFakeCloud setUnfetchedDirectories:@[] fetchSeconds:0.05];
+    XCTAssertTrue([PlaceholderFiles isDatalessFile:sheet]);
+
+    NSError *error = nil;
+    XCTAssertFalse([CloudListingFetcher fetchFile:large limit:1024 error:&error]);
+    XCTAssertEqual(error.code, VibeCloudFetchErrorTooLarge);
+    XCTAssertTrue([CloudListingFetcher fetchFile:sheet limit:1024 error:&error], @"%@", error);
+    XCTAssertFalse([PlaceholderFiles isDatalessFile:sheet]);
+    NSDictionary *statistics = [VibeFakeCloud statistics];
+    XCTAssertEqualObjects(statistics[@"fileFetches"], @1);
+    XCTAssertEqualObjects(statistics[@"completed"], @0);
+
+    [VibeFakeCloud evictFile:sheet];
+    XCTAssertTrue([PlaceholderFiles isDatalessFile:sheet]);
+}
+
+// The real fetches, on a local tree: a listing that is here lists, and a
+// file that is here is a fetch that succeeded.
+- (void)testTheRealFetchesAnswerAtOnceForWhatIsHere {
+    NSURL *root = [self temporaryDirectory];
+    NSURL *nested = [root URLByAppendingPathComponent:@"a/b" isDirectory:YES];
+    [NSFileManager.defaultManager createDirectoryAtURL:nested withIntermediateDirectories:YES attributes:nil error:NULL];
+    NSURL *sheet = [nested URLByAppendingPathComponent:@"album.cue"];
+    [@"FILE \"a.flac\" WAVE\n" writeToURL:sheet atomically:YES encoding:NSUTF8StringEncoding error:NULL];
+
+    NSError *error = nil;
+    XCTAssertTrue([CloudListingFetcher fetchListingOfDirectory:root error:&error], @"%@", error);
+    XCTAssertTrue([CloudListingFetcher fetchFile:sheet limit:1024 error:&error], @"%@", error);
+    XCTAssertFalse([CloudListingFetcher fetchFile:sheet limit:4 error:&error]);
+    XCTAssertEqual(error.code, VibeCloudFetchErrorTooLarge);
+    XCTAssertFalse([CloudListingFetcher fetchListingOfDirectory:[root URLByAppendingPathComponent:@"gone"]
+                                                          error:&error]);
+    XCTAssertEqualObjects(error.domain, NSPOSIXErrorDomain);
+    XCTAssertEqual(error.code, ENOENT);
 }
 
 @end
