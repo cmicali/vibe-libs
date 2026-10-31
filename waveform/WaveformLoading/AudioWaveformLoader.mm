@@ -23,7 +23,10 @@
 
 #include <array>
 #include <atomic>
+#include <errno.h>
 #include <memory>
+#include <string.h>
+#include <sys/resource.h>
 #include <time.h>
 #include <vector>
 
@@ -34,6 +37,25 @@ static inline uint64_t VibeLoadClockNow(void) {
 #else
     return 0;
 #endif
+}
+
+// Runs block with this thread unable to materialize a dataless file: a read
+// of one fails with EDEADLK, and nothing downloads. A file the provider freed
+// since its play then fails to decode, rather than downloads again. A part
+// file a transfer writes is local, so a stream still decodes.
+// TRAP: thread scope, restored after. The thread is a scheduler's, and runs
+// other work next.
+static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
+    int previous = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
+    BOOL set = setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD,
+                              IOPOL_MATERIALIZE_DATALESS_FILES_OFF) == 0;
+    if (!set) {
+        LogWarn(@"Could not turn materialization off for a decode: %s", strerror(errno));
+    }
+    block();
+    if (set && previous >= 0) {
+        setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, previous);
+    }
 }
 
 @implementation AudioWaveformLoader {
@@ -81,7 +103,10 @@ static inline uint64_t VibeLoadClockNow(void) {
 }
 
 - (CodableAudioWaveform *)load:(NSString *)filename {
-    CodableAudioWaveform *result = [self decode:filename];
+    __block CodableAudioWaveform *result = nil;
+    VibeWithoutMaterializing(^{
+        result = [self decode:filename];
+    });
     // TRAP: the claim and its wait timer can outlive the load. Release the
     // handle here or each retained loader also retains an open descriptor.
     @synchronized (self) {
@@ -91,6 +116,15 @@ static inline uint64_t VibeLoadClockNow(void) {
 }
 
 - (BOOL)loadDetailBlocks:(NSIndexSet *)blocks ofFile:(NSString *)filename
+            intoWaveform:(CodableAudioWaveform *)waveform {
+    __block BOOL ok = NO;
+    VibeWithoutMaterializing(^{
+        ok = [self readDetailBlocks:blocks ofFile:filename intoWaveform:waveform];
+    });
+    return ok;
+}
+
+- (BOOL)readDetailBlocks:(NSIndexSet *)blocks ofFile:(NSString *)filename
             intoWaveform:(CodableAudioWaveform *)waveform {
     AudioWaveform *summary = waveform.waveform;
     if (!summary || self.isCancelled) {

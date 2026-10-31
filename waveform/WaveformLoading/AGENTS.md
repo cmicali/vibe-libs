@@ -55,6 +55,10 @@ Only a style that draws the bands reads them. So **a decode splits them only whe
 
 The loader decodes only the item's window (`cueStart`/`cueEnd` through `VibeCueWindow`), and the observers' sinks see only its frames. A DJ mix gets a waveform, a tempo and a key per track. Everything keyed per file is keyed per window here. The claim (the standardized path), the detached-loader pool and the disk entry all append the window through `VibeKeyByAppendingCueWindow` (`VibePlayableItem.h`). The disk entry's key is `VibeWaveformEntryKey` (`AudioWaveformCacheInternal.h`), the one home of that rule. The shared lookup-or-decode path sets the decode's window from the same item.
 
+## A decode never downloads
+
+**The loader decodes with its thread unable to materialize** (`IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES`), for a summary and for deep zoom's reads alike. A play downloads its file before the decode is asked for. A file the provider freed since then fails to open or read, rather than downloads again, and the decode delivers a failure. A transfer's part file is local, so a stream still decodes. **TRAP: the policy is the thread's, and is restored after the load**, since the scheduler's thread runs other work next.
+
 ## Admission
 
 Cache-key stats, cache lookups, opens and decodes pass through **fixed-slot utility `AudioWorkScheduler`s** (`core/Common`). `stat` and the open can block for minutes on a cloud placeholder and have no cancellation point, so fixed slots are the resource bound. A stat keeps its slot while it visits the serial cache queue. An app's playback opens never pass through these schedulers, so background analysis cannot starve the open the user is waiting on.
