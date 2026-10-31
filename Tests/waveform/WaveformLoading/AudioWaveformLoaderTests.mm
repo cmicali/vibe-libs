@@ -16,6 +16,7 @@
 #import "AudioFileHandle+Debug.h"
 #import "AudioFileFixtures.h"
 #import "AudioWaveformLoader+Debug.h"
+#import "AudioWaveformObserver.h"
 #import "AudioWaveform.h"
 #import "AudioWaveformCache.h"
 #import "AudioWaveformCache+Debug.h"
@@ -27,6 +28,7 @@
 
 #include <fcntl.h>
 #include <atomic>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 
@@ -143,6 +145,17 @@
 @end
 
 @interface AudioWaveformLoaderTests : XCTestCase
+@end
+
+@interface WaveformPolicySink : NSObject <AudioWaveformSink>
+@end
+
+@implementation WaveformPolicySink
+- (void)appendMonoSamples:(const float *)samples frameCount:(NSUInteger)frameCount {
+}
+- (id)waveformResult {
+    return @0;
+}
 @end
 
 @implementation AudioWaveformLoaderTests {
@@ -448,6 +461,26 @@ static NSUInteger DescriptorsOpenOn(NSString *path) {
     XCTAssertTrue(loader.isComplete);
     [self waitForExpectations:@[progress] timeout:0.2];
     XCTAssertEqual(delegate.progressExpectation, progress);
+}
+
+// The decode reads with its thread unable to materialize, so a file the
+// provider freed since its play downloads nothing. The sink is made on that
+// thread. The thread gets its policy back after.
+- (void)testTheDecodeRunsWithMaterializationOffAndRestoresIt {
+    NSString *path = [self writeWAVNamed:@"policy.wav" seconds:1.0];
+    __block int during = -1;
+    AudioWaveformObserver *observer = [[AudioWaveformObserver alloc] initWithIdentifier:@"policy"
+            sinkFactory:^id<AudioWaveformSink>(double sampleRate, NSRange window) {
+        during = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
+        return [[WaveformPolicySink alloc] init];
+    }];
+    _loader.analysis = (VibeWaveformAnalysis){NO, @[observer]};
+    int before = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
+
+    XCTAssertNotNil([_loader load:path]);
+
+    XCTAssertEqual(during, IOPOL_MATERIALIZE_DATALESS_FILES_OFF);
+    XCTAssertEqual(getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD), before);
 }
 
 - (void)testFullLoadOfAWrittenFileIsComplete {
