@@ -1,6 +1,6 @@
 # The standard debug verbs
 
-**Status: planned on 2026-10-30. Step 1 merged on 2026-10-30 (Vibe #428). Step 2 merged on 2026-10-30 (this repo's #87). Step 3 is this repo's #88, and step 4 is Vibe #429.** This is the plan for `dev/DebugVerbs`, a new piece holding the debug verbs every app's channel answers, and for the debug client's move into `dev/DebugChannel`. It also covers each app taking them: Vibe, the other app, and the third app. Read [plan.md](plan.md)'s "The work, in order" first. Every rule there holds here.
+**Status: planned on 2026-10-30. Steps 1 to 5 merged on 2026-10-30 and 2026-10-31: Vibe #428, this repo's #87 and #88, and Vibe #429 and #431. Vibe #430 came before #429, to take this repo's #86. Step 6 is the other app's #52, and step 7 is the third app's #50. Both are ready and open. The other app's CI could not start its jobs, so neither has merged, since step 7 merges after step 6.** This is the plan for `dev/DebugVerbs`, a new piece holding the debug verbs every app's channel answers, and for the debug client's move into `dev/DebugChannel`. It also covers each app taking them: Vibe, the other app, and the third app. Read [plan.md](plan.md)'s "The work, in order" first. Every rule there holds here.
 
 ## Why
 
@@ -280,7 +280,7 @@ The third commit names this repo's pull request in the plan, as #44's did.
 
 ## Step 3: the screenshot, and duplicate verbs
 
-**This repo's #88.**
+**Merged on 2026-10-31 as this repo's #88**, `ee39d99`. Vibe's player, Settings, and About windows, in light and dark, differ only in the playlist's backdrop, the Settings sidebar's glass, and the Settings toolbar's backdrop. About's pixels are identical.
 
 One pull request here. Two changes, each its own commit.
 
@@ -291,7 +291,7 @@ One pull request here. Two changes, each its own commit.
 
 ## Step 4: Vibe takes the piece
 
-**Vibe #429.**
+**Merged on 2026-10-31 as Vibe #429**, `f3364d8`, after Vibe #430, `397ae69`. The contract run gave step 1's replies, screenshots byte-identical, on both platforms. `make test-audio` took 21 s before and after. `perf.py compare` from step 1's parent to the branch's working tree moved 69 of 569 benchmarks beyond ±0.5%, through the changes #430 took and the working-tree build's own shift. Between #430's merge and #429's, built from the two commits, 8 of the 52 that a working-tree build had moved stayed beyond ±0.5%, from +1.4% to -1.3%, with mixed signs. TRAP: compare two commits, not a commit and the working tree. A working-tree build moved file loads by up to 11% with identical settings.
 
 One pull request in Vibe.
 
@@ -307,9 +307,13 @@ Report the code removed from Vibe apart from the code added across both repos (p
 
 ## Step 5: Vibe takes the screenshot
 
+**Merged on 2026-10-31 as Vibe #431**, `2780a30`. The contract run gave step 4's replies, and the screenshot differed only in the playlist's backdrop.
+
 Pin step 3's merge. Assert `VibeDebugDuplicateVerbs` is empty at each install. **Done when** the contract run gives step 4's replies, except the screenshot's new keys and its glass regions.
 
 ## Step 6: the other app takes the piece
+
+**The other app's #52, open.** Its gates, its slice check, and its signpost run through the channel pass. Its screenshot matches its old renderer but for the progress bar's position. A `click` named the button it hit, and a `key` reached the key window. Its CI could not start its jobs, for a reason in its account, not in the change.
 
 One pull request in the other app's repository.
 
@@ -325,6 +329,8 @@ One pull request in the other app's repository.
 **Done when** its gates pass, its slice check passes, its signpost run through the channel completes, and `dump_screenshot -` of its main window matches its old renderer's within glass and backdrop regions. A `click` on a control in its main window names that control as `hitView`, and a `key` reaches the key window.
 
 ## Step 7: the third app takes its first pieces
+
+**The third app's #50, open, and its CI passes.** It waits for step 6. On a Debug build under another bundle identifier, `dump_build` answered, `dump_screenshot -` showed the popover, and a `click` on the popover's Monitors… button named it and opened the window.
 
 One pull request in the third app's repository. The third app takes no piece today, and its pin predates every move.
 
@@ -389,6 +395,10 @@ Each is a small fix to the plan, made while doing it.
 - **`DebugVerbsTests` lives in `Tests/dev/DebugVerbs/Mac/`**, since a shared test file may not import AppKit unguarded.
 - **`DebugChannelTests` names its channel for its process** (step 2). Two runs at once, from two worktrees, share one temporary directory and drained each other's commands. TRAP: never autosquash-rebase a move's branch. It flattens the merge that carries the history, so rebuild the branch from main, the merge, and the commits after it.
 - **`dump_screenshot` reads its new keys back from the file** (step 3). The PNG records its scale as its resolution, 72 dpi times the backing scale. So the piece's header is unchanged. The sidebar's search field still renders as a white field inside the glass content.
+- **Vibe #430 took this repo's #86 before step 4** (step 4). Step 2's merge sits on #86, so step 4's pin brought it. #86 splits the metadata cache into three stores. Vibe's keep list at launch named the tag store alone, so it would have removed the two art stores on every launch. Vibe's benchmark owner lacked them too, and `perf.py`'s metadata sweep aborted. `clear_caches`' reply still lists only the tag store's name, since a debug verb's reply changes in its own change.
+- **An app with no `VIBE_SIGNPOSTS` answers `work_tally` with an error** (steps 6 and 7). Neither the other app nor the third app defines it.
+- **The other app's `dump_screenshot` renders the key window first** (step 6), as the piece does. Its own rendered the main window always.
+- **The third app's `read_setup` reaches Setups as well as System** (step 7), since its Read Again reads the setup file there. It still never reaches the adapter. **TRAP: the third app lists `~/Documents/Genelec` on main at launch.** A Debug build with no Documents grant waits on the permission prompt, and its channel never answers. Its check ran under another bundle identifier, with a local, uncommitted edit that pointed the setup folder at a scratch folder.
 - **The mac contract run starts from a reset container and an active app.** Two things outside the app changed its replies between runs of one build: whether the window was key, and whether the transport buttons had faded with no pointer over the window. The drag at (20, 20) can also move the window, whose place persists, or start a native drag. So each run starts with `scripts/build/reset-state.sh --mac -y` and `open -a`, and each line is compared between runs in the same state. The welcome track's path inside each build's bundle is masked. On iOS, `set_clipboard`'s `changeCount` is masked too.
 
 ## TRAPs
