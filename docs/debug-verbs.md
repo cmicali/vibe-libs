@@ -1,6 +1,6 @@
 # The standard debug verbs
 
-**Status: planned on 2026-10-30. Steps 1 to 5 merged on 2026-10-30 and 2026-10-31: Vibe #428, this repo's #87 and #88, and Vibe #429 and #431. Vibe #430 came before #429, to take this repo's #86. Step 6 is the other app's #52, and step 7 is the third app's #50. Both are ready and open. The other app's CI could not start its jobs, so neither has merged, since step 7 merges after step 6.** This is the plan for `dev/DebugVerbs`, a new piece holding the debug verbs every app's channel answers, and for the debug client's move into `dev/DebugChannel`. It also covers each app taking them: Vibe, the other app, and the third app. Read [plan.md](plan.md)'s "The work, in order" first. Every rule there holds here.
+**Status: done. Planned on 2026-10-30, and every step merged on 2026-10-30 and 2026-10-31: Vibe #428, this repo's #87 and #88, Vibe #429 and #431, the other app's #52, and the third app's #50. Vibe #430 came before #429, to take this repo's #86.** This is the plan for `dev/DebugVerbs`, a new piece holding the debug verbs every app's channel answers, and for the debug client's move into `dev/DebugChannel`. It also covers each app taking them: Vibe, the other app, and the third app. Read [plan.md](plan.md)'s "The work, in order" first. Every rule there holds here.
 
 ## Why
 
@@ -313,7 +313,7 @@ Pin step 3's merge. Assert `VibeDebugDuplicateVerbs` is empty at each install. *
 
 ## Step 6: the other app takes the piece
 
-**The other app's #52, open.** Its gates, its slice check, and its signpost run through the channel pass. Its screenshot matches its old renderer but for the progress bar's position. A `click` named the button it hit, and a `key` reached the key window. Its CI could not start its jobs, for a reason in its account, not in the change.
+**The other app's #52, merged.** Its gates, its slice check, and its signpost run through the channel pass. Its screenshot matches its old renderer but for the progress bar's position. A `click` named the button it hit, and a `key` reached the key window. Its CI could not start its jobs, for a reason in its account, not in the change. So it merged on its CI's steps, run locally on its branch rebased onto its main: `make check`, `make test`, and the Release build. Its signpost run and its slice check passed there too. Its `test-deep` was not rerun after the rebase. Before it, one suite failed on a locked database while other builds ran, and passed alone.
 
 One pull request in the other app's repository.
 
@@ -330,7 +330,7 @@ One pull request in the other app's repository.
 
 ## Step 7: the third app takes its first pieces
 
-**The third app's #50, open, and its CI passes.** It waits for step 6. On a Debug build under another bundle identifier, `dump_build` answered, `dump_screenshot -` showed the popover, and a `click` on the popover's Monitors… button named it and opened the window.
+**The third app's #50, merged, and its CI passed.** On a Debug build under another bundle identifier, `dump_build` answered, `dump_screenshot -` showed the popover, and a `click` on the popover's Monitors… button named it and opened the window.
 
 One pull request in the third app's repository. The third app takes no piece today, and its pin predates every move.
 
