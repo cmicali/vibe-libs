@@ -46,13 +46,10 @@ NSArray<NSString *> *VibeDebugDuplicateVerbs(NSArray<NSArray<NSDictionary *> *> 
     NSCountedSet<NSString *> *holders = [NSCountedSet set];
     NSMutableOrderedSet<NSString *> *order = [NSMutableOrderedSet orderedSet];
     for (NSArray<NSDictionary *> *table in tables) {
-        NSMutableSet<NSString *> *own = [NSMutableSet set];
         for (NSDictionary *spec in table) {
-            [own addObject:VibeDebugVerbFromUsage(spec[@"usage"])];
-            [order addObject:VibeDebugVerbFromUsage(spec[@"usage"])];
-        }
-        for (NSString *verb in own) {
+            NSString *verb = VibeDebugVerbFromUsage(spec[@"usage"]);
             [holders addObject:verb];
+            [order addObject:verb];
         }
     }
     NSMutableArray<NSString *> *duplicates = [NSMutableArray array];

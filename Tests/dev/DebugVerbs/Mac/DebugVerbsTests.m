@@ -150,7 +150,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
             [verbs addObject:verb];
         }
     }
-    XCTAssertEqual([NSSet setWithArray:verbs].count, verbs.count, @"no verb is in two places: %@", verbs);
+    XCTAssertEqualObjects(VibeDebugDuplicateVerbs(@[standard, input]), @[], @"no verb is in two places");
     XCTAssertEqualObjects([NSSet setWithArray:verbs], ([NSSet setWithArray:@[
         @"dump_build", @"quit", @"work_tally", @"dump_health", @"block_main", @"block_main_deep",
         @"dump_view_tree", @"dump_menu", @"click_menu", @"dump_screenshot", @"raise_window",
