@@ -104,6 +104,10 @@ FOUNDATION_EXPORT NSNotificationName const AudioTrackMetadataThumbnailDidLoadNot
 - (void)loadArtIfNeededStillWanted:(BOOL (^)(void))stillWanted
                         completion:(void (^)(VibeImage *_Nullable art))completion;
 
+// The file carries art of its own, as its parse found. Non-blocking. Tells
+// a thumbnail still decoding from a file with none.
+@property (nonatomic, readonly) BOOL hasEmbeddedArt;
+
 // The 128px row thumbnail; safe while drawing. On a miss with compact bytes
 // it admits one bounded off-main decode, returns nil, and posts
 // AudioTrackMetadataThumbnailDidLoadNotification when the pixels land. Only

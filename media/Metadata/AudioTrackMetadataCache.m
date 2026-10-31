@@ -17,7 +17,11 @@
 
 @interface AudioTrackMetadataCache ()
 // Atomic: set on the cache's queue, read per track from the loader's workers.
+// The art stores are set before the tag store, so a reader that sees the tag
+// store sees all three.
 @property (atomic, strong, nullable) PINCache *store;
+@property (atomic, strong, nullable) PINCache *thumbnailStore;
+@property (atomic, strong, nullable) PINCache *displayArtStore;
 @property (nonatomic, readonly) AudioLoadingConfiguration *loadingConfiguration;
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration;
 - (void)setNeighborhoodURLs:(nullable NSArray<NSURL *> *)urls;
@@ -54,7 +58,21 @@
     // "untagged" for an album or a gain the file carries, until the file
     // changes. A new store name makes every old entry a miss, at the cost of
     // one parse of each file.
-    return @"Audio Track Metadata v8";
+    // v9 moved the thumbnail out of the entry, into its own store, so art
+    // never pushes tags out of their budget.
+    return @"Audio Track Metadata v9";
+}
+
++ (NSString *)thumbnailCacheName {
+    return @"Audio Track Thumbnails v1";
+}
+
++ (NSString *)displayArtCacheName {
+    return @"Audio Track Display Art v1";
+}
+
++ (NSArray<NSString *> *)cacheNames {
+    return @[self.cacheName, self.thumbnailCacheName, self.displayArtCacheName];
 }
 
 - (instancetype)init {
@@ -81,31 +99,48 @@
     return self;
 }
 
-// On _cacheQueue. The first block to ask builds the store, so nothing depends
-// on which block the queue runs first. A block on the queue calls this, never
-// metadataCache, whose dispatch_sync would deadlock there.
+// On _cacheQueue. The first block to ask builds the stores, so nothing
+// depends on which block the queue runs first. A block on the queue calls
+// this, never metadataCache, whose dispatch_sync would deadlock there. Each
+// store has its own budget, so art never pushes tags out, and a rendition
+// never pushes out a row's thumbnail.
 - (PINCache *)storeOnQueue {
     PINCache *store = self.store;
     if (!store) {
+        self.thumbnailStore = [PINCache audioCacheWithName:AudioTrackMetadataCache.thumbnailCacheName
+                                                  rootPath:_rootPath];
+        self.displayArtStore = [PINCache audioCacheWithName:AudioTrackMetadataCache.displayArtCacheName
+                                                   rootPath:_rootPath];
         store = [PINCache audioCacheWithName:AudioTrackMetadataCache.cacheName rootPath:_rootPath];
         self.store = store;
     }
     return store;
 }
 
-- (PINCache *)metadataCache {
-    PINCache *store = self.store;
-    if (!store) {
-        // dispatch_sync lends the reader's QoS to the queue, and so to the
-        // build. A group wait lends none. A block wait allows one waiter, and
-        // several workers may wait here at once.
-        __block PINCache *built = nil;
+// The stores, built or waited for. dispatch_sync lends the reader's QoS to
+// the queue, and so to the build. A group wait lends none. A block wait
+// allows one waiter, and several workers may wait here at once.
+- (void)buildStoresIfNeeded {
+    if (!self.store) {
         dispatch_sync(_cacheQueue, ^{
-            built = [self storeOnQueue];
+            [self storeOnQueue];
         });
-        store = built;
     }
-    return store;
+}
+
+- (PINCache *)metadataCache {
+    [self buildStoresIfNeeded];
+    return self.store;
+}
+
+- (PINCache *)thumbnailCache {
+    [self buildStoresIfNeeded];
+    return self.thumbnailStore;
+}
+
+- (PINCache *)displayArtCache {
+    [self buildStoresIfNeeded];
+    return self.displayArtStore;
 }
 
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration {
@@ -121,6 +156,8 @@
     dispatch_async(_cacheQueue, ^{
         atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
         [[self storeOnQueue] removeAllObjects];
+        [self.thumbnailStore removeAllObjects];
+        [self.displayArtStore removeAllObjects];
         if (completion) {
             completion();
         }
@@ -129,7 +166,9 @@
 
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
     dispatch_async(_cacheQueue, ^{
-        [[self storeOnQueue] audioDiskUsageWithCompletion:completion];
+        PINCache *store = [self storeOnQueue];
+        [PINCache audioDiskUsageOfCaches:@[store, self.thumbnailStore, self.displayArtStore]
+                              completion:completion];
     });
 }
 

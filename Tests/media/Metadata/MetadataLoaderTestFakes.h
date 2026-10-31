@@ -43,6 +43,8 @@ NSMutableArray<VibeLoaderTestTrack *> *VibeLoaderTestCueRows(NSURL *image, NSUIn
 @property(nonatomic, strong) MetadataParseCoordinator<VibeLoaderTestTrack *> *parseCoordinator;
 @property(atomic) uint64_t cacheGeneration;
 @property(atomic, strong, nullable) id metadataCache;
+@property(atomic, strong, nullable) id thumbnailCache;
+@property(atomic, strong, nullable) id displayArtCache;
 @end
 
 @interface VibeMetadataLoaderDelegate : NSObject <AudioTrackMetadataCacheDelegate>

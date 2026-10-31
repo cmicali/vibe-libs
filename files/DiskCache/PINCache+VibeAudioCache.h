@@ -27,6 +27,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)audioDiskUsageWithCompletion:(void (^)(NSUInteger fileCount,
                                                unsigned long long totalBytes))completion;
 
+// The same counts, summed over several stores, for a piece that keeps more
+// than one. The same blocking and the same completion.
++ (void)audioDiskUsageOfCaches:(NSArray<PINCache *> *)caches
+                    completion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion;
+
 // Removes, off the calling thread, every store under rootPath, nil for the
 // user's caches, whose name is a current name's apart from its version suffix
 // (" v8", "_v7") and is not that name. A name with no suffix is a version too.

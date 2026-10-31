@@ -1,6 +1,6 @@
 # files/DiskCache
 
-A bounded disk cache over PINCache. It depends on `third_party/PINCache` and on `core/Common`. It holds one category, `PINCache (VibeAudioCache)`. It came from Vibe. `media/Metadata`'s cache and `waveform/WaveformLoading`'s cache both build their stores through it, so their entries live and die on the same terms. The category also removes the stores other versions left.
+A bounded disk cache over PINCache. It depends on `third_party/PINCache` and on `core/Common`. It holds one category, `PINCache (VibeAudioCache)`. It came from Vibe. `media/Metadata`'s cache and `waveform/WaveformLoading`'s cache build their stores through it, so their entries live and die on the same terms. The category also removes the stores other versions left.
 
 ## The store
 
@@ -10,11 +10,11 @@ A bounded disk cache over PINCache. It depends on `third_party/PINCache` and on 
 
 **`audioDiskUsageWithCompletion:` counts the entries and their bytes on disk.** The enumeration blocks, so call it on the store's own serial queue. The completion is dispatched to the main thread.
 
-The keys are the caller's. Both stores are keyed by `core/Common`'s disk key, `NSURL (Hash)`.
+The keys are the caller's. Every store is keyed by `core/Common`'s disk key, `NSURL (Hash)`. `media/Metadata` keeps three stores, the tags, the thumbnails, and the renditions, so each has its own budget. `audioDiskUsageOfCaches:completion:` sums the counts over several stores.
 
 ## Other versions' stores
 
-**`removeOtherAudioCacheVersionsKeeping:rootPath:completion:` removes the stores other versions left.** A store's name carries its entry format's version, as `Audio Track Metadata v8` and `audio_waveform_cache_v7` do. A format change renames the store, so the old one is never opened again. Only an open store trims itself, so an old store would keep up to 1 GiB on disk for good. The rule removes a store when its name is a current name's apart from the version suffix, a space or an underscore then `v` and digits, and it is not that name. A name with no suffix is a version too. Another store, and a directory that is no store, stay. An app calls it once at launch, with the name of every store it opens, and it runs off the calling thread. A version bump then needs no edit in the app.
+**`removeOtherAudioCacheVersionsKeeping:rootPath:completion:` removes the stores other versions left.** A store's name carries its entry format's version, as `Audio Track Metadata v9` and `audio_waveform_cache_v7` do. A format change renames the store, so the old one is never opened again. Only an open store trims itself, so an old store would keep up to 1 GiB on disk for good. The rule removes a store when its name is a current name's apart from the version suffix, a space or an underscore then `v` and digits, and it is not that name. A name with no suffix is a version too. Another store, and a directory that is no store, stay. An app calls it once at launch, with the name of every store it opens, and it runs off the calling thread. A version bump then needs no edit in the app.
 
 **The cost is a downgrade's.** An older build keeps only the names it knows. So it removes a newer build's store in the same way. Each switch between the two builds then costs one parse or decode of every file.
 

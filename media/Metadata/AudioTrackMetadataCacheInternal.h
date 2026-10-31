@@ -22,6 +22,9 @@ NS_ASSUME_NONNULL_BEGIN
 // The store, built on the cache's queue after init. A read before it exists
 // builds it or waits for it there, so every lookup and write reaches it.
 @property (nonatomic, readonly) PINCache *metadataCache;
+// The art's stores, built with it: the row thumbnails, and the renditions.
+@property (nonatomic, readonly) PINCache *thumbnailCache;
+@property (nonatomic, readonly) PINCache *displayArtCache;
 // Bumped by invalidation. A parse captures it at start, skips its write if it
 // moved and rechecks after, or a parse in flight during Clear Cache would
 // repopulate the emptied cache.

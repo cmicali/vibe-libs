@@ -32,8 +32,9 @@ typedef VibeEmbeddedArtExtractionResult (^AudioTrackArtworkExtractor)(
         NSString *path,
         NSData * _Nullable __autoreleasing * _Nullable artData);
 
-// A blocking read of the archived rendition, on a worker, never with the
-// monitor held. nil means it is gone and the load falls back to extraction.
+// A blocking read of archived art, on a worker, never with the monitor held.
+// nil means it is gone. For the rendition, the load then falls back to
+// extraction. For the thumbnail, the decode falls back to the rendition.
 typedef NSData *_Nullable (^AudioTrackArchivedDisplayArtProvider)(void);
 
 @interface AudioTrackArtwork : NSObject <NSCopying>
@@ -52,6 +53,11 @@ typedef NSData *_Nullable (^AudioTrackArchivedDisplayArtProvider)(void);
 // the loader re-stamps.
 @property (nonatomic, copy, nullable) AudioTrackArchivedDisplayArtProvider archivedDisplayArtProvider;
 
+// The archived 128 px thumbnail, read by the row's decode when the row holds
+// no bytes. An empty or undecodable read drops it, and the decode falls back
+// to the rendition. adopt* clears it; the loader re-stamps.
+@property (nonatomic, copy, nullable) AudioTrackArchivedDisplayArtProvider archivedThumbnailProvider;
+
 // The original bytes for cutting the rendition. discardArtData releases them
 // only when the row has thumbnail bytes or no usable embedded art.
 // Metadata workers only.
@@ -65,7 +71,8 @@ typedef NSData *_Nullable (^AudioTrackArchivedDisplayArtProvider)(void);
 
 // The bounded off-main decode behind cachedThumbnail. YES admitted the row's
 // one request; a duplicate returns NO. Completes once on main, nil on failure.
-// A row with no thumbnail bytes decodes from the archived rendition.
+// A row with no thumbnail bytes decodes from the archived thumbnail, then the
+// archived rendition.
 - (BOOL)requestEmbeddedThumbnailDecodeWithCompletion:
         (void (^)(VibeImage *_Nullable image))completion;
 
