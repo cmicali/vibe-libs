@@ -9,6 +9,7 @@
 
 #import "CloudFileMaterializer+Debug.h"
 #import "CloudFileMaterializer.h"
+#import "CloudListingFetcher+Debug.h"
 #import "DownloadProgressMonitor+Debug.h"
 #import "PlaceholderFiles+Debug.h"
 #import "PlaceholderFiles.h"
@@ -58,6 +59,13 @@ static VibeFakeCloudProgressMode sProgressMode;
 static NSMutableArray<NSDictionary *> *sTrace;
 static NSUInteger sTraceSeq;
 static CFAbsoluteTime sInstalledAt;
+// Directories whose listing is not fetched, and what a fetch of a listing or
+// of a small file takes. Fetches are not transfers: a rule that no audio
+// downloads counts transfers alone.
+static NSMutableSet<NSString *> *sUnfetched;
+static NSTimeInterval sFetchSeconds;
+static BOOL sListingFetchesFail;
+static NSUInteger sListingFetches, sFileFetches;
 
 static const NSUInteger kTraceCapacity = 512;
 static const NSUInteger kContentionEventCapacity = 32;
@@ -218,6 +226,11 @@ static void VibeResetScenarioLocked(void) {
     sExecuting = 0;
     sQueued = 0;
     sMaxObservedConcurrency = 0;
+    sUnfetched = nil;
+    sFetchSeconds = 0;
+    sListingFetchesFail = NO;
+    sListingFetches = 0;
+    sFileFetches = 0;
 }
 
 + (void)installWithTransferSeconds:(NSTimeInterval)transferSeconds
@@ -249,6 +262,67 @@ static void VibeResetScenarioLocked(void) {
                 && VibePathIsCloud(path, sPercent);
         os_unfair_lock_unlock(&sLock);
         return dataless;
+    }];
+
+    [PlaceholderFiles setDatalessDirectoryProbe:^BOOL(NSURL *url) {
+        NSString *path = url.path;
+        os_unfair_lock_lock(&sLock);
+        BOOL unfetched = path != nil && [sUnfetched containsObject:path];
+        os_unfair_lock_unlock(&sLock);
+        return unfetched;
+    }];
+
+    [CloudListingFetcher setFakeListingFetch:^BOOL(NSURL *directory, NSError **error) {
+        NSString *path = directory.path ?: @"";
+        os_unfair_lock_lock(&sLock);
+        NSTimeInterval seconds = sFetchSeconds;
+        BOOL fails = sListingFetchesFail;
+        VibeTraceLocked(@"requested", @"listing", path, nil);
+        os_unfair_lock_unlock(&sLock);
+        if (seconds > 0) {
+            usleep((useconds_t)(seconds * 1e6));
+        }
+        os_unfair_lock_lock(&sLock);
+        if (!sInstalled) {
+            os_unfair_lock_unlock(&sLock);
+            return NO;
+        }
+        sListingFetches++;
+        if (!fails) {
+            NSString *prefix = [path stringByAppendingString:@"/"];
+            for (NSString *unfetched in [sUnfetched allObjects]) {
+                if ([unfetched isEqualToString:path] || [unfetched hasPrefix:prefix]) {
+                    [sUnfetched removeObject:unfetched];
+                }
+            }
+        }
+        VibeTraceLocked(fails ? @"failed" : @"completed", @"listing", path, nil);
+        os_unfair_lock_unlock(&sLock);
+        if (fails && error) {
+            *error = [NSError errorWithDomain:VibeCloudFetchErrorDomain code:VibeCloudFetchErrorStillDataless
+                                     userInfo:@{NSURLErrorKey: directory}];
+        }
+        return !fails;
+    }                              fileFetch:^BOOL(NSURL *file, NSError **error) {
+        NSString *path = file.path ?: @"";
+        if (![PlaceholderFiles isDatalessFile:file]) {
+            return YES;
+        }
+        os_unfair_lock_lock(&sLock);
+        NSTimeInterval seconds = sFetchSeconds;
+        VibeTraceLocked(@"requested", @"file", path, nil);
+        os_unfair_lock_unlock(&sLock);
+        if (seconds > 0) {
+            usleep((useconds_t)(seconds * 1e6));
+        }
+        os_unfair_lock_lock(&sLock);
+        if (sInstalled) {
+            sFileFetches++;
+            [sMaterialized addObject:path];
+            VibeTraceLocked(@"completed", @"file", path, nil);
+        }
+        os_unfair_lock_unlock(&sLock);
+        return YES;
     }];
 
     [CloudFileMaterializer setFakeTransferProvider:^NSTimeInterval(NSURL *url, NSString *role) {
@@ -479,8 +553,48 @@ static void VibeResetScenarioLocked(void) {
     os_unfair_lock_unlock(&sLock);
 }
 
++ (void)setUnfetchedDirectories:(NSArray<NSURL *> *)directories fetchSeconds:(NSTimeInterval)fetchSeconds {
+    NSMutableSet<NSString *> *paths = [NSMutableSet set];
+    for (NSURL *directory in directories) {
+        if (directory.path) {
+            [paths addObject:directory.path];
+        }
+    }
+    os_unfair_lock_lock(&sLock);
+    sUnfetched = paths;
+    sFetchSeconds = fetchSeconds;
+    os_unfair_lock_unlock(&sLock);
+}
+
++ (void)unfetchDirectory:(NSURL *)directory {
+    os_unfair_lock_lock(&sLock);
+    if (directory.path) {
+        if (!sUnfetched) {
+            sUnfetched = [NSMutableSet set];
+        }
+        [sUnfetched addObject:directory.path];
+    }
+    os_unfair_lock_unlock(&sLock);
+}
+
++ (void)evictFile:(NSURL *)file {
+    os_unfair_lock_lock(&sLock);
+    if (file.path) {
+        [sMaterialized removeObject:file.path];
+    }
+    os_unfair_lock_unlock(&sLock);
+}
+
++ (void)setListingFetchesFail:(BOOL)fail {
+    os_unfair_lock_lock(&sLock);
+    sListingFetchesFail = fail;
+    os_unfair_lock_unlock(&sLock);
+}
+
 + (void)uninstall {
     [PlaceholderFiles setDatalessProbe:nil];
+    [PlaceholderFiles setDatalessDirectoryProbe:nil];
+    [CloudListingFetcher setFakeListingFetch:nil fileFetch:nil];
     [CloudFileMaterializer setFakeTransferProvider:nil acquireSlot:nil
                                        releaseSlot:nil didFinish:nil];
     [DownloadProgressMonitor setFakeProgressProvider:nil];
@@ -528,6 +642,9 @@ static void VibeResetScenarioLocked(void) {
         @"metadataOverlapTransfers": @(sSamePathOverlapTransfers),
         @"foregroundContentionStarts": @(sForegroundContentionStarts),
         @"contentionEvents": [sContentionEvents copy] ?: @[],
+        @"unfetchedDirectories": @(sUnfetched.count),
+        @"listingFetches": @(sListingFetches),
+        @"fileFetches": @(sFileFetches),
         @"traceCount": @(sTrace.count),
     };
     os_unfair_lock_unlock(&sLock);
