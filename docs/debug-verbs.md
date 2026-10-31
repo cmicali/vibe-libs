@@ -1,6 +1,6 @@
 # The standard debug verbs
 
-**Status: planned on 2026-10-30. Step 1 merged on 2026-10-30 (Vibe #428). Step 2 is this repo's #87.** This is the plan for `dev/DebugVerbs`, a new piece holding the debug verbs every app's channel answers, and for the debug client's move into `dev/DebugChannel`. It also covers each app taking them: Vibe, the other app, and the third app. Read [plan.md](plan.md)'s "The work, in order" first. Every rule there holds here.
+**Status: planned on 2026-10-30. Step 1 merged on 2026-10-30 (Vibe #428). Step 2 merged on 2026-10-30 (this repo's #87). Step 3 is this repo's #88, and step 4 is Vibe #429.** This is the plan for `dev/DebugVerbs`, a new piece holding the debug verbs every app's channel answers, and for the debug client's move into `dev/DebugChannel`. It also covers each app taking them: Vibe, the other app, and the third app. Read [plan.md](plan.md)'s "The work, in order" first. Every rule there holds here.
 
 ## Why
 
@@ -213,7 +213,7 @@ Both must print nothing.
 
 ## Step 2: the move here
 
-**This repo's #87.** It carried 35 commits of the 19 files from `18a23258`.
+**Merged on 2026-10-30 as this repo's #87**, `49c8aa4`. It carried 35 commits of the 19 files from `18a23258`.
 
 On a fresh, full clone of Vibe at step 1's merge, list each staged file's earlier paths:
 
@@ -280,6 +280,8 @@ The third commit names this repo's pull request in the plan, as #44's did.
 
 ## Step 3: the screenshot, and duplicate verbs
 
+**This repo's #88.**
+
 One pull request here. Two changes, each its own commit.
 
 - **The mac renderer takes the other app's two fixes.** It also hides each `CABackdropLayer`, which renders white in `renderInContext:`. After hiding a glass view's layer, it renders that glass view's content view on top, in its place, so a sidebar's rows show. With no glass and no backdrop, it still renders the presentation tree, as today. The reply gains `ok`, `width`, `height`, and `scale` beside `path`. Every key is added, so Vibe's client and scripts still read `path`.
@@ -288,6 +290,8 @@ One pull request here. Two changes, each its own commit.
 **Done when** CI passes, and Vibe's screenshots before and after differ only inside glass and backdrop regions. Take the player, Settings, and About windows, each in light and dark.
 
 ## Step 4: Vibe takes the piece
+
+**Vibe #429.**
 
 One pull request in Vibe.
 
@@ -383,6 +387,8 @@ Each is a small fix to the plan, made while doing it.
 - **Step 1 also fixed the `vibe-debug` skill's paths**, the ones the staging moved, so they were right at every commit. Step 4 moves them to vibe-libs' paths.
 - **The filter's earlier paths were six**: `Vibe/Debug/DebugClient.m`, `DebugInput.m`, and `DebugScreenshot.m`, each also under `Vibe/Debug/Mac/`. TRAP: name the filtered clone's branch so no Vibe branch sits under it. A local branch `move` blocked filter-repo from writing Vibe's `move/waveform`.
 - **`DebugVerbsTests` lives in `Tests/dev/DebugVerbs/Mac/`**, since a shared test file may not import AppKit unguarded.
+- **`DebugChannelTests` names its channel for its process** (step 2). Two runs at once, from two worktrees, share one temporary directory and drained each other's commands. TRAP: never autosquash-rebase a move's branch. It flattens the merge that carries the history, so rebuild the branch from main, the merge, and the commits after it.
+- **`dump_screenshot` reads its new keys back from the file** (step 3). The PNG records its scale as its resolution, 72 dpi times the backing scale. So the piece's header is unchanged. The sidebar's search field still renders as a white field inside the glass content.
 - **The mac contract run starts from a reset container and an active app.** Two things outside the app changed its replies between runs of one build: whether the window was key, and whether the transport buttons had faded with no pointer over the window. The drag at (20, 20) can also move the window, whose place persists, or start a native drag. So each run starts with `scripts/build/reset-state.sh --mac -y` and `open -a`, and each line is compared between runs in the same state. The welcome track's path inside each build's bundle is masked. On iOS, `set_clipboard`'s `changeCount` is masked too.
 
 ## TRAPs

@@ -40,6 +40,11 @@ NSString *VibeDebugUnknownCommandReply(NSString *verb,
                                        NSArray<NSArray<NSDictionary *> *> *tables,
                                        NSArray<NSString *> *_Nullable extraUsages);
 
+// Each verb that more than one of tables holds, in the order it first
+// appears. TRAP: a verb in two tables runs from the first one, silently, so an
+// app's install asserts this is empty.
+NSArray<NSString *> *VibeDebugDuplicateVerbs(NSArray<NSArray<NSDictionary *> *> *tables);
+
 // tokens[0] is the verb and the rest its arguments: one token per CLI argv
 // entry, never re-tokenized.
 

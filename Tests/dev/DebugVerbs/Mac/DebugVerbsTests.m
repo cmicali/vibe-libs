@@ -357,6 +357,54 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
     XCTAssertEqual(image.pixelsHigh, (NSInteger)llround(80 * scale));
 }
 
+- (void)testTheScreenshotVerbAnswersItsFileSizeAndScale {
+    NSWindow *window = [self windowOfSize:NSMakeSize(90, 60)];
+    [window orderFront:nil];
+    NSDictionary *reply = JSONObject(Run(VibeDebugStandardVerbs([VibeDebugStandardOptions new]),
+                                         @[@"dump_screenshot"], NSNull.null));
+    [NSFileManager.defaultManager removeItemAtPath:reply[@"path"] error:nil];
+    XCTAssertEqualObjects(reply[@"ok"], @YES);
+    XCTAssertNotNil(reply[@"path"], @"the key a client reads stays");
+    CGFloat scale = window.backingScaleFactor;
+    XCTAssertEqualObjects(reply[@"width"], @(llround(90 * scale)));
+    XCTAssertEqualObjects(reply[@"height"], @(llround(60 * scale)));
+    XCTAssertEqualWithAccuracy([reply[@"scale"] doubleValue], scale, 0.001);
+}
+
+// A glass view's layer renders white, so the render hides it, and draws its
+// content view on top in its place.
+- (void)testAGlassViewsContentRendersInItsPlace {
+    if (@available(macOS 26.0, *)) {
+        NSWindow *window = [self windowOfSize:NSMakeSize(100, 60)];
+        window.contentView.wantsLayer = YES;
+        NSGlassEffectView *glass = [[NSGlassEffectView alloc] initWithFrame:NSMakeRect(0, 0, 50, 60)];
+        NSView *content = [[NSView alloc] initWithFrame:glass.bounds];
+        content.wantsLayer = YES;
+        content.layer.backgroundColor = NSColor.redColor.CGColor;
+        glass.contentView = content;
+        [window.contentView addSubview:glass];
+        [window orderFront:nil];
+        [window displayIfNeeded];
+        NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:
+                [NSString stringWithFormat:@"debug-verbs-%@.png", NSUUID.UUID.UUIDString]];
+        XCTAssertTrue(VibeDumpWindowSnapshot(path));
+        NSBitmapImageRep *image = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:path]];
+        [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        CGFloat scale = window.backingScaleFactor;
+        NSColor *inside = [[image colorAtX:(NSInteger)(25 * scale) y:(NSInteger)(30 * scale)]
+                colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        NSColor *outside = [[image colorAtX:(NSInteger)(75 * scale) y:(NSInteger)(30 * scale)]
+                colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        XCTAssertGreaterThan(inside.redComponent, 0.8, @"the content renders: %@", inside);
+        XCTAssertLessThan(inside.greenComponent, 0.3, @"not the glass's white: %@", inside);
+        XCTAssertEqualWithAccuracy(outside.redComponent, outside.greenComponent, 0.05,
+                                   @"beside the glass, the gray fill: %@", outside);
+    }
+    else {
+        XCTSkip(@"NSGlassEffectView needs macOS 26");
+    }
+}
+
 #pragma mark - The input table
 
 - (void)testTheKeyVerbsPostWhatARealKeyCarries {

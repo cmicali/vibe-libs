@@ -25,7 +25,7 @@ The standard debug verbs: the ones that know nothing of the app, so every app's 
 
 **`VibeDebugStandardVerbs(options)` answers the standard table**: the shared verbs, then the verbs for the platform it is built on. **`VibeDebugInputVerbs(options)` answers the input table**, on macOS. An app opts into it beside the standard table, so a later app can leave synthetic input out. The app builds each table once, at install, and adds it to the tables its dispatcher looks a verb up in. The unknown-command reply lists the same tables. The verbs' names, usages, waits, and reply keys are Vibe's, since its scripts and skills depend on them.
 
-**TRAP: a verb in two tables runs from the first one, silently.** So an app keeps no verb of its own under a standard verb's name.
+**TRAP: a verb in two tables runs from the first one, silently.** So an app keeps no verb of its own under a standard verb's name. Its install asserts that `VibeDebugDuplicateVerbs`, in `dev/DebugChannel`, finds none in its tables.
 
 ## The options
 
@@ -36,7 +36,7 @@ The options are blocks, so the piece holds no app type. Each block runs on main 
 - **`work_tally`** opens and closes `core/Common`'s work tally. The tally exists only where the app defines `VIBE_SIGNPOSTS`, so a build without it answers an error.
 - **`block_main`** chains a verb from the shared verbs first, then from `chainableVerbs`. The platform verbs stay unchainable. It refuses itself and an unknown verb. It answers nil when the chained verb replies later.
 - **The mouse verbs, `scroll`, and `raise_window`** aim at `targetWindow`. With no block, or a nil answer, they aim at `NSApp.mainWindow`. The key verbs post into the key window, or the target window when none is key.
-- **`dump_screenshot`** renders the key window, then the main window, then the frontmost visible one. It ignores `targetWindow`.
+- **`dump_screenshot`** renders the key window, then the main window, then the frontmost visible one. It ignores `targetWindow`. It replies `ok`, `path`, and the file's `width`, `height`, and `scale`. The PNG's resolution is 72 dpi times the scale, and the reply reads the three back from the file.
 - **`click_menu`** searches `NSApp.mainMenu` and calls `performMenuItem`. With no block, NSApp sends the item's action after the validation opening the menu would run. An app passes its own dispatch when a click should prove what a shortcut does.
 
 ## It compiles in every configuration and ships in none
@@ -55,7 +55,7 @@ An app's own verbs may call the posting functions, the key-code map, and the mod
 
 ## The screenshot
 
-**The mac render runs in-process, with no window-server capture.** It needs no screen-recording permission, and it works with the display asleep or the window occluded. **TRAP: a glass view's layer renders as opaque white in `renderInContext:`.** So the render hides each `NSGlassEffectView`'s layer, uncommitted, over an appearance-matched fill. That forces a render of the model tree, so a glass-bearing window's animations land at their target values. A glass-free window renders the presentation tree mid-flight. Metal content does not render.
+**The mac render runs in-process, with no window-server capture.** It needs no screen-recording permission, and it works with the display asleep or the window occluded. **TRAP: a glass view's layer and a `CABackdropLayer` render as opaque white in `renderInContext:`.** So the render hides each, uncommitted, over an appearance-matched fill. Then it renders each glass view's content view on top, in its place, so a sidebar's rows show. Only the class's name tells a backdrop apart. Hiding forces a render of the model tree, so such a window's animations land at their target values. Any other window renders the presentation tree mid-flight. Metal content does not render.
 
 `VibeInstallDebugScreenshotHook` renders to a fixed path whenever its notification is posted, so a terminal can take a screenshot with `notifyutil -p`. `dump_screenshot` writes a file per command instead, under the channel's screenshot path.
 
@@ -77,7 +77,7 @@ On iOS, `sample_frame_rate` counts the frames the app is granted for a few secon
 - **The shared verbs**: `dump_build` answers its eight keys plus the extras, and its own keys win. `dump_health` answers the process block and the extras, and the malloc counter's live bytes never exceed its reserved bytes. `block_main` holds main for its seconds, chains a shared verb and an app's verb, refuses itself, an unknown verb, and a platform verb, and answers nil when the chained verb replies later. `work_tally` opens and closes a window.
 - **The view tree and the menus**: the tree names each view's class, identifier, hidden state, and alpha. The menu dump lists a separator, a submenu, a key equivalent, a hidden item, a disabled item, and a state. `click_menu` hands the app's dispatch the item it found, sends the action itself with none, and answers the disabled, hidden, and submenu errors.
 - **The input**: the key verbs post what a real key carries, the shifted character in both fields and the function and numeric-pad flags on an arrow. `click` posts a down and an up per count, with the count ascending. `drag` posts its steps between one down and one up. Each event is read back from the app's own queue. **TRAP: a test calls `[NSApplication sharedApplication]` first, since host-less `NSApp` is nil.** No test asserts key status, since activation may not take on CI.
-- **The screenshot** of a test window is a PNG of its points times its backing scale.
+- **The screenshot** of a test window is a PNG of its points times its backing scale, and the verb's reply names that size and scale. A glass view's content renders in its place, not as white.
 
 `DebugVerbs-iOS` builds the iOS half. The minimal consumer answers `dump_build` and `dump_health` from the standard table, beside a command of its own, with no `VIBE_SIGNPOSTS`.
 

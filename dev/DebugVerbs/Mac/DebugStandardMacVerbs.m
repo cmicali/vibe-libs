@@ -11,6 +11,7 @@
 #if DEBUG
 
 #import <AppKit/AppKit.h>
+#import <ImageIO/ImageIO.h>
 #import "DebugChannel.h"
 #import "DebugCommandDispatch.h"
 #import "DebugScreenshot.h"
@@ -48,7 +49,20 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             if (!VibeDumpWindowSnapshot(path)) {
                 return VibeErrorJSON(@"screenshot failed to render or write; see app log");
             }
-            return VibeJSONString(@{@"path": path});
+            // The size and scale come back from the file, so they are the
+            // file's.
+            NSMutableDictionary *reply = [@{@"ok": @YES, @"path": path} mutableCopy];
+            CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], NULL);
+            NSDictionary *properties = source
+                    ? CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL)) : nil;
+            if (source) {
+                CFRelease(source);
+            }
+            NSNumber *dpi = properties[(__bridge NSString *)kCGImagePropertyDPIWidth];
+            reply[@"width"] = properties[(__bridge NSString *)kCGImagePropertyPixelWidth] ?: NSNull.null;
+            reply[@"height"] = properties[(__bridge NSString *)kCGImagePropertyPixelHeight] ?: NSNull.null;
+            reply[@"scale"] = dpi ? @(dpi.doubleValue / 72.0) : NSNull.null;
+            return VibeJSONString(reply);
         }),
         VibeDebugCmd(@"click_menu <identifier-or-title>", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
             if (tokens.count < 2) {
