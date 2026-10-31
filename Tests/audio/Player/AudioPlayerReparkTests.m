@@ -178,15 +178,20 @@ static uint32_t VibeReparkFrame(uint32_t code) {
 
 // Every frame after `start` is `file`'s, from its first, with nothing between.
 - (void)assertFile:(uint32_t)file followsFrame:(NSUInteger)start in:(NSString *)when {
+    [self assertFile:file from:0 followsFrame:start in:when];
+}
+
+// Every frame after `start` is `file`'s, from `first` on, with nothing between.
+- (void)assertFile:(uint32_t)file from:(uint32_t)first followsFrame:(NSUInteger)start in:(NSString *)when {
     const float *p = _capture.bytes;
     NSUInteger frames = _capture.length / sizeof(float) / 2;
     XCTAssertGreaterThan(frames, start + 4096, @"%@", when);
     for (NSUInteger i = start + 1; i < frames; i++) {
+        uint32_t expected = first + (uint32_t)(i - start - 1);
         uint32_t code = VibeReparkCode(p + i * 2);
-        if (code != ((file << 17) | (uint32_t)(i - start - 1))) {
-            XCTFail(@"%@: frame %lu after the boundary is file %u's frame %u, not file %u's frame %lu", when,
-                    (unsigned long)(i - start - 1), VibeReparkFile(code), VibeReparkFrame(code), file,
-                    (unsigned long)(i - start - 1));
+        if (code != ((file << 17) | expected)) {
+            XCTFail(@"%@: frame %lu after the boundary is file %u's frame %u, not file %u's frame %u", when,
+                    (unsigned long)(i - start - 1), VibeReparkFile(code), VibeReparkFrame(code), file, expected);
             return;
         }
     }
@@ -253,6 +258,39 @@ static uint32_t VibeReparkFrame(uint32_t code) {
         XCTAssertEqualObjects(_player.currentTrack, old, @"%@", when);
         XCTAssertEqual([self count:@"advance"], 1u, @"%@", when);
         XCTAssertEqual([self count:@"finish"], 0u, @"%@", when);
+    }
+}
+
+// The edit lands in the window between the render that crosses the boundary
+// and the drain that reports it, as on hardware, where the IO thread renders
+// while the player queue is busy. The old successor is already sounding, so
+// the splice stands, as if the edit had come after the drain: it is promoted
+// and plays on, and the new successor is queued to follow it.
+- (void)testAReparkAfterTheRenderCrossedButBeforeTheDrainLeavesTheSpliceStanding {
+    for (NSNumber *crossed in @[@1, @192, @480]) {
+        NSString *when = [NSString stringWithFormat:@"%@ frames past, unreported", crossed];
+        VibeTestTrack *old = [VibeTestTrack withURL:_files[2]], *next = [VibeTestTrack withURL:_files[3]];
+        VibeTestTrack *first = [self playFirstWithSuccessor:old];
+        [self renderVoiceTo:kReparkFrames - 64];
+        NSUInteger before = _capture.length / sizeof(float) / 2;
+        // The output unit's callback, on this thread: no drain runs after it.
+        [_player debugRenderOnCallerThread:64 + crossed.unsignedIntegerValue];
+        VibeVoiceSnapshot snapshot = [self voiceSnapshot];
+        XCTAssertEqual(snapshot.consumed, kReparkFrames + crossed.unsignedLongLongValue, @"%@", when);
+        XCTAssertEqualObjects(_player.currentTrack, first, @"%@: the boundary was reported", when);
+        [_player prefetchTrack:next];
+        [_player runSyncOnQueue:^{}];
+        [self render:8192];
+        // The capture misses what the callback rendered: the first file's
+        // last 64 frames and the old successor's first `crossed`.
+        [self assertFile:2 from:crossed.unsignedIntValue followsFrame:before - 1 in:when];
+        [self settleUntil:^BOOL { return [self count:@"advance"] == 1; }];
+        XCTAssertEqualObjects(_player.currentTrack, old, @"%@", when);
+        XCTAssertEqual([self count:@"finish"], 0u, @"%@", when);
+        [self settleUntil:^BOOL { return self->_player.gaplessArmed; }];
+        [self render:kReparkFrames];
+        [self settleUntil:^BOOL { return [self count:@"advance"] == 2; }];
+        XCTAssertEqualObjects(_player.currentTrack, next, @"%@: the new successor did not follow", when);
     }
 }
 

@@ -73,13 +73,22 @@
 
 // The decoder may have won: the successor's frames are in the ring. Before
 // the render reaches them, the bus takes them back, and the voice ends at its
-// own file or continues into the next successor queued. Past that, only a new
-// voice discards them, so the current file is re-voiced at its position.
-// Withdrawn in metadata alone, they play under the wrong title, with no
-// boundary to promote and no end to report.
+// own file or continues into the next successor queued. Once the render has
+// passed the boundary, the successor is sounding, and the drain has only not
+// yet reported it: the splice stands, as if the change had come after the
+// drain, and the promote queues the new park behind it. Otherwise only a new
+// voice discards the frames, so the current file is re-voiced at its
+// position. Withdrawn in metadata alone, they play under the wrong title,
+// with no boundary to promote and no end to report.
 - (void)unqueueSuccessorOnQueue {
     BOOL withdrawn = !_voice || [_voiceBus unqueueSuccessorForVoice:_voice]
             || [_voiceBus takeBackSuccessorForVoice:_voice];
+    if (!withdrawn) {
+        VibeVoiceSnapshot snapshot = [_voiceBus snapshotOfVoice:_voice];
+        if (snapshot.boundary != UINT64_MAX && snapshot.consumed > snapshot.boundary) {
+            return;
+        }
+    }
     [self clearSuccessorOnQueue];
     if (!withdrawn && _file) {
         [self revoiceOnQueueAtPosition:self.position];
@@ -107,6 +116,8 @@
     NSRange window = VibeTrackWindowInFile(startedTrack, startedFile, &estimated);
     [self adoptTrack:startedTrack requestIdentifier:startedRequestIdentifier file:startedFile window:window
            estimated:estimated voice:_voice baseFrames:snapshot.boundary reason:@"gapless boundary"];
+    // A park that changed while the splice stood follows the promoted track.
+    [self maybeArmSuccessorOnQueue];
 }
 
 // A long crossfade's track end: the park starts as a voice of its own while
