@@ -46,7 +46,7 @@ targets:
                 VibeLibsWaveform, VibeLibsWaveformLoading, VibeLibsWaveformStyles, VibeLibsDiskCache, VibeLibsGraphics,
                 VibeLibsPlayQueue, VibeLibsPlaylists, VibeLibsFolderScan, VibeLibsControls, VibeLibsSettingsWindow,
                 VibeLibsShortcuts, VibeLibsNowPlaying, VibeLibsWaveformView, VibeLibsHTTP, VibeLibsShareLinks,
-                VibeLibsDebugChannel, VibeLibsSandboxAccess, VibeLibsAppOpening]
+                VibeLibsDebugChannel, VibeLibsDebugVerbs, VibeLibsSandboxAccess, VibeLibsAppOpening]
     templateAttributes:
       excludedPlatform: iOS
     sources:

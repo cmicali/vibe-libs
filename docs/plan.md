@@ -148,7 +148,10 @@ vibe-libs/
 │   └── Updates          Sparkle for a direct-download build, compiled out of an App Store build
 │
 ├── dev/
-│   ├── DebugChannel     drive and inspect a running debug build from a script
+│   ├── DebugChannel     drive and inspect a running debug build from a script, and the
+│   │                    mac's CLI client
+│   ├── DebugVerbs       the debug verbs every app answers the same way, and the mac's
+│   │                    synthetic input
 │   └── iOSDriver        taps, drags and pinches in the iOS simulator, for scripts; iOS only
 │
 ├── tools/strings ●      the strings registry's extraction and catalog checks, configured per app
@@ -202,6 +205,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | system/AppOpening | nothing, macOS only |
 | system/Updates | third_party/Sparkle, macOS only |
 | dev/DebugChannel | nothing |
+| dev/DebugVerbs | dev/DebugChannel, core/Graphics |
 | dev/iOSDriver | nothing, iOS only |
 | tools/strings | nothing: it is scripts |
 | third_party/PINCache | third_party/PINOperation |
@@ -255,7 +259,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | An app that reads users' iCloud and network files | FileLoading, and nothing from audio |
 | A DJ tool reading CUE sheets | Playlists |
 | A waveform plugin | Waveform today; WaveformStyles once its later C++ rewrite lands |
-| A mac app that plays no audio | SettingsWindow, Shortcuts, Controls, Graphics, Updates, DebugChannel, and tools/strings; OutputDevices and Meter if it meters an output |
+| A mac app that plays no audio | SettingsWindow, Shortcuts, Controls, Graphics, Updates, DebugChannel, DebugVerbs, and tools/strings; OutputDevices and Meter if it meters an output |
 
 ### What some pieces mean, in plain words
 
@@ -601,7 +605,7 @@ Each remaining candidate moves when a second app needs it, with the cuts it was 
 - **HTTP, RemoteFiles, and ShareLinks**, when the other app adds a server source. Cut 2 and seam 20 come with them.
 - **SandboxAccess, AppOpening, DebugChannel, and iOSDriver**, each with its part of seam 21, when a consumer needs it.
 - **The pitch fader** joins `ui/Controls` with its part of seam 21. It moved on 2026-10-23 in this repo's #51 and Vibe #399. The fader and its panel joined `ui/Controls`' `Mac/` half. Their 4 files and their test moved with their history, the test runs here, and Vibe compiles them through Controls' template. Their part of seam 21 was four values, which a prep commit in Vibe turned into pushes. The panel takes its title, the fader's VoiceOver label, one formatter for its readout and the fader's spoken value, and its corner radius. So Controls' map row and template are unchanged.
-- **The standard debug verbs and the debug client**, since Vibe, the other app, and the third app each need them. [debug-verbs.md](debug-verbs.md) is the plan: a new piece, `dev/DebugVerbs`, the client's move into DebugChannel's `Mac/` half, and each app taking them. Planned on 2026-10-30.
+- **The standard debug verbs and the debug client**, since Vibe, the other app, and the third app each need them. [debug-verbs.md](debug-verbs.md) is the plan: a new piece, `dev/DebugVerbs`, the client's move into DebugChannel's `Mac/` half, and each app taking them. Planned on 2026-10-30. They moved on 2026-10-31. The piece's 16 files, its doc, and the client's 2 files moved with their history, after a prep pull request in Vibe staged them. Their tests are new here. The consumer answers `dump_build` and `dump_health` from the standard table.
 
 **Wave 10 moved the rest but the pitch fader on 2026-10-23**, in this order:
 
@@ -630,6 +634,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | First release | NowPlaying and Updates | move | 6 | each app's media keys and update check | NowPlaying at 36ff73d (#41). Updates at ccea3ae (#45). |
 | Any mac app's opens, when it needs them | AppOpening | move | 6 | the coalescer's and the coordinator's tests, and the minimal consumer's split open | 8b1418e (#48) |
 | A server source | HTTP, RemoteFiles, and ShareLinks | move | 6 | Vibe's transfer, store, and link tests, moved here | 2f62ff4 (#46) |
+| Its debug channel's standard verbs and client | DebugVerbs, and the client in DebugChannel | move | 6 | the piece's and the client's tests, and the consumer's standard verbs | |
 
 Nothing else is scheduled for the other app. The shell pieces are scheduled for a third app, on the shell track. Portable rewrites wait until a consumer needs them.
 

@@ -6,7 +6,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first forty-four pieces are here.** Each came from Vibe. The ten under `third_party/` are the libraries Vibe vendored. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first forty-five pieces are here.** Each came from Vibe. The ten under `third_party/` are the libraries Vibe vendored. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |
@@ -41,7 +41,8 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `system/NowPlaying` | A bridge to the system's Now Playing info and remote commands. |
 | `system/AppOpening` | One open request from the batches the mac splits it into, delivered in order. macOS only. |
 | `system/Updates` | Sparkle for a direct-download mac app. macOS only. |
-| `dev/DebugChannel` | Drive and inspect a running debug build from a script. |
+| `dev/DebugChannel` | Drive and inspect a running debug build from a script. On the mac, its CLI client too. |
+| `dev/DebugVerbs` | The debug verbs every app's channel answers the same way, and the mac's synthetic input. |
 | `dev/iOSDriver` | Taps, drags, and pinches in the iOS simulator, for scripts. iOS only. |
 | `tools/strings` | An app's strings extraction and catalog checks, configured per app. Scripts, not code an app compiles. |
 | `third_party/taglib` | TagLib, which reads and writes tags. |

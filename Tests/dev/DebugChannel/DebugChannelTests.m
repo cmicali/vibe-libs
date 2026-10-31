@@ -1,11 +1,15 @@
 // The channel's three parts: the wire format's paths, replies and parsers,
 // the lookup over a command table, and a command file drained to its reply
-// through the notification a client posts.
+// through the notification a client posts. Then the client, on a background
+// queue against the channel the tests install, while main drains it.
 
 #import <XCTest/XCTest.h>
+#import <fcntl.h>
 #import <notify.h>
+#import <unistd.h>
 
 #import "DebugChannel.h"
+#import "DebugClient.h"
 #import "DebugCommandDispatch.h"
 #import "DebugWireFormat.h"
 
@@ -21,7 +25,16 @@ NSUInteger VibeDebugCommandsInFlight(void);
 // The channel holds one executor per process, so every test installs it once
 // and swaps what it runs.
 static VibeDebugChannelExecutor gRunning;
-static NSString *const kChannel = @"vibe-libs.debugchannel.tests";
+// Named for this process. Two runs at once, from two worktrees, share one
+// temporary directory, and would drain each other's commands.
+static NSString *TestChannel(void) {
+    static NSString *channel;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        channel = [NSString stringWithFormat:@"vibe-libs.debugchannel.tests.%d", getpid()];
+    });
+    return channel;
+}
 
 // The install is a launch. What it did with the two commands it found.
 static NSString *gEarlyReply;
@@ -35,7 +48,7 @@ static id JSONObject(NSString *json) {
 
 // Writes the payload as a client does, renamed into place.
 static NSString *WritePayload(NSData *payload, NSString *commandId) {
-    NSString *path = VibeDebugCommandPath(kChannel, commandId);
+    NSString *path = VibeDebugCommandPath(TestChannel(), commandId);
     NSString *part = [path stringByAppendingString:@".part"];
     [payload writeToFile:part atomically:NO];
     [NSFileManager.defaultManager moveItemAtPath:part toPath:path error:nil];
@@ -48,19 +61,19 @@ static NSString *WriteCommand(NSArray *args, NSString *commandId) {
 }
 
 static void Post(void) {
-    notify_post(VibeDebugCommandNotificationName(kChannel).UTF8String);
+    notify_post(VibeDebugCommandNotificationName(TestChannel()).UTF8String);
 }
 
 // Spins main until the reply lands. Returns the reply, or nil.
 static NSString *AwaitReply(NSString *commandId) {
-    NSString *responsePath = VibeDebugResponsePath(kChannel, commandId);
+    NSString *responsePath = VibeDebugResponsePath(TestChannel(), commandId);
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
     while (![NSFileManager.defaultManager fileExistsAtPath:responsePath] && deadline.timeIntervalSinceNow > 0) {
         [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
     }
     NSString *reply = [NSString stringWithContentsOfFile:responsePath encoding:NSUTF8StringEncoding error:nil];
     [NSFileManager.defaultManager removeItemAtPath:responsePath error:nil];
-    [NSFileManager.defaultManager removeItemAtPath:VibeDebugCommandPath(kChannel, commandId) error:nil];
+    [NSFileManager.defaultManager removeItemAtPath:VibeDebugCommandPath(TestChannel(), commandId) error:nil];
     return reply;
 }
 
@@ -92,7 +105,7 @@ static void InstallChannelOnce(void) {
             gStaleRan |= [args.firstObject isEqualToString:@"stale"];
             return VibeJSONString(@{@"verb": args.firstObject});
         };
-        VibeInstallDebugCommandChannel(kChannel, ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        VibeInstallDebugCommandChannel(TestChannel(), ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
             return gRunning(args, commandId);
         });
         gStaleSwept = ![NSFileManager.defaultManager fileExistsAtPath:stale];
@@ -128,7 +141,7 @@ static void InstallChannelOnce(void) {
     XCTAssertFalse([VibeDebugFilePrefix(@"com.example.App.beta", @"command")
                     hasPrefix:VibeDebugFilePrefix(@"com.example.App", @"command")],
                    @"a name that extends another's still has files of its own");
-    XCTAssertEqualObjects(VibeDebugChannelName(), kChannel);
+    XCTAssertEqualObjects(VibeDebugChannelName(), TestChannel());
 }
 
 - (void)testEveryReplyIsOneJSONObject {
@@ -320,9 +333,9 @@ static void InstallChannelOnce(void) {
     gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
         return VibeJSONString(@{@"verb": args.firstObject});
     };
-    NSString *staleReply = VibeDebugResponsePath(kChannel, @"abandoned");
-    NSString *staleScreenshot = VibeDebugScreenshotPathForCommand(kChannel, @"abandoned");
-    NSString *freshReply = VibeDebugResponsePath(kChannel, @"fresh");
+    NSString *staleReply = VibeDebugResponsePath(TestChannel(), @"abandoned");
+    NSString *staleScreenshot = VibeDebugScreenshotPathForCommand(TestChannel(), @"abandoned");
+    NSString *freshReply = VibeDebugResponsePath(TestChannel(), @"fresh");
     for (NSString *path in @[staleReply, staleScreenshot, freshReply]) {
         XCTAssertTrue([NSData.data writeToFile:path atomically:NO]);
     }
@@ -392,6 +405,168 @@ static void InstallChannelOnce(void) {
                           @{@"error": @"payload 'args' must be a non-empty JSON array"});
     XCTAssertEqualObjects(JSONObject(SendArgs(@[@"seek", @3])),
                           @{@"error": @"payload 'args' must contain only strings"});
+}
+
+#pragma mark - The client
+
+static VibeDebugClientOptions *ClientOptions(void) {
+    VibeDebugClientOptions *options = [VibeDebugClientOptions new];
+    options.channel = TestChannel();
+    options.displayName = @"Tests";
+    options.messagePrefix = @"tests";
+    return options;
+}
+
+// Runs the client as `tests --debug-cmd <args>` on a background queue, while
+// main drains the channel, as an app and its client do in two processes.
+// Answers the exit code, and what the client wrote to stdout.
+static int RunClient(NSArray<NSString *> *args, VibeDebugClientOptions *options, NSData **output) {
+    NSString *outPath = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    [NSData.data writeToFile:outPath atomically:NO];
+    fflush(stdout);
+    int saved = dup(STDOUT_FILENO);
+    int fd = open(outPath.fileSystemRepresentation, O_WRONLY | O_TRUNC);
+    dup2(fd, STDOUT_FILENO);
+    close(fd);
+    __block int status = -1;
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        @autoreleasepool {
+            const char **argv = calloc(args.count + 2, sizeof(char *));
+            argv[0] = "tests";
+            argv[1] = "--debug-cmd";
+            for (NSUInteger i = 0; i < args.count; i++) {
+                argv[i + 2] = args[i].UTF8String;
+            }
+            status = VibeDebugClientMain((int)args.count + 2, argv, options);
+            free(argv);
+        }
+        dispatch_semaphore_signal(done);
+    });
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (dispatch_semaphore_wait(done, DISPATCH_TIME_NOW) != 0 && deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+    if (output) {
+        *output = [NSData dataWithContentsOfFile:outPath];
+    }
+    [NSFileManager.defaultManager removeItemAtPath:outPath error:nil];
+    return status;
+}
+
+static NSArray<NSString *> *OutputLines(NSData *output) {
+    NSString *text = [[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding];
+    return [[text stringByTrimmingCharactersInSet:NSCharacterSet.newlineCharacterSet]
+            componentsSeparatedByString:@"\n"];
+}
+
+- (void)testTheClientsExitCodeIsTheReplys {
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        return [args.firstObject isEqualToString:@"ping"] ? VibeJSONString(@{@"pong": args.lastObject})
+                                                         : VibeErrorJSON(@"no %@", args.firstObject);
+    };
+    NSData *output = nil;
+    XCTAssertEqual(RunClient(@[@"ping", @"a b"], ClientOptions(), &output), 0);
+    XCTAssertEqualObjects(JSONObject([[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding]),
+                          @{@"pong": @"a b"}, @"an argument with a space arrives as one token");
+    XCTAssertEqual(RunClient(@[@"nope"], ClientOptions(), &output), 2, @"an error reply");
+    XCTAssertEqualObjects(JSONObject([[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding]),
+                          @{@"error": @"no nope"});
+}
+
+- (void)testNoReplyWithinTheVerbsWaitIsExitOne {
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        return nil;
+    };
+    VibeDebugClientOptions *options = ClientOptions();
+    __block NSString *asked = nil;
+    options.waitForVerb = ^NSTimeInterval(NSString *verb) {
+        asked = verb;
+        return 0.5;
+    };
+    CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+    XCTAssertEqual(RunClient(@[@"silent"], options, NULL), 1);
+    CFAbsoluteTime waited = CFAbsoluteTimeGetCurrent() - start;
+    XCTAssertEqualObjects(asked, @"silent");
+    XCTAssertGreaterThanOrEqual(waited, 0.5);
+    XCTAssertLessThan(waited, 4.5, @"the verb's wait, not the 5 s default");
+}
+
+- (void)testAUsageErrorIsExitSixtyFour {
+    XCTAssertEqual(RunClient(@[], ClientOptions(), NULL), 64);
+    XCTAssertEqual(RunClient(@[@"sleep", @"forever"], ClientOptions(), NULL), 64);
+    XCTAssertEqual(RunClient(@[@"script"], ClientOptions(), NULL), 64);
+    NSData *output = nil;
+    XCTAssertEqual(RunClient(@[@"sleep", @"0.01"], ClientOptions(), &output), 0, @"sleep runs in the client");
+    XCTAssertEqualObjects(JSONObject([[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding])[@"ok"],
+                          @YES);
+}
+
+- (void)testAScriptStopsAtItsFirstFailure {
+    __block NSMutableArray<NSString *> *ran = [NSMutableArray array];
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        [ran addObject:[args componentsJoinedByString:@"|"]];
+        return [args.firstObject isEqualToString:@"fail"] ? VibeErrorJSON(@"failed")
+                                                          : VibeJSONString(@{@"ran": args.lastObject});
+    };
+    NSString *script = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    [@"ping 'a b'\n# a comment\n\nfail\nping after\n" writeToFile:script atomically:YES
+                                                         encoding:NSUTF8StringEncoding error:nil];
+    NSData *output = nil;
+    XCTAssertEqual(RunClient(@[@"script", script], ClientOptions(), &output), 2);
+    [NSFileManager.defaultManager removeItemAtPath:script error:nil];
+    XCTAssertEqualObjects(ran, (@[@"ping|a b", @"fail"]), @"quotes group a token, and nothing runs after a failure");
+    XCTAssertEqualObjects(OutputLines(output), (@[@"{\"ran\":\"a b\"}", @"{\"error\":\"failed\"}"]),
+                          @"one compact reply per command");
+}
+
+- (void)testAFileVerbsFileReachesStdoutUnderADash {
+    NSData *bytes = [@"not really a PNG" dataUsingEncoding:NSUTF8StringEncoding];
+    __block NSString *written = nil;
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        written = VibeDebugScreenshotPathForCommand(TestChannel(), commandId);
+        [bytes writeToFile:written atomically:YES];
+        return VibeJSONString(@{@"path": written});
+    };
+    VibeDebugClientOptions *options = ClientOptions();
+    options.fileVerbs = @[@"shot"];
+    NSData *output = nil;
+    XCTAssertEqual(RunClient(@[@"shot", @"-"], options, &output), 0);
+    XCTAssertEqualObjects(output, bytes);
+    XCTAssertFalse([NSFileManager.defaultManager fileExistsAtPath:written], @"the client removes the file it read");
+
+    NSString *script = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    [@"shot first\n" writeToFile:script atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    XCTAssertEqual(RunClient(@[@"script", script], options, &output), 0);
+    [NSFileManager.defaultManager removeItemAtPath:script error:nil];
+    XCTAssertEqualObjects(JSONObject(OutputLines(output).firstObject),
+                          (@{@"ok": @YES, @"label": @"first", @"pngBase64": [bytes base64EncodedStringWithOptions:0]}));
+}
+
+- (void)testALocalVerbRunsInTheClientAndNeverReachesTheApp {
+    __block BOOL reached = NO;
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        reached = YES;
+        return VibeJSONString(@{@"app": @YES});
+    };
+    VibeDebugClientOptions *options = ClientOptions();
+    options.localVerb = ^int(NSArray<NSString *> *args, BOOL inScript, void (^print)(NSString *json)) {
+        if (![args.firstObject isEqualToString:@"local"]) {
+            return -1;
+        }
+        print(VibeJSONString(@{@"local": @(inScript)}));
+        return 0;
+    };
+    NSData *output = nil;
+    XCTAssertEqual(RunClient(@[@"local"], options, &output), 0);
+    XCTAssertEqualObjects(JSONObject([[NSString alloc] initWithData:output encoding:NSUTF8StringEncoding]),
+                          @{@"local": @NO});
+    XCTAssertFalse(reached);
+    XCTAssertEqual(RunClient(@[@"remote"], options, &output), 0, @"any other verb rides the channel");
+    XCTAssertTrue(reached);
 }
 
 @end

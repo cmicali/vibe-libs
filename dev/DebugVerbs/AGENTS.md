@@ -68,3 +68,17 @@ The counters are for diffing between two readings of a run. None means much alon
 ## The frame probe
 
 On iOS, `sample_frame_rate` counts the frames the app is granted for a few seconds, and how many ran long. `dump_frame_rate` reads the report. `VibeDebugBeginFrameProbe(0)` runs the probe until it is replaced, and logs a report every five seconds. That is the road off a phone, whose console relays the log. An app starts it from a launch flag of its own.
+
+## Tests
+
+`Tests/dev/DebugVerbs/Mac/` holds `DebugVerbsTests`, which defines `DEBUG` and `VIBE_SIGNPOSTS` in every configuration. They run each verb through its handler, as an app's dispatcher does, with options and a controller of their own.
+
+- **The tables**: every verb is unique, every usage parses, and the waits are Vibe's.
+- **The shared verbs**: `dump_build` answers its eight keys plus the extras, and its own keys win. `dump_health` answers the process block and the extras, and the malloc counter's live bytes never exceed its reserved bytes. `block_main` holds main for its seconds, chains a shared verb and an app's verb, refuses itself, an unknown verb, and a platform verb, and answers nil when the chained verb replies later. `work_tally` opens and closes a window.
+- **The view tree and the menus**: the tree names each view's class, identifier, hidden state, and alpha. The menu dump lists a separator, a submenu, a key equivalent, a hidden item, a disabled item, and a state. `click_menu` hands the app's dispatch the item it found, sends the action itself with none, and answers the disabled, hidden, and submenu errors.
+- **The input**: the key verbs post what a real key carries, the shifted character in both fields and the function and numeric-pad flags on an arrow. `click` posts a down and an up per count, with the count ascending. `drag` posts its steps between one down and one up. Each event is read back from the app's own queue. **TRAP: a test calls `[NSApplication sharedApplication]` first, since host-less `NSApp` is nil.** No test asserts key status, since activation may not take on CI.
+- **The screenshot** of a test window is a PNG of its points times its backing scale.
+
+`DebugVerbs-iOS` builds the iOS half. The minimal consumer answers `dump_build` and `dump_health` from the standard table, beside a command of its own, with no `VIBE_SIGNPOSTS`.
+
+Vibe's contract run checks the verbs in a running app, before and after each change to them (`docs/debug-verbs.md`).
