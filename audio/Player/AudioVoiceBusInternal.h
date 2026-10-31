@@ -41,6 +41,8 @@ typedef NS_ENUM(int32_t, VibeSuccessorState) {
     VibeSuccessorNone = 0,
     VibeSuccessorQueued,
     VibeSuccessorSwitching,
+    VibeSuccessorTakingBack, // the queue is deciding whether the render passed the boundary
+    VibeSuccessorTakenBack,  // it did not: the decoder drops the frames past the cut
 };
 
 // Where a voice's stream stands past its file's frames.
@@ -93,6 +95,9 @@ typedef struct {
     _Atomic uint64_t endOfStream;
     _Atomic uint64_t boundary;
     _Atomic int32_t successorState; // the decoder wins queued→switching; the queue wins queued→none
+    // Queue sets it, decoder lifts it. While set, a render that has not
+    // passed it mixes nothing past it (takeBackSuccessorForVoice:).
+    _Atomic uint64_t cut;
     _Atomic int32_t readsAllowed;   // the queue clears it for a declick retire
     // Queue.
     _Atomic uint64_t ramp;
@@ -272,6 +277,8 @@ static inline AudioTimeStamp VibeStampRead(const VibeVoiceStamp *field) {
 - (void)recycleSlot:(NSUInteger)slot generation:(VibeVoiceID)generation;
 - (void)scheduleFillForSlot:(NSUInteger)slot;
 - (BOOL)decodeChunkForSlot:(NSUInteger)slot;
+- (void)dropTakenBackSuccessorForSlot:(NSUInteger)slot;
+- (BOOL)waitForRenderToLeaveSlot:(NSUInteger)slot;
 - (uint32_t)produceChunkForSlot:(NSUInteger)slot final:(BOOL *)final;
 
 @end

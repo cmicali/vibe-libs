@@ -71,12 +71,15 @@
     [self setSuccessorArmedForUI:YES];
 }
 
-// The decoder may have won: the successor's frames are in the ring, and only
-// a new voice discards them, so the current file is re-voiced at its position.
+// The decoder may have won: the successor's frames are in the ring. Before
+// the render reaches them, the bus takes them back, and the voice ends at its
+// own file or continues into the next successor queued. Past that, only a new
+// voice discards them, so the current file is re-voiced at its position.
 // Withdrawn in metadata alone, they play under the wrong title, with no
 // boundary to promote and no end to report.
 - (void)unqueueSuccessorOnQueue {
-    BOOL withdrawn = !_voice || [_voiceBus unqueueSuccessorForVoice:_voice];
+    BOOL withdrawn = !_voice || [_voiceBus unqueueSuccessorForVoice:_voice]
+            || [_voiceBus takeBackSuccessorForVoice:_voice];
     [self clearSuccessorOnQueue];
     if (!withdrawn && _file) {
         [self revoiceOnQueueAtPosition:self.position];

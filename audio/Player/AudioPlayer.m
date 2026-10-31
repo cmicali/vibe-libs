@@ -1272,8 +1272,9 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     return voice;
 }
 
-// The seek's shape, shared with an unqueue the decoder won (only a new voice
-// discards successor frames already in the ring) and a rebuild's restore.
+// The seek's shape, shared with an unqueue the render has passed (only a new
+// voice discards successor frames it is already playing) and a rebuild's
+// restore.
 // TRAP: the old voice retires, its reads stopped, before the new one starts:
 // both read one AudioFileHandle, and an old turn after the new voice
 // positions the cursor starts its next chunk 4096 frames late.

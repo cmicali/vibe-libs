@@ -235,9 +235,18 @@ typedef struct VibeVoiceMix VibeVoiceMix;
               forVoice:(VibeVoiceID)voice;
 
 // Drops the queued successor. NO means the decoder had already claimed it:
-// successor frames sit in the ring or are on their way, and the caller must
-// re-voice.
+// successor frames sit in the ring or are on their way, and the caller takes
+// it back or re-voices.
 - (BOOL)unqueueSuccessorForVoice:(VibeVoiceID)voice;
+
+// After an unqueue that answered NO: takes back the successor the decoder
+// switched into, if the render has not passed its boundary. The frames past
+// the boundary are dropped, and the voice ends there, as one whose successor
+// was never named. A successor queued since continues it at the boundary,
+// with nothing between. NO when the render has passed the boundary, the
+// drain has reported it, the decoder is still switching, or a resampler still
+// holds the ending file's last frames; the caller must re-voice.
+- (BOOL)takeBackSuccessorForVoice:(VibeVoiceID)voice;
 
 // A retire of zero frames: silent from the next render, dead right after.
 // Every started voice ends exactly once through the drain, a pending one

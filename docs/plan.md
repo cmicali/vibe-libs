@@ -595,7 +595,7 @@ The parse is TagLib's, which already reads title and artist. The metadata archiv
 Two changes of behavior, each its own pull request with its own measurements:
 
 - **WaveformLoading's scan requests** ([Analyzing many files](#analyzing-many-files)).
-- **A gain per file through a gapless splice, in Player.** The gapless successor shares the current voice, so a gain per voice is not enough. The gain changes on the exact frame where one file ends and the next begins. It runs on the audio thread under the render's realtime rules. **Done when** a render test shows the gain change on the boundary frame, and a soak run passes.
+- **A gain per file through a gapless splice, in Player.** The gapless successor shares the current voice, so a gain per voice is not enough. The gain changes on the exact frame where one file ends and the next begins. It runs on the audio thread under the render's realtime rules. **Done when** a render test shows the gain change on the boundary frame, and a soak run passes. `AudioPlayerReparkTests` already plays fixtures whose every sample names its file and frame, and finds the boundary frame in the capture. That test came with the take-back of a re-parked successor on 2026-10-31.
 
 ### Phase 6: grow from reuse
 
@@ -628,6 +628,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | First slice: tags for its index, with no download | Metadata's reads by URL, with a read policy | behavior | 3 | `AudioTrackMetadataReadingTests`, and a probe of the I/O policy on iCloud Drive and Dropbox | |
 | First slice: the waveform in a titled window's player bar | WaveformView's `dragsWindow` and `accessibilityValueProvider` | behavior | 3 | `WaveformViewTests`' drag and spoken-value tests | 820660f (#78) |
 | First slice: a seek from the player bar at a gapless splice | `AudioPlayer`'s `seekToPosition:ofTrack:` | behavior | 3 | `testASeekNamingTheOutgoingTrackAfterASpliceIsDropped` | |
+| First slice: an Up Next edit in a song's last moments | `AudioVoiceBus`'s take-back of a successor the decoder already reads, before the render reaches it | behavior | 3 | `AudioPlayerReparkTests`, which checks the frame after the boundary | |
 | Full app: song matching and leveling | the tag fields, identifiers, audio MD5, and loudness tags | behavior | 4 | a parse fixture for each field | 5cca1ea (#52) |
 | Full app: background analysis | WaveformLoading's scan requests | behavior | 5 | a throttled source yields within one block | |
 | Full app: leveling from tags | a gain per file through a gapless splice | behavior | 5 | the boundary-frame render test | |
