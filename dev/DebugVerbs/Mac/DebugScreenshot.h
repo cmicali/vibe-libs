@@ -18,11 +18,13 @@ NS_ASSUME_NONNULL_BEGIN
 //
 // It renders the window's layer tree in-process, with no window-server
 // capture, so it needs no screen-recording permission and works with the
-// display asleep or the window occluded. NSGlassEffectView layers cannot
-// render this way: they are hidden, over an appearance-matched flat fill.
-// Hiding them forces a model-tree render, so a glass-bearing window's
-// animations land at their target values; glass-free windows render the
-// presentation tree mid-flight. Metal content does not render either.
+// display asleep or the window occluded. NSGlassEffectView and
+// CABackdropLayer layers render white this way, so they are hidden, over an
+// appearance-matched flat fill. Each glass view's content then renders on top,
+// in its place. Hiding them forces a model-tree render, so such a window's
+// animations land at their target values; any other window renders the
+// presentation tree mid-flight. Metal content does not render either. The
+// PNG's resolution is 72 dpi times the backing scale.
 BOOL VibeDumpWindowSnapshot(NSString *path);
 
 // Renders to path whenever notificationName is posted, so a terminal can take
