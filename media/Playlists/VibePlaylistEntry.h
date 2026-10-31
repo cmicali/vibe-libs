@@ -48,6 +48,15 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, readonly, nullable) NSString *displayTitle;
 @property (nonatomic, copy, readonly, nullable) NSString *displayArtist;
 
+// A CUE sheet beside the file that a catalog scan listed and could not read,
+// since it is a cloud placeholder (media/FolderScan). The file's windows are
+// then unknown. nil when the scan read every sheet beside it, or there is
+// none, and for every entry an open or a reader makes.
+@property (nonatomic, copy, readonly, nullable) NSURL *unreadCueSheetURL;
+
+// The same entry, beside that unread sheet.
+- (instancetype)entryBesideUnreadCueSheet:(NSURL *)sheet;
+
 // YES when the entry plays less than its whole file.
 - (BOOL)isWindowed;
 

@@ -540,15 +540,34 @@ static NSArray<VibePlaylistEntry *> *VibePlayableSheetEntries(NSURL *sheet, NSSe
     return entries;
 }
 
+// Each entry beside the first unread sheet by path, or the entries as they
+// are when there is none.
+static NSArray<VibePlaylistEntry *> *VibeEntriesBesideUnreadSheets(NSArray<VibePlaylistEntry *> *entries,
+                                                                  NSSet<NSURL *> *unreadSheets) {
+    if (unreadSheets.count == 0) {
+        return entries;
+    }
+    NSURL *sheet = [unreadSheets.allObjects sortedArrayUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) {
+        return [a.path compare:b.path];
+    }].firstObject;
+    NSMutableArray<VibePlaylistEntry *> *beside = [NSMutableArray arrayWithCapacity:entries.count];
+    for (VibePlaylistEntry *entry in entries) {
+        [beside addObject:[entry entryBesideUnreadCueSheet:sheet]];
+    }
+    return beside;
+}
+
 // Each audio file its entries (entriesForFile:), and each sheet its entries in
 // its sorted place. A sheet resolves against the walk's own listing first and
 // claims its files, so none also appears whole or is opened for its own sheet,
 // and none is cut again by a later sheet: Album.cue beside Album (UTF-8).cue
 // would list every track twice. Sheet entries must name supported, nonempty
 // files, listed or readable. failures as VibePlayableSheetEntries takes it.
-// Without readsPlaceholderSheets, a sheet that is a cloud placeholder is an
-// entry whole and is not read, since the read would download it. Background
-// work must not download.
+// Without readsPlaceholderSheets, a sheet that is a cloud placeholder is not
+// read, since the read would download it. Background work must not download.
+// It is no entry of its own. Every other entry of the call names it as its
+// unread sheet, the first by path, so a caller that splits them into
+// batches still knows each one's windows are unknown.
 static NSArray<VibePlaylistEntry *> *VibeEntriesForWalk(NSArray<NSURL *> *urls, NSMutableArray<NSError *> *failures,
                                                    BOOL readsPlaceholderSheets) {
     NSMutableArray<NSURL *> *sheets = [NSMutableArray array];
@@ -566,10 +585,11 @@ static NSArray<VibePlaylistEntry *> *VibeEntriesForWalk(NSArray<NSURL *> *urls, 
     if (sheets.count == 0) {
         NSMutableArray<VibePlaylistEntry *> *entries = [NSMutableArray arrayWithCapacity:urls.count];
         for (NSURL *url in urls) {
-            [entries addObjectsFromArray:[unreadSheets containsObject:url] ? @[[VibePlaylistEntry entryWithURL:url]]
-                                                                            : [FolderWalk entriesForFile:url]];
+            if (![unreadSheets containsObject:url]) {
+                [entries addObjectsFromArray:[FolderWalk entriesForFile:url]];
+            }
         }
-        return entries;
+        return VibeEntriesBesideUnreadSheets(entries, unreadSheets);
     }
     NSSet<NSURL *> *listed = [NSSet setWithArray:urls];
     NSDictionary<NSString *, NSArray<NSURL *> *> *knownFiles = VibeKnownFiles(urls);
@@ -594,14 +614,11 @@ static NSArray<VibePlaylistEntry *> *VibeEntriesForWalk(NSArray<NSURL *> *urls, 
         if (sheetEntries) {
             [entries addObjectsFromArray:sheetEntries];
         }
-        else if ([unreadSheets containsObject:url]) {
-            [entries addObject:[VibePlaylistEntry entryWithURL:url]];
-        }
-        else if (!claimed[url]) {
+        else if (!claimed[url] && ![unreadSheets containsObject:url]) {
             [entries addObjectsFromArray:[FolderWalk entriesForFile:url]];
         }
     }
-    return entries;
+    return VibeEntriesBesideUnreadSheets(entries, unreadSheets);
 }
 
 + (NSArray<VibePlaylistEntry *> *)entriesForWalk:(NSArray<NSURL *> *)urls {

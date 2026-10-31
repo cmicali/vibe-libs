@@ -39,6 +39,16 @@
     return self;
 }
 
+- (instancetype)entryBesideUnreadCueSheet:(NSURL *)sheet {
+    VibePlaylistEntry *entry = [[VibePlaylistEntry alloc] initWithURL:_url cueStart:_cueStart cueEnd:_cueEnd
+                                                                title:_cueTitle performer:_cuePerformer
+                                                                sheet:_cueSheetURL trackNumber:_cueTrackNumber
+                                                             duration:_duration displayTitle:_displayTitle
+                                                        displayArtist:_displayArtist];
+    entry->_unreadCueSheetURL = [sheet copy];
+    return entry;
+}
+
 - (BOOL)isWindowed {
     return _cueStart > 0 || _cueEnd > 0;
 }
