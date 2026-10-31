@@ -225,6 +225,10 @@ static BOOL IsFLAC(VibeTagFixture fixture) {
 
     NSData *extracted = nil;
     VibeEmbeddedArtExtractionResult result = Extract(url, &extracted);
+    // The art lives in the art's stores, never in the archived entry.
+    XCTAssertNil(restored.artwork.encodedThumbnailDataForStorage, @"%@ archived", name);
+    XCTAssertEqual(restored.hasEmbeddedArt, VibeTagFixtureHasArt(fixture), @"%@ archived", name);
+    XCTAssertEqual(metadata.hasEmbeddedArt, VibeTagFixtureHasArt(fixture), @"%@", name);
     if (VibeTagFixtureHasArt(fixture)) {
         XCTAssertTrue(metadata.artwork.hasEmbeddedArt, @"%@", name);
         NSData *thumbnail = metadata.artwork.encodedThumbnailDataForStorage;

@@ -32,15 +32,22 @@ static NSString *VibeAudioCacheFamily(NSString *name) {
 
 - (void)audioDiskUsageWithCompletion:(void (^)(NSUInteger fileCount,
                                                unsigned long long totalBytes))completion {
+    [PINCache audioDiskUsageOfCaches:@[self] completion:completion];
+}
+
++ (void)audioDiskUsageOfCaches:(NSArray<PINCache *> *)caches
+                    completion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
     __block NSUInteger count = 0;
     __block unsigned long long bytes = 0;
-    [self.diskCache enumerateObjectsWithBlock:^(NSString *key, NSURL *fileURL, BOOL *stop) {
-        count++;
-        NSNumber *size = nil;
-        if ([fileURL getResourceValue:&size forKey:NSURLFileSizeKey error:nil]) {
-            bytes += size.unsignedLongLongValue;
-        }
-    }];
+    for (PINCache *cache in caches) {
+        [cache.diskCache enumerateObjectsWithBlock:^(NSString *key, NSURL *fileURL, BOOL *stop) {
+            count++;
+            NSNumber *size = nil;
+            if ([fileURL getResourceValue:&size forKey:NSURLFileSizeKey error:nil]) {
+                bytes += size.unsignedLongLongValue;
+            }
+        }];
+    }
     run_on_main_thread({
         completion(count, bytes);
     });

@@ -15,8 +15,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nullable, weak) id <AudioTrackMetadataCacheDelegate> delegate;
 
-// The versioned store name. An app reads it to remove older stores.
+// The versioned store names. The tags, the 128 px row thumbnails, and the
+// display-art renditions each have a store, and each store its own budget.
 + (NSString *)cacheName;
++ (NSString *)thumbnailCacheName;
++ (NSString *)displayArtCacheName;
+// All three, which an app passes to remove older stores.
++ (NSArray<NSString *> *)cacheNames;
 
 // The disk cache under rootPath. Nil is the user's Caches directory, which
 // init uses. Another app passes its own path, or an app group's to share it.
@@ -68,11 +73,13 @@ NS_ASSUME_NONNULL_BEGIN
 // track changes. Main thread only.
 - (void)setNeighborhoodTracks:(NSArray<id<AudioTrackMetadataHolder>> *)tracks;
 
-// The completion fires on the cache's internal queue. A parse in flight
-// cannot repopulate it, though its UI delivery still happens.
+// Empties all three stores. The completion fires on the cache's internal
+// queue. A parse in flight cannot repopulate them, though its UI delivery
+// still happens.
 - (void)invalidateWithCompletion:(nullable dispatch_block_t)completion;
 
-// Enumerated off the calling thread; the completion runs on main.
+// All three stores', enumerated off the calling thread; the completion runs
+// on main.
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion;
 
 @end

@@ -926,4 +926,72 @@
             @"a data transition orphans the archived rendition");
 }
 
+#pragma mark - The archived thumbnail
+
+// A cache-hit-shaped row: art, no bytes, and the thumbnail store's read.
+- (AudioTrackArtwork *)hitWithThumbnail:(NSData *)thumbnail rendition:(NSData *)rendition {
+    AudioTrackArtwork *artwork = [self artworkWithExtractor:^VibeEmbeddedArtExtractionResult(
+            NSString *path, NSData *__autoreleasing *artData) {
+        XCTFail(@"the archived art must serve the thumbnail without a file read");
+        return VibeEmbeddedArtExtractionReadFailed;
+    }];
+    [artwork adoptArchivedThumbnailData:nil hasEmbeddedArt:YES];
+    artwork.archivedThumbnailProvider = ^NSData *{
+        return thumbnail;
+    };
+    artwork.archivedDisplayArtProvider = ^NSData *{
+        return rendition;
+    };
+    return artwork;
+}
+
+- (void)testAHitsThumbnailDecodesFromTheThumbnailStore {
+    __block NSUInteger renditionReads = 0;
+    AudioTrackArtwork *artwork = [self hitWithThumbnail:[self embeddedArtData] rendition:nil];
+    artwork.archivedDisplayArtProvider = ^NSData *{
+        renditionReads++;
+        return nil;
+    };
+    XCTAssertTrue(artwork.embeddedThumbnailDecodeHasSource);
+    XCTAssertNotNil([self waitForThumbnailDecode:artwork]);
+    XCTAssertNotNil(artwork.cachedThumbnail);
+    XCTAssertEqual(renditionReads, 0u, @"the thumbnail store answered");
+    XCTAssertNotNil(artwork.archivedThumbnailProvider);
+}
+
+- (void)testAGoneThumbnailFallsBackToTheRenditionAndIsDropped {
+    AudioTrackArtwork *artwork = [self hitWithThumbnail:nil rendition:[self embeddedArtData]];
+    XCTAssertNotNil([self waitForThumbnailDecode:artwork]);
+    XCTAssertNil(artwork.archivedThumbnailProvider, @"the next decode goes to the rendition at once");
+}
+
+- (void)testAnUndecodableThumbnailFallsBackToTheRendition {
+    AudioTrackArtwork *artwork = [self hitWithThumbnail:[NSData dataWithBytes:"not an image" length:12]
+                                              rendition:[self embeddedArtData]];
+    XCTAssertNotNil([self waitForThumbnailDecode:artwork]);
+    XCTAssertNil(artwork.archivedThumbnailProvider);
+    XCTAssertTrue(artwork.hasEmbeddedArt, @"a bad archived thumbnail says nothing about the file's art");
+}
+
+- (void)testOnlyAThumbnailProviderIsASource {
+    AudioTrackArtwork *artwork = [self artworkWithExtractor:nil];
+    [artwork adoptArchivedThumbnailData:nil hasEmbeddedArt:YES];
+    XCTAssertFalse(artwork.embeddedThumbnailDecodeHasSource);
+    artwork.archivedThumbnailProvider = ^NSData *{
+        return nil;
+    };
+    XCTAssertTrue(artwork.embeddedThumbnailDecodeHasSource);
+}
+
+- (void)testCopyCarriesTheThumbnailProviderAndDataTransitionsClearIt {
+    AudioTrackArtwork *artwork = [self hitWithThumbnail:[self embeddedArtData] rendition:nil];
+    AudioTrackArtwork *duplicate = [artwork copy];
+    XCTAssertNotNil(duplicate.archivedThumbnailProvider, @"same file, same disk entry");
+    XCTAssertNotNil([self waitForThumbnailDecode:duplicate]);
+    [artwork adoptParsedArtData:[self embeddedArtData]];
+    XCTAssertNil(artwork.archivedThumbnailProvider);
+    [duplicate adoptArchivedThumbnailData:nil hasEmbeddedArt:YES];
+    XCTAssertNil(duplicate.archivedThumbnailProvider);
+}
+
 @end

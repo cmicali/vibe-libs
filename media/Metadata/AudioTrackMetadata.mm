@@ -194,6 +194,10 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
     [self.artwork discardDecodedArt];
 }
 
+- (BOOL)hasEmbeddedArt {
+    return self.artwork.hasEmbeddedArt;
+}
+
 - (VibeImage *)cachedThumbnail {
     VibeImage *thumbnail = [self.artwork cachedThumbnail];
     if (thumbnail) {
@@ -281,13 +285,12 @@ static void EncodePresentCount(NSCoder *coder, NSInteger value, NSString *key) {
     if (value) [coder encodeInteger:value forKey:key];
 }
 
-// The thumbnail and scalars only, so the cache holds thousands of tracks;
-// original art would blow its byte limit. hasEmbeddedArt is its own key: a
-// file with art can archive no thumbnail (undecodable, or encode failed).
+// The tags and scalars only. The art lives in stores of its own, with their
+// own budgets, so art never pushes tags out (AudioTrackMetadataCache). Only
+// whether the file carries art is archived here.
 - (void)encodeWithCoder:(NSCoder *)coder {
     [coder encodeObject:self.title forKey:@"title"];
     [coder encodeObject:self.artist forKey:@"artist"];
-    [coder encodeObject:[self encodeThumbnailDataIfNeeded] forKey:@"thumbnailJPEG"];
     [coder encodeBool:self.artwork.hasEmbeddedArt forKey:@"hasEmbeddedArt"];
     [coder encodeObject:self.artwork.sourceFilePath forKey:@"sourceFilePath"];
     [coder encodeObject:self.fileType forKey:@"fileType"];
@@ -349,7 +352,6 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
         // PINDiskCache unarchives without secure coding: any wrong class is a
         // miss, or a persistent bad entry crashes every launch.
         BOOL wrong = NO;
-        NSData *encodedThumbnail = DecodedObject(coder, @"thumbnailJPEG", NSData.class, &wrong);
         NSString *sourceFilePath = DecodedObject(coder, @"sourceFilePath", NSString.class, &wrong);
         self.title = DecodedObject(coder, @"title", NSString.class, &wrong);
         self.artist = DecodedObject(coder, @"artist", NSString.class, &wrong);
@@ -382,9 +384,9 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
         self.compilation = DecodedCount(coder, @"compilation") > 0;
         self.artwork = [[AudioTrackArtwork alloc] initWithSourceFilePath:sourceFilePath
                                                                extractor:VibeTagLibArtExtractor()];
-        // An entry without the key decodes NO; a thumbnail still proves art.
-        BOOL hasEmbeddedArt = [coder decodeBoolForKey:@"hasEmbeddedArt"] || encodedThumbnail != nil;
-        [self.artwork adoptArchivedThumbnailData:encodedThumbnail hasEmbeddedArt:hasEmbeddedArt];
+        // The thumbnail's bytes are in their own store. The loader stamps
+        // the providers that read it and the rendition.
+        [self.artwork adoptArchivedThumbnailData:nil hasEmbeddedArt:[coder decodeBoolForKey:@"hasEmbeddedArt"]];
         double duration = [coder decodeDoubleForKey:@"duration"];
         if (!isfinite(duration) || duration < 0) {
             return nil;

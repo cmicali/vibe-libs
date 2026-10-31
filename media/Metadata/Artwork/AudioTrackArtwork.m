@@ -109,8 +109,9 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
         // Like a cache hit: compact bytes only, full art re-read on demand.
         copy->_encodedThumbnailData = [_encodedThumbnailData copy];
         copy->_thumbnailDecoder = [_thumbnailDecoder copy];
-        // Same disk entry.
+        // Same disk entries.
         copy->_archivedDisplayArtProvider = _archivedDisplayArtProvider;
+        copy->_archivedThumbnailProvider = _archivedThumbnailProvider;
         copy->_embeddedUndecodable = _embeddedUndecodable;
         copy->_embeddedArtFact = VibeEmbeddedArtFactHasArt(_embeddedArtFact)
                 ? (_embeddedUndecodable ? VibeEmbeddedArtFactHasArtSettled
@@ -130,8 +131,9 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
         _thumbnailDecodePending = NO;
         _embeddedArtData = artData;
         _encodedThumbnailData = nil;
-        // The loader re-stamps the provider once the fresh entry is written.
+        // The loader re-stamps the providers once the fresh entry is written.
         _archivedDisplayArtProvider = nil;
+        _archivedThumbnailProvider = nil;
         _embeddedArtFact = artData != nil ? VibeEmbeddedArtFactHasArtSettled
                                           : VibeEmbeddedArtFactArtless;
         _embeddedExtractionInFlight = NO;
@@ -150,6 +152,7 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
         _thumbnailDecodePending = NO;
         _encodedThumbnailData = [encodedData copy];
         _archivedDisplayArtProvider = nil;
+        _archivedThumbnailProvider = nil;
         _embeddedArtFact = hasEmbeddedArt ? VibeEmbeddedArtFactHasArtNeedsRead
                                           : VibeEmbeddedArtFactArtless;
         _embeddedExtractionInFlight = NO;
@@ -174,6 +177,18 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
 - (void)setArchivedDisplayArtProvider:(AudioTrackArchivedDisplayArtProvider)provider {
     @synchronized (self) {
         _archivedDisplayArtProvider = [provider copy];
+    }
+}
+
+- (AudioTrackArchivedArtProvider)archivedThumbnailProvider {
+    @synchronized (self) {
+        return _archivedThumbnailProvider;
+    }
+}
+
+- (void)setArchivedThumbnailProvider:(AudioTrackArchivedArtProvider)provider {
+    @synchronized (self) {
+        _archivedThumbnailProvider = [provider copy];
     }
 }
 
@@ -337,7 +352,7 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
 - (BOOL)embeddedThumbnailDecodeHasSource {
     @synchronized (self) {
         return _encodedThumbnailData != nil || _embeddedArtData != nil
-                || _archivedDisplayArtProvider != nil;
+                || _archivedThumbnailProvider != nil || _archivedDisplayArtProvider != nil;
     }
 }
 
@@ -432,6 +447,7 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
     }
 
     __block NSData *dataToDecode;
+    __block AudioTrackArchivedArtProvider thumbnailProvider;
     __block AudioTrackArchivedDisplayArtProvider archivedProvider;
     __block BOOL decodingStoredThumbnail;
     __block EmbeddedThumbnailKey *cacheKey;
@@ -442,11 +458,13 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
         }
         dataToDecode = _encodedThumbnailData ?: _embeddedArtData;
         if (!dataToDecode) {
-            // An art-bearing entry with no thumbnail bytes (the 128px
-            // re-encode failed) recovers through the archived rendition.
+            // A cache hit holds no bytes: its thumbnail is in the thumbnail
+            // store. An entry whose thumbnail is gone, evicted or never
+            // encoded, recovers through the archived rendition.
+            thumbnailProvider = _archivedThumbnailProvider;
             archivedProvider = _archivedDisplayArtProvider;
-            if (!archivedProvider) {
-                LogDebug(@"Thumb request %@: no bytes and no rendition — dead end",
+            if (!thumbnailProvider && !archivedProvider) {
+                LogDebug(@"Thumb request %@: no bytes and no archived art — dead end",
                          _sourceFilePath.lastPathComponent);
                 return NO;
             }
@@ -458,10 +476,24 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
     }
 
     [VibeEmbeddedThumbnailDecodeScheduler() submitWork:^{
-        NSData *bytes = dataToDecode ?: archivedProvider();
-        VibeImage *thumbnail = !bytes ? nil : (decoder
-                ? decoder(bytes)
-                : VibeDecodedImageWithData(bytes, kVibeThumbnailArtDimension));
+        VibeImage *(^decode)(NSData *) = ^VibeImage *(NSData *bytes) {
+            return !bytes ? nil : (decoder ? decoder(bytes)
+                                           : VibeDecodedImageWithData(bytes, kVibeThumbnailArtDimension));
+        };
+        VibeImage *thumbnail = nil;
+        BOOL thumbnailMissed = NO;
+        if (dataToDecode) {
+            thumbnail = decode(dataToDecode);
+        } else {
+            // The thumbnail store, then the rendition. An archived thumbnail
+            // that is gone or will not decode says nothing about the file's
+            // art.
+            thumbnail = thumbnailProvider ? decode(thumbnailProvider()) : nil;
+            thumbnailMissed = thumbnailProvider && !thumbnail;
+            if (!thumbnail && archivedProvider) {
+                thumbnail = decode(archivedProvider());
+            }
+        }
         // Sync, keeping the slot until main consumes the pixels: async would
         // let a busy main queue pile up an unbounded tail of them.
         dispatch_sync(dispatch_get_main_queue(), ^{
@@ -473,6 +505,10 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
                 current = cacheKey == self->_thumbnailCacheKey;
                 if (current) {
                     self->_thumbnailDecodePending = NO;
+                    if (thumbnailMissed && self->_archivedThumbnailProvider == thumbnailProvider) {
+                        // The next decode goes to the rendition at once.
+                        self->_archivedThumbnailProvider = nil;
+                    }
                     if (thumbnail) {
                         [VibeEmbeddedThumbnailCache() setImage:thumbnail
                                                         forKey:cacheKey];
