@@ -15,13 +15,34 @@
 #import "MetadataParseCoordinator.h"
 #import "AudioTrackMetadataCache+Debug.h"
 
+// The three stores, built together and published at once, so a reader sees
+// all of them or none. Each has its own budget, so art never pushes tags
+// out, and a rendition never pushes out a row's thumbnail.
+@interface VibeMetadataStores : NSObject
+@property (nonatomic, readonly) PINCache *tags;
+@property (nonatomic, readonly) PINCache *thumbnails;
+@property (nonatomic, readonly) PINCache *displayArt;
+@property (nonatomic, readonly) NSArray<PINCache *> *all;
+@end
+
+@implementation VibeMetadataStores
+
+- (instancetype)initWithRootPath:(NSString *)rootPath {
+    self = [super init];
+    if (self) {
+        _thumbnails = [PINCache audioCacheWithName:AudioTrackMetadataCache.thumbnailCacheName rootPath:rootPath];
+        _displayArt = [PINCache audioCacheWithName:AudioTrackMetadataCache.displayArtCacheName rootPath:rootPath];
+        _tags = [PINCache audioCacheWithName:AudioTrackMetadataCache.cacheName rootPath:rootPath];
+        _all = @[_tags, _thumbnails, _displayArt];
+    }
+    return self;
+}
+
+@end
+
 @interface AudioTrackMetadataCache ()
 // Atomic: set on the cache's queue, read per track from the loader's workers.
-// The art stores are set before the tag store, so a reader that sees the tag
-// store sees all three.
-@property (atomic, strong, nullable) PINCache *store;
-@property (atomic, strong, nullable) PINCache *thumbnailStore;
-@property (atomic, strong, nullable) PINCache *displayArtStore;
+@property (atomic, strong, nullable) VibeMetadataStores *stores;
 @property (nonatomic, readonly) AudioLoadingConfiguration *loadingConfiguration;
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration;
 - (void)setNeighborhoodURLs:(nullable NSArray<NSURL *> *)urls;
@@ -93,7 +114,7 @@
         // workers. A load before this lands builds or waits for it
         // (metadataCache).
         dispatch_async(_cacheQueue, ^{
-            [self storeOnQueue];
+            [self storesOnQueue];
         });
     }
     return self;
@@ -101,46 +122,41 @@
 
 // On _cacheQueue. The first block to ask builds the stores, so nothing
 // depends on which block the queue runs first. A block on the queue calls
-// this, never metadataCache, whose dispatch_sync would deadlock there. Each
-// store has its own budget, so art never pushes tags out, and a rendition
-// never pushes out a row's thumbnail.
-- (PINCache *)storeOnQueue {
-    PINCache *store = self.store;
-    if (!store) {
-        self.thumbnailStore = [PINCache audioCacheWithName:AudioTrackMetadataCache.thumbnailCacheName
-                                                  rootPath:_rootPath];
-        self.displayArtStore = [PINCache audioCacheWithName:AudioTrackMetadataCache.displayArtCacheName
-                                                   rootPath:_rootPath];
-        store = [PINCache audioCacheWithName:AudioTrackMetadataCache.cacheName rootPath:_rootPath];
-        self.store = store;
+// this, never storesBuilt, whose dispatch_sync would deadlock there.
+- (VibeMetadataStores *)storesOnQueue {
+    VibeMetadataStores *stores = self.stores;
+    if (!stores) {
+        stores = [[VibeMetadataStores alloc] initWithRootPath:_rootPath];
+        self.stores = stores;
     }
-    return store;
+    return stores;
 }
 
 // The stores, built or waited for. dispatch_sync lends the reader's QoS to
 // the queue, and so to the build. A group wait lends none. A block wait
 // allows one waiter, and several workers may wait here at once.
-- (void)buildStoresIfNeeded {
-    if (!self.store) {
+- (VibeMetadataStores *)storesBuilt {
+    VibeMetadataStores *stores = self.stores;
+    if (!stores) {
+        __block VibeMetadataStores *built = nil;
         dispatch_sync(_cacheQueue, ^{
-            [self storeOnQueue];
+            built = [self storesOnQueue];
         });
+        stores = built;
     }
+    return stores;
 }
 
 - (PINCache *)metadataCache {
-    [self buildStoresIfNeeded];
-    return self.store;
+    return self.storesBuilt.tags;
 }
 
 - (PINCache *)thumbnailCache {
-    [self buildStoresIfNeeded];
-    return self.thumbnailStore;
+    return self.storesBuilt.thumbnails;
 }
 
 - (PINCache *)displayArtCache {
-    [self buildStoresIfNeeded];
-    return self.displayArtStore;
+    return self.storesBuilt.displayArt;
 }
 
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration {
@@ -155,9 +171,9 @@
 - (void)invalidateWithCompletion:(dispatch_block_t)completion {
     dispatch_async(_cacheQueue, ^{
         atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
-        [[self storeOnQueue] removeAllObjects];
-        [self.thumbnailStore removeAllObjects];
-        [self.displayArtStore removeAllObjects];
+        for (PINCache *store in [self storesOnQueue].all) {
+            [store removeAllObjects];
+        }
         if (completion) {
             completion();
         }
@@ -166,9 +182,7 @@
 
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
     dispatch_async(_cacheQueue, ^{
-        PINCache *store = [self storeOnQueue];
-        [PINCache audioDiskUsageOfCaches:@[store, self.thumbnailStore, self.displayArtStore]
-                              completion:completion];
+        [PINCache audioDiskUsageOfCaches:[self storesOnQueue].all completion:completion];
     });
 }
 

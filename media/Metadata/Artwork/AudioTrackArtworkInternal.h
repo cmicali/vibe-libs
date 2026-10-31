@@ -47,7 +47,7 @@ static inline BOOL VibeEmbeddedArtFactIsSettled(VibeEmbeddedArtFact fact) {
     VibeImage *_embeddedArt;
     NSData *_embeddedArtData;
     AudioTrackArchivedDisplayArtProvider _archivedDisplayArtProvider;
-    AudioTrackArchivedDisplayArtProvider _archivedThumbnailProvider;
+    AudioTrackArchivedArtProvider _archivedThumbnailProvider;
     AudioTrackArtworkExtractor _extractor;
     // A read failure leaves Unknown, keeping the folder fallback closed.
     VibeEmbeddedArtFact _embeddedArtFact;

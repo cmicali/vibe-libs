@@ -180,13 +180,13 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
     }
 }
 
-- (AudioTrackArchivedDisplayArtProvider)archivedThumbnailProvider {
+- (AudioTrackArchivedArtProvider)archivedThumbnailProvider {
     @synchronized (self) {
         return _archivedThumbnailProvider;
     }
 }
 
-- (void)setArchivedThumbnailProvider:(AudioTrackArchivedDisplayArtProvider)provider {
+- (void)setArchivedThumbnailProvider:(AudioTrackArchivedArtProvider)provider {
     @synchronized (self) {
         _archivedThumbnailProvider = [provider copy];
     }
@@ -447,7 +447,7 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
     }
 
     __block NSData *dataToDecode;
-    __block AudioTrackArchivedDisplayArtProvider thumbnailProvider;
+    __block AudioTrackArchivedArtProvider thumbnailProvider;
     __block AudioTrackArchivedDisplayArtProvider archivedProvider;
     __block BOOL decodingStoredThumbnail;
     __block EmbeddedThumbnailKey *cacheKey;
@@ -480,12 +480,19 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
             return !bytes ? nil : (decoder ? decoder(bytes)
                                            : VibeDecodedImageWithData(bytes, kVibeThumbnailArtDimension));
         };
-        VibeImage *thumbnail = decode(dataToDecode ?: (thumbnailProvider ? thumbnailProvider() : nil));
-        // An archived thumbnail that is gone or will not decode says nothing
-        // about the file's art. The rendition stands in.
-        BOOL thumbnailMissed = !dataToDecode && thumbnailProvider && !thumbnail;
-        if (!thumbnail && !dataToDecode && archivedProvider) {
-            thumbnail = decode(archivedProvider());
+        VibeImage *thumbnail = nil;
+        BOOL thumbnailMissed = NO;
+        if (dataToDecode) {
+            thumbnail = decode(dataToDecode);
+        } else {
+            // The thumbnail store, then the rendition. An archived thumbnail
+            // that is gone or will not decode says nothing about the file's
+            // art.
+            thumbnail = thumbnailProvider ? decode(thumbnailProvider()) : nil;
+            thumbnailMissed = thumbnailProvider && !thumbnail;
+            if (!thumbnail && archivedProvider) {
+                thumbnail = decode(archivedProvider());
+            }
         }
         // Sync, keeping the slot until main consumes the pixels: async would
         // let a busy main queue pile up an unbounded tail of them.

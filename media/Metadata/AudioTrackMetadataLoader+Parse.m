@@ -22,7 +22,7 @@
 
 // A blocking read of one store's entry for a version, on a worker. A
 // departed store reads as absent.
-static AudioTrackArchivedDisplayArtProvider VibeArchivedArtReader(PINCache *store, NSString *cacheKey) {
+static AudioTrackArchivedArtProvider VibeArchivedArtReader(PINCache *store, NSString *cacheKey) {
     __weak PINCache *weakStore = store;
     return ^NSData *{
         PINCache *strongStore = weakStore;
