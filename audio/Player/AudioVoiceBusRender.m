@@ -169,12 +169,20 @@ OSStatus VibeVoiceBusRender(VibeVoiceMix *mix, BOOL *isSilence, const AudioTimeS
         if (atomic_load_explicit(&slot->paused, memory_order_relaxed)) {
             continue;
         }
+        // Before `written`, and sequentially consistent, paired with the
+        // take-back: either this render sees the cut, or the take-back sees
+        // it in flight and waits for it. A render that sees the cut lifted
+        // sees `written` moved back to it.
+        uint64_t cut = atomic_load_explicit(&slot->cut, memory_order_seq_cst);
         uint64_t written = atomic_load_explicit(&slot->written, memory_order_acquire);
         // Sequentially consistent, paired with the reopen's withdrawal of the
         // end: either this render sees the end withdrawn, or the reopen sees
         // this render in flight and waits for its verdict.
         uint64_t endOfStream = atomic_load_explicit(&slot->endOfStream, memory_order_seq_cst);
         uint64_t consumed = atomic_load_explicit(&slot->consumed, memory_order_relaxed);
+        if (consumed <= cut && cut < written) {
+            written = cut; // a voice already past the cut keeps going, and the take-back fails
+        }
         uint64_t available = written - consumed;
         uint32_t frames = available < frameCount ? (uint32_t)available : frameCount;
         BOOL ramping = slot->rampElapsed < slot->rampFrames;

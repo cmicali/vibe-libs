@@ -50,6 +50,7 @@
         }
         atomic_init(&_mix->slots[slot].endOfStream, kUnset);
         atomic_init(&_mix->slots[slot].boundary, kUnset);
+        atomic_init(&_mix->slots[slot].cut, kUnset);
     }
     _mix->gains = _mixStorage + ringFloats;
     // TRAP: calloc's pages are mapped at their first write, so the scratch
@@ -497,7 +498,10 @@
         return YES;
     }
     NSUInteger slot = [self ownedSlotForIdentifier:voice];
-    if (slot == NSNotFound || !VibeSlotTakesSuccessor(&_mix->slots[slot])) {
+    // A voice whose successor was taken back takes the next once the decoder
+    // has dropped the old one's frames; until then it waits.
+    if (slot == NSNotFound || (!VibeSlotTakesSuccessor(&_mix->slots[slot])
+            && atomic_load_explicit(&_mix->slots[slot].successorState, memory_order_acquire) != VibeSuccessorTakenBack)) {
         return NO;
     }
     // Written with the file, and read by the decoder only after its claim of
@@ -568,6 +572,60 @@
     // moment it is made — before the boundary is published — and the None
     // after a switch leaves the boundary behind as the sign.
     return expected == VibeSuccessorNone && atomic_load_explicit(&s->boundary, memory_order_acquire) == kUnset;
+}
+
+// TRAP: only the render knows whether it passed the boundary, and it may be
+// inside a render now. The cut goes up, every render that could have missed
+// it is waited out, and then `consumed` is the verdict: no render that saw
+// the cut mixes past it, and one that missed it shows in `consumed`. The
+// drain runs on this queue, so no boundary is reported meanwhile.
+- (BOOL)takeBackSuccessorForVoice:(VibeVoiceID)voice {
+    NSUInteger slot = [self ownedSlotForIdentifier:voice];
+    if (slot == NSNotFound) {
+        return NO;
+    }
+    VibeVoiceSlot *s = &_mix->slots[slot];
+    int32_t state = atomic_load_explicit(&s->state, memory_order_acquire);
+    uint64_t boundary = atomic_load_explicit(&s->boundary, memory_order_acquire);
+    if ((state != VibeVoiceStateArmed && state != VibeVoiceStateLive)
+            || boundary == kUnset || boundary == _records[slot]->reportedBoundary
+            || atomic_load_explicit(&s->endedReason, memory_order_acquire) == VibeVoiceEndFailed) {
+        return NO;
+    }
+    int32_t none = VibeSuccessorNone;
+    if (!atomic_compare_exchange_strong_explicit(&s->successorState, &none, VibeSuccessorTakingBack,
+                                                 memory_order_seq_cst, memory_order_relaxed)) {
+        return NO; // the decoder is still switching
+    }
+    // A resampler continuing into the successor holds the ending file's last
+    // frames until the successor's push them out; there is no cut before them.
+    BOOL taken = atomic_load_explicit(&s->written, memory_order_acquire) >= boundary;
+    if (taken) {
+        atomic_store_explicit(&s->cut, boundary, memory_order_seq_cst);
+        taken = [self waitForRenderToLeaveSlot:slot]
+                && atomic_load_explicit(&s->consumed, memory_order_seq_cst) <= boundary;
+    }
+    if (!taken) {
+        atomic_store_explicit(&s->cut, kUnset, memory_order_seq_cst);
+        atomic_store_explicit(&s->successorState, VibeSuccessorNone, memory_order_release);
+        return NO;
+    }
+    // No successor now, so no boundary for the drain to report; the decoder
+    // writes it only for a successor it claims.
+    atomic_store_explicit(&s->boundary, kUnset, memory_order_release);
+    atomic_store_explicit(&s->successorState, VibeSuccessorTakenBack, memory_order_seq_cst);
+    if (_inlineDecoding) {
+        [self dropTakenBackSuccessorForSlot:slot];
+        return YES;
+    }
+    // Behind any turn in flight, which writes nothing the cut lets through.
+    VibeVoiceID identifier = _records[slot]->identifier;
+    dispatch_async(_records[slot]->decodeQueue, ^{
+        if (atomic_load_explicit(&s->generation, memory_order_acquire) == identifier) {
+            [self dropTakenBackSuccessorForSlot:slot];
+        }
+    });
+    return YES;
 }
 
 - (void)killVoice:(VibeVoiceID)voice {

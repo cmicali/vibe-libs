@@ -766,7 +766,7 @@
         XCTAssertLessThan(VibeToneAmplitude(_capture,2,0,48000,1000,NSMakeRange(48000,48000)),0.01);
     }
 }
-- (void)testCancellingABufferedSuccessorRevoicesTheCurrentTrack {
+- (void)testCancellingABufferedSuccessorEndsTheCurrentTrackAtItsFile {
     self.continueAfterFailure = YES;
     [self startPlayerAt:48000 channels:2 fx:NO bitPerfect:YES automatic:NO];
     VibeTestTrack *current = [self play:[self fixture:@"noise-48000-24-2.wav"] paused:NO position:0];

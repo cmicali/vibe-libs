@@ -502,6 +502,125 @@
     [self assertCapture:[capture subdataWithRange:NSMakeRange(0, 9000 * 8)] equalsSource:whole];
 }
 
+#pragma mark - Taking a successor back
+
+// A voice on `first` whose decoder has run past its 6000 frames into
+// `second`, rendered to `frames`. Undrained, the last block's boundary is
+// left unreported, as between a render and the next drain.
+- (VibeVoiceID)voiceOn:(NSURL *)first into:(NSURL *)second renderedTo:(NSUInteger)frames
+               drained:(BOOL)drained capture:(NSMutableData *)capture {
+    [self makeBusAtRate:kRate channels:2];
+    VibeVoiceID voice = [self startFile:[self open:first] gain:1 ramp:[self unity] paused:NO];
+    XCTAssertTrue([_bus queueSuccessor:[self open:second] startFrame:0 endFrame:0 forVoice:voice]);
+    [_bus fillInline];
+    XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 6000u);
+    XCTAssertGreaterThan([_bus snapshotOfVoice:voice].written, 6000u + 4096, @"the decoder ran into the successor");
+    while (capture.length / 8 < frames) {
+        uint32_t block = (uint32_t)MIN(256u, frames - capture.length / 8);
+        if (drained || capture.length / 8 + block < frames) {
+            [self render:block into:capture];
+        }
+        else {
+            [_bus fillInline];
+            [self renderWithoutFilling:block into:capture];
+        }
+    }
+    return voice;
+}
+
+// An edit in the song's last moments: the decoder already reads the old
+// successor, and the render has not reached it. The take-back drops its
+// frames, and the next successor follows the last frame of the first file,
+// whatever the distance, the render resting on the boundary itself included.
+- (void)testATakeBackBeforeTheBoundaryContinuesIntoTheNextSuccessor {
+    NSData *a = [self noiseFrames:6000 channels:2 seed:41];
+    NSData *c = [self noiseFrames:30000 channels:2 seed:43];
+    NSURL *first = [self writePCM:a rate:kRate channels:2 name:@"a.wav"];
+    NSURL *old = [self writePCM:[self noiseFrames:80000 channels:2 seed:42] rate:kRate channels:2 name:@"b.wav"];
+    NSURL *next = [self writePCM:c rate:kRate channels:2 name:@"c.wav"];
+    NSMutableData *expected = [a mutableCopy];
+    [expected appendData:c];
+    for (NSNumber *left in @[@6000, @2400, @576, @300, @64, @1, @0]) {
+        NSMutableData *capture = [NSMutableData data];
+        VibeVoiceID voice = [self voiceOn:first into:old renderedTo:6000 - left.unsignedIntegerValue
+                                  drained:left.unsignedIntegerValue > 0 capture:capture];
+        XCTAssertFalse([_bus unqueueSuccessorForVoice:voice], @"%@ left", left);
+        XCTAssertTrue([_bus takeBackSuccessorForVoice:voice], @"%@ left", left);
+        VibeVoiceSnapshot snapshot = [_bus snapshotOfVoice:voice];
+        XCTAssertEqual(snapshot.boundary, UINT64_MAX, @"%@ left", left);
+        XCTAssertEqual(snapshot.written, 6000u, @"%@ left", left);
+        XCTAssertEqual(snapshot.endOfStream, 6000u, @"%@ left", left);
+        XCTAssertTrue([_bus queueSuccessor:[self open:next] startFrame:0 endFrame:0 forVoice:voice], @"%@ left", left);
+        while (![self hasEnded:voice] && capture.length < 80000 * 8) {
+            [self render:256 into:capture];
+        }
+        [self assertCapture:[capture subdataWithRange:NSMakeRange(0, expected.length)] equalsSource:expected];
+        [self assertSilent:capture from:expected.length / sizeof(float)];
+        XCTAssertEqual([self endedSnapshot:voice].boundary, 6000u, @"%@ left", left);
+        XCTAssertEqual([self endedSnapshot:voice].endOfStream, 36000u, @"%@ left", left);
+        XCTAssertEqual([self endedSnapshot:voice].underrunFrames, 0u, @"%@ left", left);
+        XCTAssertEqualObjects([self eventsForVoice:voice],
+                              (@[@(VibeVoiceEventLive), @(VibeVoiceEventBoundary), @(VibeVoiceEventEnded)]), @"%@ left", left);
+    }
+}
+
+// Taken back with nothing named after it, the voice ends at its own file,
+// even past an old successor short enough to have decoded whole.
+- (void)testATakenBackSuccessorLeavesTheVoiceToEndAtItsFile {
+    NSData *a = [self noiseFrames:6000 channels:2 seed:44];
+    NSURL *first = [self writePCM:a rate:kRate channels:2 name:@"a.wav"];
+    NSURL *old = [self writePCM:[self noiseFrames:9000 channels:2 seed:45] rate:kRate channels:2 name:@"b.wav"];
+    NSMutableData *capture = [NSMutableData data];
+    VibeVoiceID voice = [self voiceOn:first into:old renderedTo:5424 drained:YES capture:capture];
+    XCTAssertEqual([_bus snapshotOfVoice:voice].endOfStream, 15000u, @"the old successor decoded whole");
+    XCTAssertFalse([_bus unqueueSuccessorForVoice:voice]);
+    XCTAssertTrue([_bus takeBackSuccessorForVoice:voice]);
+    while (![self hasEnded:voice] && capture.length < 20000 * 8) {
+        [self render:256 into:capture];
+    }
+    [self assertCapture:[capture subdataWithRange:NSMakeRange(0, a.length)] equalsSource:a];
+    [self assertSilent:capture from:a.length / sizeof(float)];
+    XCTAssertEqual([self endedSnapshot:voice].endOfStream, 6000u);
+    XCTAssertEqual([self endedSnapshot:voice].boundary, UINT64_MAX);
+    XCTAssertEqualObjects([self eventsForVoice:voice], (@[@(VibeVoiceEventLive), @(VibeVoiceEventEnded)]));
+}
+
+// Once the render has passed the boundary, reported or not, the take-back
+// fails and leaves the stream as it was: the old successor plays on, and the
+// caller re-voices. So does one with no switch to take back.
+- (void)testATakeBackPastTheBoundaryChangesNothing {
+    NSData *a = [self noiseFrames:6000 channels:2 seed:46];
+    NSData *b = [self noiseFrames:30000 channels:2 seed:47];
+    NSURL *first = [self writePCM:a rate:kRate channels:2 name:@"a.wav"];
+    NSURL *old = [self writePCM:b rate:kRate channels:2 name:@"b.wav"];
+    NSMutableData *expected = [a mutableCopy];
+    [expected appendData:b];
+    for (NSNumber *past in @[@1, @64, @576]) {
+        for (NSNumber *drained in @[@NO, @YES]) {
+            NSMutableData *capture = [NSMutableData data];
+            VibeVoiceID voice = [self voiceOn:first into:old renderedTo:6000 + past.unsignedIntegerValue
+                                      drained:drained.boolValue capture:capture];
+            VibeVoiceSnapshot before = [_bus snapshotOfVoice:voice];
+            XCTAssertFalse([_bus takeBackSuccessorForVoice:voice], @"%@ past, drained %@", past, drained);
+            VibeVoiceSnapshot after = [_bus snapshotOfVoice:voice];
+            XCTAssertEqual(after.boundary, 6000u);
+            XCTAssertEqual(after.written, before.written);
+            XCTAssertEqual(after.endOfStream, before.endOfStream);
+            while (![self hasEnded:voice] && capture.length < 80000 * 8) {
+                [self render:256 into:capture];
+            }
+            [self assertCapture:[capture subdataWithRange:NSMakeRange(0, expected.length)] equalsSource:expected];
+            XCTAssertEqualObjects([self eventsForVoice:voice],
+                                  (@[@(VibeVoiceEventLive), @(VibeVoiceEventBoundary), @(VibeVoiceEventEnded)]));
+        }
+    }
+    [self makeBusAtRate:kRate channels:2];
+    VibeVoiceID voice = [self startFile:[self open:first] gain:1 ramp:[self unity] paused:NO];
+    XCTAssertFalse([_bus takeBackSuccessorForVoice:voice], @"no successor");
+    XCTAssertTrue([_bus queueSuccessor:[self open:old] startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertFalse([_bus takeBackSuccessorForVoice:voice], @"queued, not yet the decoder's");
+}
+
 #pragma mark - Conversion
 
 // The reference conversion (AudioReferenceFixtures.h) of the whole file, read with

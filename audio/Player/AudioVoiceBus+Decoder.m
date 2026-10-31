@@ -254,6 +254,7 @@ static void VibeApplyMixMap(const float *map, AVAudioPCMBuffer *source, AVAudioP
     atomic_store_explicit(&record->fillScheduled, 0, memory_order_relaxed);
     atomic_store_explicit(&s->endOfStream, kUnset, memory_order_relaxed);
     atomic_store_explicit(&s->boundary, kUnset, memory_order_relaxed);
+    atomic_store_explicit(&s->cut, kUnset, memory_order_relaxed);
     atomic_store_explicit(&s->successorState, VibeSuccessorNone, memory_order_relaxed);
     atomic_store_explicit(&s->endedReason, VibeVoiceEndNone, memory_order_relaxed);
     atomic_store_explicit(&s->underrun, 0, memory_order_relaxed);
@@ -664,22 +665,8 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
         // stuck render holds the assigned decode queue; with no verdict the end
         // goes back and the stream ends.
         atomic_store_explicit(&s->endOfStream, kUnset, memory_order_seq_cst);
-        uint64_t renderSequence = atomic_load_explicit(&_mix->renderSequence, memory_order_seq_cst);
-        // Bounded: a render stuck past it is not waited for, and the caller
-        // does without its verdict.
-        uint64_t deadline = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-                + atomic_load_explicit(&_renderLeaveWaitNanos, memory_order_relaxed);
-        BOOL verdict = YES;
-        while (atomic_load_explicit(&_mix->inRender, memory_order_seq_cst)
-                && atomic_load_explicit(&_mix->renderSequence, memory_order_seq_cst) == renderSequence) {
-            if (!atomic_load_explicit(&s->readsAllowed, memory_order_acquire)
-                    || clock_gettime_nsec_np(CLOCK_UPTIME_RAW) >= deadline) {
-                verdict = NO;
-                break;
-            }
-            sched_yield();
-        }
-        continues = verdict && atomic_load_explicit(&s->state, memory_order_acquire) != VibeVoiceStateDead;
+        continues = [self waitForRenderToLeaveSlot:slot]
+                && atomic_load_explicit(&s->state, memory_order_acquire) != VibeVoiceStateDead;
         if (!continues) {
             atomic_store_explicit(&s->endOfStream, end, memory_order_release);
         }
@@ -692,6 +679,58 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
     }
     atomic_store_explicit(&s->successorState, VibeSuccessorNone, memory_order_release);
     return continues;
+}
+
+// Waits out the render in flight, which may have loaded the slot's fields
+// before the caller's last seq_cst store; any later one sees that store.
+// Bounded: a render stuck past it is not waited for, and the caller does
+// without its verdict. It yields to stopped reads too.
+- (BOOL)waitForRenderToLeaveSlot:(NSUInteger)slot {
+    VibeVoiceSlot *s = &_mix->slots[slot];
+    uint64_t renderSequence = atomic_load_explicit(&_mix->renderSequence, memory_order_seq_cst);
+    uint64_t deadline = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
+            + atomic_load_explicit(&_renderLeaveWaitNanos, memory_order_relaxed);
+    while (atomic_load_explicit(&_mix->inRender, memory_order_seq_cst)
+            && atomic_load_explicit(&_mix->renderSequence, memory_order_seq_cst) == renderSequence) {
+        if (!atomic_load_explicit(&s->readsAllowed, memory_order_acquire)
+                || clock_gettime_nsec_np(CLOCK_UPTIME_RAW) >= deadline) {
+            return NO;
+        }
+        sched_yield();
+    }
+    return YES;
+}
+
+// The queue took the successor back before the render reached it
+// (takeBackSuccessorForVoice:). The frames past the cut are dropped, and the
+// stream ends at the cut, as one whose successor was never named, so a
+// successor queued since reopens it there. A failed read of the dropped file
+// goes with it. The slot's decode queue, or the caller's thread under inline
+// decoding.
+- (void)dropTakenBackSuccessorForSlot:(NSUInteger)slot {
+    AudioVoiceRecord *record = _records[slot];
+    VibeVoiceSlot *s = &_mix->slots[slot];
+    if (atomic_load_explicit(&s->successorState, memory_order_acquire) != VibeSuccessorTakenBack) {
+        return;
+    }
+    uint64_t cut = atomic_load_explicit(&s->cut, memory_order_relaxed);
+    os_unfair_lock_lock(&_tableLock);
+    record->failure = nil;
+    os_unfair_lock_unlock(&_tableLock);
+    int32_t failed = VibeVoiceEndFailed;
+    atomic_compare_exchange_strong_explicit(&s->endedReason, &failed, VibeVoiceEndNone,
+                                            memory_order_relaxed, memory_order_relaxed);
+    record->stream = VibeStreamEnded;
+    atomic_store_explicit(&record->heldOpenAt, kUnset, memory_order_relaxed);
+    atomic_store_explicit(&s->endOfStream, cut, memory_order_relaxed);
+    // TRAP: `written` moves back before the cut lifts. A render loads the cut
+    // first: one that sees it lifted sees `written` at it, and one that does
+    // not stops at it. A reopen waits out any such render before it writes
+    // past the cut again.
+    atomic_store_explicit(&s->written, cut, memory_order_seq_cst);
+    atomic_store_explicit(&s->cut, kUnset, memory_order_seq_cst);
+    atomic_store_explicit(&s->successorState, VibeSuccessorNone, memory_order_release);
+    [self askForDrain]; // a successor queued meanwhile waits for the drain to hand it on
 }
 
 // endOfStream is stored before the final `written` release-store, so a render

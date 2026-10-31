@@ -344,6 +344,104 @@
     XCTAssertEqual([_bus snapshotOfVoice:voice].state, VibeVoiceStateNone, @"the voice ends at its restored end");
 }
 
+// A voice on the decode pool whose decoder has run past its 6000 frames into
+// `old`, rendered to 64 frames before the boundary, with a render of 256
+// frames held inside the bus.
+- (VibeVoiceID)voiceHeldBeforeTheBoundaryOf:(NSData *)a into:(NSURL *)old held:(dispatch_group_t)group
+                                    capture:(NSMutableData *)held {
+    [self makeBusAtRate:kRate channels:2 inlineDecoding:NO];
+    NSURL *first = [self writePCM:a rate:kRate channels:2 name:@"a.wav"];
+    VibeVoiceID voice = [self startFile:[self open:first] gain:1 ramp:[self unity] paused:NO];
+    XCTAssertTrue([_bus queueSuccessor:[self open:old] startFrame:0 endFrame:0 forVoice:voice]);
+    // Drained as the player does: a successor queued as the first file's last
+    // turn ends gets its own turn from the drain.
+    XCTAssertTrue([self waitUntil:^BOOL {
+        [self drain];
+        return [self->_bus snapshotOfVoice:voice].written > 6000u + 4096;
+    }]);
+    XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 6000u);
+    while ([_bus snapshotOfVoice:voice].consumed < 6000 - 64) {
+        [self renderWithoutFilling:(uint32_t)MIN(256u, 6000 - 64 - [_bus snapshotOfVoice:voice].consumed) into:nil];
+        [self drain];
+    }
+    [_bus debugHoldRender:YES];
+    dispatch_group_async(group, dispatch_get_global_queue(QOS_CLASS_USER_INTERACTIVE, 0), ^{
+        [self renderWithoutFilling:256 into:held];
+    });
+    XCTAssertTrue([self waitUntil:^BOOL { return self->_bus.debugRendersHeld == 1; }]);
+    XCTAssertFalse([_bus unqueueSuccessorForVoice:voice]);
+    return voice;
+}
+
+// The take-back waits for the render inside the bus, which then stops at the
+// boundary, so nothing of the old successor sounds. The decoder drops its
+// frames on its own queue, and the next successor continues the stream.
+- (void)testATakeBackWaitsOutARenderInFlightWhichStopsAtTheBoundary {
+    NSData *a = [self noiseFrames:6000 channels:2 seed:91];
+    NSData *c = [self noiseFrames:30000 channels:2 seed:93];
+    NSURL *old = [self writePCM:[self noiseFrames:80000 channels:2 seed:92] rate:kRate channels:2 name:@"b.wav"];
+    NSURL *next = [self writePCM:c rate:kRate channels:2 name:@"c.wav"];
+    dispatch_group_t stuck = dispatch_group_create();
+    NSMutableData *held = [NSMutableData data];
+    VibeVoiceID voice = [self voiceHeldBeforeTheBoundaryOf:a into:old held:stuck capture:held];
+    [_bus debugSetRenderLeaveWaitSeconds:VIBE_TEST_GATE_TIMEOUT]; // only the release may end the wait here
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC), dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        [self->_bus debugHoldRender:NO];
+    });
+    XCTAssertTrue([_bus takeBackSuccessorForVoice:voice]);
+    XCTAssertEqual(dispatch_group_wait(stuck, dispatch_time(DISPATCH_TIME_NOW, VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC)), 0L);
+    [self assertCapture:[held subdataWithRange:NSMakeRange(0, 64 * 8)] equalsSource:[a subdataWithRange:NSMakeRange(5936 * 8, 64 * 8)]];
+    [self assertSilent:held from:64 * 2];
+    XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:voice].written == 6000u; }]);
+    dispatch_sync([_bus decodeQueueAtIndex:0], ^{}); // the drop is over
+    XCTAssertEqual([_bus snapshotOfVoice:voice].endOfStream, 6000u);
+    XCTAssertTrue([_bus queueSuccessor:[self open:next] startFrame:0 endFrame:0 forVoice:voice]);
+    // The render rests on the end, so the reopen must land before the next one.
+    XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:voice].written > 6000u; }]);
+    XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 6000u);
+    NSMutableData *capture = [NSMutableData data];
+    while (![self hasEnded:voice] && capture.length < 40000 * 8) {
+        VibeVoiceSnapshot snapshot = [_bus snapshotOfVoice:voice];
+        uint64_t consumed = snapshot.consumed;
+        XCTAssertTrue([self waitUntil:^BOOL {
+            VibeVoiceSnapshot now = [self->_bus snapshotOfVoice:voice];
+            return now.written >= consumed + 256 || now.endOfStream != UINT64_MAX;
+        }]);
+        [self renderWithoutFilling:256 into:capture];
+        [self drain];
+    }
+    [self assertCapture:[capture subdataWithRange:NSMakeRange(0, c.length)] equalsSource:c];
+    XCTAssertEqual([self endedSnapshot:voice].boundary, 6000u);
+    XCTAssertEqual([self endedSnapshot:voice].endOfStream, 36000u);
+    XCTAssertEqualObjects([self eventsForVoice:voice],
+                          (@[@(VibeVoiceEventLive), @(VibeVoiceEventBoundary), @(VibeVoiceEventEnded)]));
+}
+
+// A render stuck past the wait's bound gives no verdict: the take-back fails
+// and lifts the cut, and the stream is as it was, the old successor's frames
+// after the boundary.
+- (void)testATakeBackUnderAStuckRenderFailsAndLeavesTheStream {
+    NSData *a = [self noiseFrames:6000 channels:2 seed:94];
+    NSData *b = [self noiseFrames:80000 channels:2 seed:95];
+    NSURL *old = [self writePCM:b rate:kRate channels:2 name:@"b.wav"];
+    dispatch_group_t stuck = dispatch_group_create();
+    NSMutableData *held = [NSMutableData data];
+    VibeVoiceID voice = [self voiceHeldBeforeTheBoundaryOf:a into:old held:stuck capture:held];
+    uint64_t written = [_bus snapshotOfVoice:voice].written;
+    XCTAssertFalse([_bus takeBackSuccessorForVoice:voice]);
+    XCTAssertEqual(_bus.debugRendersHeld, 1u, @"the render was still stuck when the take-back gave up");
+    VibeVoiceSnapshot snapshot = [_bus snapshotOfVoice:voice];
+    XCTAssertEqual(snapshot.boundary, 6000u);
+    XCTAssertGreaterThanOrEqual(snapshot.written, written);
+    [_bus debugHoldRender:NO];
+    XCTAssertEqual(dispatch_group_wait(stuck, dispatch_time(DISPATCH_TIME_NOW, VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC)), 0L);
+    NSMutableData *expected = [[a subdataWithRange:NSMakeRange(5936 * 8, 64 * 8)] mutableCopy];
+    [expected appendData:[b subdataWithRange:NSMakeRange(0, 192 * 8)]];
+    [self assertCapture:held equalsSource:expected];
+    [self drain];
+    XCTAssertEqualObjects([self eventsForVoice:voice], (@[@(VibeVoiceEventLive), @(VibeVoiceEventBoundary)]));
+}
+
 // A file a retired decoder may still be inside is withheld: a voice started
 // on it reads nothing until the file is allowed, then plays it from its
 // frame exactly, and a successor queued on it is refused until then.
