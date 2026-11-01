@@ -86,10 +86,6 @@ static inline void VibeVoiceSquareRoot(float *samples, uint32_t count) CA_REALTI
 static inline void VibeVoiceFill(float value, float *out, uint32_t count) CA_REALTIME_API {
     vDSP_vfill(&value, out, 1, count);
 }
-
-static inline void VibeVoiceScale(float *samples, float scale, uint32_t count) CA_REALTIME_API {
-    vDSP_vsmul(samples, 1, &scale, samples, 1, count);
-}
 VIBE_REALTIME_END
 
 // Everything the audio thread does; the checked region makes a blocking call a
@@ -124,7 +120,9 @@ static inline void VibeVoiceGainRamp(VibeFadeCurve curve, float from, float to, 
 // Mixes `count` of the voice's frames, from `first` past `consumed`, at the
 // ramp's gain or `gain`, times the file's. The ring read is at most two
 // contiguous spans, each one vector operation per channel; a fading voice's
-// gains are one ramp per span, shared by its channels. At a gain of exactly 1
+// gains are one ramp per span, shared by its channels, with the file's gain
+// folded into its ends. For an equal-power ramp that scales the squared terms
+// by its square, so the root comes out scaled by it. At a gain of exactly 1
 // the frames are added untouched.
 static inline void VibeVoiceMixFrames(VibeVoiceMix *mix, uint32_t s, const VibeVoiceSlot *slot, AudioBufferList *output,
                                       uint32_t channels, uint64_t consumed, uint32_t first, uint32_t count,
@@ -141,11 +139,8 @@ static inline void VibeVoiceMixFrames(VibeVoiceMix *mix, uint32_t s, const VibeV
             span = kVibeVoiceBusMaxRenderFrames;
         }
         if (ramping) {
-            VibeVoiceGainRamp((VibeFadeCurve)slot->rampCurve, slot->rampFrom, slot->rampTo,
+            VibeVoiceGainRamp((VibeFadeCurve)slot->rampCurve, slot->rampFrom * fileGain, slot->rampTo * fileGain,
                               slot->rampElapsed + done, slot->rampFrames, span, mix->gains);
-            if (fileGain != 1.0f) {
-                VibeVoiceScale(mix->gains, fileGain, span);
-            }
         }
         for (uint32_t c = 0; c < channels; c++) {
             const float *ring = mix->rings[s][c] + index;
@@ -153,7 +148,7 @@ static inline void VibeVoiceMixFrames(VibeVoiceMix *mix, uint32_t s, const VibeV
             if (ramping) {
                 VibeVoiceMixAtGains(ring, mix->gains, out, span);
             }
-            else if (level == 1.0f) {
+            else if (level == kVibeFileGainUnity) {
                 VibeVoiceMixAdd(ring, out, span);
             }
             else {
@@ -222,9 +217,11 @@ OSStatus VibeVoiceBusRender(VibeVoiceMix *mix, BOOL *isSilence, const AudioTimeS
         // sees `written` moved back to it.
         uint64_t cut = atomic_load_explicit(&slot->cut, memory_order_seq_cst);
         uint64_t written = atomic_load_explicit(&slot->written, memory_order_acquire);
-        // After `written`: the decoder publishes a boundary before any frame
-        // past it, so the frames this render can see carry their boundary.
-        uint64_t boundary = atomic_load_explicit(&slot->boundary, memory_order_acquire);
+        // After `written`, relaxed: the decoder publishes a boundary before
+        // any frame past it, and `written`'s acquire already orders that
+        // store before this load, so the frames this render can see carry
+        // their boundary.
+        uint64_t boundary = atomic_load_explicit(&slot->boundary, memory_order_relaxed);
         // Sequentially consistent, paired with the reopen's withdrawal of the
         // end: either this render sees the end withdrawn, or the reopen sees
         // this render in flight and waits for its verdict.

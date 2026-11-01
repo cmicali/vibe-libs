@@ -133,8 +133,7 @@
         self->_activeSubmittedPlayIdentifier = 0;
         self.currentTrack = nil;
         self->_currentRequestIdentifier = 0;
-        [self setCurrentFileGainOnQueue:kVibeFileGainUnity];
-        [self publishState:VibePlayerStateStopped voice:0 file:nil window:NSMakeRange(0, 0) startSeconds:0 baseFrames:0];
+        [self publishState:VibePlayerStateStopped voice:0 file:nil fileGain:kVibeFileGainUnity window:NSMakeRange(0, 0) startSeconds:0 baseFrames:0];
         [self createOutputOnQueue];
         if (!completion) {
             return;

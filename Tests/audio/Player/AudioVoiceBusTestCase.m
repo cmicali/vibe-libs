@@ -124,7 +124,11 @@ static void FillNoise(float *samples, NSUInteger count, uint32_t seed) {
 }
 
 - (VibeVoiceID)startFile:(AudioFileHandle *)file gain:(float)gain ramp:(VibeVoiceRamp)ramp paused:(BOOL)paused {
-    return [_bus startVoiceWithFile:file atFrame:0 endFrame:0 gain:gain ramp:ramp paused:paused];
+    return [_bus startVoiceWithFile:file atFrame:0 endFrame:0 fileGain:kVibeFileGainUnity gain:gain ramp:ramp paused:paused];
+}
+
+- (VibeVoiceID)startFile:(AudioFileHandle *)file fileGain:(float)fileGain {
+    return [_bus startVoiceWithFile:file atFrame:0 endFrame:0 fileGain:fileGain gain:1 ramp:[self unity] paused:NO];
 }
 
 - (BOOL)render:(uint32_t)frames into:(NSMutableData *)capture {

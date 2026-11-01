@@ -166,7 +166,7 @@
     AudioFileHandle *successor = [self open:b];
     VibeVoiceID pending = [self startFile:[self open:a] gain:1 ramp:[self unity] paused:NO];
     XCTAssertEqual([_bus pendingVoiceCount], 1u);
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:pending]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:pending]);
     [_bus killVoice:voices[0].unsignedLongLongValue];
     [self render:64 into:nil]; // the kill lands, the drain recycles and binds
     XCTAssertEqual([_bus pendingVoiceCount], 0u);
@@ -222,7 +222,7 @@
     XCTAssertEqual(_bus.decodeTurns, turns, @"a drain asked for a turn that could write nothing");
     NSURL *next = [self writePCM:[self noiseFrames:8000 channels:2 seed:6] rate:kRate channels:2 name:@"next.wav"];
     AudioFileHandle *successor = [self open:next];
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:voice].written >= 20000; }]);
     XCTAssertEqual([_bus snapshotOfVoice:voice].written, 20000u);
     XCTAssertGreaterThan(_bus.decodeTurns, turns);
@@ -245,7 +245,7 @@
     dispatch_sync(decoder, ^{});
     XCTAssertEqual(_bus.decodeTurns, turns, @"a drain asked for a turn that could write nothing");
     NSURL *next = [self writePCM:[self noiseFrames:22050 channels:2 seed:8] rate:44100 channels:2 name:@"held441-next.wav"];
-    XCTAssertTrue([_bus queueSuccessor:[self open:next] startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:[self open:next] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:voice].boundary != UINT64_MAX; }]);
     XCTAssertEqualWithAccuracy((double)[_bus snapshotOfVoice:voice].boundary, 24000, 2);
     XCTAssertGreaterThan(_bus.decodeTurns, turns);
@@ -289,7 +289,7 @@
     XCTAssertTrue([self waitUntil:^BOOL { return self->_bus.debugRendersHeld == 1; }]);
     NSURL *next = [self writePCM:[self noiseFrames:8000 channels:2 seed:82] rate:kRate channels:2 name:@"late.wav"];
     AudioFileHandle *successor = [self open:next];
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     // The reopen withdraws the end and waits for the stuck render.
     XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:voice].endOfStream == UINT64_MAX; }]);
     dispatch_semaphore_t stopped = dispatch_semaphore_create(0);
@@ -326,7 +326,7 @@
     XCTAssertTrue([self waitUntil:^BOOL { return self->_bus.debugRendersHeld == 1; }]);
     NSURL *next = [self writePCM:[self noiseFrames:8000 channels:2 seed:84] rate:kRate channels:2 name:@"late-bound.wav"];
     AudioFileHandle *successor = [self open:next];
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     dispatch_group_t idle = dispatch_group_create();
     dispatch_group_async(idle, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         dispatch_sync(decoder, ^{});
@@ -352,7 +352,7 @@
     [self makeBusAtRate:kRate channels:2 inlineDecoding:NO];
     NSURL *first = [self writePCM:a rate:kRate channels:2 name:@"a.wav"];
     VibeVoiceID voice = [self startFile:[self open:first] gain:1 ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:[self open:old] startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:[self open:old] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     // Drained as the player does: a successor queued as the first file's last
     // turn ends gets its own turn from the drain.
     XCTAssertTrue([self waitUntil:^BOOL {
@@ -395,7 +395,7 @@
     XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:voice].written == 6000u; }]);
     dispatch_sync([_bus decodeQueueAtIndex:0], ^{}); // the drop is over
     XCTAssertEqual([_bus snapshotOfVoice:voice].endOfStream, 6000u);
-    XCTAssertTrue([_bus queueSuccessor:[self open:next] startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:[self open:next] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     // The render rests on the end, so the reopen must land before the next one.
     XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:voice].written > 6000u; }]);
     XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 6000u);
@@ -450,7 +450,7 @@
     NSData *source = [self noiseFrames:20000 channels:2 seed:91];
     AudioFileHandle *file = [self open:[self writePCM:source rate:kRate channels:2 name:@"withheld.wav"]];
     [_bus withholdReadsOfFile:file];
-    VibeVoiceID voice = [_bus startVoiceWithFile:file atFrame:4000 endFrame:0 gain:1
+    VibeVoiceID voice = [_bus startVoiceWithFile:file atFrame:4000 endFrame:0 fileGain:kVibeFileGainUnity gain:1
                                             ramp:[self unity] paused:NO];
     for (int i = 0; i < 5; i++) {
         [self render:256 into:nil]; // fills inline before each render: nothing to read
@@ -462,9 +462,9 @@
     [_bus allowReadsOfFile:file];
     AudioFileHandle *next = [self open:[self writePCM:[self noiseFrames:4096 channels:2 seed:92] rate:kRate channels:2 name:@"withheld-next.wav"]];
     [_bus withholdReadsOfFile:next];
-    XCTAssertFalse([_bus queueSuccessor:next startFrame:0 endFrame:0 forVoice:voice], @"a withheld successor was queued");
+    XCTAssertFalse([_bus queueSuccessor:next startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice], @"a withheld successor was queued");
     [_bus allowReadsOfFile:next];
-    XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     NSMutableData *capture = [NSMutableData data];
     [self render:4096 into:capture];
     XCTAssertGreaterThan([_bus snapshotOfVoice:voice].written, 0u, @"the allowed file was not read");
@@ -516,7 +516,7 @@
     // ends the voice at its first file.
     [_bus debugHoldDecoder:YES];
     VibeVoiceID voice = [self startFile:first gain:1 ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     [_bus debugHoldDecoder:NO];
     AudioVoiceBus *bus = _bus;
     NSUInteger polls = 0, missing = 0, firstMissing = 0;
@@ -649,7 +649,7 @@
     });
     original = method_setImplementation(method, replacement);
     @try {
-        XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+        XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
         XCTAssertEqual(dispatch_semaphore_wait(entered, dispatch_time(DISPATCH_TIME_NOW, VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC)), 0L);
         if (ending) {
             [self renderWithoutFilling:2000 into:nil];
@@ -711,7 +711,7 @@
         XCTAssertEqual([_bus snapshotOfVoice:voice].endOfStream, UINT64_MAX);
     }
     AudioFileHandle *next = [self open:b];
-    XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     NSData *capture = [self renderUntilEnded:voice blockSize:256 limit:200000];
     XCTAssertEqualWithAccuracy((double)[self endedSnapshot:voice].boundary, 24000, 64);
     XCTAssertEqualWithAccuracy((double)[self endedSnapshot:voice].endOfStream, 48000, 2);
@@ -756,7 +756,7 @@
     original = method_setImplementation(method, replacement);
     @try {
         voice = [self startFile:[self open:firstURL] gain:1 ramp:[self unity] paused:NO];
-        XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 forVoice:voice]);
+        XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
         [_bus fillInline];
         AudioFileHandle *failedFile = nil;
         NSError *error = [_bus errorOfVoice:voice failedFile:&failedFile];
@@ -847,7 +847,7 @@
             XCTAssertFalse(_bus.promptDrainDue);
             break;
         }
-        XCTAssertTrue([_bus queueSuccessor:[self open:urls[i + 1]] startFrame:0 endFrame:0 forVoice:voice]);
+        XCTAssertTrue([_bus queueSuccessor:[self open:urls[i + 1]] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
         NSUInteger boundaries = 0;
         while (boundaries <= i && ![self hasEnded:voice]) {
             [self render:512 into:nil];
@@ -894,7 +894,7 @@
     [self makeBusAtRate:kRate channels:2];
     AudioFileHandle *successor = [self open:directURL];
     VibeVoiceID voice = [self startFile:[self open:resampledURL] gain:1 ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     NSData *capture = [self renderUntilEnded:voice blockSize:1024 limit:200000];
     VibeVoiceSnapshot snapshot = [self endedSnapshot:voice];
     XCTAssertEqualWithAccuracy((double)snapshot.boundary, 12000, 2);
@@ -908,7 +908,7 @@
     [self makeBusAtRate:kRate channels:2];
     successor = [self open:resampledURL];
     voice = [self startFile:[self open:directURL] gain:1 ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     capture = [self renderUntilEnded:voice blockSize:1024 limit:200000];
     snapshot = [self endedSnapshot:voice];
     XCTAssertEqual(snapshot.boundary, 12000u);
@@ -941,7 +941,7 @@
     });
     original = method_setImplementation(method, replacement);
     @try {
-        [old startVoiceWithFile:file atFrame:0 endFrame:0 gain:1 ramp:[self unity] paused:NO];
+        [old startVoiceWithFile:file atFrame:0 endFrame:0 fileGain:kVibeFileGainUnity gain:1 ramp:[self unity] paused:NO];
         XCTAssertEqual(dispatch_semaphore_wait(entered, dispatch_time(DISPATCH_TIME_NOW, VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC)), 0L);
         // The rebuild: the old bus is told to stop while its decoder is inside
         // the first read, which then finishes. The stop goes first, so exactly
@@ -1043,7 +1043,7 @@
         [self renderWithoutFilling:256 into:nil];
         [self renderWithoutFilling:256 into:nil];
         [self drain];
-        VibeVoiceID seek = [_bus startVoiceWithFile:file atFrame:4000 endFrame:0 gain:1 ramp:[self unity] paused:YES];
+        VibeVoiceID seek = [_bus startVoiceWithFile:file atFrame:4000 endFrame:0 fileGain:kVibeFileGainUnity gain:1 ramp:[self unity] paused:YES];
         for (NSUInteger i = 1; i < 8; i++) dispatch_sync([_bus decodeQueueAtIndex:i], ^{});
         XCTAssertEqual([_bus snapshotOfVoice:seek].written, 0ULL, @"a seek must wait for the same file's old reader");
         dispatch_semaphore_signal(release);
@@ -1056,7 +1056,7 @@
         XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:unrelated].state == VibeVoiceStateLive; }]);
         XCTAssertEqual([_bus snapshotOfVoice:unrelated].state, VibeVoiceStateLive,
                        @"reusing a slot must not reuse the reader still occupied by its seek");
-        XCTAssertTrue([_bus queueSuccessor:file startFrame:0 endFrame:0 forVoice:unrelated]);
+        XCTAssertTrue([_bus queueSuccessor:file startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:unrelated]);
         XCTAssertEqual([_bus snapshotOfVoice:unrelated].boundary, UINT64_MAX);
         XCTAssertTrue([_bus unqueueSuccessorForVoice:unrelated], @"a waiting successor is still cancellable");
         NSMutableData *capture = [NSMutableData data];
@@ -1091,7 +1091,7 @@
     dispatch_semaphore_t release = dispatch_semaphore_create(0);
     dispatch_async(queue, ^{ dispatch_semaphore_wait(release, DISPATCH_TIME_FOREVER); });
     @try {
-        VibeVoiceID second = [_bus startVoiceWithFile:file atFrame:4096 endFrame:0 gain:1 ramp:[self unity] paused:YES];
+        VibeVoiceID second = [_bus startVoiceWithFile:file atFrame:4096 endFrame:0 fileGain:kVibeFileGainUnity gain:1 ramp:[self unity] paused:YES];
         [_bus allowReadsOfFile:file];
         for (NSUInteger i = 1; i < 8; i++) dispatch_sync([_bus decodeQueueAtIndex:i], ^{});
         XCTAssertEqual([_bus snapshotOfVoice:first].written, 0u);
@@ -1119,10 +1119,10 @@
         // this test never runs.
         XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:voice].endOfStream == 2000; }]);
         dispatch_sync([_bus decodeQueueAtIndex:0], ^{});
-        XCTAssertTrue([_bus queueSuccessor:[self open:url] startFrame:0 endFrame:0 forVoice:voice]);
+        XCTAssertTrue([_bus queueSuccessor:[self open:url] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
         XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus snapshotOfVoice:voice].boundary == 2000; }]);
         [self startFile:busy gain:1 ramp:[self unity] paused:YES]; // reads it on another queue
-        XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus queueSuccessor:busy startFrame:0 endFrame:0 forVoice:voice]; }]);
+        XCTAssertTrue([self waitUntil:^BOOL { return [self->_bus queueSuccessor:busy startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]; }]);
         XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 2000u, @"the successor did not wait");
         XCTAssertTrue([_bus unqueueSuccessorForVoice:voice]);
     } @finally {
@@ -1181,7 +1181,7 @@
     @try {
         [_bus stopReadingForVoice:voices[0]];
         VibeVoiceID pending = [self startFile:files[0] gain:1 ramp:[self unity] paused:YES];
-        XCTAssertTrue([_bus queueSuccessor:files[1] startFrame:0 endFrame:0 forVoice:pending]);
+        XCTAssertTrue([_bus queueSuccessor:files[1] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:pending]);
         VibeVoiceID unrelated = [self startFile:[self open:url] gain:1 ramp:[self unity] paused:YES];
         for (NSUInteger i = 6; i < 8; i++) [_bus killVoice:voices[i]];
         [_bus drainWithOutputRunning:NO handler:^(VibeVoiceID voice, VibeVoiceEvent event) {}];

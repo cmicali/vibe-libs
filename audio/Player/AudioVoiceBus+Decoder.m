@@ -264,7 +264,7 @@ static void VibeApplyMixMap(const float *map, AVAudioPCMBuffer *source, AVAudioP
     // reset the thread's private block.
     atomic_store_explicit(&s->consumed, atomic_load_explicit(&s->written, memory_order_relaxed), memory_order_relaxed);
     atomic_store_explicit(&s->gain, 0, memory_order_relaxed);
-    atomic_store_explicit(&s->fileGain, 1.0f, memory_order_relaxed);
+    atomic_store_explicit(&s->fileGain, kVibeFileGainUnity, memory_order_relaxed);
     s->rampFrom = s->rampTo = 0;
     s->rampFrames = s->rampElapsed = 0;
     s->rampCurve = s->rampAction = 0;

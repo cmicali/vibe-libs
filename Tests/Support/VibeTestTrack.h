@@ -14,9 +14,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface VibeTestTrack : NSObject <VibePlayableItem>
 + (VibeTestTrack *)withURL:(NSURL *)url;
+// The whole file, played at `fileGain`.
++ (VibeTestTrack *)withURL:(NSURL *)url fileGain:(float)fileGain;
 // A window of the file in CD frames; an end of 0 runs to the file's end.
+- (instancetype)initWithURL:(NSURL *)url cueStart:(NSUInteger)cueStart cueEnd:(NSUInteger)cueEnd;
 - (instancetype)initWithURL:(NSURL *)url cueStart:(NSUInteger)cueStart cueEnd:(NSUInteger)cueEnd
-        NS_DESIGNATED_INITIALIZER;
+                   fileGain:(float)fileGain NS_DESIGNATED_INITIALIZER;
+@property (readonly) float fileGain;
 - (instancetype)init NS_UNAVAILABLE;
 @end
 

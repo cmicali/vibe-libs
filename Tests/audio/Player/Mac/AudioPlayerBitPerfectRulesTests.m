@@ -79,16 +79,17 @@ static VibeBitPerfectReport Perfect(void) {
     XCTAssertFalse(VibeBitPerfectReportsEqual(Perfect(), r));
 }
 
-// A file gain other than 1 changes every sample, as the player's volume does.
-- (void)testAFileGainPreventsActive {
+// A file gain other than 1 changes every sample. It has its own reason, so
+// an app never says the volume is below full while it is full.
+- (void)testAFileGainHasItsOwnReason {
     VibeBitPerfectReport r = Perfect();
     r.fileGainScaled = YES;
-    XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusVolumeScaled);
+    XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusFileGain);
     r.sourceBits = 0;
     r.exclusive = NO;
+    XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusFileGain);
+    r.playerVolume = 0.5f;
     XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusVolumeScaled);
-    r.muted = YES;
-    XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusMuted);
 }
 
 - (void)testMuteAndChannelConversionEachPreventAnActiveReport {
@@ -108,6 +109,8 @@ static VibeBitPerfectReport Perfect(void) {
     XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusSourceLossy);
     r.exclusive = NO;
     XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusExclusiveRefused);
+    r.fileGainScaled = YES;
+    XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusFileGain);
     r.playerVolume = 0.5f;
     XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusVolumeScaled);
     r.softwareVolume = 0.5f;

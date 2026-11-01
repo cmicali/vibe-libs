@@ -34,6 +34,13 @@ NS_ASSUME_NONNULL_BEGIN
 // caching. An item may memoize it, stamped with NSURL.cacheKeyGeneration.
 - (nullable NSString *)cacheKey;
 
+@optional
+// The gain to play the file at, linear, for leveling: 1, or no such
+// property, leaves every sample untouched. The player reads it at each
+// request and keeps it with the item (audio/Player's PlaybackGainRules.h).
+// Fixed before the item crosses a thread, as the window is.
+@property (readonly) float fileGain;
+
 @end
 
 // `key` with the window appended, so the windows of one file key apart: `key`

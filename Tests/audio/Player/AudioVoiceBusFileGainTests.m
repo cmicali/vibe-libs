@@ -23,10 +23,6 @@
     return scaled;
 }
 
-- (VibeVoiceID)startFile:(AudioFileHandle *)file fileGain:(float)fileGain {
-    return [_bus startVoiceWithFile:file atFrame:0 endFrame:0 fileGain:fileGain gain:1 ramp:[self unity] paused:NO];
-}
-
 // The capture's frames from `first` on, as many as `expected` holds.
 - (NSData *)capture:(NSData *)capture from:(NSUInteger)first like:(NSData *)expected {
     NSUInteger bytes = first * 2 * sizeof(float);
@@ -170,7 +166,14 @@
         XCTAssertGreaterThan([_bus snapshotOfVoice:voice].written, 6000u + 4096, @"the decoder ran into the successor");
         NSMutableData *capture = [NSMutableData data];
         while (capture.length / 8 < 6000 - left.unsignedIntegerValue) {
-            [self render:(uint32_t)MIN(256u, 6000 - left.unsignedIntegerValue - capture.length / 8) into:capture];
+            uint32_t block = (uint32_t)MIN(256u, 6000 - left.unsignedIntegerValue - capture.length / 8);
+            if (left.unsignedIntegerValue > 0 || capture.length / 8 + block < 6000) {
+                [self render:block into:capture];
+            }
+            else {
+                [_bus fillInline]; // resting on the boundary, before the drain reports it
+                [self renderWithoutFilling:block into:capture];
+            }
         }
         XCTAssertFalse([_bus unqueueSuccessorForVoice:voice], @"%@ left", left);
         XCTAssertTrue([_bus takeBackSuccessorForVoice:voice], @"%@ left", left);
@@ -185,12 +188,13 @@
     }
 }
 
-// The drain reports a boundary once the render has mixed its frame, never on
-// reaching it: a render resting on the boundary has taken nothing of the
-// successor, its gain included, and the next successor is named on the report.
-- (void)testABoundaryIsReportedOnceTheRenderHasMixedItsFrame {
+// Named on the report while the render rests on the boundary, the next
+// successor waits until the render has crossed it: the boundary's gain is
+// taken first, and the next one starts on its own boundary frame.
+- (void)testASuccessorNamedOnTheBoundaryWaitsForTheRenderToTakeItsGain {
     NSData *a = [self noiseFrames:2048 channels:2 seed:314];
-    NSData *b = [self noiseFrames:4096 channels:2 seed:315];
+    NSData *b = [self noiseFrames:3000 channels:2 seed:315];
+    NSData *c = [self noiseFrames:3000 channels:2 seed:316];
     [self makeBusAtRate:kRate channels:2];
     VibeVoiceID voice = [self startFile:[self open:[self writePCM:a rate:kRate channels:2 name:@"a.wav"]] fileGain:0.5f];
     XCTAssertTrue([_bus queueSuccessor:[self open:[self writePCM:b rate:kRate channels:2 name:@"b.wav"]]
@@ -200,14 +204,41 @@
         [self render:256 into:capture];
     }
     XCTAssertEqual([_bus snapshotOfVoice:voice].consumed, 2048u);
-    XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 2048u);
-    XCTAssertEqualObjects([self eventsForVoice:voice], (@[@(VibeVoiceEventLive)]));
-    XCTAssertEqual([_bus snapshotOfVoice:voice].fileGain, 0.5f);
-    [self render:1 into:capture];
     XCTAssertEqualObjects([self eventsForVoice:voice], (@[@(VibeVoiceEventLive), @(VibeVoiceEventBoundary)]));
-    XCTAssertEqual([_bus snapshotOfVoice:voice].fileGain, 2.0f);
-    const float *p = capture.bytes, *y = b.bytes;
-    XCTAssertEqual(p[2048 * 2], y[0] * 2);
+    XCTAssertEqual([_bus snapshotOfVoice:voice].fileGain, 0.5f, @"nothing of the successor mixed yet");
+    XCTAssertTrue([_bus queueSuccessor:[self open:[self writePCM:c rate:kRate channels:2 name:@"c.wav"]]
+                            startFrame:0 endFrame:0 fileGain:0.25f forVoice:voice]);
+    [self drain];
+    XCTAssertEqual([_bus snapshotOfVoice:voice].successorGain, 2.0f, @"the next successor overwrote the gain");
+    while (![self hasEnded:voice] && capture.length < 20000 * 8) {
+        [self render:256 into:capture];
+    }
+    NSMutableData *expected = [[self scaled:a by:0.5f] mutableCopy];
+    [expected appendData:[self scaled:b by:2]];
+    [expected appendData:[self scaled:c by:0.25f]];
+    [self assertCapture:[capture subdataWithRange:NSMakeRange(0, expected.length)] equalsSource:expected];
+}
+
+// A new gain for the queued successor lands in place while its boundary is
+// unreported, and the render takes it on the boundary frame.
+- (void)testASuccessorsGainMovesInPlaceBeforeItsBoundary {
+    NSData *a = [self noiseFrames:6000 channels:2 seed:317];
+    NSData *b = [self noiseFrames:6000 channels:2 seed:318];
+    [self makeBusAtRate:kRate channels:2];
+    VibeVoiceID voice = [self startFile:[self open:[self writePCM:a rate:kRate channels:2 name:@"a.wav"]] fileGain:1];
+    XCTAssertTrue([_bus queueSuccessor:[self open:[self writePCM:b rate:kRate channels:2 name:@"b.wav"]]
+                            startFrame:0 endFrame:0 fileGain:4 forVoice:voice]);
+    NSMutableData *capture = [NSMutableData data];
+    [self render:4096 into:capture];
+    XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 6000u, @"the decoder has claimed the successor");
+    XCTAssertTrue([_bus setSuccessorFileGain:0.5f forVoice:voice]);
+    while (![self hasEnded:voice] && capture.length < 40000 * 8) {
+        [self render:256 into:capture];
+    }
+    NSMutableData *expected = [a mutableCopy];
+    [expected appendData:[self scaled:b by:0.5f]];
+    [self assertCapture:[capture subdataWithRange:NSMakeRange(0, expected.length)] equalsSource:expected];
+    XCTAssertFalse([_bus setSuccessorFileGain:2 forVoice:voice], @"an ended voice takes none");
 }
 
 @end

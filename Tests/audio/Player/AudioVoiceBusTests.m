@@ -116,7 +116,7 @@
     NSURL *url = [self writePCM:source rate:kRate channels:2 name:@"offset.wav"];
     [self makeBusAtRate:kRate channels:2];
     AudioFileHandle *file = [self open:url];
-    VibeVoiceID voice = [_bus startVoiceWithFile:file atFrame:12345 endFrame:0 gain:1
+    VibeVoiceID voice = [_bus startVoiceWithFile:file atFrame:12345 endFrame:0 fileGain:kVibeFileGainUnity gain:1
                                             ramp:[self unity] paused:NO];
     NSData *capture = [self renderUntilEnded:voice blockSize:1024 limit:100000];
     NSData *tail = [source subdataWithRange:NSMakeRange(12345 * 8, source.length - 12345 * 8)];
@@ -131,7 +131,7 @@
     NSURL *url = [self writePCM:source rate:kRate channels:2 name:@"window.wav"];
     for (NSNumber *block in @[@63, @1024, @4096]) {
         [self makeBusAtRate:kRate channels:2];
-        VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:3000 endFrame:11000 gain:1
+        VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:3000 endFrame:11000 fileGain:kVibeFileGainUnity gain:1
                                                 ramp:[self unity] paused:NO];
         NSData *capture = [self renderUntilEnded:voice blockSize:block.unsignedIntValue limit:100000];
         [self assertCapture:[capture subdataWithRange:NSMakeRange(0, 8000 * 8)]
@@ -149,7 +149,7 @@
     NSData *source = [self noiseFrames:20000 channels:2 seed:137];
     NSURL *url = [self writePCM:source rate:kRate channels:2 name:@"short-of-its-end.wav"];
     [self makeBusAtRate:kRate channels:2];
-    VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:3000 endFrame:30000 gain:1
+    VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:3000 endFrame:30000 fileGain:kVibeFileGainUnity gain:1
                                             ramp:[self unity] paused:NO];
     NSData *capture = [self renderUntilEnded:voice blockSize:1024 limit:100000];
     XCTAssertEqual([self endedSnapshot:voice].endOfStream, 17000u);
@@ -164,9 +164,9 @@
     for (NSNumber *block in @[@63, @256, @1024, @4096]) {
         [self makeBusAtRate:kRate channels:2];
         AudioFileHandle *successor = [self open:url];
-        VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:0 endFrame:20003 gain:1
+        VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:0 endFrame:20003 fileGain:kVibeFileGainUnity gain:1
                                                 ramp:[self unity] paused:NO];
-        XCTAssertTrue([_bus queueSuccessor:successor startFrame:20003 endFrame:0 forVoice:voice]);
+        XCTAssertTrue([_bus queueSuccessor:successor startFrame:20003 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
         NSData *capture = [self renderUntilEnded:voice blockSize:block.unsignedIntValue limit:200000];
         [self assertCapture:[capture subdataWithRange:NSMakeRange(0, whole.length)] equalsSource:whole];
         XCTAssertEqual([self endedSnapshot:voice].boundary, 20003u, @"block %@", block);
@@ -179,14 +179,14 @@
     NSURL *url = [self writePCM:whole rate:kRate channels:2 name:@"chained.wav"];
     [self makeBusAtRate:kRate channels:2];
     AudioFileHandle *second = [self open:url], *third = [self open:url];
-    VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:0 endFrame:2000 gain:1
+    VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:0 endFrame:2000 fileGain:kVibeFileGainUnity gain:1
                                             ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:second startFrame:2000 endFrame:5000 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:second startFrame:2000 endFrame:5000 fileGain:kVibeFileGainUnity forVoice:voice]);
     NSMutableData *capture = [NSMutableData data];
     while ([self eventsForVoice:voice].count < 2 && capture.length < 20000 * 8) {
         [self render:256 into:capture];
     }
-    XCTAssertTrue([_bus queueSuccessor:third startFrame:5000 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:third startFrame:5000 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     while (![self hasEnded:voice] && capture.length < 20000 * 8) {
         [self render:256 into:capture];
     }
@@ -207,7 +207,7 @@
     VibeVoiceID voice = [self startFile:[self open:a] gain:1 ramp:[self unity] paused:NO];
     [_bus fillInline];
     XCTAssertEqual([_bus snapshotOfVoice:voice].endOfStream, 2000u);
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:10000 endFrame:14000 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:10000 endFrame:14000 fileGain:kVibeFileGainUnity forVoice:voice]);
     NSData *capture = [self renderUntilEnded:voice blockSize:1024 limit:200000];
     NSMutableData *expected = [first mutableCopy];
     [expected appendData:[second subdataWithRange:NSMakeRange(10000 * 8, 4000 * 8)]];
@@ -227,10 +227,10 @@
     }
     [self render:64 into:nil];
     AudioFileHandle *successor = [self open:url];
-    VibeVoiceID pending = [_bus startVoiceWithFile:[self open:url] atFrame:1000 endFrame:3000 gain:1
+    VibeVoiceID pending = [_bus startVoiceWithFile:[self open:url] atFrame:1000 endFrame:3000 fileGain:kVibeFileGainUnity gain:1
                                               ramp:[self unity] paused:NO];
     XCTAssertEqual([_bus pendingVoiceCount], 1u);
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:3000 endFrame:7000 forVoice:pending]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:3000 endFrame:7000 fileGain:kVibeFileGainUnity forVoice:pending]);
     [_bus killVoice:voices[0].unsignedLongLongValue];
     [self render:64 into:nil];
     XCTAssertEqual([_bus pendingVoiceCount], 0u);
@@ -257,12 +257,12 @@
     for (NSNumber *late in @[@NO, @YES]) {
         for (NSNumber *block in @[@63, @1024, @4096]) {
             [self makeBusAtRate:48000 channels:2];
-            VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:0 endFrame:(AVAudioFramePosition)split
+            VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:0 endFrame:(AVAudioFramePosition)split fileGain:kVibeFileGainUnity
                                                     gain:1 ramp:[self unity] paused:NO];
             if (late.boolValue) {
                 [_bus fillInline];
             }
-            XCTAssertTrue([_bus queueSuccessor:[self open:url] startFrame:(AVAudioFramePosition)split endFrame:0
+            XCTAssertTrue([_bus queueSuccessor:[self open:url] startFrame:(AVAudioFramePosition)split endFrame:0 fileGain:kVibeFileGainUnity
                                       forVoice:voice]);
             NSData *capture = [self renderUntilEnded:voice blockSize:block.unsignedIntValue limit:500000];
             XCTAssertEqual([self endedSnapshot:voice].endOfStream, end, @"late %@ block %@", late, block);
@@ -284,7 +284,7 @@
                            channels:2 name:@"excerpt441.wav"];
     NSData *reference = [self referenceConversionOfURL:excerpt toRate:48000];
     [self makeBusAtRate:48000 channels:2];
-    VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:12345 endFrame:32345 gain:1
+    VibeVoiceID voice = [_bus startVoiceWithFile:[self open:url] atFrame:12345 endFrame:32345 fileGain:kVibeFileGainUnity gain:1
                                             ramp:[self unity] paused:NO];
     NSData *capture = [self renderUntilEnded:voice blockSize:1024 limit:500000];
     XCTAssertEqual([self endedSnapshot:voice].endOfStream, reference.length / (2 * sizeof(float)));
@@ -401,7 +401,7 @@
         [self makeBusAtRate:kRate channels:2];
         AudioFileHandle *successor = [self open:second];
         VibeVoiceID voice = [self startFile:[self open:first] gain:1 ramp:[self unity] paused:NO];
-        XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+        XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
         NSData *capture = [self renderUntilEnded:voice blockSize:block.unsignedIntValue limit:200000];
         [self assertCapture:[capture subdataWithRange:NSMakeRange(0, whole.length)] equalsSource:whole];
         VibeVoiceSnapshot snapshot = [self endedSnapshot:voice];
@@ -419,7 +419,7 @@
     [self makeBusAtRate:kRate channels:2];
     AudioFileHandle *successor = [self open:second];
     VibeVoiceID voice = [self startFile:[self open:first] gain:1 ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     NSData *capture = [self renderUntilEnded:voice blockSize:4096 limit:20000];
     [self assertCapture:[capture subdataWithRange:NSMakeRange(0, whole.length)] equalsSource:whole];
     XCTAssertEqualObjects([self eventsForVoice:voice],
@@ -435,7 +435,7 @@
     [self makeBusAtRate:kRate channels:2];
     AudioFileHandle *successor = [self open:second];
     VibeVoiceID voice = [self startFile:[self open:first] gain:1 ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     XCTAssertTrue([_bus unqueueSuccessorForVoice:voice]);
     NSData *capture = [self renderUntilEnded:voice blockSize:1024 limit:200000];
     XCTAssertEqual([self endedSnapshot:voice].endOfStream, 30000u);
@@ -447,7 +447,7 @@
     [self makeBusAtRate:kRate channels:2];
     successor = [self open:second];
     voice = [self startFile:[self open:shortFirst] gain:1 ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     [_bus fillInline];
     XCTAssertFalse([_bus unqueueSuccessorForVoice:voice]);
     XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 2000u);
@@ -458,7 +458,7 @@
     voice = [self startFile:[self open:shortFirst] gain:1 ramp:[self unity] paused:NO];
     [_bus fillInline];
     XCTAssertEqual([_bus snapshotOfVoice:voice].endOfStream, 2000u);
-    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     capture = [self renderUntilEnded:voice blockSize:1024 limit:200000];
     XCTAssertEqual([self endedSnapshot:voice].boundary, 2000u);
     XCTAssertEqual([self endedSnapshot:voice].endOfStream, 32000u);
@@ -468,7 +468,7 @@
     XCTAssertEqualObjects([self eventsForVoice:voice],
                           (@[@(VibeVoiceEventLive), @(VibeVoiceEventBoundary), @(VibeVoiceEventEnded)]));
     // A dead voice takes none.
-    XCTAssertFalse([_bus queueSuccessor:successor startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertFalse([_bus queueSuccessor:successor startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
 }
 
 // A gapless album is one voice: each successor is queued only after the
@@ -481,7 +481,7 @@
     [self makeBusAtRate:kRate channels:2];
     AudioFileHandle *second = [self open:b], *third = [self open:c];
     VibeVoiceID voice = [self startFile:[self open:a] gain:1 ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:second startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:second startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     NSMutableData *capture = [NSMutableData data];
     // a and b decode whole before the first render, so b's end is known when
     // the first boundary is reported; queuing c then reopens the stream.
@@ -491,7 +491,7 @@
     XCTAssertEqualObjects([self eventsForVoice:voice], (@[@(VibeVoiceEventLive), @(VibeVoiceEventBoundary)]));
     XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 2000u);
     XCTAssertEqual([_bus snapshotOfVoice:voice].endOfStream, 5000u);
-    XCTAssertTrue([_bus queueSuccessor:third startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:third startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     while (![self hasEnded:voice] && capture.length < 20000 * 8) {
         [self render:256 into:capture];
     }
@@ -500,6 +500,46 @@
     XCTAssertEqual([self endedSnapshot:voice].boundary, 5000u);
     XCTAssertEqual([self endedSnapshot:voice].endOfStream, 9000u);
     [self assertCapture:[capture subdataWithRange:NSMakeRange(0, 9000 * 8)] equalsSource:whole];
+}
+
+// The drain reports a boundary when the render reaches it, and the next
+// successor is named on the report. While the render rests on the boundary,
+// with the successor's first frames not yet written, that successor waits:
+// published, it could move the boundary on before the render saw it.
+- (void)testASuccessorNamedWhileTheRenderRestsOnTheBoundaryWaits {
+    NSData *whole = [self noiseFrames:9000 channels:2 seed:14];
+    NSURL *a = [self writePCM:[whole subdataWithRange:NSMakeRange(0, 2048 * 8)] rate:kRate channels:2 name:@"a.wav"];
+    NSURL *b = [self writePCM:[whole subdataWithRange:NSMakeRange(2048 * 8, 2000 * 8)] rate:kRate channels:2 name:@"b.wav"];
+    NSURL *c = [self writePCM:[whole subdataWithRange:NSMakeRange(4048 * 8, 4952 * 8)] rate:kRate channels:2 name:@"c.wav"];
+    [self makeBusAtRate:kRate channels:2];
+    VibeVoiceID voice = [self startFile:[self open:a] gain:1 ramp:[self unity] paused:NO];
+    XCTAssertTrue([_bus queueSuccessor:[self open:b] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
+    NSMutableData *capture = [NSMutableData data];
+    for (int i = 0; i < 8; i++) {
+        [self render:256 into:capture];
+    }
+    VibeVoiceSnapshot resting = [_bus snapshotOfVoice:voice];
+    XCTAssertEqual(resting.consumed, 2048u);
+    XCTAssertEqual(resting.boundary, 2048u);
+    XCTAssertEqualObjects([self eventsForVoice:voice], (@[@(VibeVoiceEventLive), @(VibeVoiceEventBoundary)]),
+                          @"the boundary is reported on reaching it");
+    XCTAssertTrue([_bus queueSuccessor:[self open:c] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
+    [self drain];
+    VibeVoiceSlot *slot = NULL;
+    for (NSUInteger s = 0; s < 8; s++) {
+        if (atomic_load(&_bus.mix->slots[s].generation) == voice) slot = &_bus.mix->slots[s];
+    }
+    XCTAssertEqual(atomic_load(&slot->successorState), VibeSuccessorNone, @"published while the render rests on the boundary");
+    XCTAssertTrue([_bus.filesInUse count] >= 2, @"the waiting successor was dropped");
+    [self render:1 into:capture];
+    XCTAssertEqual(atomic_load(&slot->successorState), VibeSuccessorQueued, @"still waiting once the render crossed");
+    while (![self hasEnded:voice] && capture.length < 20000 * 8) {
+        [self render:256 into:capture];
+    }
+    [self assertCapture:[capture subdataWithRange:NSMakeRange(0, whole.length)] equalsSource:whole];
+    XCTAssertEqual([self endedSnapshot:voice].boundary, 4048u);
+    XCTAssertEqualObjects([self eventsForVoice:voice],
+                          (@[@(VibeVoiceEventLive), @(VibeVoiceEventBoundary), @(VibeVoiceEventBoundary), @(VibeVoiceEventEnded)]));
 }
 
 #pragma mark - Taking a successor back
@@ -511,7 +551,7 @@
                drained:(BOOL)drained capture:(NSMutableData *)capture {
     [self makeBusAtRate:kRate channels:2];
     VibeVoiceID voice = [self startFile:[self open:first] gain:1 ramp:[self unity] paused:NO];
-    XCTAssertTrue([_bus queueSuccessor:[self open:second] startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:[self open:second] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     [_bus fillInline];
     XCTAssertEqual([_bus snapshotOfVoice:voice].boundary, 6000u);
     XCTAssertGreaterThan([_bus snapshotOfVoice:voice].written, 6000u + 4096, @"the decoder ran into the successor");
@@ -550,7 +590,7 @@
         XCTAssertEqual(snapshot.boundary, UINT64_MAX, @"%@ left", left);
         XCTAssertEqual(snapshot.written, 6000u, @"%@ left", left);
         XCTAssertEqual(snapshot.endOfStream, 6000u, @"%@ left", left);
-        XCTAssertTrue([_bus queueSuccessor:[self open:next] startFrame:0 endFrame:0 forVoice:voice], @"%@ left", left);
+        XCTAssertTrue([_bus queueSuccessor:[self open:next] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice], @"%@ left", left);
         while (![self hasEnded:voice] && capture.length < 80000 * 8) {
             [self render:256 into:capture];
         }
@@ -617,7 +657,7 @@
     [self makeBusAtRate:kRate channels:2];
     VibeVoiceID voice = [self startFile:[self open:first] gain:1 ramp:[self unity] paused:NO];
     XCTAssertFalse([_bus takeBackSuccessorForVoice:voice], @"no successor");
-    XCTAssertTrue([_bus queueSuccessor:[self open:old] startFrame:0 endFrame:0 forVoice:voice]);
+    XCTAssertTrue([_bus queueSuccessor:[self open:old] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
     XCTAssertFalse([_bus takeBackSuccessorForVoice:voice], @"queued, not yet the decoder's");
 }
 
@@ -667,7 +707,7 @@
                     [_bus fillInline];
                 }
                 AudioFileHandle *next = [self open:b];
-                XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 forVoice:voice]);
+                XCTAssertTrue([_bus queueSuccessor:next startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
                 NSData *capture = [self renderUntilEnded:voice blockSize:block.unsignedIntValue limit:500000];
                 XCTAssertEqual([self endedSnapshot:voice].endOfStream, end, @"%@ late %@ block %@", pair, late, block);
                 XCTAssertGreaterThanOrEqual(capture.length, end * 8);
@@ -794,7 +834,7 @@ static double VibeToneAmplitude(const float *interleaved, NSUInteger channels, N
     });
     original = method_setImplementation(method, replacement);
     @try {
-        VibeVoiceID voice = [_bus startVoiceWithFile:file atFrame:300 endFrame:0 gain:1 ramp:[self unity] paused:YES];
+        VibeVoiceID voice = [_bus startVoiceWithFile:file atFrame:300 endFrame:0 fileGain:kVibeFileGainUnity gain:1 ramp:[self unity] paused:YES];
         AVAudioFramePosition position = file.framePosition;
         [_bus fillInline];
         [self drain];

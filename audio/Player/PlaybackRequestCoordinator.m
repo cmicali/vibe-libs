@@ -9,7 +9,6 @@
 @property (nonatomic, strong) id<VibePlayableItem> track;
 @property (nonatomic, copy) NSString *path;
 @property (nonatomic) VibePendingPlaybackIntent intent;
-@property (nonatomic) float fileGain;
 @property (nonatomic) uint64_t identifier;
 @property (nonatomic) uint64_t submittedPlayIdentifier;
 @property (nonatomic, getter=isSlow) BOOL slow;
@@ -32,13 +31,11 @@
 - (uint64_t)beginWithTrack:(id<VibePlayableItem>)track
                       path:(NSString *)path
                     intent:(VibePendingPlaybackIntent)intent
-                  fileGain:(float)fileGain
    submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     VibePlaybackRequest *request = [VibePlaybackRequest new];
     request.track = track;
     request.path = [path copy];
     request.intent = intent;
-    request.fileGain = fileGain;
     request.identifier = ++_nextIdentifier;
     request.submittedPlayIdentifier = submittedPlayIdentifier;
     _currentRequest = request;
@@ -48,7 +45,6 @@
 - (VibePlaybackRequestRebind)rebindTrack:(id<VibePlayableItem>)track
                                     path:(NSString *)path
                                   intent:(VibePendingPlaybackIntent)intent
-                                fileGain:(float)fileGain
                  submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     VibePlaybackRequestRebind result = {0};
     VibePlaybackRequest *request = _currentRequest;
@@ -64,7 +60,6 @@
     result.shouldNotifyLoadingPaused = result.trackChanged || result.pausedChanged;
     request.track = track;
     request.intent = intent;
-    request.fileGain = fileGain;
     request.submittedPlayIdentifier = submittedPlayIdentifier;
     return result;
 }
@@ -140,7 +135,6 @@
     copy.track = request.track;
     copy.path = request.path;
     copy.intent = request.intent;
-    copy.fileGain = request.fileGain;
     copy.identifier = request.identifier;
     copy.submittedPlayIdentifier = request.submittedPlayIdentifier;
     copy.slow = request.slow;
