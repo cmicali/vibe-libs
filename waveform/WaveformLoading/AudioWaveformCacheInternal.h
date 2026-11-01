@@ -36,12 +36,17 @@ static inline NSString *_Nullable VibeWaveformEntryKey(id<VibePlayableItem> trac
     PINCache*                       _waveformCache;
 }
 
-// The lookup-or-decode path every load takes. AudioWaveformCache.mm states
-// its contract.
+// The scans the lane has turned back for an open the user waits on, or for
+// another version of their file. Any thread.
+@property (readonly) NSUInteger scanYieldCount;
+
+// The lookup-or-decode path every load takes, its decode on `scheduler`.
+// AudioWaveformCache.mm states its contract.
 - (void)load:(id<VibePlayableItem>)track
     cacheKey:(NSString *)cacheKey
   withLoader:(AudioWaveformLoader *)loader
        claim:(nullable VibeWaveformLoadClaim *)claim
+   scheduler:(AudioWorkScheduler *)scheduler
   completion:(void (^)(CodableAudioWaveform *_Nullable waveform, BOOL wasCached))completion
      settled:(void (^)(BOOL filed))settled;
 

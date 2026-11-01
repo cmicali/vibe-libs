@@ -10,6 +10,7 @@
 #import "PINCache+VibeAudioCache.h"
 #import "AudioWaveformLoader.h"
 #import "AudioWorkScheduler.h"
+#import "AudioFileMaterializationCoordinator.h"
 #import "PlaceholderFiles.h"
 #import "HelperMacros.h"
 #import "VibeMacros.h"
@@ -38,6 +39,18 @@
 @implementation VibeWaveformLoadClaim
 @end
 
+// A scan request is its own token. Its state is confined to the cache's scan
+// queue, but for the completion, which is main's.
+@interface VibeWaveformScanToken ()
+@property (nonatomic, weak) AudioWaveformCache *cache;
+@property (nonatomic, strong) id<VibePlayableItem> track;
+@property (nonatomic) VibeWaveformAnalysis analysis;
+@property (nonatomic, copy, nullable) void (^completion)(BOOL filed);
+@property (atomic) BOOL cancelled;
+// The decode running for it, or nil while it waits.
+@property (nonatomic, strong, nullable) AudioWaveformLoader *loader;
+@end
+
 // A claim's key. The standardized path joins a provider's other spelling of
 // the file, and the window keeps the windows of one file apart.
 static NSString *VibeWaveformClaimKey(id<VibePlayableItem> track) {
@@ -48,6 +61,22 @@ static NSString *VibeWaveformClaimKey(id<VibePlayableItem> track) {
 - (void)finishFailedLoader:(AudioWaveformLoader *)loader
                       claim:(VibeWaveformLoadClaim *)claim;
 - (void)settleClaim:(VibeWaveformLoadClaim *)claim;
+- (void)deliverResults:(CodableAudioWaveform *)waveform forTrack:(id<VibePlayableItem>)track;
+- (void)cancelScan:(VibeWaveformScanToken *)scan;
+@end
+
+@implementation VibeWaveformScanToken
+
+- (instancetype)initPrivate {
+    return [super init];
+}
+
+- (void)cancel {
+    self.cancelled = YES;
+    self.completion = nil;
+    [self.cache cancelScan:self];
+}
+
 @end
 
 // How many superseded decodes may keep running in the background at once: a
@@ -73,6 +102,11 @@ static const NSUInteger kMaxRunningWaveformLookups = 2;
 // Long enough that a slow provider still lands, short enough to be an answer.
 static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 
+// How often the scan lane reads the foreground: while a scan decodes, so a
+// decode stuck in a read still yields at once, and while one waits to resume.
+static const NSTimeInterval kScanWatchRunningSeconds = 0.01;
+static const NSTimeInterval kScanWatchWaitingSeconds = 0.1;
+
 @implementation AudioWaveformCache {
     __weak AudioWaveformLoader*     _currentLoader;
     // The track _currentLoader is decoding for, so the progressive deliveries
@@ -91,6 +125,17 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     // Decodes run on the fixed-slot scheduler, so without this an in-flight one
     // could land its write after removeAllObjects and repopulate the emptied cache.
     std::atomic<uint64_t>           _cacheGeneration;
+    // The scans. Everything below but the count is confined to _scanQueue.
+    dispatch_queue_t                _scanQueue;
+    // One running and one waiting: the scan's stat and lookup, then its decode.
+    AudioWorkScheduler              *_scanScheduler;
+    NSMutableArray<VibeWaveformScanToken *> *_waitingScans;
+    VibeWaveformScanToken           *_runningScan;
+    // Reads the foreground while any scan runs or waits. Its interval is the
+    // one it was set to, 0 while it is off.
+    dispatch_source_t               _scanWatch;
+    NSTimeInterval                  _scanWatchInterval;
+    std::atomic<NSUInteger>         _scanYieldCount;
 }
 
 + (NSString *)cacheName {
@@ -140,6 +185,16 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
                 maximumRunningCount:kMaxDetachedWaveformLoads + 1
                 maximumPendingCount:kMaxPendingWaveformWork
                 pendingGrace:kWaveformAdmissionGraceSeconds];
+        _scanQueue = dispatch_queue_create("vibe-libs.waveformloading.scan",
+                dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
+        _scanScheduler = [[AudioWorkScheduler alloc]
+                initWithLabel:@"vibe-libs.waveformloading.scan"
+                qualityOfService:QOS_CLASS_UTILITY
+                maximumRunningCount:1
+                maximumPendingCount:1
+                pendingGrace:kWaveformAdmissionGraceSeconds];
+        _waitingScans = [NSMutableArray array];
+        _scanYieldCount = 0;
         _cacheGeneration = 0;
         _currentLoader = nil;
         _detachedLoaders = [NSMutableArray array];
@@ -156,6 +211,12 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         });
     }
     return self;
+}
+
+- (void)dealloc {
+    if (_scanWatch) {
+        dispatch_source_cancel(_scanWatch);
+    }
 }
 
 - (void)invalidateWithCompletion:(dispatch_block_t)completion {
@@ -259,6 +320,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         // it; stats cannot keep feeding an unbounded loader-queue tail.
         dispatch_sync(self->_loaderQueue, ^{
             [self load:track cacheKey:cacheKey withLoader:loader claim:claim
+                     scheduler:self->_decodeScheduler
                     completion:^(CodableAudioWaveform *waveform, BOOL wasCached) {
                 if (waveform) {
                     [self deliverCompleteWaveform:waveform loader:loader claim:claim];
@@ -513,6 +575,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     cacheKey:(NSString *)cacheKey
   withLoader:(AudioWaveformLoader *)loader
        claim:(VibeWaveformLoadClaim *)claim
+   scheduler:(AudioWorkScheduler *)scheduler
   completion:(void (^)(CodableAudioWaveform *waveform, BOOL wasCached))completion
      settled:(void (^)(BOOL filed))settled {
     CodableAudioWaveform *cachedWaveform = [self waveformForCacheKey:cacheKey analysis:loader.analysis];
@@ -537,7 +600,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     // multiplies it.
     PINCache *cache = _waveformCache; // snapshot: the ivar is confined to _loaderQueue
     uint64_t generation = _cacheGeneration.load(std::memory_order_relaxed);
-    AudioWorkToken *decodeToken = [_decodeScheduler submitWork:^{
+    AudioWorkToken *decodeToken = [scheduler submitWork:^{
         // The window is set here, beside the key, so every caller decodes
         // what its entry is filed under.
         loader.cueStart = track.cueStart;
@@ -641,6 +704,170 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         [self.delegate respondsToSelector:@selector(audioWaveformCache:didLoadResults:forTrack:)]) {
         [self.delegate audioWaveformCache:self didLoadResults:waveform.results forTrack:track];
     }
+}
+
+#pragma mark - Scans
+
+- (BOOL)foregroundIsActive {
+    VibeWaveformForegroundProvider provider = self.foregroundProvider;
+    return provider ? provider() : AudioFileMaterializationCoordinator.sharedCoordinator.isForegroundTransferActive;
+}
+
+- (NSUInteger)scanYieldCount {
+    return _scanYieldCount.load(std::memory_order_relaxed);
+}
+
+- (VibeWaveformScanToken *)scanWaveformForTrack:(id<VibePlayableItem>)track
+                                     completion:(void (^)(BOOL))completion {
+    VibeWaveformScanToken *scan = [[VibeWaveformScanToken alloc] initPrivate];
+    scan.cache = self;
+    scan.track = track;
+    // On main, as a load asks it.
+    scan.analysis = self.analysisProvider ? self.analysisProvider() : (VibeWaveformAnalysis){};
+    scan.completion = completion;
+    dispatch_async(_scanQueue, ^{
+        if (scan.cancelled) {
+            return;
+        }
+        [self->_waitingScans addObject:scan];
+        [self admitScan];
+    });
+    return scan;
+}
+
+- (void)cancelScan:(VibeWaveformScanToken *)scan {
+    dispatch_async(_scanQueue, ^{
+        [self->_waitingScans removeObjectIdenticalTo:scan];
+        // Its worker settles it, so the lane admits no other scan until the
+        // cancelled decode has stopped reading.
+        [scan.loader cancel];
+        [self watchScans];
+    });
+}
+
+// On the scan queue. One scan runs at a time, and none starts while an open
+// the user waits on is active.
+- (void)admitScan {
+    if (!_runningScan && _waitingScans.count && ![self foregroundIsActive]) {
+        VibeWaveformScanToken *scan = _waitingScans.firstObject;
+        [_waitingScans removeObjectAtIndex:0];
+        _runningScan = scan;
+        [self startScan:scan];
+    }
+    [self watchScans];
+}
+
+// On the scan queue. The watch runs only while a scan runs or waits.
+- (void)watchScans {
+    NSTimeInterval interval = _runningScan ? kScanWatchRunningSeconds
+            : _waitingScans.count ? kScanWatchWaitingSeconds : 0;
+    if (interval == _scanWatchInterval) {
+        return;
+    }
+    _scanWatchInterval = interval;
+    if (interval == 0) {
+        dispatch_source_cancel(_scanWatch);
+        _scanWatch = nil;
+        return;
+    }
+    if (!_scanWatch) {
+        _scanWatch = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, _scanQueue);
+        __weak AudioWaveformCache *weakSelf = self;
+        dispatch_source_set_event_handler(_scanWatch, ^{
+            [weakSelf scanWatchFired];
+        });
+        dispatch_resume(_scanWatch);
+    }
+    uint64_t nanos = (uint64_t)(interval * NSEC_PER_SEC);
+    dispatch_source_set_timer(_scanWatch, dispatch_time(DISPATCH_TIME_NOW, (int64_t)nanos), nanos, nanos / 4);
+}
+
+// On the scan queue. A decode asks the foreground before each block, but a
+// read waiting on a slow source asks nothing, so the watch cancels it: the
+// cancel ends the wait at once.
+- (void)scanWatchFired {
+    if (!_runningScan) {
+        [self admitScan];
+        return;
+    }
+    AudioWaveformLoader *loader = _runningScan.loader;
+    if (loader && !loader.isCancelled && [self foregroundIsActive]) {
+        [loader cancel];
+    }
+}
+
+// On the scan queue. The stat and the lookup take the lane's slot, and the
+// decode follows them on it. A scan holds no claim, so no load reattaches its
+// loader, and its yield can never cancel the track on screen.
+- (void)startScan:(VibeWaveformScanToken *)scan {
+    AudioWaveformLoader *loader = [[AudioWaveformLoader alloc] init];
+    loader.analysis = scan.analysis;
+    // Detached for its whole life, so it builds no progressive snapshots.
+    [loader detach];
+    __weak AudioWaveformCache *weakSelf = self;
+    loader.shouldYield = ^BOOL {
+        return [weakSelf foregroundIsActive];
+    };
+    scan.loader = loader;
+    id<VibePlayableItem> track = scan.track;
+    [_scanScheduler submitWork:^{
+        NSString *cacheKey = VibeWaveformEntryKey(track);
+        if (!cacheKey) {
+            LogWarn(@"No cache key for %@ — skipping its scan", track.url.path);
+            [self finishScan:scan loader:loader waveform:nil filed:NO];
+            return;
+        }
+        __block CodableAudioWaveform *loaded = nil;
+        dispatch_sync(self->_loaderQueue, ^{
+            [self load:track cacheKey:cacheKey withLoader:loader claim:nil
+                     scheduler:self->_scanScheduler
+                    completion:^(CodableAudioWaveform *waveform, BOOL wasCached) {
+                loaded = waveform;
+            } settled:^(BOOL filed) {
+                [self finishScan:scan loader:loader waveform:loaded filed:filed];
+            }];
+        });
+    } failureQueue:_scanQueue
+      admissionFailure:^(VibeAudioWorkAdmissionFailure failure) {
+        LogWarn(@"Waveform scan admission exhausted for %@ (%ld)", track.url.path, (long)failure);
+        [self finishScan:scan loader:loader waveform:nil filed:NO];
+    }];
+}
+
+// Any thread, once the scan's worker has returned. A decode cancelled short
+// of its end, by a yield or by another version of its file, goes back to the
+// front of the line, to decode again from its start. A token's cancel ends
+// it with no completion.
+- (void)finishScan:(VibeWaveformScanToken *)scan
+            loader:(AudioWaveformLoader *)loader
+          waveform:(CodableAudioWaveform *)waveform
+             filed:(BOOL)filed {
+    dispatch_async(_scanQueue, ^{
+        scan.loader = nil;
+        if (self->_runningScan == scan) {
+            self->_runningScan = nil;
+        }
+        if (!scan.cancelled && !waveform && loader.isCancelled) {
+            self->_scanYieldCount.fetch_add(1, std::memory_order_relaxed);
+            [self->_waitingScans insertObject:scan atIndex:0];
+        }
+        else if (!scan.cancelled) {
+            run_on_main_thread({
+                void (^completion)(BOOL) = scan.completion;
+                scan.completion = nil;
+                if (scan.cancelled) {
+                    return;
+                }
+                if (waveform) {
+                    [self deliverResults:waveform forTrack:scan.track];
+                }
+                if (completion) {
+                    completion(filed);
+                }
+            });
+        }
+        [self admitScan];
+    });
 }
 
 @end

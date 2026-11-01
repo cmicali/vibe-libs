@@ -79,6 +79,11 @@ static inline NSArray<NSString *> *VibeWaveformObserverIdentifiers(VibeWaveformA
 - (BOOL)loadDetailBlocks:(NSIndexSet *)blocks ofFile:(NSString *)filename
             intoWaveform:(CodableAudioWaveform *)waveform;
 
+// Asked before every block's read, on the decode's thread. YES cancels the
+// decode there, so it stops within one block. A scan's: nil for every other
+// load. Set before load:.
+@property (nullable, atomic, copy) BOOL (^shouldYield)(void);
+
 // Permanent, and it ends a streaming file's waits for bytes at once.
 - (void)cancel;
 - (void)detach;

@@ -445,7 +445,14 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
     const CFAbsoluteTime debugDecodeStart = CFAbsoluteTimeGetCurrent();
 #endif
 
+    BOOL (^shouldYield)(void) = self.shouldYield;
     while (framesRead < totalFrames && !self.isCancelled) {
+        if (shouldYield && shouldYield()) {
+            // A scan's decode stops reading at once. Its partial summary is
+            // dropped, since the pass reports nothing worth keeping.
+            [self cancel];
+            break;
+        }
         // Wait for this slot's previous processing to finish before reusing
         // its buffer. With two slots the decode runs at most one block ahead.
         dispatch_semaphore_wait(slotFree[slot], DISPATCH_TIME_FOREVER);

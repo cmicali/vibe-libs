@@ -31,6 +31,12 @@ static std::atomic<double> sDebugDecodeSeconds{0};
     sDebugDecodeSeconds = MAX(0.0, seconds);
 }
 
+#pragma mark - Debug: scans
+
+- (NSUInteger)debugScanYields {
+    return self.scanYieldCount;
+}
+
 #pragma mark - Debug: per-file cache control
 
 // The lookup-or-decode path for one track, apart from the UI's load. The
@@ -56,6 +62,7 @@ static std::atomic<double> sDebugDecodeSeconds{0};
         __block BOOL hit = NO;
         dispatch_sync(self->_loaderQueue, ^{
             [self load:track cacheKey:cacheKey withLoader:loader claim:nil
+                 scheduler:self->_decodeScheduler
                     completion:^(CodableAudioWaveform *waveform, BOOL wasCached) {
                 loaded = waveform;
                 hit = wasCached;

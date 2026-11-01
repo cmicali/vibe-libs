@@ -42,4 +42,9 @@
 // decodes: clear its entry first. Any thread.
 @property (class, nonatomic) NSTimeInterval debugDecodeSeconds;
 
+// How many times the scan lane has turned a scan back to decode it again: for
+// an open the user waits on, or for another version of its file. It counts
+// once the turned-back decode has stopped. Any thread.
+@property (nonatomic, readonly) NSUInteger debugScanYields;
+
 @end

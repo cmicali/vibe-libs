@@ -17,9 +17,14 @@ NS_ASSUME_NONNULL_BEGIN
 // means most of the UI layer, to compile as ObjC++.
 @class CodableAudioWaveform;
 @class AudioWorkToken;
+@class VibeWaveformScanToken;
 @protocol AudioWaveformCacheDelegate;
 
 typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
+
+// Whether an open the user waits on is active. Asked on any thread, and
+// often: before each block a scan decodes, and every 10 ms while one runs.
+typedef BOOL (^VibeWaveformForegroundProvider)(void);
 
 @interface AudioWaveformCache : NSObject
 
@@ -34,6 +39,10 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 // it, so an owner that comes to want more asks for its track again
 // (this piece's AGENTS.md).
 @property (nullable, copy) VibeWaveformAnalysisProvider analysisProvider;
+
+// What a scan yields to. Unset is FileLoading's foreground state, the shared
+// coordinator's isForegroundTransferActive. Set it before the first scan.
+@property (nullable, copy) VibeWaveformForegroundProvider foregroundProvider;
 
 // The PINCache store name, derived from the entry format version; see the
 // implementation. It is the single source for init and for anything that
@@ -81,6 +90,22 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
                             waveform:(CodableAudioWaveform *)waveform
                           completion:(dispatch_block_t)completion;
 
+// A scan request: one file of a library decoded and filed in the
+// background, apart from the track on screen. Main-thread request and
+// completion. Scans run one at a time, in the order asked, on a lane of their
+// own at utility priority. While an open the user waits on is active, no scan
+// is admitted, and the running one's decode is cancelled outright within one
+// block: its partial summary is dropped, never filed. Once the open settles,
+// that scan decodes again from its start. A scan joins no load, and a load
+// never waits on a scan. filed is YES when the entry is on disk, a hit
+// included, and NO when the file could not be decoded or its entry could not
+// be written. The entry's results
+// reach the delegate first, as a detached decode's do. No waveform is
+// delivered. A scan wedged in a stat or an open holds the lane until it
+// returns.
+- (VibeWaveformScanToken *)scanWaveformForTrack:(id<VibePlayableItem>)track
+                                     completion:(void (^)(BOOL filed))completion;
+
 // Supersedes the in-flight load: no further waveform deliveries until the
 // next loadWaveformForTrack:. The decode is NOT aborted: it detaches, runs to
 // completion and persists, so the next request for that file is a disk hit;
@@ -93,6 +118,17 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 // place. A detached decode's results are still delivered, with the track they
 // were loaded for. The receiver matches it against its playlist.
 - (void)cancelLoad;
+
+@end
+
+@interface VibeWaveformScanToken : NSObject
+
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+
+// Main thread. Drops the completion. A waiting scan leaves the queue, and a
+// running decode is cancelled outright.
+- (void)cancel;
 
 @end
 
