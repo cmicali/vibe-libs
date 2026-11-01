@@ -41,6 +41,8 @@ These files come from other people's software, so the next two traps are load-be
 
 **TRAP: every M3U reader trims whitespace, splits at newlines, and skips a leading `#`.** So a name any of those would mangle goes out as a percent-encoded `file://` URL, which reads back whole. A backslash in a name does not round-trip, because the Windows-separator rule turns it into `/`.
 
+`m3uItemsInData:relativeToDirectory:` reads a user's M3U as written, for an app that matches each entry itself: every entry in list order, a file's path resolved lexically against the playlist's folder, with no rungs and nothing stat'd, and every other URL, such as a stream's, as an item of its own.
+
 `entriesInM3UData:` reads the app's own absolute output with no resolution rungs and nothing stat'd. So a mirror an app saved comes back without a probe or a grant panel.
 
 ## Tests
