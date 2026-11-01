@@ -33,6 +33,7 @@ The comments here cite six of that spec's lettered items. In short:
 - **C1.** While the coordinator has a foreground claim, metadata-only dataless work yields. A foreground claim is a playback or prefetch waiter, or a readable stream still downloading under a handle it served.
 - **C3.** A metadata request for the file playback is downloading joins that materialization.
 - **C6.** When the foreground hold rises, a running scan transfer is cancelled, not waited out. The yield spends no retry budget.
+- **The hold's edge is published.** `addObserver:` takes a weak observer of `isForegroundTransferActive`'s flip. Each drain ends by comparing the hold with the last edge it sent. Every submission drains, which is the rise. Every settlement and every stream's last reader drains, which is the release. Observers hear each flip once, in order, on a serial queue of the coordinator's. WaveformLoading's scans pause on it.
 - **J8.** A transfer lane ends when its materialization settles, never with the handle open. Handle runs are bounded apart, at six (Admission has two lifetimes, below).
 
 ## Placeholder files
@@ -225,7 +226,7 @@ The five `+Debug` categories each sit beside the class they open:
 
 `Tests/files/FileLoading/` holds the tests of every file here, the fake cloud's included. They run on macOS in Debug, with the headermap off, so they prove FileLoading builds and tests alone, with no decoder's header in reach.
 
-- **The coordinator's stage-1 tests** run over a gated dataless probe, hand-completed provider operations, and a clock the test sets. Their harness is `AudioFileMaterializationCoordinatorTestCase`, and their fakes are `Tests/Support/MaterializationTestFakes`. `AudioFileMaterializationCoordinatorTests` covers the path claims, and `…ForegroundTests` the foreground hold.
+- **The coordinator's stage-1 tests** run over a gated dataless probe, hand-completed provider operations, and a clock the test sets. Their harness is `AudioFileMaterializationCoordinatorTestCase`, and their fakes are `Tests/Support/MaterializationTestFakes`. `AudioFileMaterializationCoordinatorTests` covers the path claims, and `…ForegroundTests` the foreground hold and its published edge.
 - **The stage-2 tests**, `AudioFileMaterializationCoordinatorHandleOpenTests`, open `Tests/Support/VibeTestServedFile`, a served handle with no decoder. A missing or empty file fails with an error, as a real handle's open does. The handle-run ceiling's tests are here. `audio/Decode`'s `AudioFileHandleOpenTests` checks that a real handle is delivered through the coordinator.
 - **A network mount is forced, never found.** `NetworkReadAheadRulesTests` feeds `VibeMountReadsAhead` a fake `statfs` table and never reads the machine's. The read-ahead's thread is driven by `audio/Decode`'s handle tests, through the hooks above.
 - `VibeFakeCloudTests` drives the fake through the production coordinator. The minimal consumer cancels an open over it while the download is in flight, and checks that the claim, the transfer, and the registry entry go.

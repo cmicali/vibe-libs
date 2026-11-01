@@ -74,9 +74,9 @@ static const NSUInteger kMaxDetachedWaveformLoads = 2;
 static const NSUInteger kMaxPendingWaveformWork = 4;
 static const NSTimeInterval kWaveformAdmissionGraceSeconds = 10.0;
 
-// The cache-key stat plus the serial cache lookup. Small and separate from the
-// decodes on purpose: a lookup holds its slot across dispatch_sync to the
-// loader queue, and a decode is submitted from INSIDE one, so sharing a
+// The cache-key stat plus the disk lookup. Small and separate from the
+// decodes on purpose: a lookup holds its slot through its disk read, and a
+// decode is submitted from INSIDE one, so sharing a
 // scheduler lets a burst of lookups fill the pending list and reject or expire
 // the decode they themselves asked for — reported to the delegate as the file
 // failing to load, when nothing about it failed.

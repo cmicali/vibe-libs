@@ -283,7 +283,20 @@ Vibe decodes a waveform only for the track on screen. An app that analyzes a who
 
 **Done when** the throttled-source tests pass, and Vibe's waveform benchmarks show no change for the track on screen.
 
-Done 2026-11-01: `scanWaveformForTrack:completion:` is the scan request (this repo's #102). Three corrections came with it. The cache admits one scan at a time, from a line the app may fill at once, rather than the app admitting each. FileLoading's foreground state has no release edge, so the scan lane reads it: before each block a scan decodes, every 10 ms while one runs, and every 100 ms while one waits. And the fake cloud and the read-ahead stubs are this repo's now, so the tests run here. `AudioWaveformScanTests` shows the proof. Every block of a throttled source took 20 ms to arrive, and in each of ten runs a scan read no frame past the rise. It stopped 4 to 16 ms after the rise, 9 ms at the median. A scan parked on a stalled read stopped 2 to 12 ms after the rise, 10 ms at the median. Both are bounded by the lane's 10 ms watch. A play's download through the fake cloud turned a scan back, and its settling resumed it. The track on screen loaded through a yield. Eight local WAV files, 268 s of audio, scanned in 16 to 18 ms over ten runs in one process, about 15,000 times real time. The same files' bare decodes took 28 to 32 ms. A first run in a fresh process took 50 to 410 ms for the scans and 40 to 160 ms for the bare decodes, on a Mac other builds shared. Vibe's benchmarks did not run. The track on screen's path gained one test of a nil block per block of 65,536 frames, and its decodes keep their own lane. The piece's `AGENTS.md` has the rest.
+Done 2026-11-01: `scanWaveformForTrack:completion:` is the scan request (this repo's #102 and #106). Four corrections came with it.
+
+- **The cache admits one scan at a time**, from a line the app may fill at once. The app does not admit each.
+- **FileLoading publishes its foreground hold's edge.** The coordinator already had both: every submission drains, and so does every settlement. Its observers now hear each flip, and the cache is one.
+- **A scan pauses, and is not cancelled.** On the rise, its decode parks before its next read. A read waiting for bytes is interrupted, and read again from its start after `allowReads` and a seek. On the fall, it reads on from where it stopped. A cancelled scan would start over, and an hour-long mix could start over for good.
+- **The fake cloud and the read-ahead stubs are this repo's now**, so the tests run here.
+
+`AudioWaveformScanTests` shows the proof. Ten runs in one process gave these:
+
+- On a throttled source, each block taking 20 ms, the scan read no frame past the rise. It parked 0.3 to 1.2 ms after the rise, 0.65 ms at the median.
+- On a stalled read, it parked 1.1 to 1.4 ms after the rise, 1.3 ms at the median.
+- Eight 3 s WAV files scanned in 17.4 to 19.6 ms. The same files' bare decodes took 17.7 to 18.7 ms. So the stat, the lookup, and the entry's write cost little beside the decode.
+
+Vibe's waveform and chunker benchmarks show the track on screen unchanged. They ran three rounds of three, on main before the scans (90fd9bd) and on #106 (6474152). 139 of 153 kept their instructions within 1%. The 14 AAC cases retired 7 to 12% fewer. A profile puts that in libvDSP's mono mix, which took another internal path. Nothing in the change touches the mix. CPU times moved both ways, since other builds shared the Mac. The piece's `AGENTS.md` has the rest.
 
 ### Scanning a catalog
 
@@ -307,7 +320,7 @@ The catalog scan is new behavior in FolderScan. It lands after FolderScan's move
 - **`Player` holds the master bus and the device categories.** The master bus composes the varispeed, the FX, and the meter. The categories read the player's private state.
 - **`WaveformStyles` holds the morph engine.** The renderers drive it directly.
 - **`waveform/Waveform` holds Vibe's C++ engine, and its Darwin part beside it.** The C++ came from Vibe's `Packages/WaveformCore` with its tests. Its headers sit beside its sources, and its `Package.swift` did not move. `AudioWaveform.h` and `.mm`, with `CodableAudioWaveform`, joined the C++ in the same piece (this repo's #33). The wrapper is more than the cache's entry: both views hold it, the style registry draws from it, and the widget publisher bakes it. With it in WaveformLoading, drawing would depend on Decode and FileLoading.
-- **WaveformLoading's decodes do not go through FileLoading's claims.** The loader opens its own handle. So FileLoading's foreground rule, which yields background downloads to the open the user waits on, never stops a waveform decode of a local file. A library's scans read that rule's foreground state instead, and yield to it (below).
+- **WaveformLoading's decodes do not go through FileLoading's claims.** The loader opens its own handle. So FileLoading's foreground rule, which yields background downloads to the open the user waits on, never stops a waveform decode of a local file. A library's scans observe that rule's published edge instead, and pause on it (below).
 - **Artwork is inside `Metadata`.** The art is found during the tag parse and cached beside the tags. Nothing uses one without the other.
 
 **Artwork is the one place the engine hands out UI types.** `Metadata` returns `NSImage` or `UIImage`. AppKit and UIKit are always present, so that is tolerable. A UI-free version would return a `CGImage`. Leave it until someone asks.
@@ -597,7 +610,7 @@ The parse is TagLib's, which already reads title and artist. The metadata archiv
 
 Two changes of behavior, each its own pull request with its own measurements:
 
-- **WaveformLoading's scan requests** ([Analyzing many files](#analyzing-many-files)). Done 2026-11-01 (this repo's #102): a scan yields within one block to the open the user waits on, and resumes once it settles.
+- **WaveformLoading's scan requests** ([Analyzing many files](#analyzing-many-files)). Done 2026-11-01 (this repo's #102 and #106): a scan pauses within one block for the open the user waits on, and reads on once it settles.
 - **A gain per file through a gapless splice, in Player.** The gapless successor shares the current voice, so a gain per voice is not enough. The gain changes on the exact frame where one file ends and the next begins. It runs on the audio thread under the render's realtime rules. **Done when** a render test shows the gain change on the boundary frame, and a soak run passes. `AudioPlayerReparkTests` already plays fixtures whose every sample names its file and frame, and finds the boundary frame in the capture. That test came with the take-back of a re-parked successor on 2026-10-31.
 
   Done 2026-11-01 (this repo's #104, and its review's fixes in #105). An item may carry a file gain, `VibePlayableItem`'s optional `fileGain`, so every request keeps it with no verb of its own. The bus keeps it beside the ramp's gain, and the render splits the slice at the boundary, so the successor's gain starts on its first frame. `currentFileGain` reads it back. One correction came with it. The drain reports a boundary when the render reaches it, and the next successor is named on that report. A render resting on the boundary, its successor's first bytes late, had not yet taken the boundary's gain, and the next successor could overwrite it. That successor now waits until the render has crossed the boundary, and no event moved. `AudioPlayerFileGainTests` shows the proof. Its soak ran 240 splices and 191 re-parks over 7,293,481 frames, every one exact at its gain, with no render refused. The piece's `AGENTS.md` has the rest.
@@ -637,7 +650,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | First slice: a seek from the player bar at a gapless splice | `AudioPlayer`'s `seekToPosition:ofTrack:` | behavior | 3 | `testASeekNamingTheOutgoingTrackAfterASpliceIsDropped` | |
 | First slice: an Up Next edit in a song's last moments | `AudioVoiceBus`'s take-back of a successor the decoder already reads, before the render reaches it | behavior | 3 | `AudioPlayerReparkTests`, which checks the frame after the boundary | |
 | Full app: song matching and leveling | the tag fields, identifiers, audio MD5, and loudness tags | behavior | 4 | a parse fixture for each field | 5cca1ea (#52) |
-| Full app: background analysis | WaveformLoading's scan requests | behavior | 5 | a throttled source yields within one block | 1120f99 (#102) |
+| Full app: background analysis | WaveformLoading's scan requests | behavior | 5 | a throttled source pauses within one block | 0fc44bf (#102) and 6474152 (#106) |
 | Full app: leveling from tags | a gain per file through a gapless splice | behavior | 5 | the boundary-frame render test, `testTheGainChangesOnTheBoundaryFrame`, and its soak | 1a315a9 (#104), with the stall fix at ab63b0a (#105) |
 | First release | NowPlaying and Updates | move | 6 | each app's media keys and update check | NowPlaying at 36ff73d (#41). Updates at ccea3ae (#45). |
 | Any mac app's opens, when it needs them | AppOpening | move | 6 | the coalescer's and the coordinator's tests, and the minimal consumer's split open | 8b1418e (#48) |
