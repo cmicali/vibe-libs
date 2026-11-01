@@ -8,7 +8,8 @@
 #import "HelperMacros.h"
 
 @interface AudioPlayer (PrefetchPrivate)
-- (void)beginPrefetchRequestOnQueueForTrack:(nullable id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier;
+- (void)beginPrefetchRequestOnQueueForTrack:(nullable id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier
+                                   fileGain:(float)fileGain;
 - (void)settlePrefetchRequestOnQueueForIdentifier:(uint64_t)requestIdentifier;
 - (void)processPrefetchRequestOnQueueForIdentifier:(uint64_t)requestIdentifier;
 @end
@@ -26,6 +27,7 @@
 - (void)clearSuccessorOnQueue {
     _successorTrack = nil;
     _successorRequestIdentifier = 0;
+    _successorFileGain = kVibeFileGainUnity;
     _successorFile = nil;
     [self setSuccessorArmedForUI:NO];
 }
@@ -62,11 +64,13 @@
     NSRange window = VibeTrackWindowInFile(_prefetchedTrack, _prefetchedFile, NULL);
     if (window.length == 0
             || ![_voiceBus queueSuccessor:_prefetchedFile startFrame:(AVAudioFramePosition)window.location
-                                 endFrame:VibeTrackEndFrameInFile(_prefetchedTrack, _prefetchedFile) forVoice:_voice]) {
+                                 endFrame:VibeTrackEndFrameInFile(_prefetchedTrack, _prefetchedFile)
+                                 fileGain:_prefetchedFileGain forVoice:_voice]) {
         return;
     }
     _successorTrack = _prefetchedTrack;
     _successorRequestIdentifier = _prefetchedRequestIdentifier;
+    _successorFileGain = _prefetchedFileGain;
     _successorFile = _prefetchedFile;
     [self setSuccessorArmedForUI:YES];
 }
@@ -101,6 +105,7 @@
 - (void)promoteSuccessorOnQueue {
     id<VibePlayableItem> startedTrack = _successorTrack;
     uint64_t startedRequestIdentifier = _successorRequestIdentifier;
+    float startedFileGain = _successorFileGain;
     AudioFileHandle *startedFile = _successorFile;
     if (!startedTrack || !startedFile) {
         return;
@@ -114,8 +119,8 @@
     // after the window is taken is republished.
     BOOL estimated = NO;
     NSRange window = VibeTrackWindowInFile(startedTrack, startedFile, &estimated);
-    [self adoptTrack:startedTrack requestIdentifier:startedRequestIdentifier file:startedFile window:window
-           estimated:estimated voice:_voice baseFrames:snapshot.boundary reason:@"gapless boundary"];
+    [self adoptTrack:startedTrack requestIdentifier:startedRequestIdentifier fileGain:startedFileGain file:startedFile
+              window:window estimated:estimated voice:_voice baseFrames:snapshot.boundary reason:@"gapless boundary"];
     // A park that changed while the splice stood follows the promoted track.
     [self maybeArmSuccessorOnQueue];
 }
@@ -126,6 +131,7 @@
 - (void)maybeCrossfadeIntoParkOnQueue {
     id<VibePlayableItem> startedTrack = _prefetchedTrack;
     uint64_t startedRequestIdentifier = _prefetchedRequestIdentifier;
+    float startedFileGain = _prefetchedFileGain;
     AudioFileHandle *startedFile = _prefetchedFile;
     if (_successorTrack || !startedTrack || !startedFile || startedFile == _file
             || _state != VibePlayerStatePlaying || _buffering || _windowEstimated
@@ -149,20 +155,21 @@
     [self retireVoiceOnQueue:outgoing milliseconds:milliseconds];
     VibeVoiceID voice = [self startVoiceOnQueueForFile:startedFile atFrame:(AVAudioFramePosition)window.location
                                               endFrame:VibeTrackEndFrameInFile(startedTrack, startedFile)
-                                      fadeMilliseconds:milliseconds paused:NO];
-    [self adoptTrack:startedTrack requestIdentifier:startedRequestIdentifier file:startedFile window:window
-           estimated:estimated voice:voice baseFrames:0 reason:@"track-end crossfade"];
+                                              fileGain:startedFileGain fadeMilliseconds:milliseconds paused:NO];
+    [self adoptTrack:startedTrack requestIdentifier:startedRequestIdentifier fileGain:startedFileGain file:startedFile
+              window:window estimated:estimated voice:voice baseFrames:0 reason:@"track-end crossfade"];
 }
 
 // Both auto-advances end here: the started track is current at its window's
 // start on `voice`, `baseFrames` being the bus frames that voice consumed
 // before it, and the delegate is told.
 - (void)adoptTrack:(id<VibePlayableItem>)startedTrack requestIdentifier:(uint64_t)startedRequestIdentifier
-              file:(AudioFileHandle *)file window:(NSRange)window estimated:(BOOL)estimated voice:(VibeVoiceID)voice
-        baseFrames:(uint64_t)baseFrames reason:(NSString *)reason {
+          fileGain:(float)fileGain file:(AudioFileHandle *)file window:(NSRange)window estimated:(BOOL)estimated
+             voice:(VibeVoiceID)voice baseFrames:(uint64_t)baseFrames reason:(NSString *)reason {
     id<VibePlayableItem> finishedTrack = self.currentTrack;
     uint64_t finishedRequestIdentifier = _currentRequestIdentifier;
     _windowEstimated = estimated;
+    [self setCurrentFileGainOnQueue:fileGain];
     [self publishState:_state voice:voice file:file window:window startSeconds:0 baseFrames:baseFrames];
     self.currentTrack = startedTrack;
     _currentRequestIdentifier = startedRequestIdentifier;
@@ -198,6 +205,7 @@
     _prefetchedFile = nil;
     _prefetchedTrack = nil;
     _prefetchedRequestIdentifier = 0;
+    _prefetchedFileGain = kVibeFileGainUnity;
 }
 
 - (void)retirePrefetchOnQueueAtPoint:(VibeAudioPrefetchRetirementPoint)point
@@ -216,14 +224,17 @@
         _requestedPrefetchTrack = nil;
         _requestedPrefetchKey = nil;
         _requestedPrefetchRequestIdentifier = 0;
+        _requestedPrefetchFileGain = kVibeFileGainUnity;
     }
 }
 
-- (void)beginPrefetchRequestOnQueueForTrack:(id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier {
+- (void)beginPrefetchRequestOnQueueForTrack:(id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier
+                                   fileGain:(float)fileGain {
     _prefetchRequestState = VibeAudioPrefetchRequestBegin(_prefetchRequestState).state;
     _requestedPrefetchTrack = track;
     _requestedPrefetchKey = track.sourceKey;
     _requestedPrefetchRequestIdentifier = requestIdentifier;
+    _requestedPrefetchFileGain = fileGain;
 }
 
 - (void)settlePrefetchRequestOnQueueForIdentifier:(uint64_t)requestIdentifier {
@@ -245,11 +256,12 @@
     }
 }
 
-- (void)prefetchOnQueue:(id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier {
+- (void)prefetchOnQueue:(id<VibePlayableItem>)track requestIdentifier:(uint64_t)requestIdentifier
+               fileGain:(float)fileGain {
     if (_terminating) {
         return;
     }
-    [self beginPrefetchRequestOnQueueForTrack:track requestIdentifier:requestIdentifier];
+    [self beginPrefetchRequestOnQueueForTrack:track requestIdentifier:requestIdentifier fileGain:fileGain];
     [self processPrefetchRequestOnQueueForIdentifier:_prefetchRequestState.currentRequestIdentifier];
 }
 
@@ -261,6 +273,7 @@
     id<VibePlayableItem> track = _requestedPrefetchTrack;
     NSString *key = _requestedPrefetchKey;
     uint64_t trackRequestIdentifier = _requestedPrefetchRequestIdentifier;
+    float fileGain = _requestedPrefetchFileGain;
     VibePlaybackRequest *pending = self.pendingRequest.currentRequest;
     // By the pending play's track, not its path: another window of the file
     // being opened is a prefetch of its own, parked behind that open.
@@ -282,9 +295,16 @@
             || disposition == VibeAudioPrefetchDispositionJoinPrefetchClaim) {
         // A re-prefetch of the same track can carry a fresh item object,
         // which the promote must deliver with its own request identifier,
-        // and a gate may have opened since.
+        // and a gate may have opened since. Another gain re-queues the
+        // successor, which the bus took at the old one. One the render has
+        // passed into stands, and keeps the gain it sounds at.
+        BOOL gainChanged = fileGain != _prefetchedFileGain;
         _prefetchedTrack = track;
         _prefetchedRequestIdentifier = trackRequestIdentifier;
+        _prefetchedFileGain = fileGain;
+        if (_successorTrack && gainChanged) {
+            [self unqueueSuccessorOnQueue];
+        }
         if (_successorTrack) {
             _successorTrack = track;
             _successorRequestIdentifier = trackRequestIdentifier;
@@ -305,6 +325,7 @@
     _prefetchedKey = key;
     _prefetchedTrack = track;
     _prefetchedRequestIdentifier = trackRequestIdentifier;
+    _prefetchedFileGain = fileGain;
     _prefetchedFile = nil;
     if (!key) {
         [self settlePrefetchRequestOnQueueForIdentifier:requestIdentifier];

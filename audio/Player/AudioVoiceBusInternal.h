@@ -101,6 +101,12 @@ typedef struct {
     _Atomic int32_t readsAllowed;   // the queue clears it for a declick retire
     // Queue.
     _Atomic uint64_t ramp;
+    // Queue, before the hand-off's release publishes the successor: its file
+    // gain, which the render takes on the boundary frame. The drain reports a
+    // boundary only once the render has mixed that frame, and the transport
+    // names the next successor only after that, so none is overwritten
+    // before the render has read it.
+    _Atomic float successorGain;
     // Audio thread.
     _Atomic uint64_t consumed;      // the ring's consumer index, absolute
     _Atomic int32_t paused;
@@ -111,8 +117,10 @@ typedef struct {
     VibeVoiceStamp startStamp;
     // Audio thread, private: the ramp in progress and the current gain. The
     // gain is an atomic only so the diagnostic snapshot may read it; it has
-    // no other writer while the slot is live.
+    // no other writer while the slot is live. So is the file gain, which the
+    // bind sets and the render moves to successorGain at each boundary.
     _Atomic float gain;
+    _Atomic float fileGain;
     float rampFrom;
     float rampTo;
     uint32_t rampFrames;
@@ -223,7 +231,10 @@ static inline AudioTimeStamp VibeStampRead(const VibeVoiceStamp *field) {
     BOOL liveReported;
     uint64_t reportedBoundary;      // the last boundary the drain reported; kUnset = none
     BOOL endedReported;
+    // The successor's file gain, waiting or queued, carried with it.
+    float successorGain;
     // A pending voice's start, replayed when a slot frees.
+    float fileGain;
     float gain;
     VibeVoiceRamp ramp;
     BOOL paused;

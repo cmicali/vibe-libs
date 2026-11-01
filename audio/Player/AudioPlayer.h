@@ -12,6 +12,7 @@
 #import <Foundation/Foundation.h>
 
 #import "AudioError.h"     // domain, userInfo key and codes; re-exported here
+#import "PlaybackGainRules.h"
 #import "PlaybackIntent.h"
 #import "VibePlayableItem.h"
 
@@ -127,6 +128,24 @@ NS_ASSUME_NONNULL_BEGIN
 // that starts it: a later prefetch, or a play, takes its place.
 - (uint64_t)requestPrefetchTrack:(nullable id<VibePlayableItem>)track;
 
+// A gain per file, for leveling from loudness tags. Every request carries
+// one, linear; the forms above carry 1, which leaves every sample untouched.
+// VibeFileGainFromDecibels (PlaybackGainRules.h) converts a tag's decibels,
+// and VibeFileGainApplied says what is applied for a value out of range. It
+// multiplies the file's samples on the audio thread, before the pitch, the FX,
+// the meter and the volume, none of which it changes. It stays the request's
+// for the file's life: a seek, a pause, a stall's replay and an output rebuild
+// keep it, and a crossfade's two files each keep their own. A gapless
+// successor takes its own on the exact frame its file begins, and the frame
+// before keeps the ending file's. A re-prefetch of the parked track at another
+// gain re-queues it, unless the render has already passed into it, which
+// keeps the gain it sounds at. currentFileGain reads it back. A gain other
+// than 1 is not bit-perfect, so on the mac the report says VolumeScaled.
+- (uint64_t)requestPlay:(id<VibePlayableItem>)track fileGain:(float)fileGain;
+- (uint64_t)requestPlay:(id<VibePlayableItem>)track atPosition:(NSTimeInterval)position startPaused:(BOOL)startPaused
+               fileGain:(float)fileGain;
+- (uint64_t)requestPrefetchTrack:(nullable id<VibePlayableItem>)track fileGain:(float)fileGain;
+
 - (void)play:(id<VibePlayableItem>)track;
 // The user's toggle, of the state when it reaches the player queue,
 // including an in-flight open's landing intent. Stopped, it answers error:
@@ -205,6 +224,10 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Whether a gapless successor is queued on the current voice.
 @property (readonly, getter=isGaplessArmed) BOOL gaplessArmed;
+
+// The file gain currentTrack plays at, as applied (VibeFileGainApplied): its
+// request's. It moves with currentTrack at an advance. 1 with no current track.
+@property (readonly) float currentFileGain;
 
 // Modeled output liveness, unlike isPlaying's intent: a playing voice or one
 // still fading out. An FX tail after the last voice is not modeled.

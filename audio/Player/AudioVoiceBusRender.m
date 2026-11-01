@@ -86,6 +86,10 @@ static inline void VibeVoiceSquareRoot(float *samples, uint32_t count) CA_REALTI
 static inline void VibeVoiceFill(float value, float *out, uint32_t count) CA_REALTIME_API {
     vDSP_vfill(&value, out, 1, count);
 }
+
+static inline void VibeVoiceScale(float *samples, float scale, uint32_t count) CA_REALTIME_API {
+    vDSP_vsmul(samples, 1, &scale, samples, 1, count);
+}
 VIBE_REALTIME_END
 
 // Everything the audio thread does; the checked region makes a blocking call a
@@ -114,6 +118,49 @@ static inline void VibeVoiceGainRamp(VibeFadeCurve curve, float from, float to, 
     }
     if (count > ramped) {
         VibeVoiceFill(to, gains + ramped, count - ramped);
+    }
+}
+
+// Mixes `count` of the voice's frames, from `first` past `consumed`, at the
+// ramp's gain or `gain`, times the file's. The ring read is at most two
+// contiguous spans, each one vector operation per channel; a fading voice's
+// gains are one ramp per span, shared by its channels. At a gain of exactly 1
+// the frames are added untouched.
+static inline void VibeVoiceMixFrames(VibeVoiceMix *mix, uint32_t s, const VibeVoiceSlot *slot, AudioBufferList *output,
+                                      uint32_t channels, uint64_t consumed, uint32_t first, uint32_t count,
+                                      BOOL ramping, float gain, float fileGain) CA_REALTIME_API {
+    uint32_t readIndex = (uint32_t)(consumed & mix->mask);
+    float level = gain * fileGain;
+    for (uint32_t done = first; done < first + count; ) {
+        uint32_t index = (readIndex + done) & mix->mask;
+        uint32_t span = first + count - done;
+        if (span > mix->capacity - index) {
+            span = mix->capacity - index;
+        }
+        if (span > kVibeVoiceBusMaxRenderFrames) {
+            span = kVibeVoiceBusMaxRenderFrames;
+        }
+        if (ramping) {
+            VibeVoiceGainRamp((VibeFadeCurve)slot->rampCurve, slot->rampFrom, slot->rampTo,
+                              slot->rampElapsed + done, slot->rampFrames, span, mix->gains);
+            if (fileGain != 1.0f) {
+                VibeVoiceScale(mix->gains, fileGain, span);
+            }
+        }
+        for (uint32_t c = 0; c < channels; c++) {
+            const float *ring = mix->rings[s][c] + index;
+            float *out = (float *)output->mBuffers[c].mData + done;
+            if (ramping) {
+                VibeVoiceMixAtGains(ring, mix->gains, out, span);
+            }
+            else if (level == 1.0f) {
+                VibeVoiceMixAdd(ring, out, span);
+            }
+            else {
+                VibeVoiceMixAtGain(ring, level, out, span);
+            }
+        }
+        done += span;
     }
 }
 
@@ -175,6 +222,9 @@ OSStatus VibeVoiceBusRender(VibeVoiceMix *mix, BOOL *isSilence, const AudioTimeS
         // sees `written` moved back to it.
         uint64_t cut = atomic_load_explicit(&slot->cut, memory_order_seq_cst);
         uint64_t written = atomic_load_explicit(&slot->written, memory_order_acquire);
+        // After `written`: the decoder publishes a boundary before any frame
+        // past it, so the frames this render can see carry their boundary.
+        uint64_t boundary = atomic_load_explicit(&slot->boundary, memory_order_acquire);
         // Sequentially consistent, paired with the reopen's withdrawal of the
         // end: either this render sees the end withdrawn, or the reopen sees
         // this render in flight and waits for its verdict.
@@ -196,38 +246,22 @@ OSStatus VibeVoiceBusRender(VibeVoiceMix *mix, BOOL *isSilence, const AudioTimeS
             }
         }
         if (frames > 0) {
-            uint32_t readIndex = (uint32_t)(consumed & mix->mask);
             float gain = atomic_load_explicit(&slot->gain, memory_order_relaxed);
-            // The ring read is at most two contiguous spans, each one vector
-            // operation per channel; a fading voice's gains are one ramp per
-            // span, shared by its channels.
-            for (uint32_t done = 0; done < frames; ) {
-                uint32_t index = (readIndex + done) & mix->mask;
-                uint32_t span = frames - done;
-                if (span > mix->capacity - index) {
-                    span = mix->capacity - index;
-                }
-                if (span > kVibeVoiceBusMaxRenderFrames) {
-                    span = kVibeVoiceBusMaxRenderFrames;
-                }
-                if (ramping) {
-                    VibeVoiceGainRamp((VibeFadeCurve)slot->rampCurve, slot->rampFrom, slot->rampTo,
-                                      slot->rampElapsed + done, slot->rampFrames, span, mix->gains);
-                }
-                for (uint32_t c = 0; c < channels; c++) {
-                    const float *ring = mix->rings[s][c] + index;
-                    float *out = (float *)output->mBuffers[c].mData + done;
-                    if (ramping) {
-                        VibeVoiceMixAtGains(ring, mix->gains, out, span);
-                    }
-                    else if (gain == 1.0f) {
-                        VibeVoiceMixAdd(ring, out, span);
-                    }
-                    else {
-                        VibeVoiceMixAtGain(ring, gain, out, span);
-                    }
-                }
-                done += span;
+            float fileGain = atomic_load_explicit(&slot->fileGain, memory_order_relaxed);
+            // The file gain changes on the boundary frame, the successor's
+            // first: the frames before it are the ending file's, at its gain.
+            // A boundary is crossed once, by the render that mixes its frame,
+            // and never inside a cut, which ends at it. Its gain was stored
+            // before the hand-off that the boundary's release follows.
+            uint32_t ending = frames;
+            if (boundary != kUnset && boundary >= consumed && boundary - consumed < frames) {
+                ending = (uint32_t)(boundary - consumed);
+            }
+            VibeVoiceMixFrames(mix, s, slot, output, channels, consumed, 0, ending, ramping, gain, fileGain);
+            if (ending < frames) {
+                fileGain = atomic_load_explicit(&slot->successorGain, memory_order_relaxed);
+                atomic_store_explicit(&slot->fileGain, fileGain, memory_order_relaxed);
+                VibeVoiceMixFrames(mix, s, slot, output, channels, consumed, ending, frames - ending, ramping, gain, fileGain);
             }
             if (!slot->consuming) {
                 slot->consuming = 1;

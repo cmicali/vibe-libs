@@ -78,7 +78,7 @@ typedef NS_ENUM(int32_t, VibeVoiceEnd) {
 
 typedef NS_ENUM(NSInteger, VibeVoiceEvent) {
     VibeVoiceEventLive,       // first frames buffered; rendering can begin
-    VibeVoiceEventBoundary,   // the successor is now sounding
+    VibeVoiceEventBoundary,   // the successor is now sounding: the render has mixed its first frame
     VibeVoiceEventEnded,      // see VibeVoiceSnapshot.ended
 };
 
@@ -134,6 +134,7 @@ typedef struct {
     uint64_t endOfStream;
     uint64_t underrunFrames;
     float gain;               // the audio thread's current gain, as last written; exact once a ramp has landed
+    float fileGain;           // the gain of the file the render is in: the voice's, then each successor's from its boundary
     AudioTimeStamp startOfConsumption;
 } VibeVoiceSnapshot;
 
@@ -174,6 +175,17 @@ typedef struct VibeVoiceMix VibeVoiceMix;
 // errorOfVoice:failedFile: inside the ended handler. Allocation always returns
 // an id: a full pool cuts its oldest retiring voice, and a start that still
 // finds no slot is pending until the drain frees one. Returns the voice's id.
+//
+// `fileGain` multiplies the file's every sample, beside the ramp's gain, for
+// the voice's life or until its first successor's boundary. 1 is exact: the
+// samples untouched. The form without it is at 1.
+- (VibeVoiceID)startVoiceWithFile:(AudioFileHandle *)file
+                          atFrame:(AVAudioFramePosition)frame
+                         endFrame:(AVAudioFramePosition)endFrame
+                         fileGain:(float)fileGain
+                             gain:(float)gain
+                             ramp:(VibeVoiceRamp)ramp
+                           paused:(BOOL)paused;
 - (VibeVoiceID)startVoiceWithFile:(AudioFileHandle *)file
                           atFrame:(AVAudioFramePosition)frame
                          endFrame:(AVAudioFramePosition)endFrame
@@ -229,6 +241,18 @@ typedef struct VibeVoiceMix VibeVoiceMix;
 // queue is still reading is accepted and waits: the drain hands it to the
 // decoder once that queue has left it, and a voice that ends first ends as an
 // ordinary track end.
+//
+// `fileGain` is the successor's: the render takes it on the boundary frame,
+// the successor's first, and the frame before keeps the gain of the file
+// ending. A successor taken back never sounds at its gain. Each successor is
+// named only after the boundary before it was reported, which the drain does
+// once the render has mixed that boundary's frame. The form without it is
+// at 1.
+- (BOOL)queueSuccessor:(AudioFileHandle *)file
+            startFrame:(AVAudioFramePosition)startFrame
+              endFrame:(AVAudioFramePosition)endFrame
+              fileGain:(float)fileGain
+              forVoice:(VibeVoiceID)voice;
 - (BOOL)queueSuccessor:(AudioFileHandle *)file
             startFrame:(AVAudioFramePosition)startFrame
               endFrame:(AVAudioFramePosition)endFrame
