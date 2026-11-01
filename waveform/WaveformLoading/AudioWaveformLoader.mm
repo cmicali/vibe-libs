@@ -63,6 +63,9 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
     // asked for, and the handle from its return until the load ends.
     NSURL *_url;
     AudioFileHandle *_file;
+    // A scan's pause, under the condition's lock.
+    NSCondition *_pause;
+    BOOL _paused;
 }
 
 - (instancetype)initWithDelegate:(id <AudioWaveformLoaderDelegate>)delegate {
@@ -71,6 +74,7 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
         self.isCancelled = NO;
         self.isComplete = NO;
         self.delegate = delegate;
+        _pause = [[NSCondition alloc] init];
     }
     return self;
 }
@@ -92,6 +96,47 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
     if (url) {
         [[CloudFileMaterializer availabilityForURL:url] wakeWaiters];
     }
+    [_pause lock];
+    [_pause broadcast];
+    [_pause unlock];
+}
+
+- (void)pause {
+    [_pause lock];
+    _paused = YES;
+    [_pause unlock];
+    AudioFileHandle *file;
+    @synchronized (self) {
+        file = _file;
+    }
+    [file interruptReads];
+}
+
+- (void)resume {
+    [_pause lock];
+    _paused = NO;
+    [_pause broadcast];
+    [_pause unlock];
+}
+
+// On the decode's thread, before each read. Parks while paused. NO once
+// cancelled.
+- (BOOL)awaitResume {
+    [_pause lock];
+    BOOL parked = _paused && !self.isCancelled;
+    [_pause unlock];
+    if (parked) {
+        dispatch_block_t onParked = self.parked;
+        if (onParked) {
+            onParked();
+        }
+        [_pause lock];
+        while (_paused && !self.isCancelled) {
+            [_pause wait];
+        }
+        [_pause unlock];
+    }
+    return !self.isCancelled;
 }
 
 - (void)detach {
@@ -392,11 +437,11 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
     const AVAudioFramePosition totalFrames = pass->totalFrames;
     const NSUInteger numChannels = pass->numChannels;
 
-    // Large reads amortize decoder-call overhead. Bins are sliced in memory.
-    // Block N+1 decodes here as block N runs through the serial processing
-    // queue. Reuse waits for the slot's semaphore to protect its buffer. The
-    // serial queue preserves the stream order required by the analyzers.
-    const AVAudioFrameCount kReadBlockFrames = 65536; // ~512KB stereo float32 per read
+    // Bins are sliced in memory. Block N+1 decodes here as block N runs
+    // through the serial processing queue. Reuse waits for the slot's
+    // semaphore to protect its buffer. The serial queue preserves the stream
+    // order required by the analyzers.
+    const AVAudioFrameCount kReadBlockFrames = kVibeWaveformReadBlockFrames;
     AVAudioPCMBuffer *buffers[2];
     buffers[0] = [[AVAudioPCMBuffer alloc] initWithPCMFormat:file.processingFormat
                                                frameCapacity:kReadBlockFrames];
@@ -445,13 +490,22 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
     const CFAbsoluteTime debugDecodeStart = CFAbsoluteTimeGetCurrent();
 #endif
 
-    BOOL (^shouldYield)(void) = self.shouldYield;
-    while (framesRead < totalFrames && !self.isCancelled) {
-        if (shouldYield && shouldYield()) {
-            // A scan's decode stops reading at once. Its partial summary is
-            // dropped, since the pass reports nothing worth keeping.
-            [self cancel];
-            break;
+    // A pause interrupted a read, so the cursor is undefined until a seek
+    // after allowReads (audio/Decode/AGENTS.md).
+    BOOL reseek = NO;
+    while (framesRead < totalFrames && [self awaitResume]) {
+        if (reseek) {
+            reseek = NO;
+            [file allowReads];
+            if (![file seekToFrame:pass->windowStart + framesRead error:&error]) {
+                if (![AudioFileHandle isInterruption:error]) {
+                    LogError(@"Seek back to frame %lld of %@ after a pause failed: %@", framesRead, filename, error);
+                    readError = YES;
+                    break;
+                }
+                reseek = YES;
+                continue;
+            }
         }
         // Wait for this slot's previous processing to finish before reusing
         // its buffer. With two slots the decode runs at most one block ahead.
@@ -465,6 +519,13 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
         uint64_t phaseStart = VibeLoadClockNow();
         BOOL readOK = [file readIntoBuffer:buffer frameCount:toRead error:&error];
         nanos->read += VibeLoadClockNow() - phaseStart;
+        if (!readOK && !self.isCancelled && [AudioFileHandle isInterruption:error]) {
+            // A pause's: the block is read again from its start once the
+            // pause ends.
+            dispatch_semaphore_signal(slotFree[slot]);
+            reseek = YES;
+            continue;
+        }
         if (!readOK) {
             // An interruption is cancel's own. A detached load's stream
             // failing is the play letting it go, not a fault of this file.

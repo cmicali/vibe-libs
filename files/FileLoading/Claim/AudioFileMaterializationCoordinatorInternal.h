@@ -153,6 +153,11 @@ typedef NS_ENUM(NSUInteger, VibeMaterializationClaimState) {
     VibeAudioFileMaterializationClock _clock;
     // Debug builds only (AudioFileMaterializationCoordinator+Debug.m). Atomic
     // for the health probe's lock-free read; written on the state queue.
+    // The foreground edge's observers, weak, and the state they last heard.
+    // Both on the state queue. The queue they hear it on is serial.
+    NSHashTable<id<AudioFileMaterializationCoordinatorObserver>> *_observers;
+    BOOL _publishedForeground;
+    dispatch_queue_t _observerQueue;
     _Atomic uint64_t _handleOpensStarted;
     _Atomic uint64_t _handleOpensCompleted;
     uint64_t _requestsReady;

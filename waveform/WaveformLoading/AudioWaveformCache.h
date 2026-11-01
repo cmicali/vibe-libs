@@ -17,14 +17,11 @@ NS_ASSUME_NONNULL_BEGIN
 // means most of the UI layer, to compile as ObjC++.
 @class CodableAudioWaveform;
 @class AudioWorkToken;
+@class AudioFileMaterializationCoordinator;
 @class VibeWaveformScanToken;
 @protocol AudioWaveformCacheDelegate;
 
 typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
-
-// Whether an open the user waits on is active. Asked on any thread, and
-// often: before each block a scan decodes, and every 10 ms while one runs.
-typedef BOOL (^VibeWaveformForegroundProvider)(void);
 
 @interface AudioWaveformCache : NSObject
 
@@ -40,9 +37,10 @@ typedef BOOL (^VibeWaveformForegroundProvider)(void);
 // (this piece's AGENTS.md).
 @property (nullable, copy) VibeWaveformAnalysisProvider analysisProvider;
 
-// What a scan yields to. Unset is FileLoading's foreground state, the shared
-// coordinator's isForegroundTransferActive. Set it before the first scan.
-@property (nullable, copy) VibeWaveformForegroundProvider foregroundProvider;
+// Whose foreground a scan yields to: its isForegroundTransferActive and the
+// edges it publishes. Unset is the shared coordinator. Set it before the
+// first scan, on main.
+@property (null_resettable, nonatomic, strong) AudioFileMaterializationCoordinator *materializationCoordinator;
 
 // The PINCache store name, derived from the entry format version; see the
 // implementation. It is the single source for init and for anything that
@@ -90,19 +88,10 @@ typedef BOOL (^VibeWaveformForegroundProvider)(void);
                             waveform:(CodableAudioWaveform *)waveform
                           completion:(dispatch_block_t)completion;
 
-// A scan request: one file of a library decoded and filed in the
-// background, apart from the track on screen. Main-thread request and
-// completion. Scans run one at a time, in the order asked, on a lane of their
-// own at utility priority. While an open the user waits on is active, no scan
-// is admitted, and the running one's decode is cancelled outright within one
-// block: its partial summary is dropped, never filed. Once the open settles,
-// that scan decodes again from its start. A scan joins no load, and a load
-// never waits on a scan. filed is YES when the entry is on disk, a hit
-// included, and NO when the file could not be decoded or its entry could not
-// be written. The entry's results
-// reach the delegate first, as a detached decode's do. No waveform is
-// delivered. A scan wedged in a stat or an open holds the lane until it
-// returns.
+// Decodes and files one file of a library in the background. Main-thread
+// request and completion. Scans run one at a time, in the order asked. They
+// pause while an open the user waits on is active. filed says whether the
+// entry is on disk. This piece's AGENTS.md has the rest.
 - (VibeWaveformScanToken *)scanWaveformForTrack:(id<VibePlayableItem>)track
                                      completion:(void (^)(BOOL filed))completion;
 
@@ -126,8 +115,7 @@ typedef BOOL (^VibeWaveformForegroundProvider)(void);
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 
-// Main thread. Drops the completion. A waiting scan leaves the queue, and a
-// running decode is cancelled outright.
+// Main thread. Drops the completion. A running decode is cancelled outright.
 - (void)cancel;
 
 @end

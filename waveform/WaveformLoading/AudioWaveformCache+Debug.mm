@@ -33,8 +33,18 @@ static std::atomic<double> sDebugDecodeSeconds{0};
 
 #pragma mark - Debug: scans
 
-- (NSUInteger)debugScanYields {
-    return self.scanYieldCount;
+- (NSUInteger)debugScanPauses {
+    return _scanPauses.load(std::memory_order_relaxed);
+}
+
+- (NSUInteger)debugWaitingScans {
+    __block NSUInteger waiting = 0;
+    dispatch_sync(_scanQueue, ^{
+        for (VibeWaveformScanToken *scan in self->_waitingScans) {
+            waiting += scan != self->_runningScan && !scan.cancelled;
+        }
+    });
+    return waiting;
 }
 
 #pragma mark - Debug: per-file cache control
@@ -42,39 +52,23 @@ static std::atomic<double> sDebugDecodeSeconds{0};
 // The lookup-or-decode path for one track, apart from the UI's load. The
 // completion runs on main with nil on failure.
 - (void)waveformForTrack:(id<VibePlayableItem>)track completion:(void (^)(CodableAudioWaveform *, BOOL wasCached))completion {
-    NSURL *url = track.url;
     // A private loader, never assigned to _currentLoader. The UI's in-flight
     // load is not cancelled, and no delegate progress or delivery fires; this
     // path reports through the completion instead, so it has no delegate.
     AudioWaveformLoader *loader = [[AudioWaveformLoader alloc] init];
     loader.analysis = self.analysisProvider ? self.analysisProvider() : (VibeWaveformAnalysis){};
-    // The key is computed off the loader queue; see loadWaveformForTrack:.
-    [_lookupScheduler submitWork:^{
-        NSString *cacheKey = VibeWaveformEntryKey(track);
-        if (!cacheKey) {
-            LogWarn(@"No cache key for %@ — cannot cache waveform", url.path);
-            run_on_main_thread({ completion(nil, NO); });
-            return;
-        }
-        // Answered once the write is attempted, so a fresh decode is on disk.
-        // Both blocks run in turn on one thread.
-        __block CodableAudioWaveform *loaded = nil;
-        __block BOOL hit = NO;
-        dispatch_sync(self->_loaderQueue, ^{
-            [self load:track cacheKey:cacheKey withLoader:loader claim:nil
-                 scheduler:self->_decodeScheduler
-                    completion:^(CodableAudioWaveform *waveform, BOOL wasCached) {
-                loaded = waveform;
-                hit = wasCached;
-            } settled:^(BOOL filed) {
-                run_on_main_thread({ completion(loaded, hit); });
-            }];
-        });
-    } failureQueue:dispatch_get_main_queue()
-      admissionFailure:^(VibeAudioWorkAdmissionFailure failure) {
-        LogWarn(@"Waveform cache admission exhausted for %@ (%ld)",
-                url.path, (long)failure);
-        completion(nil, NO);
+    // Answered once the write is attempted, so a fresh decode is on disk.
+    // Both blocks run in turn on one thread.
+    __block CodableAudioWaveform *loaded = nil;
+    __block BOOL hit = NO;
+    [self lookUpOrDecode:track loader:loader claim:nil lookups:_lookupScheduler decodes:_decodeScheduler
+              completion:^(CodableAudioWaveform *waveform, BOOL wasCached) {
+        loaded = waveform;
+        hit = wasCached;
+    } settled:^(BOOL filed) {
+        run_on_main_thread({ completion(loaded, hit); });
+    } failed:^{
+        run_on_main_thread({ completion(nil, NO); });
     }];
 }
 
