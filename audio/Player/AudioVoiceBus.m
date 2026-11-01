@@ -242,6 +242,14 @@
                          endFrame:(AVAudioFramePosition)endFrame
                              gain:(float)gain
                              ramp:(VibeVoiceRamp)ramp paused:(BOOL)paused {
+    return [self startVoiceWithFile:file atFrame:frame endFrame:endFrame fileGain:1 gain:gain ramp:ramp paused:paused];
+}
+
+- (VibeVoiceID)startVoiceWithFile:(AudioFileHandle *)file atFrame:(AVAudioFramePosition)frame
+                         endFrame:(AVAudioFramePosition)endFrame
+                         fileGain:(float)fileGain
+                             gain:(float)gain
+                             ramp:(VibeVoiceRamp)ramp paused:(BOOL)paused {
     VibeVoiceID identifier = _nextIdentifier++;
     if ([self freeSlotCount] <= kFreeSlotReserve) {
         [self cutOldestRetiringVoice];
@@ -251,6 +259,7 @@
     record->file = file;
     record->startFrame = frame;
     record->endFrame = MAX(0, endFrame);
+    record->fileGain = fileGain;
     record->gain = gain;
     record->ramp = ramp;
     record->paused = paused;
@@ -292,6 +301,7 @@
     bound->waitingSuccessor = record->waitingSuccessor;
     bound->successorStartFrame = record->successorStartFrame;
     bound->successorEndFrame = record->successorEndFrame;
+    bound->successorGain = record->successorGain;
     bound->retireOrder = record->ramp.action == VibeVoiceActionRetire ? _nextRetireOrder++ : 0;
     atomic_store_explicit(&bound->fillScheduled, 0, memory_order_relaxed);
     atomic_store_explicit(&bound->heldOpenAt, kUnset, memory_order_relaxed);
@@ -306,6 +316,8 @@
     atomic_store_explicit(&s->successorState, VibeSuccessorNone, memory_order_relaxed);
     atomic_store_explicit(&s->paused, record->paused, memory_order_relaxed);
     atomic_store_explicit(&s->gain, record->gain, memory_order_relaxed);
+    atomic_store_explicit(&s->fileGain, record->fileGain, memory_order_relaxed);
+    atomic_store_explicit(&s->successorGain, 1.0f, memory_order_relaxed);
     s->rampSequence = 0;
     // A paused start carries no ramp: adopting one un-pauses, and the first
     // ramp set later is the resume.
@@ -487,6 +499,11 @@
 
 - (BOOL)queueSuccessor:(AudioFileHandle *)file startFrame:(AVAudioFramePosition)startFrame
               endFrame:(AVAudioFramePosition)endFrame forVoice:(VibeVoiceID)voice {
+    return [self queueSuccessor:file startFrame:startFrame endFrame:endFrame fileGain:1 forVoice:voice];
+}
+
+- (BOOL)queueSuccessor:(AudioFileHandle *)file startFrame:(AVAudioFramePosition)startFrame
+              endFrame:(AVAudioFramePosition)endFrame fileGain:(float)fileGain forVoice:(VibeVoiceID)voice {
     if ([_withheldFiles containsObject:file]) {
         return NO; // a retired decoder may be inside it; the transport asks again once it has left
     }
@@ -495,6 +512,7 @@
         pending->waitingSuccessor = file;
         pending->successorStartFrame = startFrame;
         pending->successorEndFrame = MAX(0, endFrame);
+        pending->successorGain = fileGain;
         return YES;
     }
     NSUInteger slot = [self ownedSlotForIdentifier:voice];
@@ -512,6 +530,7 @@
     _records[slot]->waitingSuccessor = file;
     _records[slot]->successorStartFrame = startFrame;
     _records[slot]->successorEndFrame = MAX(0, endFrame);
+    _records[slot]->successorGain = fileGain;
     os_unfair_lock_unlock(&_tableLock);
     [self publishWaitingSuccessorForSlot:slot];
     return YES;
@@ -535,6 +554,9 @@
     record->successorFile = file;
     record->waitingSuccessor = nil;
     os_unfair_lock_unlock(&_tableLock);
+    // Before the release, which the decoder's claim and then the boundary it
+    // publishes carry to the render that takes the gain on the boundary frame.
+    atomic_store_explicit(&s->successorGain, record->successorGain, memory_order_relaxed);
     atomic_store_explicit(&s->successorState, VibeSuccessorQueued, memory_order_release);
     // The decoder may have no turn scheduled — its stream drained or ended —
     // so one is asked for; a turn with nothing to do returns.
@@ -699,6 +721,7 @@
         snapshot.ended = (VibeVoiceEnd)atomic_load_explicit(&s->endedReason, memory_order_relaxed);
         snapshot.underrunFrames = atomic_load_explicit(&s->underrun, memory_order_relaxed);
         snapshot.gain = atomic_load_explicit(&s->gain, memory_order_relaxed); // diagnostic, never a decision
+        snapshot.fileGain = atomic_load_explicit(&s->fileGain, memory_order_relaxed);
         uint32_t version = atomic_load_explicit(&s->stampVersion, memory_order_acquire);
         snapshot.startOfConsumption = VibeStampRead(&s->startStamp);
         atomic_thread_fence(memory_order_acquire);
@@ -792,10 +815,16 @@
         // By value, not once: a voice that chains several successors crosses a
         // boundary per successor, and the transport queues the next only after
         // the previous one was reported, so none is ever overwritten unseen.
+        // Reported once the render has mixed the boundary frame, and so taken
+        // the successor's gain, or died on it. TRAP: not on reaching it. A
+        // render resting on the boundary has crossed nothing, and the next
+        // successor, named on the report, would overwrite the boundary and the
+        // gain the render has yet to see.
         uint64_t boundary = atomic_load_explicit(&s->boundary, memory_order_acquire);
         BOOL boundaryUnreported = boundary != kUnset && boundary != record->reportedBoundary;
+        uint64_t consumedNow = atomic_load_explicit(&s->consumed, memory_order_acquire);
         if (boundaryUnreported
-                && atomic_load_explicit(&s->consumed, memory_order_acquire) >= boundary
+                && (consumedNow > boundary || (state == VibeVoiceStateDead && consumedNow >= boundary))
                 && (atomic_load_explicit(&s->endedReason, memory_order_acquire) != VibeVoiceEndFailed
                     || atomic_load_explicit(&s->written, memory_order_acquire) > boundary)) {
             record->reportedBoundary = boundary;
