@@ -166,6 +166,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
                 maximumPendingCount:1
                 pendingGrace:kWaveformAdmissionGraceSeconds];
         _waitingScans = [NSMutableArray array];
+        _scanPausesAsked = 0;
         _scanPauses = 0;
         _cacheGeneration = 0;
         _currentLoader = nil;
@@ -739,6 +740,9 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         AudioWaveformLoader *loader = self->_runningScan.loader;
         if (active) {
             [loader pause];
+            if (loader) {
+                self->_scanPausesAsked.fetch_add(1, std::memory_order_relaxed);
+            }
         }
         else {
             [loader resume];

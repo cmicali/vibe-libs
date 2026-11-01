@@ -64,7 +64,9 @@ static inline NSString *_Nullable VibeWaveformEntryKey(id<VibePlayableItem> trac
     // The coordinator's foreground, as its last edge said.
     BOOL                            _scanForeground;
     BOOL                            _scanObserving;
-    // How often a scan's decode has parked for the foreground. Any thread.
+    // How often a scan's decode has been told to pause, and how often it has
+    // parked for the foreground. Any thread.
+    std::atomic<NSUInteger>         _scanPausesAsked;
     std::atomic<NSUInteger>         _scanPauses;
 }
 

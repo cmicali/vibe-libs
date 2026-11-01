@@ -128,13 +128,17 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
     [_pause unlock];
 }
 
+- (BOOL)pausePending {
+    [_pause lock];
+    BOOL pending = _paused && !self.isCancelled;
+    [_pause unlock];
+    return pending;
+}
+
 // On the decode's thread, before each read. Parks while paused. NO once
 // cancelled.
 - (BOOL)awaitResume {
-    [_pause lock];
-    BOOL parked = _paused && !self.isCancelled;
-    [_pause unlock];
-    if (parked) {
+    if ([self pausePending]) {
         dispatch_block_t onParked = self.parked;
         if (onParked) {
             onParked();
@@ -519,6 +523,13 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
         // Wait for this slot's previous processing to finish before reusing
         // its buffer. With two slots the decode runs at most one block ahead.
         dispatch_semaphore_wait(slotFree[slot], DISPATCH_TIME_FOREVER);
+        // TRAP: a pause that came during the wait parks before this read.
+        // awaitResume ran before the wait, and bytes already fetched read
+        // through an interrupt.
+        if ([self pausePending]) {
+            dispatch_semaphore_signal(slotFree[slot]);
+            continue;
+        }
         AVAudioPCMBuffer *buffer = buffers[slot];
         float *scratch = monoScratches[slot].data();
 

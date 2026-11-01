@@ -42,6 +42,10 @@
 // decodes: clear its entry first. Any thread.
 @property (class, nonatomic) NSTimeInterval debugDecodeSeconds;
 
+// How often a rise has reached a running scan's decode, counted once the
+// decode has been told to pause. The rise reaches it through two queues, so
+// it can come late. Any thread.
+@property (nonatomic, readonly) NSUInteger debugScanPausesAsked;
 // How often a scan's decode has parked for an open the user waits on, counted
 // once it has stopped reading. Any thread.
 @property (nonatomic, readonly) NSUInteger debugScanPauses;
