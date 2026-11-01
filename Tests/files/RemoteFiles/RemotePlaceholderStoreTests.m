@@ -366,9 +366,13 @@ typedef struct {
         NSString *range = [[self closedRangeRequestsTo:name].firstObject valueForHTTPHeaderField:@"Range"];
         XCTAssertEqualObjects(range, ([NSString stringWithFormat:@"bytes=%llu-%llu", size - window, size - 1]),
                               @"%@", name);
+        // TRAP: released before readable, the session may hand the rest of
+        // the download over in one delivery, and a file that completes first
+        // never calls onReadable.
+        [self waitForExpectations:@[fetch.readable] timeout:VIBE_TEST_HANG_TIMEOUT];
         dispatch_semaphore_signal(gate);
         dispatch_semaphore_signal(gate);
-        [self waitForExpectations:@[fetch.readable, fetch.returned] timeout:VIBE_TEST_HANG_TIMEOUT];
+        [self waitForExpectations:@[fetch.returned] timeout:VIBE_TEST_HANG_TIMEOUT];
     }
 }
 
