@@ -45,6 +45,8 @@ static const double kRate = 48000;
 - (void)releaseOutput;
 - (VibeVoiceRamp)unity;
 - (VibeVoiceID)startFile:(AudioFileHandle *)file gain:(float)gain ramp:(VibeVoiceRamp)ramp paused:(BOOL)paused;
+// The whole file, playing at once at `fileGain`.
+- (VibeVoiceID)startFile:(AudioFileHandle *)file fileGain:(float)fileGain;
 // One render of `frames`, appended to `capture` interleaved, with the fill
 // before and the drain after, exactly as the pump does around a slice.
 - (BOOL)render:(uint32_t)frames into:(NSMutableData *)capture;

@@ -101,11 +101,11 @@ typedef struct {
     _Atomic int32_t readsAllowed;   // the queue clears it for a declick retire
     // Queue.
     _Atomic uint64_t ramp;
-    // Queue, before the hand-off's release publishes the successor: its file
-    // gain, which the render takes on the boundary frame. The drain reports a
-    // boundary only once the render has mixed that frame, and the transport
-    // names the next successor only after that, so none is overwritten
-    // before the render has read it.
+    // Queue: the successor's file gain, which the render takes on the
+    // boundary frame. Written before the hand-off's release publishes the
+    // successor, which waits until the render has crossed the boundary before
+    // it (publishWaitingSuccessorForSlot:), and in place while its own
+    // boundary is unreported (setSuccessorFileGain:forVoice:).
     _Atomic float successorGain;
     // Audio thread.
     _Atomic uint64_t consumed;      // the ring's consumer index, absolute
