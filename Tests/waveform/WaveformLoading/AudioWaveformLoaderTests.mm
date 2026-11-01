@@ -410,6 +410,46 @@ static BOOL ColumnHasContent(const wavecore::Column &column) {
     XCTAssertNil([_loader openFileAtPath:url.path pass:&pass]);
 }
 
+// A loader made with init, as a scan's is, parks on its pause and burns no
+// CPU there. Its resume reads on to a complete summary, and a cancel ends a
+// pause.
+- (void)testAPausedDecodeWaitsWithoutSpinning {
+    NSString *path = [self writeWAVNamed:@"paused.wav" seconds:3];
+    for (NSNumber *cancels in @[@NO, @YES]) {
+        AudioWaveformLoader *loader = [[AudioWaveformLoader alloc] init];
+        dispatch_semaphore_t parked = dispatch_semaphore_create(0);
+        loader.parked = ^{
+            dispatch_semaphore_signal(parked);
+        };
+        [loader pause];
+        __block CodableAudioWaveform *result = nil;
+        __block uint64_t cpuNanos = 0;
+        dispatch_semaphore_t done = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            uint64_t start = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID);
+            result = [loader load:path];
+            cpuNanos = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID) - start;
+            dispatch_semaphore_signal(done);
+        });
+        XCTAssertTrue([self await:parked], @"%@: parked", cancels);
+        // A window for a spin to show in the thread's CPU time.
+        [NSThread sleepForTimeInterval:0.2];
+        if (cancels.boolValue) {
+            [loader cancel];
+        } else {
+            [loader resume];
+        }
+        XCTAssertTrue([self await:done], @"%@: ended", cancels);
+        XCTAssertLessThan(cpuNanos / 1e9, 0.15, @"%@: the pause waited rather than spun", cancels);
+        if (cancels.boolValue) {
+            XCTAssertNil(result);
+        } else {
+            XCTAssertTrue(loader.isComplete);
+            XCTAssertTrue(result.waveform->isComplete());
+        }
+    }
+}
+
 // A cancel that arrived while the load was queued must cost no decode at all.
 - (void)testCancelledLoadDoesNoWork {
     NSString *path = [self writeWAVNamed:@"cancelled.wav" seconds:1.0];

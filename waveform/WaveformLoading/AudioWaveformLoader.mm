@@ -68,13 +68,22 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
     BOOL _paused;
 }
 
-- (instancetype)initWithDelegate:(id <AudioWaveformLoaderDelegate>)delegate {
+// TRAP: the scan's loader and the seam's are made with init, so init is
+// where the pause's condition is made. Without it a pause would spin.
+- (instancetype)init {
     self = [super init];
     if (self) {
         self.isCancelled = NO;
         self.isComplete = NO;
-        self.delegate = delegate;
         _pause = [[NSCondition alloc] init];
+    }
+    return self;
+}
+
+- (instancetype)initWithDelegate:(id <AudioWaveformLoaderDelegate>)delegate {
+    self = [self init];
+    if (self) {
+        self.delegate = delegate;
     }
     return self;
 }
