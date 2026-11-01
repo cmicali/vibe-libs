@@ -240,13 +240,6 @@
 
 - (VibeVoiceID)startVoiceWithFile:(AudioFileHandle *)file atFrame:(AVAudioFramePosition)frame
                          endFrame:(AVAudioFramePosition)endFrame
-                             gain:(float)gain
-                             ramp:(VibeVoiceRamp)ramp paused:(BOOL)paused {
-    return [self startVoiceWithFile:file atFrame:frame endFrame:endFrame fileGain:1 gain:gain ramp:ramp paused:paused];
-}
-
-- (VibeVoiceID)startVoiceWithFile:(AudioFileHandle *)file atFrame:(AVAudioFramePosition)frame
-                         endFrame:(AVAudioFramePosition)endFrame
                          fileGain:(float)fileGain
                              gain:(float)gain
                              ramp:(VibeVoiceRamp)ramp paused:(BOOL)paused {
@@ -317,7 +310,7 @@
     atomic_store_explicit(&s->paused, record->paused, memory_order_relaxed);
     atomic_store_explicit(&s->gain, record->gain, memory_order_relaxed);
     atomic_store_explicit(&s->fileGain, record->fileGain, memory_order_relaxed);
-    atomic_store_explicit(&s->successorGain, 1.0f, memory_order_relaxed);
+    atomic_store_explicit(&s->successorGain, kVibeFileGainUnity, memory_order_relaxed);
     s->rampSequence = 0;
     // A paused start carries no ramp: adopting one un-pauses, and the first
     // ramp set later is the resume.
@@ -498,11 +491,6 @@
 #endif
 
 - (BOOL)queueSuccessor:(AudioFileHandle *)file startFrame:(AVAudioFramePosition)startFrame
-              endFrame:(AVAudioFramePosition)endFrame forVoice:(VibeVoiceID)voice {
-    return [self queueSuccessor:file startFrame:startFrame endFrame:endFrame fileGain:1 forVoice:voice];
-}
-
-- (BOOL)queueSuccessor:(AudioFileHandle *)file startFrame:(AVAudioFramePosition)startFrame
               endFrame:(AVAudioFramePosition)endFrame fileGain:(float)fileGain forVoice:(VibeVoiceID)voice {
     if ([_withheldFiles containsObject:file]) {
         return NO; // a retired decoder may be inside it; the transport asks again once it has left
@@ -537,13 +525,26 @@
 }
 
 // Hands the waiting successor to the decoder once no other queue reads its
-// file; until then every drain asks again. Only the player queue moves the
-// hand-off from none to queued.
+// file, and once the render has crossed the boundary before it; until then
+// every drain asks again. Only the player queue moves the hand-off from none
+// to queued.
+//
+// TRAP: the drain reports a boundary when the render reaches it, and the
+// transport names the next successor on that report. A render resting on the
+// boundary, its successor's first bytes late or the voice paused there, has
+// not yet taken the boundary's gain, nor seen the boundary. Published now,
+// the next successor would overwrite the gain, and a short one could move the
+// boundary past it unseen. So it waits until the render has mixed that frame.
 - (void)publishWaitingSuccessorForSlot:(NSUInteger)slot {
     AudioVoiceRecord *record = _records[slot];
     VibeVoiceSlot *s = &_mix->slots[slot];
     AudioFileHandle *file = record->waitingSuccessor;
     if (!file || !VibeSlotTakesSuccessor(s) || [_withheldFiles containsObject:file]) {
+        return;
+    }
+    uint64_t boundary = atomic_load_explicit(&s->boundary, memory_order_acquire);
+    if (boundary != kUnset && atomic_load_explicit(&s->consumed, memory_order_acquire) <= boundary) {
+        _promptDrainDue = YES;
         return;
     }
     dispatch_queue_t reader = [self decodeQueueReadingFile:file];
@@ -561,6 +562,37 @@
     // The decoder may have no turn scheduled — its stream drained or ended —
     // so one is asked for; a turn with nothing to do returns.
     [self scheduleFillForSlot:slot];
+}
+
+- (BOOL)setSuccessorFileGain:(float)fileGain forVoice:(VibeVoiceID)voice {
+    AudioVoiceRecord *pending = [self pendingRecordForIdentifier:voice];
+    if (pending) {
+        pending->successorGain = fileGain;
+        return pending->waitingSuccessor != nil;
+    }
+    NSUInteger slot = [self ownedSlotForIdentifier:voice];
+    if (slot == NSNotFound) {
+        return NO;
+    }
+    AudioVoiceRecord *record = _records[slot];
+    VibeVoiceSlot *s = &_mix->slots[slot];
+    if (record->waitingSuccessor) {
+        record->successorGain = fileGain;
+        return YES;
+    }
+    // Queued, or claimed with its boundary published and unreported. The
+    // render takes the value at the boundary frame, the old one if it is
+    // crossing now; the promote reads which.
+    uint64_t boundary = atomic_load_explicit(&s->boundary, memory_order_acquire);
+    int32_t state = atomic_load_explicit(&s->successorState, memory_order_acquire);
+    BOOL queued = state == VibeSuccessorQueued || state == VibeSuccessorSwitching;
+    BOOL unreported = boundary != kUnset && boundary != record->reportedBoundary;
+    if (!queued && !unreported) {
+        return NO;
+    }
+    record->successorGain = fileGain;
+    atomic_store_explicit(&s->successorGain, fileGain, memory_order_relaxed);
+    return YES;
 }
 
 - (BOOL)unqueueSuccessorForVoice:(VibeVoiceID)voice {
@@ -722,6 +754,7 @@
         snapshot.underrunFrames = atomic_load_explicit(&s->underrun, memory_order_relaxed);
         snapshot.gain = atomic_load_explicit(&s->gain, memory_order_relaxed); // diagnostic, never a decision
         snapshot.fileGain = atomic_load_explicit(&s->fileGain, memory_order_relaxed);
+        snapshot.successorGain = atomic_load_explicit(&s->successorGain, memory_order_relaxed);
         uint32_t version = atomic_load_explicit(&s->stampVersion, memory_order_acquire);
         snapshot.startOfConsumption = VibeStampRead(&s->startStamp);
         atomic_thread_fence(memory_order_acquire);
@@ -814,17 +847,13 @@
         }
         // By value, not once: a voice that chains several successors crosses a
         // boundary per successor, and the transport queues the next only after
-        // the previous one was reported, so none is ever overwritten unseen.
-        // Reported once the render has mixed the boundary frame, and so taken
-        // the successor's gain, or died on it. TRAP: not on reaching it. A
-        // render resting on the boundary has crossed nothing, and the next
-        // successor, named on the report, would overwrite the boundary and the
-        // gain the render has yet to see.
+        // the previous one was reported. That one waits until the render has
+        // crossed this boundary (publishWaitingSuccessorForSlot:), so none is
+        // ever overwritten unseen.
         uint64_t boundary = atomic_load_explicit(&s->boundary, memory_order_acquire);
         BOOL boundaryUnreported = boundary != kUnset && boundary != record->reportedBoundary;
-        uint64_t consumedNow = atomic_load_explicit(&s->consumed, memory_order_acquire);
         if (boundaryUnreported
-                && (consumedNow > boundary || (state == VibeVoiceStateDead && consumedNow >= boundary))
+                && atomic_load_explicit(&s->consumed, memory_order_acquire) >= boundary
                 && (atomic_load_explicit(&s->endedReason, memory_order_acquire) != VibeVoiceEndFailed
                     || atomic_load_explicit(&s->written, memory_order_acquire) > boundary)) {
             record->reportedBoundary = boundary;

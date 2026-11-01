@@ -25,12 +25,12 @@ static id<VibePlayableItem> FakeTrack(void) {
     id<VibePlayableItem> first = FakeTrack();
     id<VibePlayableItem> rebound = FakeTrack();
     uint64_t identifier = [state beginWithTrack:first path:@"/same.flac"
-                                         intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                         intent:VibePendingPlaybackIntentMake(0, NO)
                           submittedPlayIdentifier:1];
 
     VibePlaybackRequestRebind result = [state rebindTrack:rebound
                                                      path:@"/same.flac"
-                                                    intent:VibePendingPlaybackIntentMake(12.5, YES) fileGain:1
+                                                    intent:VibePendingPlaybackIntentMake(12.5, YES)
                                      submittedPlayIdentifier:2];
     XCTAssertTrue(result.matched);
     XCTAssertTrue(result.trackChanged);
@@ -49,14 +49,14 @@ static id<VibePlayableItem> FakeTrack(void) {
     id<VibePlayableItem> first = FakeTrack();
     id<VibePlayableItem> rebound = FakeTrack();
     uint64_t identifier = [state beginWithTrack:first path:@"/same.flac"
-                                         intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                         intent:VibePendingPlaybackIntentMake(0, NO)
                           submittedPlayIdentifier:1];
 
     VibePlaybackRequest *slow = [state markSlowForRequest:identifier];
     XCTAssertEqual(slow.track, first);
     VibePlaybackRequestRebind result = [state rebindTrack:rebound
                                                      path:@"/same.flac"
-                                                    intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                                    intent:VibePendingPlaybackIntentMake(0, NO)
                                      submittedPlayIdentifier:2];
     XCTAssertTrue(result.trackChanged);
     XCTAssertTrue(result.shouldNotifySlowLoad);
@@ -70,13 +70,13 @@ static id<VibePlayableItem> FakeTrack(void) {
     PlaybackRequestCoordinator *state = [PlaybackRequestCoordinator new];
     id<VibePlayableItem> track = FakeTrack();
     uint64_t identifier = [state beginWithTrack:track path:@"/same.flac"
-                                         intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                         intent:VibePendingPlaybackIntentMake(0, NO)
                         submittedPlayIdentifier:1];
     XCTAssertNotNil([state markSlowForRequest:identifier]);
 
     VibePlaybackRequestRebind result = [state rebindTrack:track
                                                      path:@"/same.flac"
-                                                   intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                                   intent:VibePendingPlaybackIntentMake(0, NO)
                                   submittedPlayIdentifier:2];
     XCTAssertFalse(result.trackChanged);
     XCTAssertTrue(result.shouldNotifySlowLoad);
@@ -89,12 +89,12 @@ static id<VibePlayableItem> FakeTrack(void) {
     id<VibePlayableItem> first = FakeTrack();
     id<VibePlayableItem> rebound = FakeTrack();
     [state beginWithTrack:first path:@"/same.flac"
-             intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+             intent:VibePendingPlaybackIntentMake(0, NO)
       submittedPlayIdentifier:1];
 
     VibePlaybackRequestRebind unchanged = [state rebindTrack:rebound
                                                         path:@"/same.flac"
-                                                       intent:VibePendingPlaybackIntentMake(3, NO) fileGain:1
+                                                       intent:VibePendingPlaybackIntentMake(3, NO)
                                         submittedPlayIdentifier:2];
     XCTAssertTrue(unchanged.trackChanged);
     XCTAssertFalse(unchanged.pausedChanged);
@@ -102,7 +102,7 @@ static id<VibePlayableItem> FakeTrack(void) {
 
     VibePlaybackRequestRebind paused = [state rebindTrack:first
                                                      path:@"/same.flac"
-                                                    intent:VibePendingPlaybackIntentMake(3, YES) fileGain:1
+                                                    intent:VibePendingPlaybackIntentMake(3, YES)
                                      submittedPlayIdentifier:3];
     XCTAssertTrue(paused.trackChanged);
     XCTAssertTrue(paused.pausedChanged);
@@ -115,11 +115,11 @@ static id<VibePlayableItem> FakeTrack(void) {
     id<VibePlayableItem> first = FakeTrack();
     id<VibePlayableItem> second = FakeTrack();
     uint64_t oldIdentifier = [state beginWithTrack:first path:@"/first.flac"
-                                            intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                            intent:VibePendingPlaybackIntentMake(0, NO)
                              submittedPlayIdentifier:1];
     XCTAssertTrue([state isCurrentRequest:oldIdentifier]);
     uint64_t currentIdentifier = [state beginWithTrack:second path:@"/second.flac"
-                                                intent:VibePendingPlaybackIntentMake(4, YES) fileGain:1
+                                                intent:VibePendingPlaybackIntentMake(4, YES)
                                  submittedPlayIdentifier:2];
 
     XCTAssertFalse([state isCurrentRequest:oldIdentifier]);
@@ -140,12 +140,12 @@ static id<VibePlayableItem> FakeTrack(void) {
     id<VibePlayableItem> rebound = FakeTrack();
     id<VibePlayableItem> stranger = FakeTrack();
     [state beginWithTrack:first path:@"/same.flac"
-             intent:VibePendingPlaybackIntentMake(2, NO) fileGain:1
+             intent:VibePendingPlaybackIntentMake(2, NO)
       submittedPlayIdentifier:1];
 
     XCTAssertTrue([state togglePause].intent.paused);
     XCTAssertTrue([state seekToPosition:42 ifCurrentTrackIs:first submittedPlayIdentifier:1]);
-    [state rebindTrack:rebound path:@"/same.flac" intent:state.currentRequest.intent fileGain:1 submittedPlayIdentifier:2];
+    [state rebindTrack:rebound path:@"/same.flac" intent:state.currentRequest.intent submittedPlayIdentifier:2];
 
     // Neither identity holds.
     XCTAssertFalse([state seekToPosition:99 ifCurrentTrackIs:stranger submittedPlayIdentifier:1]);
@@ -166,7 +166,7 @@ static id<VibePlayableItem> FakeTrack(void) {
 - (void)testRequestedPauseAndResumeAreIdempotentWhileLoading {
     PlaybackRequestCoordinator *state = [PlaybackRequestCoordinator new];
     [state beginWithTrack:FakeTrack() path:@"/same.flac"
-                   intent:VibePendingPlaybackIntentMake(12.5, NO) fileGain:1
+                   intent:VibePendingPlaybackIntentMake(12.5, NO)
   submittedPlayIdentifier:1];
 
     VibePlaybackRequest *paused = [state setPausedIfChanged:YES];
@@ -193,7 +193,7 @@ static id<VibePlayableItem> FakeTrack(void) {
     uint64_t previous = 0;
     for (NSUInteger i = 0; i < 200; i++) {
         uint64_t identifier = [state beginWithTrack:FakeTrack() path:@"/same.flac"
-                                             intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                             intent:VibePendingPlaybackIntentMake(0, NO)
                             submittedPlayIdentifier:i + 1];
         XCTAssertGreaterThan(identifier, previous);
         XCTAssertFalse([seen containsObject:@(identifier)]);
@@ -216,19 +216,19 @@ static id<VibePlayableItem> FakeTrack(void) {
     id<VibePlayableItem> first = FakeTrack();
     id<VibePlayableItem> second = FakeTrack();
     uint64_t firstIdentifier = [state beginWithTrack:first path:@"/first.flac"
-                                               intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                               intent:VibePendingPlaybackIntentMake(0, NO)
                                 submittedPlayIdentifier:1];
 
     VibePlaybackRequestRebind result = [state rebindTrack:second
                                                      path:@"/second.flac"
-                                                   intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                                   intent:VibePendingPlaybackIntentMake(0, NO)
                                     submittedPlayIdentifier:2];
     XCTAssertFalse(result.matched);
     XCTAssertEqual(state.currentRequest.identifier, firstIdentifier);
     XCTAssertEqual(state.currentRequest.track, first);
 
     uint64_t secondIdentifier = [state beginWithTrack:second path:@"/second.flac"
-                                                intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                                intent:VibePendingPlaybackIntentMake(0, NO)
                                  submittedPlayIdentifier:2];
     XCTAssertGreaterThan(secondIdentifier, firstIdentifier);
     XCTAssertEqual(state.currentRequest.track, second);
@@ -237,7 +237,7 @@ static id<VibePlayableItem> FakeTrack(void) {
 - (void)testInvalidateRejectsEveryLateDelivery {
     PlaybackRequestCoordinator *state = [PlaybackRequestCoordinator new];
     uint64_t identifier = [state beginWithTrack:FakeTrack() path:@"/same.flac"
-                                          intent:VibePendingPlaybackIntentMake(0, NO) fileGain:1
+                                          intent:VibePendingPlaybackIntentMake(0, NO)
                            submittedPlayIdentifier:1];
     [state invalidate];
 
@@ -251,12 +251,12 @@ static id<VibePlayableItem> FakeTrack(void) {
     PlaybackRequestCoordinator *state = [PlaybackRequestCoordinator new];
     id<VibePlayableItem> track = FakeTrack();
     [state beginWithTrack:track path:@"/same.flac"
-             intent:VibePendingPlaybackIntentMake(4, YES) fileGain:1
+             intent:VibePendingPlaybackIntentMake(4, YES)
       submittedPlayIdentifier:1];
 
     VibePlaybackRequestRebind result = [state rebindTrack:track
                                                      path:@"/same.flac"
-                                                   intent:VibePendingPlaybackIntentMake(4, YES) fileGain:1
+                                                   intent:VibePendingPlaybackIntentMake(4, YES)
                                     submittedPlayIdentifier:2];
     XCTAssertTrue(result.matched);
     XCTAssertFalse(result.trackChanged);
@@ -295,7 +295,7 @@ static id<VibePlayableItem> FakeTrack(void) {
                 random = [self nextRandom:random];
                 currentIntent = VibePendingPlaybackIntentMake((NSTimeInterval)(random % 240), (random & 1) != 0);
                 submittedPlayIdentifier++;
-                currentIdentifier = [state beginWithTrack:currentTrack path:currentPath intent:currentIntent fileGain:1
+                currentIdentifier = [state beginWithTrack:currentTrack path:currentPath intent:currentIntent
                                      submittedPlayIdentifier:submittedPlayIdentifier];
                 XCTAssertGreaterThan(currentIdentifier, previousIdentifier,
                                      @"trace %lu event %lu", (unsigned long)trace, (unsigned long)event);
@@ -311,7 +311,7 @@ static id<VibePlayableItem> FakeTrack(void) {
                 submittedPlayIdentifier++;
                 VibePlaybackRequestRebind result = [state rebindTrack:rebound
                                                                    path:currentPath
-                                                                 intent:intent fileGain:1
+                                                                 intent:intent
                                                   submittedPlayIdentifier:submittedPlayIdentifier];
                 XCTAssertTrue(result.matched, @"trace %lu event %lu", (unsigned long)trace, (unsigned long)event);
                 XCTAssertEqual(result.trackChanged, currentTrack != rebound,
@@ -398,23 +398,6 @@ static id<VibePlayableItem> FakeTrack(void) {
             }
         }
     }
-}
-
-// The open lands at the newest play's gain: a rebind to another row of the
-// file takes its play's, and every copy carries it.
-- (void)testARebindMovesTheFileGainToTheNewerPlay {
-    PlaybackRequestCoordinator *state = [PlaybackRequestCoordinator new];
-    id<VibePlayableItem> first = FakeTrack();
-    id<VibePlayableItem> rebound = FakeTrack();
-    uint64_t identifier = [state beginWithTrack:first path:@"/same.flac" intent:VibePendingPlaybackIntentMake(0, NO)
-                                       fileGain:0.5f submittedPlayIdentifier:1];
-    XCTAssertEqual(state.currentRequest.fileGain, 0.5f);
-    XCTAssertTrue([state rebindTrack:rebound path:@"/same.flac" intent:VibePendingPlaybackIntentMake(0, NO)
-                            fileGain:2 submittedPlayIdentifier:2].matched);
-    XCTAssertEqual(state.currentRequest.fileGain, 2.0f);
-    XCTAssertFalse([state rebindTrack:FakeTrack() path:@"/other.flac" intent:VibePendingPlaybackIntentMake(0, NO)
-                             fileGain:0.25f submittedPlayIdentifier:3].matched);
-    XCTAssertEqual([state consumeRequest:identifier].fileGain, 2.0f);
 }
 
 - (NSArray<id<VibePlayableItem>> *)tracks:(NSUInteger)count {

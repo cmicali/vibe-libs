@@ -35,8 +35,6 @@ typedef struct {
 @property (nonatomic, readonly, strong) id<VibePlayableItem> track;
 @property (nonatomic, readonly, copy) NSString *path;
 @property (nonatomic, readonly) VibePendingPlaybackIntent intent;
-// The newest play's file gain (PlaybackGainRules.h), which a rebind moves to.
-@property (nonatomic, readonly) float fileGain;
 @property (nonatomic, readonly) uint64_t identifier;
 @property (nonatomic, readonly) uint64_t submittedPlayIdentifier;
 @property (nonatomic, readonly, getter=isSlow) BOOL slow;
@@ -54,16 +52,13 @@ typedef struct {
 - (uint64_t)beginWithTrack:(id<VibePlayableItem>)track
                       path:(NSString *)path
                     intent:(VibePendingPlaybackIntent)intent
-                  fileGain:(float)fileGain
    submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier;
 
-// A play for the path already in flight adopts its row, intent and gain
-// instead of a second open. Mutates on a match: call it only where the result
-// is acted on.
+// A play for the path already in flight adopts its row and intent instead of
+// a second open. Mutates on a match: call it only where the result is acted on.
 - (VibePlaybackRequestRebind)rebindTrack:(id<VibePlayableItem>)track
                                     path:(NSString *)path
                                   intent:(VibePendingPlaybackIntent)intent
-                                fileGain:(float)fileGain
                  submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier;
 
 // Returns the current request only on its first valid slow delivery.

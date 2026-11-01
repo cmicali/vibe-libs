@@ -10,6 +10,7 @@ The words every audio piece shares, so a piece that needs one of them needs neit
 - **`sourceKey` is source identity**: the file's path and its window. Shared work matches on it. It is compared on paths that run every tick, so it must be fixed and allocate nothing. It names what sounds. It is never a path to open.
 - **`cacheKey` is version identity**: the disk key of `core/Common`'s `NSURL (Hash)`. It is nil when the file cannot be statted, and the caller then caches nothing. An item may memoize it, stamped with `NSURL.cacheKeyGeneration`.
 - **`VibeKeyByAppendingCueWindow`** appends a window to a key, so the windows of one file key apart. A whole file keeps its key. Persisted waveform entries are spelled with it, so the spelling never changes.
+- **`fileGain` is optional**: the linear gain to play the file at, for leveling. An item without it plays at 1. It is fixed before the item crosses a thread, as the window is. The player's `PlaybackGainRules.h` guards it.
 - **`VibePlayableItemIsFollowedContiguouslyBy`** says one item's next window of the same file begins where it ends. That is one recording, which a player continues without a gap whatever the crossfade.
 
 ## The CUE window

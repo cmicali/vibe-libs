@@ -32,6 +32,9 @@ typedef NS_ENUM(NSInteger, VibeBitPerfectStatus) {
     // Software volume below 1.0, balance away from center, or the player's
     // own volume below full.
     VibeBitPerfectStatusVolumeScaled,
+    // The current file plays at a file gain other than 1, with every volume
+    // at full.
+    VibeBitPerfectStatusFileGain,
     // Exclusive output requested but ownership not confirmed.
     VibeBitPerfectStatusExclusiveRefused,
     // Everything held, but the file is lossy: its decoded audio plays at its
@@ -79,7 +82,7 @@ static inline BOOL VibeBitPerfectReportsEqual(VibeBitPerfectReport a, VibeBitPer
 
 // The fold over the report's inputs, in priority order, so two breakers never
 // race for the caption: Off > Idle > SwitchFailed >
-// RateUnsupported > ChannelConversion > DepthInsufficient > Muted > VolumeScaled > ExclusiveRefused >
+// RateUnsupported > ChannelConversion > DepthInsufficient > Muted > VolumeScaled > FileGain > ExclusiveRefused >
 // SourceLossy > Active. SourceLossy is last
 // before Active because it is the only status that says the chain is perfect
 // and the file is not. There is no pitch input: under the mode there is no
@@ -106,8 +109,11 @@ static inline VibeBitPerfectStatus VibeBitPerfectFold(VibeBitPerfectReport r) {
     if (r.muted) {
         return VibeBitPerfectStatusMuted;
     }
-    if (r.softwareVolume < 1.0f || r.balance != 0.5f || r.playerVolume < 1.0f || r.fileGainScaled) {
+    if (r.softwareVolume < 1.0f || r.balance != 0.5f || r.playerVolume < 1.0f) {
         return VibeBitPerfectStatusVolumeScaled;
+    }
+    if (r.fileGainScaled) {
+        return VibeBitPerfectStatusFileGain;
     }
     if (r.hogWanted && !r.exclusive) {
         return VibeBitPerfectStatusExclusiveRefused;

@@ -624,6 +624,7 @@ static NSString *VibeBitPerfectStatusName(VibeBitPerfectStatus status) {
         case VibeBitPerfectStatusDepthInsufficient: return @"depthInsufficient";
         case VibeBitPerfectStatusMuted:             return @"muted";
         case VibeBitPerfectStatusVolumeScaled:      return @"volumeScaled";
+        case VibeBitPerfectStatusFileGain:          return @"fileGain";
         case VibeBitPerfectStatusExclusiveRefused:  return @"exclusiveRefused";
         case VibeBitPerfectStatusSourceLossy:       return @"sourceLossy";
     }
