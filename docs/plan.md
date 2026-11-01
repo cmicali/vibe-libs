@@ -107,8 +107,9 @@ vibe-libs/
 │   ├── OutputDevices ●  Mac/ device discovery, rates, hog mode, format rules, event log;
 │   │                    iOS/ the audio session and its route rules
 │   └── Player ●         the transport, the voice bus, the master bus, the output unit,
-│                        prefetch, gapless, crossfades, open deadlines; Mac/ binding to a
-│                        device and bit-perfect output; iOS/ route recovery
+│                        prefetch, gapless, crossfades, a gain per file, open deadlines;
+│                        Mac/ binding to a device and bit-perfect output; iOS/ route
+│                        recovery
 ├── media/
 │   ├── Tags ●           TagLib fields and embedded art bytes
 │   ├── Metadata ●       the tag record, the CoreAudio fallback, the cache, the background
@@ -597,6 +598,8 @@ Two changes of behavior, each its own pull request with its own measurements:
 - **WaveformLoading's scan requests** ([Analyzing many files](#analyzing-many-files)).
 - **A gain per file through a gapless splice, in Player.** The gapless successor shares the current voice, so a gain per voice is not enough. The gain changes on the exact frame where one file ends and the next begins. It runs on the audio thread under the render's realtime rules. **Done when** a render test shows the gain change on the boundary frame, and a soak run passes. `AudioPlayerReparkTests` already plays fixtures whose every sample names its file and frame, and finds the boundary frame in the capture. That test came with the take-back of a re-parked successor on 2026-10-31.
 
+  Done 2026-11-01 (this repo's #104). Each request carries a file gain, linear, and `PlaybackGainRules.h` converts decibels. `currentFileGain` reads it back. The bus keeps it beside the ramp's gain, and the render splits the slice at the boundary, so the successor's gain starts on its first frame. One correction came with it. The drain reported a boundary once the render reached it, which can be a slice before the render mixes it. The next successor, named on that report, could then overwrite the boundary and its gain before the render saw either. Now a boundary is reported once the render has mixed its frame. `AudioPlayerFileGainTests` shows the proof. At gains 0.5 and 0.25, the frame before the boundary is the first file's last at 0.5, 0.0853877, and the boundary frame is the second file's first at 0.25, 0.0625, in slices of 64, 256, 509, and 4,096 frames. Its soak ran 240 splices and 203 re-parks over 7,057,699 frames, every one exact, with no render refused. Without the correction it failed at splice 158. In Release, a 512-frame slice of one voice at a gain of 1 rendered in 115 ns, against main's 117 ns, and of two fading voices in 519 ns, against main's 513 to 516 ns. A gain other than 1 adds about 25 ns to each fading voice and nothing to a steady one. The piece's `AGENTS.md` has the rest.
+
 ### Phase 6: grow from reuse
 
 Each remaining candidate moves when a second app needs it, with the cuts it was waiting for:
@@ -631,7 +634,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | First slice: an Up Next edit in a song's last moments | `AudioVoiceBus`'s take-back of a successor the decoder already reads, before the render reaches it | behavior | 3 | `AudioPlayerReparkTests`, which checks the frame after the boundary | |
 | Full app: song matching and leveling | the tag fields, identifiers, audio MD5, and loudness tags | behavior | 4 | a parse fixture for each field | 5cca1ea (#52) |
 | Full app: background analysis | WaveformLoading's scan requests | behavior | 5 | a throttled source yields within one block | |
-| Full app: leveling from tags | a gain per file through a gapless splice | behavior | 5 | the boundary-frame render test | |
+| Full app: leveling from tags | a gain per file through a gapless splice | behavior | 5 | the boundary-frame render test, `testTheGainChangesOnTheBoundaryFrame`, and its soak | 04db31c (#104) |
 | First release | NowPlaying and Updates | move | 6 | each app's media keys and update check | NowPlaying at 36ff73d (#41). Updates at ccea3ae (#45). |
 | Any mac app's opens, when it needs them | AppOpening | move | 6 | the coalescer's and the coordinator's tests, and the minimal consumer's split open | 8b1418e (#48) |
 | A server source | HTTP, RemoteFiles, and ShareLinks | move | 6 | Vibe's transfer, store, and link tests, moved here | 2f62ff4 (#46) |
