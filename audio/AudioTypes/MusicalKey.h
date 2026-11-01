@@ -67,6 +67,18 @@ static inline NSString *VibeMusicalKeyMusicalName(VibeMusicalKey key) {
     return VibeMusicalKeyIsMinor(key) ? kMinor[pc] : kMajor[pc];
 }
 
+// The musical name with the accidental's own sign: "A♭m", "F♯". Empty when
+// the key is unknown.
+static inline NSString *VibeMusicalKeySignName(VibeMusicalKey key) {
+    NSString *name = VibeMusicalKeyMusicalName(key);
+    if (name.length < 2) {
+        return name;
+    }
+    unichar accidental = [name characterAtIndex:1];
+    NSString *sign = accidental == '#' ? @"♯" : (accidental == 'b' ? @"♭" : nil);
+    return sign ? [name stringByReplacingCharactersInRange:NSMakeRange(1, 1) withString:sign] : name;
+}
+
 // Parses the free-text key strings found in real tags: musical names in any
 // common spelling ("Am", "F#m", "Bbm", "A minor", "Cmaj", German "H"),
 // Camelot ("8A", "08a") and Traktor's Open Key ("1d", "10m"). Returns

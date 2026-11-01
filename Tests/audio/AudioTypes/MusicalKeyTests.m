@@ -76,6 +76,18 @@
     XCTAssertEqualObjects(VibeMusicalKeyMusicalName(VibeMusicalKeyNone), @"");
 }
 
+- (void)testSignNames {
+    XCTAssertEqualObjects(VibeMusicalKeySignName(VibeMusicalKeyMake(8, YES)), @"A♭m");
+    XCTAssertEqualObjects(VibeMusicalKeySignName(VibeMusicalKeyMake(6, NO)), @"F♯");
+    XCTAssertEqualObjects(VibeMusicalKeySignName(VibeMusicalKeyMake(1, YES)), @"C♯m");
+    XCTAssertEqualObjects(VibeMusicalKeySignName(VibeMusicalKeyMake(11, YES)), @"Bm");
+    XCTAssertEqualObjects(VibeMusicalKeySignName(VibeMusicalKeyMake(0, NO)), @"C");
+    XCTAssertEqualObjects(VibeMusicalKeySignName(VibeMusicalKeyNone), @"");
+    for (VibeMusicalKey key = 0; key < 24; key++) {
+        XCTAssertEqual(VibeMusicalKeyFromString(VibeMusicalKeySignName(key)), key);
+    }
+}
+
 #pragma mark - Parsing musical names
 
 - (void)testParsePlainNames {
