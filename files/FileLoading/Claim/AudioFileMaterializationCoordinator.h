@@ -107,6 +107,16 @@ typedef void (^VibeAudioFileOpenCompletion)(id<ServedFileHandle> _Nullable file,
 
 @end
 
+@class AudioFileMaterializationCoordinator;
+
+@protocol AudioFileMaterializationCoordinatorObserver <NSObject>
+// isForegroundTransferActive's edge: YES as it rises, NO as settlement
+// releases it. Called once per flip, in order, on a serial queue of the
+// coordinator's, after the state turn that flipped it.
+- (void)materializationCoordinator:(AudioFileMaterializationCoordinator *)coordinator
+     foregroundTransferDidBecomeActive:(BOOL)active;
+@end
+
 @interface AudioFileMaterializationCoordinator : NSObject
 
 // The last snapshot applied. Its limits apply here at once; other subsystems
@@ -134,6 +144,11 @@ typedef void (^VibeAudioFileOpenCompletion)(id<ServedFileHandle> _Nullable file,
 // same-path foreground claim, and an already-local file is exempt. A snapshot:
 // a submission racing a rising edge is yielded before any provider operation.
 - (BOOL)isForegroundTransferActive;
+
+// Held weakly. An observer added mid-flip may hear an edge it already read
+// from isForegroundTransferActive.
+- (void)addObserver:(id<AudioFileMaterializationCoordinatorObserver>)observer;
+- (void)removeObserver:(id<AudioFileMaterializationCoordinatorObserver>)observer;
 
 @end
 

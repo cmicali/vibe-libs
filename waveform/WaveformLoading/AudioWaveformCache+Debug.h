@@ -42,4 +42,10 @@
 // decodes: clear its entry first. Any thread.
 @property (class, nonatomic) NSTimeInterval debugDecodeSeconds;
 
+// How often a scan's decode has parked for an open the user waits on, counted
+// once it has stopped reading. Any thread.
+@property (nonatomic, readonly) NSUInteger debugScanPauses;
+// The scans waiting their turn, the running one not counted. Any thread.
+@property (nonatomic, readonly) NSUInteger debugWaitingScans;
+
 @end

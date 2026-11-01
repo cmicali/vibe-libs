@@ -6,7 +6,78 @@
 @interface AudioFileMaterializationCoordinatorForegroundTests : AudioFileMaterializationCoordinatorTestCase
 @end
 
+// Every edge the coordinator publishes, in the order it arrived.
+@interface ForegroundEdgeRecorder : NSObject <AudioFileMaterializationCoordinatorObserver>
+@property (atomic, readonly) NSArray<NSNumber *> *edges;
+@end
+
+@implementation ForegroundEdgeRecorder {
+    NSMutableArray<NSNumber *> *_edges;
+}
+- (instancetype)init {
+    if ((self = [super init])) {
+        _edges = [NSMutableArray array];
+    }
+    return self;
+}
+- (NSArray<NSNumber *> *)edges {
+    @synchronized (self) {
+        return [_edges copy];
+    }
+}
+- (void)materializationCoordinator:(AudioFileMaterializationCoordinator *)coordinator
+     foregroundTransferDidBecomeActive:(BOOL)active {
+    @synchronized (self) {
+        [_edges addObject:@(active)];
+    }
+}
+@end
+
 @implementation AudioFileMaterializationCoordinatorForegroundTests
+
+#pragma mark - The published edge
+
+// The rule's rise and its release each reach an observer once, in order: a
+// playback request's rise, a second's none, and the release only once both
+// settle, one by its cancel and one by its probe's answer. A metadata
+// request raises nothing.
+- (void)testTheForegroundEdgeReachesItsObserversOncePerFlip {
+    [_probeController setResults:@[@NO] forName:@"edge-a.wav"];
+    [_probeController setResults:@[@NO] forName:@"edge-b.wav"];
+    [_probeController setResults:@[@NO] forName:@"edge-scan.wav"];
+    [_probeController gateCall:1 forName:@"edge-a.wav"];
+    [_probeController gateCall:1 forName:@"edge-b.wav"];
+    [self makeCoordinatorWithValues:VibeAudioLoadingProductionConfigurationValues()];
+    ForegroundEdgeRecorder *recorder = [ForegroundEdgeRecorder new];
+    [_coordinator addObserver:recorder];
+
+    XCTestExpectation *scanReady = [self expectationWithDescription:@"metadata ready"];
+    __unused AudioFileMaterializationRequestToken *scan =
+            [self requestName:@"edge-scan.wav" role:VibeAudioFileMaterializationRoleMetadataScan
+                   completion:^(VibeAudioFileMaterializationResult result, NSError *error, NSTimeInterval elapsed) {
+        [scanReady fulfill];
+    }];
+    [self waitForExpectations:@[scanReady] timeout:VIBE_TEST_HANG_TIMEOUT];
+    AudioFileMaterializationRequestToken *first =
+            [self requestName:@"edge-a.wav" role:VibeAudioFileMaterializationRolePlayback
+                   completion:^(VibeAudioFileMaterializationResult result, NSError *error, NSTimeInterval elapsed) {}];
+    XCTAssertTrue([self waitForCondition:^BOOL { return recorder.edges.count == 1; }]);
+    XCTestExpectation *secondReady = [self expectationWithDescription:@"second ready"];
+    __unused AudioFileMaterializationRequestToken *second =
+            [self requestName:@"edge-b.wav" role:VibeAudioFileMaterializationRolePrefetch
+                   completion:^(VibeAudioFileMaterializationResult result, NSError *error, NSTimeInterval elapsed) {
+        [secondReady fulfill];
+    }];
+    XCTAssertTrue([_probeController waitForCallCount:1 forName:@"edge-b.wav"]);
+    [first cancel];
+    XCTAssertTrue(_coordinator.isForegroundTransferActive, @"the second still holds it");
+    [_probeController releaseCall:1 forName:@"edge-b.wav"];
+    [self waitForExpectations:@[secondReady] timeout:VIBE_TEST_HANG_TIMEOUT];
+    XCTAssertTrue([self waitForCondition:^BOOL { return recorder.edges.count == 2; }]);
+    XCTAssertEqualObjects(recorder.edges, (@[@YES, @NO]));
+    XCTAssertFalse(_coordinator.isForegroundTransferActive);
+    [_probeController releaseCall:1 forName:@"edge-a.wav"];
+}
 
 #pragma mark - Foreground edges during a probe or refresh
 

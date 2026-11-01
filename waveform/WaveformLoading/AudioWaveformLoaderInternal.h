@@ -17,6 +17,10 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// The frames each of the pass's reads asks for. Large reads amortize the
+// decoder's call overhead: about 512 KB of stereo float32.
+static const AVAudioFrameCount kVibeWaveformReadBlockFrames = 65536;
+
 // What the decode pass is told and what it reports back: a fact about the
 // file, settled before the loop starts, or a fact about how far the loop got,
 // which every later phase reads.
