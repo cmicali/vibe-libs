@@ -11,7 +11,7 @@ Decoding without caching has no second user, so the two are one piece. The summa
 | `AudioWaveformCache` | the loaders' lifecycle: the claims, the lanes, the detached decodes, the scans, the store, the version check, and the deliveries on main |
 | `AudioWaveformCacheInternal.h` | the state, the entry key, and the lookup-or-decode path the cache's seam shares |
 | `AudioWaveformObserver` | what rides the decode beside the summary: an identifier and a block that makes one sink per decode |
-| `AudioWaveformCache+Debug` | the cache's seam: the decode pace, per-track cache control, and the scans' yield count |
+| `AudioWaveformCache+Debug` | the cache's seam: the decode pace, per-track cache control, and the scans' pauses and line |
 | `AudioWaveformLoader+Debug` | the loader's seam: each pass's phase timings |
 
 ## How an app uses it
@@ -61,7 +61,7 @@ The loader decodes only the item's window (`cueStart`/`cueEnd` through `VibeCueW
 
 ## Admission
 
-Cache-key stats, cache lookups, opens and decodes pass through **fixed-slot utility `AudioWorkScheduler`s** (`core/Common`). `stat` and the open can block for minutes on a cloud placeholder and have no cancellation point, so fixed slots are the resource bound. A stat keeps its slot while it visits the serial cache queue. An app's playback opens never pass through these schedulers, so background analysis cannot starve the open the user is waiting on.
+Cache-key stats, cache lookups, opens and decodes pass through **fixed-slot utility `AudioWorkScheduler`s** (`core/Common`). `stat` and the open can block for minutes on a cloud placeholder and have no cancellation point, so fixed slots are the resource bound. A stat keeps its slot through its disk read. An app's playback opens never pass through these schedulers, so background analysis cannot starve the open the user is waiting on.
 
 **Lookups and decodes use separate lanes.** The lookup lane runs two, the decode lane `kMaxDetachedWaveformLoads + 1` = three. A decode is submitted from *inside* a lookup that still holds its slot. Sharing one scheduler would let a burst of lookups expire the decode they asked for, delivered as that file failing to load. The lookup and decode lanes each hold at most four pending items. A pending request whose lane stays full for ten seconds fails *admission*. A never-returning OS call still owns its slot for the process's life, but retries cannot multiply it.
 
@@ -69,17 +69,27 @@ Cache-key stats, cache lookups, opens and decodes pass through **fixed-slot util
 
 **Deep zoom's reads have a lane of their own** (`loadDetailBlocks:forTrack:waveform:completion:`): one running and one waiting. So a read stuck on a dead mount holds no decode slot, and a zoom cannot starve a decode. Each read opens the file as a decode does and reads the blocks asked for into the waveform's detail (`waveform/Waveform/AGENTS.md`). **A file not on disk is skipped**, a provider's or a remote placeholder, since a zoom must never start a download. Nothing is persisted.
 
-## Scans yield to the open the user waits on
+## Scans pause for the open the user waits on
 
-An app that analyzes a whole library asks for each file with `scanWaveformForTrack:completion:`, apart from the track on screen. A scan decodes and files the entry, with its observers' results, as a load does. It delivers no waveform. The entry's results reach the delegate with the scan's own item, as a detached decode's do, and then the completion says whether the entry is on disk. A hit decodes nothing and answers YES. A file that cannot be decoded answers NO, through the completion only.
+An app that analyzes a whole library asks for each file with `scanWaveformForTrack:completion:`. A scan decodes and files the entry, with its observers' results, as a load does. It delivers no waveform. The results reach the delegate with the scan's own item. Then the completion says whether the entry is on disk. A hit decodes nothing and answers YES. A file that cannot be decoded answers NO, through the completion only.
 
-**Scans run one at a time, in the order asked, on a lane of their own** at utility priority: one slot, for the stat and the lookup and then the decode. The cache holds the line of waiting scans, so the app may ask for many at once. A scan takes no decode slot and no claim. So no load reattaches its loader, joins its decode, or waits on it. A scan of the track on screen may decode it a second time. The entry is the same either way.
+**Scans run one at a time, in the order asked.** They have a lane of their own at utility priority. The cache holds the line, so an app may ask for many at once. The running scan stays at the head of the line until it completes or is cancelled. A cancelled scan further back is skipped when it reaches the head, so a cancel costs the same however long the line is.
 
-**While an open the user waits on is active, no scan is admitted.** The cache reads it from `foregroundProvider`, which unset is FileLoading's foreground state, `isForegroundTransferActive` on the shared coordinator. The coordinator has no release edge, so the lane reads the state: before each block the running decode reads, every 10 ms while a scan runs, and every 100 ms while one waits. A rise and fall between two reads goes unseen. A local file's open is that short, and it is no download.
+**An app keeps a window of scans in flight, say 64, and refills it from each completion.** A waiting token holds its item and its block. **An app skips the files its own index marks analyzed.** A hit still unarchives the entry to answer `filed`.
 
-**A running scan's decode is cancelled outright, not detached.** The loader's `shouldYield` cancels it before its next read, so it reads at most the block in flight. A read waiting on a slow source reads nothing more, since the lane's watch cancels it, and the cancel ends the wait at once. Its partial summary is dropped, never filed, and its sinks never finish. The scan goes back to the front of the line. Once the open settles, it decodes again from its start. A scan that finished on another version of its file goes back the same way. The track on screen is never cancelled by any of this, since the yield cancels only the scan's own loader.
+**The cache observes `materializationCoordinator`**, the shared coordinator unless set. The coordinator publishes each flip of its foreground hold (`files/FileLoading/AGENTS.md`). While the hold is up, no scan starts.
 
-**A token's `cancel` drops the completion.** A waiting scan leaves the line. A running one is cancelled outright, and the lane admits the next once its worker returns. **A scan wedged in a stat or an open holds the lane until it returns**, as a deep zoom read holds its own.
+**On the rise, the running scan's decode pauses.** The loader parks before its next read. A read waiting for bytes is interrupted, and the decode parks then. The builder, the sinks, and the handle stay. Nothing is filed while it waits. **TRAP: a scan's loader is made with `init`**, so `init` makes the pause's condition. Without it, a paused decode would spin.
+
+**On the fall, it reads on from the frame where it stopped.** A read the pause interrupted is made again from its start, after `allowReads` and a seek, as `audio/Decode/AGENTS.md` requires. The version check at completion covers a file rewritten during the pause.
+
+**A window is decoded once.** A scan of a window a load decodes, for all the scan asks, waits on that load's filed waiter. Then it looks again, and hits. A load of the window a scan decodes turns the scan back. Its retry waits on the load the same way. A scan holds no claim, so no load reattaches its loader, and its pause never touches the track on screen.
+
+**A scan that finished on another version of its file starts again.** It stays at the head of the line.
+
+**A token's `cancel` drops the completion.** A running decode is cancelled outright, and the lane starts the next scan once its worker returns. **A scan wedged in a stat or an open holds the lane until it returns**, as a deep zoom read holds its own.
+
+**Every load takes one path** (`lookUpOrDecode:`): the stat on a lookup lane, the disk read on the same worker, then the decode on a decode lane. The track on screen, the seam, and a scan each pass their own lanes. Only a short hop takes the store from `_loaderQueue`, so no disk read waits behind another there.
 
 ## A superseded load is detached, not aborted
 
@@ -117,13 +127,13 @@ The cache captures the item when the load starts (`_currentLoadTrack`). **The re
 
 Both headers are declaration-only, with no `#if DEBUG`. Each implementation wraps its body in `#if DEBUG`, so a release build ships none of it.
 
-- **`AudioWaveformCache+Debug.h`** paces every decode that starts after it is set (`debugDecodeSeconds`), so a view's progressive fill-in can be watched on any file. The loader reads it in a debug build. It counts the scans the lane turned back (`debugScanYields`), once each turned-back decode has stopped. It also decodes, dumps, and clears one item's entry through the normal lookup-or-decode path, without touching the current load. The app makes the item. A dump reads the columns it is asked for, or 8,192 for 0: each one's peaks, its loudest window, and each band's. A cue row's entry is its window's, keyed and decoded as a load's is.
+- **`AudioWaveformCache+Debug.h`** paces every decode that starts after it is set (`debugDecodeSeconds`), so a view's progressive fill-in can be watched on any file. The loader reads it in a debug build. It counts each time a scan's decode parks for the foreground (`debugScanPauses`), and the scans waiting their turn (`debugWaitingScans`). It also decodes, dumps, and clears one item's entry through the normal lookup-or-decode path, without touching the current load. The app makes the item. A dump reads the columns it is asked for, or 8,192 for 0: each one's peaks, its loudest window, and each band's. A cue row's entry is its window's, keyed and decoded as a load's is.
 - **`AudioWaveformLoader+Debug.h`** is `AudioLoadTiming`: each pass's phase timings, recorded by the loader in a debug build and read afterwards, since a pass has no reply path. The phases are the read, the mix and the summary, each observer's appends and finish, and the whole pass. They can sum past the whole, since the read is pipelined against the rest. The loader's clock reads 0 in Release, so its call sites need no `#if`.
 
 ## Tests
 
 `Tests/waveform/WaveformLoading/` holds the tests of the loader and the observers. They write their own WAV files, so none needs an app's generated audio. They run over `Tests/Support`'s `VibeTestTrack`. The re-key test memoizes its key in a track of its own, as an app's row may. They cover the pass's phases and the completeness rule, the progressive snapshots, a streaming file and a network mount's read-ahead, the cancel and the detach, the claims and the lanes, the previews, the filed waiter, deep zoom's reads, the version check, the entry's coverage, the seam's keying of a cue row, and, for the observers, a decode, a cache hit, a missing result, a joined decode, a cancellation, a late completion, and a CUE window.
 
-`AudioWaveformScanTests` covers the scans: what a scan files and delivers, one at a time in order, a cancel, no admission while the foreground is active, a yield within one block on a throttled source, a yield from a stalled read, the track on screen loading through a yield, and a play's download through the fake cloud turning a scan back. The yield tests log their latency, and the order test logs the lane's throughput beside the same files' bare decodes. `WaveformLoadingTests` defines `DEBUG` in every configuration, since the tests drive both seams. The minimal consumer writes a WAV of a tone, loads it through the loader, and reads its length and peaks back. It also roots a cache of its own with an observer of its own and loads the tone. Once the load's filed waiter runs, a cache-only lookup hits at once. A second load reads its hit from the cache's seam. A CUE window of the tone then loads through the seam twice, and its second load is a hit too.
+`AudioWaveformScanTests` covers the scans: what a scan files and delivers, one at a time in order, a cancel, no start while the foreground is up, a pause within one block on a throttled source, a pause from a stalled read, the track on screen loading through a pause, a play's download through the fake cloud, and one decode of a window a load and a scan share. The foreground is a coordinator of the test's own, raised by a playback request whose probe waits (`Tests/Support/WaveformLoadingTestSupport`). The pause tests log their latency, and the order test logs the lane's throughput beside bare decodes. The recording observer and the waits the tests share are in that support file too.
 
 **Measuring.** A change that could move cost is measured in Vibe, with its `vibe-perf` skill, before and after: the `waveform` and `chunker` groups. A change that could move a picture is drawn with its `vibe-waveform` skill at both commits, and the pictures are compared with `cmp`.
