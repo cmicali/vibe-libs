@@ -13,6 +13,19 @@
 
 #include <string.h>
 
+@implementation VibeM3UItem
+
+- (instancetype)initWithEntry:(VibePlaylistEntry *)entry otherURL:(NSString *)otherURL {
+    self = [super init];
+    if (self) {
+        _entry = entry;
+        _otherURL = [otherURL copy];
+    }
+    return self;
+}
+
+@end
+
 @implementation VibePlaylistFile
 
 + (BOOL)isCueExtension:(NSString *)extension {
@@ -170,8 +183,10 @@ static NSString *const kVibeCueDirective = @"#VIBE-CUE:";
 
 // Each entry, with the #VIBE-CUE payload written just before it, if any: a
 // directive belongs to the next entry line and to no other, a dropped one
-// included.
-static void EnumerateM3U(NSString *text, void (^block)(NSString *entry, NSString *_Nullable cue)) {
+// included. A URL with a scheme other than file goes to other, as written,
+// when there is one, and is dropped otherwise.
+static void EnumerateM3UAndOthers(NSString *text, void (^block)(NSString *entry, NSString *_Nullable cue),
+                                  void (^_Nullable other)(NSString *url)) {
     NSCharacterSet *whitespace = NSCharacterSet.whitespaceCharacterSet;
     __block NSString *cue = nil;
     [text enumerateLinesUsingBlock:^(NSString *line, BOOL *stop) {
@@ -190,6 +205,9 @@ static void EnumerateM3U(NSString *text, void (^block)(NSString *entry, NSString
         if ([entry rangeOfString:@"://"].location != NSNotFound) {
             // M3U entries accept only file:// URLs and reduce them to paths.
             if (![entry.lowercaseString hasPrefix:@"file://"]) {
+                if (other) {
+                    other(entry);
+                }
                 return;
             }
             // TRAP: NSURL.path decodes %00 to a NUL on older Foundation and
@@ -216,6 +234,10 @@ static void EnumerateM3U(NSString *text, void (^block)(NSString *entry, NSString
             block(entry, entryCue);
         }
     }];
+}
+
+static void EnumerateM3U(NSString *text, void (^block)(NSString *entry, NSString *_Nullable cue)) {
+    EnumerateM3UAndOthers(text, block, nil);
 }
 
 + (NSArray<NSString *> *)m3uEntriesInText:(NSString *)text {
@@ -408,6 +430,27 @@ NSURL *VibeResolveEntry(NSString *entry, NSURL *dir, NSFileManager *fileManager,
         }
     });
     return entries;
+}
+
++ (NSArray<VibeM3UItem *> *)m3uItemsInData:(NSData *)data relativeToDirectory:(NSURL *)directory {
+    NSString *text = data.length ? [self textFromData:data] : nil;
+    NSMutableArray<VibeM3UItem *> *items = [NSMutableArray array];
+    if (!text) {
+        return items;
+    }
+    EnumerateM3UAndOthers(text, ^(NSString *entry, NSString *cue) {
+        // Lexical: standardizedURL folds "." and ".." with no stat, and
+        // isDirectory:NO keeps fileURLWithPath: from stat'ing either.
+        NSURL *url = [entry hasPrefix:@"/"] ? [NSURL fileURLWithPath:entry isDirectory:NO]
+                                            : [directory URLByAppendingPathComponent:entry isDirectory:NO];
+        url = url.standardizedURL;
+        if (url.path) {   // nil for a component no path can hold
+            [items addObject:[[VibeM3UItem alloc] initWithEntry:EntryForPayload(url, cue) otherURL:nil]];
+        }
+    }, ^(NSString *other) {
+        [items addObject:[[VibeM3UItem alloc] initWithEntry:nil otherURL:other]];
+    });
+    return items;
 }
 
 #pragma mark - M3U writing

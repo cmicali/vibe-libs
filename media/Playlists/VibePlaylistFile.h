@@ -9,6 +9,21 @@ NS_ASSUME_NONNULL_BEGIN
 
 @class VibePlaylistEntry;
 
+// One entry of an M3U as written (m3uItemsInData:relativeToDirectory:): a
+// file's entry, or a URL with another scheme, such as a stream's. Exactly one
+// of the two is set. A plain value, made once and never changed.
+@interface VibeM3UItem : NSObject
+
+@property (nonatomic, readonly, nullable) VibePlaylistEntry *entry;
+// The line as written.
+@property (nonatomic, copy, readonly, nullable) NSString *otherURL;
+
+- (instancetype)initWithEntry:(nullable VibePlaylistEntry *)entry otherURL:(nullable NSString *)otherURL;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+
+@end
+
 // Readers for playlist-like files — CUE sheets and M3U playlists — and the M3U
 // writer, all in VibePlaylistEntry records. A CUE sheet reads as entries, each a
 // window of its FILE. An M3U reads as file references, and its #EXTINF
@@ -47,6 +62,15 @@ NS_ASSUME_NONNULL_BEGIN
 // entry readable nowhere still yields its primary candidate, so the caller can
 // ask for sandbox access and call again.
 + (NSArray<VibePlaylistEntry *> *)entriesForPlaylistAtURL:(NSURL *)url;
+
+// Every entry of M3U data in list order, as written, for an app that matches
+// the entries itself, such as an import against an index. A file's path is
+// resolved lexically against directory: a relative one joins it, and "." and
+// ".." fold, with nothing stat'd and no rungs. A file:// URL reduces to its
+// path. A #VIBE-CUE line makes its cue entry, as for entriesForPlaylistAtURL:.
+// Any other URL is an item of its own, as written, where the other readers
+// drop it. Duplicates are kept, and #EXTINF is ignored.
++ (NSArray<VibeM3UItem *> *)m3uItemsInData:(nullable NSData *)data relativeToDirectory:(NSURL *)directory;
 
 // The entries of M3U data this writer wrote — m3uTextForEntries: with a
 // nil directory, so every entry is absolute — in order, with no resolution

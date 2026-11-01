@@ -725,6 +725,45 @@ static NSURL *Directory(NSString *path) {
     XCTAssertEqualObjects([[VibePlaylistFile entriesInM3UData:[NSData data]] valueForKey:@"url"], @[]);
 }
 
+#pragma mark - m3uItemsInData:relativeToDirectory:
+
+// Every entry in list order: relative and absolute paths folded lexically,
+// a file:// URL as its path, a stream as written, and a repeat kept. Nothing
+// is stat'd, so a missing file keeps its own spelling and extension.
+- (void)testM3UItemsKeepEveryEntryInOrderAsWritten {
+    NSData *data = [@"#EXTM3U\n#EXTINF:1,x\nA/./b/../one.mp3\nhttp://radio.example/live\n"
+                    @"file:///Music/two%20x.flac\n/Music/../Gone/three.mp3\nhttps://x.example/s.m3u8\nA/one.mp3\n"
+            dataUsingEncoding:NSUTF8StringEncoding];
+    NSArray<VibeM3UItem *> *items = [VibePlaylistFile m3uItemsInData:data
+                                                  relativeToDirectory:[NSURL fileURLWithPath:@"/Lists" isDirectory:YES]];
+    NSMutableArray *read = [NSMutableArray array];
+    for (VibeM3UItem *item in items) {
+        XCTAssertTrue((item.entry == nil) != (item.otherURL == nil));
+        [read addObject:item.entry ? item.entry.url.path : item.otherURL];
+    }
+    XCTAssertEqualObjects(read, (@[@"/Lists/A/one.mp3", @"http://radio.example/live", @"/Music/two x.flac",
+                                   @"/Gone/three.mp3", @"https://x.example/s.m3u8", @"/Lists/A/one.mp3"]));
+}
+
+// A #VIBE-CUE line before an entry makes its window. A stream between takes
+// no line's window.
+- (void)testM3UItemsReadCueWindows {
+    VibePlaylistEntry *row = CueRowAt(@"/Music/mix.flac", 4500, 0, @"Two", @"DJ", @"/Music/mix.cue", 2);
+    NSString *text = [M3UText(@[row], nil) stringByAppendingString:@"http://radio.example/live\n/Music/mix.flac\n"];
+    NSArray<VibeM3UItem *> *items = [VibePlaylistFile m3uItemsInData:[text dataUsingEncoding:NSUTF8StringEncoding]
+                                                  relativeToDirectory:[NSURL fileURLWithPath:@"/" isDirectory:YES]];
+    XCTAssertEqual(items.count, 3u);
+    XCTAssertEqual(items[0].entry.cueStart, 4500u);
+    XCTAssertEqualObjects(items[0].entry.cueTitle, @"Two");
+    XCTAssertFalse(items[2].entry.isWindowed);
+}
+
+- (void)testM3UItemsOfNoDataIsEmpty {
+    NSURL *directory = [NSURL fileURLWithPath:@"/" isDirectory:YES];
+    XCTAssertEqualObjects([VibePlaylistFile m3uItemsInData:nil relativeToDirectory:directory], @[]);
+    XCTAssertEqualObjects([VibePlaylistFile m3uItemsInData:[NSData data] relativeToDirectory:directory], @[]);
+}
+
 #pragma mark - Cue rows in M3U
 
 // VLC's window for other players, then the #VIBE-CUE line, before the path.
