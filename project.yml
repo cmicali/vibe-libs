@@ -656,6 +656,7 @@ targets:
         excludes: ["**/*.md"]
       - path: Tests/Support/VibeTestTrack.m
       - path: Tests/Support/VibeReadAheadScript.m
+      - path: Tests/Support/WaveformLoadingTestSupport.m
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES

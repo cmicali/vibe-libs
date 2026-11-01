@@ -79,6 +79,14 @@ static inline NSArray<NSString *> *VibeWaveformObserverIdentifiers(VibeWaveformA
 - (BOOL)loadDetailBlocks:(NSIndexSet *)blocks ofFile:(NSString *)filename
             intoWaveform:(CodableAudioWaveform *)waveform;
 
+// A scan's, any thread. pause stops the decode before its next read, and
+// ends a read waiting for bytes. The builder, the sinks, and the handle stay.
+// resume reads on from the frame it stopped at. A cancel ends a pause.
+- (void)pause;
+- (void)resume;
+// Run on the decode's thread each time it stops for a pause.
+@property (nullable, atomic, copy) dispatch_block_t parked;
+
 // Permanent, and it ends a streaming file's waits for bytes at once.
 - (void)cancel;
 - (void)detach;

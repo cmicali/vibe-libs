@@ -17,6 +17,8 @@ NS_ASSUME_NONNULL_BEGIN
 // means most of the UI layer, to compile as ObjC++.
 @class CodableAudioWaveform;
 @class AudioWorkToken;
+@class AudioFileMaterializationCoordinator;
+@class VibeWaveformScanToken;
 @protocol AudioWaveformCacheDelegate;
 
 typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
@@ -34,6 +36,11 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 // it, so an owner that comes to want more asks for its track again
 // (this piece's AGENTS.md).
 @property (nullable, copy) VibeWaveformAnalysisProvider analysisProvider;
+
+// Whose foreground a scan yields to: its isForegroundTransferActive and the
+// edges it publishes. Unset is the shared coordinator. Set it before the
+// first scan, on main.
+@property (null_resettable, nonatomic, strong) AudioFileMaterializationCoordinator *materializationCoordinator;
 
 // The PINCache store name, derived from the entry format version; see the
 // implementation. It is the single source for init and for anything that
@@ -81,6 +88,13 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
                             waveform:(CodableAudioWaveform *)waveform
                           completion:(dispatch_block_t)completion;
 
+// Decodes and files one file of a library in the background. Main-thread
+// request and completion. Scans run one at a time, in the order asked. They
+// pause while an open the user waits on is active. filed says whether the
+// entry is on disk. This piece's AGENTS.md has the rest.
+- (VibeWaveformScanToken *)scanWaveformForTrack:(id<VibePlayableItem>)track
+                                     completion:(void (^)(BOOL filed))completion;
+
 // Supersedes the in-flight load: no further waveform deliveries until the
 // next loadWaveformForTrack:. The decode is NOT aborted: it detaches, runs to
 // completion and persists, so the next request for that file is a disk hit;
@@ -93,6 +107,16 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 // place. A detached decode's results are still delivered, with the track they
 // were loaded for. The receiver matches it against its playlist.
 - (void)cancelLoad;
+
+@end
+
+@interface VibeWaveformScanToken : NSObject
+
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+
+// Main thread. Drops the completion. A running decode is cancelled outright.
+- (void)cancel;
 
 @end
 

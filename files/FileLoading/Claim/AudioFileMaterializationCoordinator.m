@@ -142,6 +142,9 @@ static const NSUInteger kMaximumDatalessProbePendingCount = 16;
         _interactivePending = [NSMutableArray array];
         _backgroundPending = [NSMutableArray array];
         _datalessProbeActivity = [[VibeDatalessProbeActivity alloc] init];
+        _observers = [NSHashTable weakObjectsHashTable];
+        _observerQueue = dispatch_queue_create("vibe-libs.fileloading.materialization-observers",
+                dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0));
         _stateQueue = dispatch_queue_create("vibe-libs.fileloading.materialization-state", DISPATCH_QUEUE_SERIAL);
         dispatch_queue_set_specific(_stateQueue, VibeMaterializationStateQueueKey,
                                     (__bridge void *)self, NULL);
@@ -272,6 +275,38 @@ static VibeMaterializationLane VibeLaneForRole(VibeAudioFileMaterializationRole 
         active = [self foregroundTransferActiveLocked];
     }];
     return active;
+}
+
+- (void)addObserver:(id<AudioFileMaterializationCoordinatorObserver>)observer {
+    [self performStateSynchronously:^{
+        [self->_observers addObject:observer];
+    }];
+}
+
+- (void)removeObserver:(id<AudioFileMaterializationCoordinatorObserver>)observer {
+    [self performStateSynchronously:^{
+        [self->_observers removeObject:observer];
+    }];
+}
+
+// On the state queue, at the end of every drain. Every submission drains,
+// which is the rise, and every settlement and every stream's last reader
+// drains, which is the release.
+- (void)publishForegroundEdgeLocked {
+    BOOL active = [self foregroundTransferActiveLocked];
+    if (active == _publishedForeground) {
+        return;
+    }
+    _publishedForeground = active;
+    NSArray<id<AudioFileMaterializationCoordinatorObserver>> *observers = _observers.allObjects;
+    if (!observers.count) {
+        return;
+    }
+    dispatch_async(_observerQueue, ^{
+        for (id<AudioFileMaterializationCoordinatorObserver> observer in observers) {
+            [observer materializationCoordinator:self foregroundTransferDidBecomeActive:active];
+        }
+    });
 }
 
 // The rising edge yields every metadata-only dataless claim, running ones
@@ -995,6 +1030,7 @@ static BOOL VibeRunMaterialization(id<AudioFileMaterializationOperation> operati
         [_backgroundPending removeObjectAtIndex:index];
         [self startClaim:claim classificationFresh:NO];
     }
+    [self publishForegroundEdgeLocked];
 }
 
 - (void)detachRequestToken:(AudioFileMaterializationRequestToken *)token {
