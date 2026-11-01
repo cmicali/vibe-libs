@@ -125,4 +125,18 @@ static NSString *const kRelease = @"f5093c06-23e3-404f-aeaa-40f72885ee3a";
               because:@"the same letters split differently"];
 }
 
+// The group artist is the album artist, else the track artist, but never a
+// compilation's track artist, and it groups the key.
+- (void)testTheGroupArtistIsTheKeysOwn {
+    XCTAssertEqualObjects(VibeAlbumGroupArtist(@"Burial", @"Kode9", NO), @"Burial");
+    XCTAssertEqualObjects(VibeAlbumGroupArtist(@"Burial", @"Kode9", YES), @"Burial");
+    XCTAssertEqualObjects(VibeAlbumGroupArtist(nil, @"Kode9", NO), @"Kode9");
+    XCTAssertEqualObjects(VibeAlbumGroupArtist(@"", @"Kode9", NO), @"Kode9");
+    XCTAssertNil(VibeAlbumGroupArtist(nil, @"Kode9", YES));
+    XCTAssertNil(VibeAlbumGroupArtist(nil, nil, NO));
+    [self assertTogether:(Track){nil, @"Untrue", nil, @"Burial", 2007, NO}
+                     and:(Track){nil, @"Untrue", @"Burial", @"Kode9", 2007, NO}
+                 because:@"the same group artist, by either tag"];
+}
+
 @end
