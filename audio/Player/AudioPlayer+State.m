@@ -41,6 +41,13 @@
     return stopped;
 }
 
+- (float)currentFileGain {
+    os_unfair_lock_lock(&_stateLock);
+    float fileGain = _currentFileGain;
+    os_unfair_lock_unlock(&_stateLock);
+    return fileGain;
+}
+
 - (BOOL)outputAudioActive {
     os_unfair_lock_lock(&_stateLock);
     BOOL active = _outputAudioActive;

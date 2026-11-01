@@ -50,6 +50,7 @@ typedef struct {
     float softwareVolume;
     float balance;         // 0 = left, 0.5 = center, 1 = right
     float playerVolume;    // the player's own volume, 1 at full
+    BOOL fileGainScaled;   // the current file plays at a file gain other than 1
     // The fold's inputs.
     BOOL enabled;
     BOOL eligibleDevice;
@@ -68,7 +69,7 @@ static inline BOOL VibeBitPerfectReportsEqual(VibeBitPerfectReport a, VibeBitPer
     return a.status == b.status && a.sampleRate == b.sampleRate
             && a.bitsPerChannel == b.bitsPerChannel && a.sourceBits == b.sourceBits && a.isFloat == b.isFloat
             && a.softwareVolume == b.softwareVolume && a.balance == b.balance
-            && a.playerVolume == b.playerVolume && a.enabled == b.enabled
+            && a.playerVolume == b.playerVolume && a.fileGainScaled == b.fileGainScaled && a.enabled == b.enabled
             && a.eligibleDevice == b.eligibleDevice && a.hasTrack == b.hasTrack
             && a.rateExact == b.rateExact
             && a.formatConfirmed == b.formatConfirmed && a.channelsMatch == b.channelsMatch
@@ -105,7 +106,7 @@ static inline VibeBitPerfectStatus VibeBitPerfectFold(VibeBitPerfectReport r) {
     if (r.muted) {
         return VibeBitPerfectStatusMuted;
     }
-    if (r.softwareVolume < 1.0f || r.balance != 0.5f || r.playerVolume < 1.0f) {
+    if (r.softwareVolume < 1.0f || r.balance != 0.5f || r.playerVolume < 1.0f || r.fileGainScaled) {
         return VibeBitPerfectStatusVolumeScaled;
     }
     if (r.hogWanted && !r.exclusive) {

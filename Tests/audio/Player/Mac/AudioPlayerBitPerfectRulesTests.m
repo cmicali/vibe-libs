@@ -74,6 +74,21 @@ static VibeBitPerfectReport Perfect(void) {
     r = Perfect();
     r.playerVolume = 0.5f;
     XCTAssertFalse(VibeBitPerfectReportsEqual(Perfect(), r));
+    r = Perfect();
+    r.fileGainScaled = YES;
+    XCTAssertFalse(VibeBitPerfectReportsEqual(Perfect(), r));
+}
+
+// A file gain other than 1 changes every sample, as the player's volume does.
+- (void)testAFileGainPreventsActive {
+    VibeBitPerfectReport r = Perfect();
+    r.fileGainScaled = YES;
+    XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusVolumeScaled);
+    r.sourceBits = 0;
+    r.exclusive = NO;
+    XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusVolumeScaled);
+    r.muted = YES;
+    XCTAssertEqual(VibeBitPerfectFold(r), VibeBitPerfectStatusMuted);
 }
 
 - (void)testMuteAndChannelConversionEachPreventAnActiveReport {

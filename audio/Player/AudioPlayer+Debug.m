@@ -137,6 +137,7 @@ static BOOL VibeDebugSilentOutput;
                    @"varispeed": @([self varispeedPresentOnQueue]),
                    @"fxConnected": @(self.fx.connected),
                    @"gain": @(snapshot.gain),
+                   @"fileGain": @(snapshot.fileGain),
                    @"underrunFrames": @(snapshot.underrunFrames),
                    @"varispeedLatency": @([self varispeedLatencyOnQueue]),
                    @"varispeedEngaged": varispeed[@"engaged"],

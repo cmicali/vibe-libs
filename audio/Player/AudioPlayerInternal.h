@@ -130,6 +130,8 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
     uint64_t                _lastRequestIdentifier;
     // The newest play's, drawn at submission or a stalled play's replay.
     uint64_t                _nextSubmittedPlayIdentifier;
+    // currentTrack's file gain, as applied; written with currentTrack.
+    float                   _currentFileGain;
 
     // ---- Queue-confined transport state.
     AudioLoadingConfiguration *_loadingConfiguration;
@@ -159,14 +161,17 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
     AudioFileHandle             *_prefetchedFile;
     id<VibePlayableItem>    _prefetchedTrack;
     uint64_t                _prefetchedRequestIdentifier; // the request identifier of _prefetchedTrack
+    float                   _prefetchedFileGain;          // its request's file gain
     uint64_t                _prefetchGeneration;
     id<VibePlayableItem>    _requestedPrefetchTrack;
     NSString                *_requestedPrefetchKey;
     uint64_t                _requestedPrefetchRequestIdentifier;
+    float                   _requestedPrefetchFileGain;
     VibeAudioPrefetchRequestState _prefetchRequestState;
     AudioFileOpenToken      *_prefetchOpenToken;
     id<VibePlayableItem>    _successorTrack;   // the row queued on the current voice, else nil
     uint64_t                _successorRequestIdentifier;
+    float                   _successorFileGain;  // what the bus was handed, which it applies from the boundary
     AudioFileHandle             *_successorFile;    // the park's instance the bus was handed
 
     // ---- The render pipeline (AudioPlayer+Pipeline.m).
@@ -280,10 +285,13 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
 // its file may be handed on. Retired voices are tracked until they end.
 - (VibeVoiceRamp)rampOnQueueToGain:(float)gain milliseconds:(uint64_t)milliseconds action:(VibeVoiceAction)action;
 // `frame` and `endFrame` are file frames; the stream ends at `endFrame`, 0 for
-// the file's own end (VibeTrackEndFrameInFile).
+// the file's own end (VibeTrackEndFrameInFile). `fileGain` is applied.
 - (VibeVoiceID)startVoiceOnQueueForFile:(AudioFileHandle *)file atFrame:(AVAudioFramePosition)frame
-                               endFrame:(AVAudioFramePosition)endFrame
+                               endFrame:(AVAudioFramePosition)endFrame fileGain:(float)fileGain
                        fadeMilliseconds:(uint64_t)milliseconds paused:(BOOL)paused;
+// Writes currentFileGain's value, under _stateLock. Before the publication
+// that makes its file current, so the bit-perfect report reads it.
+- (void)setCurrentFileGainOnQueue:(float)fileGain;
 - (void)retireVoiceOnQueue:(VibeVoiceID)voice milliseconds:(uint64_t)milliseconds;
 - (void)cutRetiringVoicesToDeclickOnQueue;
 // A new voice for the current file at `position`, the old one retiring beside

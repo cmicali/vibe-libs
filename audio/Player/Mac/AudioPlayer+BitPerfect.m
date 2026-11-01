@@ -416,6 +416,7 @@ static const useconds_t kFormatSwitchPollMicroseconds = 5000;
 #endif
     report.enabled = _bitPerfectWanted;
     report.playerVolume = self.volume;
+    report.fileGainScaled = _currentFileGain != kVibeFileGainUnity;
     AudioDevice *device = _bitPerfectWanted ? [self eligibleRequestedDeviceOnQueue] : nil;
     report.eligibleDevice = (device != nil);
     if (device && (AudioDeviceID)device.deviceId == _preparedDeviceID) {
@@ -641,6 +642,7 @@ static NSString *VibeBitPerfectStatusName(VibeBitPerfectStatus status) {
         @"softwareVolume": @(r.softwareVolume),
         @"balance": @(r.balance),
         @"playerVolume": @(r.playerVolume),
+        @"fileGainScaled": @(r.fileGainScaled),
         @"muted": @(r.muted),
         @"eligibleDevice": @(r.eligibleDevice),
         @"hasTrack": @(r.hasTrack),
