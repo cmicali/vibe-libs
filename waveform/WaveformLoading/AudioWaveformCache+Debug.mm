@@ -33,6 +33,10 @@ static std::atomic<double> sDebugDecodeSeconds{0};
 
 #pragma mark - Debug: scans
 
+- (NSUInteger)debugScanPausesAsked {
+    return _scanPausesAsked.load(std::memory_order_relaxed);
+}
+
 - (NSUInteger)debugScanPauses {
     return _scanPauses.load(std::memory_order_relaxed);
 }

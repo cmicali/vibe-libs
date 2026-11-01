@@ -79,6 +79,8 @@ static const double kThrottledSeconds = 8;
     WaveformForeground *_foreground;
     AudioWaveformCache *_cache;
     VibeReadAheadScript *_readAhead;
+    dispatch_semaphore_t _released;
+    BOOL _reached;
 }
 
 + (void)setUp {
@@ -136,6 +138,30 @@ static const double kThrottledSeconds = 8;
     _readAhead = [[VibeReadAheadScript alloc] initForPathsContaining:sThrottledDirectory.path];
     _readAhead.throttle = throttle;
     return [VibeTestTrack withURL:sThrottled];
+}
+
+// Holds the next decode once it has been fed `frames`, until the rise has
+// reached it. TRAP: the rise reaches a scan's decode through two queues,
+// which on a loaded machine can take longer than the rest of a short file.
+// `atHold` runs first, on the decode's processing queue.
+- (void)holdNextDecodeAfter:(NSUInteger)frames atHold:(void (^)(NSUInteger frames))atHold {
+    AudioWaveformCache *cache = _cache;
+    dispatch_semaphore_t released = dispatch_semaphore_create(0);
+    _released = released;
+    BOOL *reached = &_reached;
+    [_observer triggerNextDecodeAfter:frames block:^(NSUInteger fed) {
+        if (atHold) {
+            atHold(fed);
+        }
+        *reached = WaveformWaitUntil(^BOOL { return cache.debugScanPausesAsked == 1; });
+        dispatch_semaphore_signal(released);
+    }];
+}
+
+// Whether the held decode saw the rise reach it.
+- (BOOL)awaitHoldReleased {
+    return dispatch_semaphore_wait(_released,
+            dispatch_time(DISPATCH_TIME_NOW, (int64_t)(VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC))) == 0 && _reached;
 }
 
 - (CodableAudioWaveform *)filedWaveform:(id<VibePlayableItem>)track {
@@ -271,9 +297,9 @@ static const double kThrottledSeconds = 8;
     __block uint64_t rose = 0;
     __block NSUInteger framesAtRise = 0;
     WaveformForeground *foreground = _foreground;
-    // Raised from inside the decode, after its third block, so the rise
-    // lands with a read in flight.
-    [_observer triggerNextDecodeAfter:3 * kBlock block:^(NSUInteger frames) {
+    // Raised from inside the decode, after its third block, while the next
+    // block's read is in flight.
+    [self holdNextDecodeAfter:3 * kBlock atHold:^(NSUInteger frames) {
         framesAtRise = frames;
         rose = ScanNow();
         [foreground rise];
@@ -282,6 +308,7 @@ static const double kThrottledSeconds = 8;
     [_cache scanWaveformForTrack:track completion:^(BOOL done) { filed = done; }];
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return self->_cache.debugScanPauses == 1; }));
     uint64_t paused = ScanNow();
+    XCTAssertTrue([self awaitHoldReleased]);
     WaveformRecordingSink *sink = _observer.sinks.firstObject;
     NSUInteger framesAtPause = sink.frames;
     XCTAssertLessThanOrEqual(framesAtPause, framesAtRise + kBlock, @"it paused within one block");
@@ -333,6 +360,7 @@ static const double kThrottledSeconds = 8;
     VibeTestTrack *scanned = [self throttledTrack:20000];
     VibeTestTrack *playing = [self trackNamed:@"playing.wav" seconds:8];
     __block BOOL scanFiled = NO, playingFiled = NO;
+    [self holdNextDecodeAfter:kBlock atHold:nil];
     [_cache scanWaveformForTrack:scanned completion:^(BOOL done) { scanFiled = done; }];
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return self->_observer.sinks.firstObject.frames > 0; }));
     [_foreground rise];
@@ -341,9 +369,38 @@ static const double kThrottledSeconds = 8;
     XCTAssertEqualObjects(_recorder.completedTracks, @[playing], @"the track on screen got its waveform");
     XCTAssertEqual(_recorder.failures, 0u);
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return self->_cache.debugScanPauses == 1; }));
+    XCTAssertTrue([self awaitHoldReleased]);
     XCTAssertFalse(scanFiled);
     [_foreground settle];
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return scanFiled; }));
+}
+
+// A pause that reaches the decode while it waits for a free buffer, its next
+// block not yet read, stops it before that read. A local file's read never
+// waits, so no interrupt can stop it there.
+- (void)testAPauseDuringTheWaitForABufferStopsTheNextRead {
+    VibeTestTrack *track = [self trackNamed:@"local.wav" seconds:8];
+    __block NSUInteger framesAtRise = 0;
+    WaveformForeground *foreground = _foreground;
+    // Held on the processing queue, which holds the buffer the decode waits
+    // for. The decode reads one block ahead, then waits, and the rise comes.
+    [self holdNextDecodeAfter:2 * kBlock atHold:^(NSUInteger frames) {
+        framesAtRise = frames;
+        usleep(50000);
+        [foreground rise];
+    }];
+    __block BOOL filed = NO;
+    [_cache scanWaveformForTrack:track completion:^(BOOL done) { filed = done; }];
+    XCTAssertTrue(WaveformSpinUntil(^BOOL { return self->_cache.debugScanPauses == 1; }));
+    XCTAssertTrue([self awaitHoldReleased]);
+    WaveformSpinFor(0.1);
+    WaveformRecordingSink *sink = _observer.sinks.firstObject;
+    XCTAssertLessThanOrEqual(sink.frames, framesAtRise + kBlock, @"the block read ahead, and no other");
+    XCTAssertFalse(filed);
+
+    [_foreground settle];
+    XCTAssertTrue(WaveformSpinUntil(^BOOL { return filed; }));
+    XCTAssertEqual(sink.frames, (NSUInteger)(44100 * 8), @"every frame once");
 }
 
 // Unset, the coordinator is the shared one. A play's download through the
@@ -360,6 +417,7 @@ static const double kThrottledSeconds = 8;
     XCTAssertFalse(coordinator.isForegroundTransferActive);
 
     __block BOOL filed = NO;
+    [self holdNextDecodeAfter:kBlock atHold:nil];
     [_cache scanWaveformForTrack:track completion:^(BOOL done) { filed = done; }];
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return self->_observer.sinks.firstObject.frames > 0; }));
     __block BOOL downloaded = NO;
@@ -371,6 +429,7 @@ static const double kThrottledSeconds = 8;
         downloaded = YES;
     }];
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return self->_cache.debugScanPauses == 1; }), @"the play's download paused it");
+    XCTAssertTrue([self awaitHoldReleased]);
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return downloaded; }));
     XCTAssertEqual(outcome, VibeAudioFileMaterializationResultReady);
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return filed; }), @"the settled download resumed it");

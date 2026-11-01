@@ -19,6 +19,10 @@ NS_ASSUME_NONNULL_BEGIN
 // Spins the run loop until the condition holds, up to the hang guard.
 FOUNDATION_EXPORT BOOL WaveformSpinUntil(BOOL (^condition)(void));
 
+// Off main, where no run loop turns: asks every millisecond until the
+// condition holds, up to the hang guard.
+FOUNDATION_EXPORT BOOL WaveformWaitUntil(BOOL (^condition)(void));
+
 // Spins the run loop for a window in which nothing more may arrive.
 FOUNDATION_EXPORT void WaveformSpinFor(NSTimeInterval seconds);
 

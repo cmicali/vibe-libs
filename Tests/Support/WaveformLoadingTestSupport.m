@@ -20,6 +20,17 @@ BOOL WaveformSpinUntil(BOOL (^condition)(void)) {
     return YES;
 }
 
+BOOL WaveformWaitUntil(BOOL (^condition)(void)) {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (!condition()) {
+        if (deadline.timeIntervalSinceNow < 0) {
+            return NO;
+        }
+        usleep(1000);
+    }
+    return YES;
+}
+
 void WaveformSpinFor(NSTimeInterval seconds) {
     NSDate *until = [NSDate dateWithTimeIntervalSinceNow:seconds];
     do {
