@@ -2,8 +2,8 @@
 //  AudioWaveformCacheInternal.h
 //  vibe-libs
 //
-//  The state, the entry key, and the lookup-or-decode path the debug seam's
-//  per-file cache control shares with the delegate path
+//  The state, the scans' line, the entry key, and the lookup-or-decode path
+//  every load takes: the delegate's, the scans', and the debug seam's
 //  (AudioWaveformCache+Debug.mm).
 //
 
