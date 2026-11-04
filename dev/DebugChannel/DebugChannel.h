@@ -27,7 +27,9 @@ typedef NSString * _Nullable (^VibeDebugChannelExecutor)(NSArray<NSString *> *ar
                                                          NSString *commandId);
 
 // Names the channel, sweeps its files older than this process, then listens
-// on its notification on the main queue. A command written since the process
+// on its notification. The executor runs on main, from main's run loop, so a
+// modal loop inside a main-queue block still hears it. One command never
+// runs inside another. A command written since the process
 // started is drained on the next main-queue turn. The name is the app's bundle
 // identifier or a name of its own. Every name on the wire derives from it
 // (DebugWireFormat.h). On iOS it also watches the container's tmp directory:
