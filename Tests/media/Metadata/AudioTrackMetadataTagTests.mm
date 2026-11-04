@@ -13,6 +13,7 @@
 
 #import <XCTest/XCTest.h>
 
+#import "ArchivedArtShare.h"
 #import "AudioTrackMetadataInternal.h"
 #import "AudioTrackMetadataTagFixtures.h"
 #import "PlatformImage.h"
@@ -56,6 +57,8 @@ static NSData *sArt;
 - (void)setUp {
     [super setUp];
     _dir = VibeTagFixtureDirectory();
+    // The share is the process's, and most fixtures embed one picture.
+    VibeArchivedArtShareResetForTesting();
 }
 
 - (void)tearDown {
@@ -517,6 +520,9 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
         XCTAssertNil(displayArt, @"%@", name);
         XCTAssertNil([metadata.artwork loadArtBlocking], @"%@", name);
         XCTAssertFalse(metadata.artNeedsLoad, @"%@: undecodable bytes are not retried", name);
+        // The second file meets the first's picture in the share, and still
+        // lets go of its own bytes.
+        XCTAssertNil([metadata.artwork artDataForArchivedDisplayArt], @"%@: its bytes are let go", name);
 
         // The archived entry still says the file has art.
         NSError *error = nil;
@@ -563,6 +569,21 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
     CGSize size = VibeEncodedImagePixelSize(displayArt);
     XCTAssertEqual(size.width, kVibeArchivedDisplayArtDimension);
     XCTAssertEqual(size.height, kVibeArchivedDisplayArtDimension);
+}
+
+// Two files that embed one picture, as an album's tracks do, share its
+// archived forms: the second parse decodes nothing (ArchivedArtShare.h).
+- (void)testFilesEmbeddingOnePictureShareItsForms {
+    NSData *art = VibeImageOfColor(1400, 0.1, 0.6, 0.4, YES);
+    NSURL *first = [self write:VibeTagFixtureFLAC art:art];
+    NSURL *second = [_dir URLByAppendingPathComponent:@"second.flac"];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:first toURL:second error:NULL]);
+    NSData *firstArt = nil, *secondArt = nil;
+    AudioTrackMetadata *one = Parse(first, &firstArt);
+    AudioTrackMetadata *two = Parse(second, &secondArt);
+    XCTAssertNotNil(firstArt);
+    XCTAssertEqual(firstArt, secondArt, @"the same rendition, made once");
+    XCTAssertEqualObjects(one.artwork.encodedThumbnailDataForStorage, two.artwork.encodedThumbnailDataForStorage);
 }
 
 // A read that fails is unknown, never artless: the folder's cover must not
