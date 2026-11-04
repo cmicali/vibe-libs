@@ -111,6 +111,27 @@ if [ -e "$COPY/Extension/Localizable.xcstrings" ] || grep -q "of them" <<<"$(ext
 fi
 
 fresh
+add_macro '#define STR_SONGS NSLS(@"songs.count", @"%ld songs", @"A count of songs. [one: %ld song]")'
+expect "extraction writes a plural key's English forms" 0 "4 keys in Localizable.xcstrings" extract
+plural() { jq -r '.strings["songs.count"].localizations.en.variations.plural | "\(.one.stringUnit.value) / \(.other.stringUnit.value)"' "$COPY/Localizable.xcstrings"; }
+expect "the singular is the comment's, and the plural the value" 0 "%ld song / %ld songs" plural
+expect "a catalog with them is in sync" 0 "string catalogs are in sync" extract --check
+set_json Localizable.xcstrings '.strings["songs.count"].localizations.en.variations.plural.one.stringUnit.value = "%ld songz"'
+expect "a form that doesn't follow its declaration fails the check" 1 "error: Localizable.xcstrings is out of date" extract --check
+set_json Localizable.xcstrings '.strings["songs.count"].localizations.de = {variations: {plural: {one: {stringUnit: {state: "translated", value: "%ld Lied"}}, other: {stringUnit: {state: "translated", value: "%ld Lieder"}}}}}'
+sed -i '' -e 's/@"%ld songs"/@"%ld tracks"/' -e 's/\[one: %ld song\]/[one: %ld track]/' "$COPY/Sources/FixtureStrings.h"
+expect "a reworded plural is out of date" 1 "error: Localizable.xcstrings is out of date" extract --check
+extract >/dev/null
+expect "a reword updates both forms" 0 "%ld track / %ld tracks" plural
+expect "a reword flips the other languages' forms" 0 '"needs_review needs_review"' \
+    jq '.strings["songs.count"].localizations.de.variations.plural | "\(.one.stringUnit.state) \(.other.stringUnit.state)"' "$COPY/Localizable.xcstrings"
+
+fresh
+set_json Localizable.xcstrings '.strings["greeting.bye"].localizations.en.variations = {plural: {one: {stringUnit: {state: "translated", value: "Goodbye"}}, other: {stringUnit: {state: "translated", value: "Goodbye"}}}}'
+expect "a plural key with no declared singular fails the check" 1 "  greeting.bye" extract --check
+expect "and fails extraction" 1 "error: plural keys whose comment declares no singular" extract
+
+fresh
 sed -i '' 's/^STRINGS_MACROS=STR_$/STRINGS_MACROS=TXT_/' "$COPY/strings-config.sh"
 expect "a registry with none of the config's macros fails" 1 "error: no TXT_* macros found in" extract --check
 
