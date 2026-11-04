@@ -28,9 +28,6 @@ typedef VibeImage * _Nullable (^FolderArtDecoder)(NSData *data, CGFloat maxPixel
                          accessProvider:(FolderArtAccessProvider)accessProvider;
 
 @property (nonatomic, readonly) NSUInteger recordedDirectoryCount;
-// Whether a cover is a cloud placeholder. PlaceholderFiles' dataless test
-// unless a test sets its own, before the first read.
-@property (nonatomic, copy) BOOL (^placeholderTest)(NSString *path);
 
 - (nullable NSString *)settledArtPathForDirectory:(nullable NSString *)directory;
 - (void)invalidate;

@@ -10,12 +10,12 @@
 #import "VibePlaylistEntry.h"
 #import "VibePlaylistFile.h"
 #import "VibeMacros.h"
+#import "VibeMaterializing.h"
 
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -235,22 +235,6 @@ static BOOL VibeErrorIsNotFetched(NSError *error) {
     return NO;
 }
 
-// Runs block with this thread unable to materialize a dataless file or
-// directory: a listing or a read of one fails with EDEADLK, and nothing
-// downloads. TRAP: thread scope, restored after. The thread is a global
-// queue's, and runs other work next.
-static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
-    int previous = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
-    BOOL set = setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD,
-                              IOPOL_MATERIALIZE_DATALESS_FILES_OFF) == 0;
-    if (!set) {
-        LogWarn(@"Could not turn materialization off for a scan: %s", strerror(errno));
-    }
-    block();
-    if (set && previous >= 0) {
-        setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, previous);
-    }
-}
 
 // Hands listed every directory deeper than depth, deepest first: an entry at
 // that depth means they are listed in full. An empty one is skipped.
@@ -776,7 +760,7 @@ const NSUInteger VibeFolderScanBatchLimit = 256;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSMutableArray<NSArray<NSError *> *> *failureLists = [NSMutableArray arrayWithCapacity:roots.count];
         NSMutableArray<NSNumber *> *verdicts = [NSMutableArray arrayWithCapacity:roots.count];
-        VibeWithoutMaterializing(^{ for (NSURL *root in roots) {
+        VibeWithoutMaterializing(@"a scan", ^{ for (NSURL *root in roots) {
             NSMutableArray<NSError *> *failures = [NSMutableArray array];
             if (!progress.isCancelled) {
                 VibeWalkTree(root, VibeFolderOpenSortAsReceived, progress, YES, YES, failures,

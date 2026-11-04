@@ -15,6 +15,7 @@
 #import "PlatformImage.h"
 #import "HelperMacros.h"
 #import "VibeMacros.h"
+#import "VibeMaterializing.h"
 
 #import <os/lock.h>
 #import <stdatomic.h>
@@ -60,7 +61,8 @@ static NSString *const kNoArtMarker = @"";
     FolderArtFileInfoProvider _fileInfo;
     FolderArtDataReader _dataReader;
     FolderArtDecoder _decoder;
-    BOOL (^_placeholderTest)(NSString *path);
+    // holdsCloudCovers. Set before the first read.
+    atomic_bool _holdsCloudCovers;
 }
 
 + (instancetype)sharedInstance {
@@ -144,9 +146,6 @@ static NSString *const kNoArtMarker = @"";
         _fileInfo = [fileInfo copy];
         _dataReader = [dataReader copy];
         _decoder = [decoder copy];
-        _placeholderTest = ^BOOL(NSString *path) {
-            return [PlaceholderFiles isDatalessFile:[NSURL fileURLWithPath:path]];
-        };
     }
     return self;
 }
@@ -186,8 +185,7 @@ static NSString *const kNoArtMarker = @"";
     FolderArtEntry *entry = _directories[directory];
     NSString *settled = entry.artPath;
     uint64_t settledAnswerGeneration = entry.answerGeneration;
-    BOOL decodeSettled = settled.length > 0 && settledAnswerGeneration != 0 &&
-            !entry.readBlockedWithoutGrant;
+    BOOL decodeSettled = settled.length > 0 && settledAnswerGeneration != 0 && !entry.readsHeld;
     if (entry) {
         [self touchLocked:entry];
     }
@@ -253,7 +251,7 @@ static NSString *const kNoArtMarker = @"";
     // Read-only: on main; the resolve touches the entry itself.
     os_unfair_lock_lock(&_lock);
     FolderArtEntry *entry = _directories[directory];
-    BOOL needed = !entry.settledEmpty && !entry.readBlockedWithoutGrant && !entry.inCloud;
+    BOOL needed = !entry.settledEmpty && !entry.readsHeld;
     os_unfair_lock_unlock(&_lock);
     return needed;
 }
@@ -304,6 +302,7 @@ static NSString *const kNoArtMarker = @"";
         entry.resolving = 0;
         entry.readFailures = 0;
         entry.readBlockedWithoutGrant = NO;
+        entry.inCloud = NO;
         entry.settledWithoutGrant = NO;
         [_thumbnails removeObjectForKey:directory];
         [_displayImages removeObjectForKey:directory];
@@ -376,12 +375,12 @@ static NSString *const kNoArtMarker = @"";
 
 #pragma mark - Entries
 
-- (BOOL (^)(NSString *))placeholderTest {
-    return _placeholderTest;
+- (BOOL)holdsCloudCovers {
+    return atomic_load_explicit(&_holdsCloudCovers, memory_order_relaxed);
 }
 
-- (void)setPlaceholderTest:(BOOL (^)(NSString *))placeholderTest {
-    _placeholderTest = [placeholderTest copy];
+- (void)setHoldsCloudCovers:(BOOL)holdsCloudCovers {
+    atomic_store_explicit(&_holdsCloudCovers, holdsCloudCovers, memory_order_relaxed);
 }
 
 - (NSString *)cloudArtPathForAudioFilePath:(NSString *)path {
@@ -397,11 +396,21 @@ static NSString *const kNoArtMarker = @"";
 }
 
 - (void)artDidArriveInDirectories:(NSSet<NSString *> *)directories {
+    NSMutableArray<NSString *> *rearmed = [NSMutableArray array];
     os_unfair_lock_lock(&_lock);
     for (NSString *directory in directories) {
-        _directories[directory].inCloud = NO;
+        FolderArtEntry *entry = _directories[directory];
+        if (entry.inCloud) {
+            entry.inCloud = NO;
+            [rearmed addObject:directory];
+        }
     }
     os_unfair_lock_unlock(&_lock);
+    // The rows stopped asking, so the read is asked for here, and its
+    // pixels post FolderArtDidResolveNotification.
+    for (NSString *directory in rearmed) {
+        [self scheduleResolveOfDirectory:directory];
+    }
 }
 
 - (BOOL)folderArtEnabled {
@@ -519,6 +528,7 @@ static NSString *const kNoArtMarker = @"";
     entry.artPath = artPath ?: kNoArtMarker;
     entry.readFailures = 0;
     entry.readBlockedWithoutGrant = NO;
+    entry.inCloud = NO;
     [self touchLocked:entry];
 }
 
@@ -573,6 +583,20 @@ static NSString *const kNoArtMarker = @"";
     });
 }
 
+- (void)postInCloudNotificationForDirectory:(NSString *)directory artPath:(NSString *)artPath {
+    // Built outside the block: run_on_main_thread's macro would split the
+    // literal's commas into arguments.
+    NSDictionary *userInfo = @{FolderArtPathKey: artPath, FolderArtDirectoryKey: directory};
+    __weak FolderArtResolver *weakSelf = self;
+    run_on_main_thread({
+        FolderArtResolver *strongSelf = weakSelf;
+        if (strongSelf) {
+            [NSNotificationCenter.defaultCenter postNotificationName:FolderArtInCloudNotification object:strongSelf
+                                                            userInfo:userInfo];
+        }
+    });
+}
+
 #pragma mark - Resolving
 
 // A thousand rows in one folder must produce one job. O(1) on main; the claim
@@ -580,7 +604,7 @@ static NSString *const kNoArtMarker = @"";
 - (void)scheduleResolveOfDirectory:(NSString *)directory {
     os_unfair_lock_lock(&_lock);
     FolderArtEntry *entry = _directories[directory];
-    BOOL skip = entry != nil && (entry.settledEmpty || entry.readBlockedWithoutGrant || entry.inCloud ||
+    BOOL skip = entry != nil && (entry.settledEmpty || entry.readsHeld ||
             entry.resolving != 0 || entry.scheduled);
     if (!skip) {
         [self entryLocked:directory].scheduled = YES;
@@ -715,14 +739,26 @@ static NSString *const kNoArtMarker = @"";
         LogDebug(@"No folder grant for %@ — skipping folder art read", directory);
         return nil;
     }
-    // A cover in the cloud is never downloaded here: the read waits until
-    // an app brings it down. The read runs with materialization off, so one
-    // freed after this test fails, and is found in the cloud below.
-    BOOL inCloud = _placeholderTest(artPath);
-    NSData *data = inCloud ? nil : _dataReader(artPath);
-    inCloud = inCloud || (!data && _placeholderTest(artPath));
-    if (!inCloud) {
-        LogDebug(@"Loaded folder art %@", artPath);
+    LogDebug(@"Loading folder art %@", artPath);
+    __block NSData *data = nil;
+    BOOL inCloud = NO;
+    if (self.holdsCloudCovers) {
+        // A cover in the cloud is never downloaded here: the read waits
+        // until an app brings it down. The test before the read catches a
+        // remote placeholder, which the policy doesn't stop. The read runs
+        // with materialization off, so a cover freed after the test fails,
+        // and the test after it finds it in the cloud.
+        NSURL *url = [NSURL fileURLWithPath:artPath];
+        inCloud = [PlaceholderFiles isDatalessFile:url];
+        if (!inCloud) {
+            VibeWithoutMaterializing(@"a cover read", ^{
+                data = self->_dataReader(artPath);
+            });
+            inCloud = !data && [PlaceholderFiles isDatalessFile:url];
+        }
+    }
+    else {
+        data = _dataReader(artPath);
     }
     BOOL settledArtless = NO;
     os_unfair_lock_lock(&_lock);
@@ -732,11 +768,7 @@ static NSString *const kNoArtMarker = @"";
         entry.inCloud = YES;
         os_unfair_lock_unlock(&_lock);
         if (first) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                [NSNotificationCenter.defaultCenter postNotificationName:FolderArtInCloudNotification object:self
-                                                                userInfo:@{FolderArtPathKey: artPath,
-                                                                           FolderArtDirectoryKey: directory}];
-            });
+            [self postInCloudNotificationForDirectory:directory artPath:artPath];
         }
         return nil;
     }

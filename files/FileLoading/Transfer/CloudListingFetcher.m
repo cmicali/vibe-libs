@@ -7,12 +7,12 @@
 #import "CloudListingFetcher+Debug.h"
 #import "PlaceholderFiles.h"
 #import "VibeMacros.h"
+#import "VibeMaterializing.h"
 
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
-#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -27,18 +27,11 @@ static NSError *VibePOSIXError(int code, NSURL *url) {
 }
 
 // Runs block with this thread able to materialize, whatever its queue set.
-// TRAP: thread scope, restored after, since the thread runs other work next.
 static BOOL VibeMaterializing(NS_NOESCAPE BOOL (^block)(void)) {
-    int previous = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
-    BOOL set = setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD,
-                              IOPOL_MATERIALIZE_DATALESS_FILES_ON) == 0;
-    if (!set) {
-        LogWarn(@"Could not turn materialization on for a fetch: %s", strerror(errno));
-    }
-    BOOL result = block();
-    if (set && previous >= 0) {
-        setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, previous);
-    }
+    __block BOOL result = NO;
+    VibeWithMaterializationPolicy(IOPOL_MATERIALIZE_DATALESS_FILES_ON, @"a fetch", ^{
+        result = block();
+    });
     return result;
 }
 

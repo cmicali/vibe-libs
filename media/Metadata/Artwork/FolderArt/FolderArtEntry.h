@@ -32,7 +32,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) BOOL readBlockedWithoutGrant;
 // A known cover its provider holds in the cloud: the path is kept, nothing
 // downloads it, and redraws stop retrying the read until an app says it
-// arrived (artDidArriveInDirectories:).
+// arrived (artDidArriveInDirectories:). Cleared with readBlockedWithoutGrant,
+// since a new answer is a new cover.
 @property (nonatomic) BOOL inCloud;
 // From a bulk open: resolve by one listing. A fact about the open, not an
 // answer, so forgetSettledAnswer keeps it.
@@ -41,6 +42,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, readonly) BOOL settled;
 @property (nonatomic, readonly) BOOL settledEmpty;
+// A known cover that no read may open now: no grant, or in the cloud.
+@property (nonatomic, readonly) BOOL readsHeld;
 // Work in flight fences on this entry, so eviction leaves it alone.
 @property (nonatomic, readonly) BOOL busy;
 

@@ -6,7 +6,6 @@
 #import "FolderArtFileIO.h"
 
 #import <errno.h>
-#import <sys/resource.h>
 #import <fcntl.h>
 #import <sys/stat.h>
 #import <unistd.h>
@@ -27,25 +26,7 @@ BOOL VibeFolderArtFileInfo(NSString *path, unsigned long long *size) {
 // device named cover.jpg from wedging the open (S_ISREG is known only after
 // it); left on across the reads, a file whose bytes are not resident answers
 // EAGAIN, which says nothing about the image.
-// The read itself, as VibeReadFolderArt runs it.
-static NSData *VibeReadFolderArtBytes(NSString *path);
-
-// A cover the provider frees after the resolver's test must fail its read,
-// not download: the read runs with materialization off for its thread, as
-// the metadata parse's does. TRAP: the policy is the thread's, so it is put
-// back after, since the queue's thread runs other work next.
 NSData *VibeReadFolderArt(NSString *path) {
-    int previous = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
-    BOOL set = setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD,
-                              IOPOL_MATERIALIZE_DATALESS_FILES_OFF) == 0;
-    NSData *data = VibeReadFolderArtBytes(path);
-    if (set && previous >= 0) {
-        setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, previous);
-    }
-    return data;
-}
-
-static NSData *VibeReadFolderArtBytes(NSString *path) {
     int descriptor = open(path.fileSystemRepresentation,
                           O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK);
     if (descriptor < 0) {
