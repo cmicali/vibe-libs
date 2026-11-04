@@ -126,9 +126,12 @@ jq -s '[.[].tables.Localizable // [] | .[]] | map({(.key): .value}) | add // {}'
 #
 # The write and --check paths run the same unshield/sync/normalize sequence,
 # so jq's formatting is identical on both sides.
+# A plural string's singular, declared at the end of its comment.
+ONE_FORM='\[one: (?<one>[^]]*)\]'
+
 normalize() {
     local file="$1" tmp="$1.tmp"
-    jq --indent 2 --slurpfile src "$WORK/envalues.json" '
+    jq --indent 2 --slurpfile src "$WORK/envalues.json" --arg one_re "$ONE_FORM" '
         .strings |= with_entries(
             ($src[0][.key] // null) as $en |
             .value |= (
@@ -138,8 +141,26 @@ normalize() {
                 | (if $en != null and .localizations.en.stringUnit.value != $en
                    then .localizations.en.stringUnit.value = $en
                         | (.localizations |= with_entries(
-                              if .key == "en" then .
+                              if .key == "en" or (.value.stringUnit | not) then .
                               else .value.stringUnit.state = "needs_review" end))
+                   else . end)
+                # The English plural forms follow the value: other is the
+                # value, and one is the singular the comment declares, as
+                # "[one: %ld song]". sync never writes variations, so without
+                # this a reword leaves the old forms, which the app shows.
+                # (No apostrophes here: this program is single-quoted.)
+                | (.localizations.en.stringUnit.value // null) as $value
+                | (((.comment // "") | capture($one_re).one) // null) as $one
+                | (if $one != null and $value != null then
+                       .localizations.en.variations.plural as $old
+                       | .localizations.en.variations.plural = {
+                             one: {stringUnit: {state: "translated", value: $one}},
+                             other: {stringUnit: {state: "translated", value: $value}}}
+                       | (if $old != .localizations.en.variations.plural
+                          then .localizations |= with_entries(
+                                   if .key == "en" or (.value.variations.plural | not) then .
+                                   else .value.variations.plural |= map_values(.stringUnit.state = "needs_review") end)
+                          else . end)
                    else . end)
                 # Delete-then-append, never update in place: sync places the
                 # extractionState of a new key alphabetically, while the --check
@@ -191,12 +212,32 @@ check_specifiers() {
         .strings | to_entries[]
         | .key as $k | (.value.localizations // {}) as $l
         | (($l.en.stringUnit.value // "") | specs) as $en
-        | [$l | to_entries[] | select(.key != "en")
-              | select(((.value.stringUnit.value // "") | specs) != $en) | .key]
+        # The English singular keeps the value'"'"'s specifiers. A translated
+        # singular may drop its number, as some languages write one.
+        | [$l | to_entries[]
+              | select([.value.stringUnit.value, .value.variations.plural.other.stringUnit.value,
+                        (if .key == "en" then .value.variations.plural.one.stringUnit.value else null end)]
+                       | map(select(. != null) | specs) | any(. != $en)) | .key]
         | select(length > 0) | "  \($k): \(join(" "))"' "$1")
     if [ -n "$mismatched" ]; then
-        echo "error: translations whose format specifiers differ from the English (give the reworded string a new key):" >&2
+        echo "error: forms whose format specifiers differ from the English value (fix the singular, or give a reworded string a new key):" >&2
         echo "$mismatched" >&2
+        exit 1
+    fi
+}
+
+# A key with English plural forms declares its singular in its comment, so
+# extraction can keep both forms with its value.
+check_plurals() {
+    local undeclared
+    undeclared=$(jq -r '
+        .strings | to_entries[]
+        | select(.value.localizations.en.variations.plural)
+        | select((.value.comment // "") | test($one_re) | not)
+        | "  \(.key)"' --arg one_re "$ONE_FORM" "$1")
+    if [ -n "$undeclared" ]; then
+        echo "error: plural keys whose comment declares no singular (end the comment with [one: <the singular>]):" >&2
+        echo "$undeclared" >&2
         exit 1
     fi
 }
@@ -222,6 +263,7 @@ if [ "${2:-}" = "--check" ]; then
         fi
     fi
     check_specifiers "$CATALOG"
+    check_plurals "$CATALOG"
     echo "🔊 string catalogs are in sync"
 else
     unshield "$CATALOG"
@@ -233,5 +275,6 @@ else
         SUMMARY="$SUMMARY, $(jq '.strings | length' "$SUBSET_CATALOG") of them in the $SUBSET's"
     fi
     check_specifiers "$CATALOG"
+    check_plurals "$CATALOG"
     echo "🔊 $SUMMARY"
 fi
