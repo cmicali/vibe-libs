@@ -127,6 +127,16 @@ expect "a reword flips the other languages' forms" 0 '"needs_review needs_review
     jq '.strings["songs.count"].localizations.de.variations.plural | "\(.one.stringUnit.state) \(.other.stringUnit.state)"' "$COPY/Localizable.xcstrings"
 
 fresh
+add_macro '#define STR_SONGS NSLS(@"songs.count", @"%ld songs", @"A count of songs. [one: %d song]")'
+expect "a singular whose specifiers differ from its value fails" 1 "songs.count: en" extract
+sed -i '' 's/\[one: %d song\]/[one: %ld song]/' "$COPY/Sources/FixtureStrings.h"
+extract >/dev/null
+set_json Localizable.xcstrings '.strings["songs.count"].localizations.de = {variations: {plural: {one: {stringUnit: {state: "translated", value: "ein Lied"}}, other: {stringUnit: {state: "translated", value: "%ld Lieder"}}}}}'
+expect "a translated singular may drop its number" 0 "string catalogs are in sync" extract --check
+set_json Localizable.xcstrings '.strings["songs.count"].localizations.de.variations.plural.other.stringUnit.value = "viele Lieder"'
+expect "a translated plural that drops its number fails" 1 "songs.count: de" extract --check
+
+fresh
 set_json Localizable.xcstrings '.strings["greeting.bye"].localizations.en.variations = {plural: {one: {stringUnit: {state: "translated", value: "Goodbye"}}, other: {stringUnit: {state: "translated", value: "Goodbye"}}}}'
 expect "a plural key with no declared singular fails the check" 1 "  greeting.bye" extract --check
 expect "and fails extraction" 1 "error: plural keys whose comment declares no singular" extract
