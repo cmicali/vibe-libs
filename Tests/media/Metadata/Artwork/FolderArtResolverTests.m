@@ -131,6 +131,80 @@
     XCTAssertEqualObjects(readPath, [directory stringByAppendingPathComponent:@"folder.jpg"]);
 }
 
+// A cover in the cloud is never read, so nothing downloads it. The folder
+// says so once, keeps its path, and asks for no more loads, and its tries
+// are not failures. Once an app says it arrived, it reads.
+- (void)testACoverInTheCloudWaitsUntilItArrives {
+    __block BOOL inCloud = YES;
+    __block NSUInteger reads = 0;
+    NSImage *decoded = [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        reads += 1;
+        return [NSData dataWithBytes:"x" length:1];
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        return decoded;
+    }];
+    resolver.placeholderTest = ^BOOL(NSString *path) {
+        return inCloud;
+    };
+    NSString *directory = @"/Library/Albums/Cloud";
+    NSString *track = [directory stringByAppendingPathComponent:@"track.mp3"];
+    NSString *cover = [directory stringByAppendingPathComponent:@"cover.jpg"];
+    [resolver noteListedDirectories:[NSSet setWithObject:directory] artFilenameByDirectory:@{directory: @"cover.jpg"}];
+    __block NSUInteger posted = 0;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:FolderArtInCloudNotification object:resolver
+                                                                   queue:nil usingBlock:^(NSNotification *note) {
+        posted += 1;
+        XCTAssertEqualObjects(note.userInfo[FolderArtPathKey], cover);
+        XCTAssertEqualObjects(note.userInfo[FolderArtDirectoryKey], directory);
+    }];
+
+    for (int i = 0; i < 4; i++) {
+        XCTAssertNil([resolver displayImageForAudioFilePath:track]);
+    }
+    XCTAssertEqual(reads, 0u, @"nothing read, so nothing downloaded");
+    XCTAssertFalse([resolver needsBackgroundLoadForAudioFilePath:track], @"redraws stop asking");
+    XCTAssertEqualObjects([resolver cloudArtPathForAudioFilePath:track], cover);
+    XCTAssertEqualObjects([resolver settledArtPathForDirectory:directory], cover, @"not settled as none");
+    [[NSRunLoop currentRunLoop] runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.1]];
+    XCTAssertEqual(posted, 1u, @"once");
+
+    inCloud = NO;
+    [resolver artDidArriveInDirectories:[NSSet setWithObject:directory]];
+    XCTAssertNil([resolver cloudArtPathForAudioFilePath:track]);
+    XCTAssertEqualObjects([resolver displayImageForAudioFilePath:track], decoded);
+    XCTAssertEqual(reads, 1u);
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+}
+
+// A cover the provider frees between the test and the read fails its read,
+// which runs with materialization off, and is found in the cloud then, not
+// counted as a failure.
+- (void)testACoverFreedDuringItsReadIsInTheCloud {
+    __block NSUInteger tests = 0;
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        return nil;
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        return nil;
+    }];
+    resolver.placeholderTest = ^BOOL(NSString *path) {
+        tests += 1;
+        return tests > 1;
+    };
+    NSString *directory = @"/Library/Albums/Freed";
+    NSString *track = [directory stringByAppendingPathComponent:@"track.mp3"];
+    [resolver noteListedDirectories:[NSSet setWithObject:directory] artFilenameByDirectory:@{directory: @"cover.jpg"}];
+    for (int i = 0; i < 4; i++) {
+        XCTAssertNil([resolver displayImageForAudioFilePath:track]);
+    }
+    XCTAssertNotNil([resolver cloudArtPathForAudioFilePath:track]);
+    XCTAssertNotNil([resolver settledArtPathForDirectory:directory], @"three tries would have settled it as none");
+}
+
 - (void)testFinalReadRejectsASymbolicLinkCandidate {
     NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
     XCTAssertTrue([NSFileManager.defaultManager createDirectoryAtPath:directory

@@ -30,6 +30,10 @@ NS_ASSUME_NONNULL_BEGIN
 // A known cover whose scope ended: the path is kept for a later grant, and
 // redraws stop retrying the read.
 @property (nonatomic) BOOL readBlockedWithoutGrant;
+// A known cover its provider holds in the cloud: the path is kept, nothing
+// downloads it, and redraws stop retrying the read until an app says it
+// arrived (artDidArriveInDirectories:).
+@property (nonatomic) BOOL inCloud;
 // From a bulk open: resolve by one listing. A fact about the open, not an
 // answer, so forgetSettledAnswer keeps it.
 @property (nonatomic) BOOL preferListing;

@@ -16,6 +16,14 @@ NS_ASSUME_NONNULL_BEGIN
 // included. A view may hold the previous track's art until the answer.
 extern NSNotificationName const FolderArtDidResolveNotification;
 
+// Posted on main when a folder's cover is a cloud placeholder, so its read
+// would download it. The resolver reads none, and waits: an app that wants
+// it downloads it, then calls artDidArriveInDirectories:. The user info's
+// FolderArtPathKey is the cover's path, and FolderArtDirectoryKey its folder.
+extern NSNotificationName const FolderArtInCloudNotification;
+extern NSString *const FolderArtPathKey;
+extern NSString *const FolderArtDirectoryKey;
+
 // Whether folder art is on, and whether a directory may be read without
 // raising a permission panel. An app answers both (setEnabledProvider:).
 typedef BOOL (^FolderArtEnabledProvider)(void);
@@ -65,6 +73,14 @@ typedef BOOL (^FolderArtAccessProvider)(NSString *directory);
 // Forgets no-grant answers and re-arms read-blocked covers, which keep their
 // path. Never a full wipe: an open's grant lands just after its walk.
 - (void)invalidateDirectoriesSettledWithoutGrant;
+
+// The folder's cover, when its read found it in the cloud, or nil. A pure
+// read, on any thread.
+- (nullable NSString *)cloudArtPathForAudioFilePath:(nullable NSString *)path;
+
+// The covers of these folders may be on the device now: each in the cloud
+// is read again when next asked. Any thread.
+- (void)artDidArriveInDirectories:(NSSet<NSString *> *)directories;
 
 @end
 

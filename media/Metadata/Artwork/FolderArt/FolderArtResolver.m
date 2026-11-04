@@ -11,6 +11,7 @@
 #import "FolderArtEntry.h"
 #import "FolderArtFileIO.h"
 #import "FolderArtRules.h"
+#import "PlaceholderFiles.h"
 #import "PlatformImage.h"
 #import "HelperMacros.h"
 #import "VibeMacros.h"
@@ -19,6 +20,9 @@
 #import <stdatomic.h>
 
 NSNotificationName const FolderArtDidResolveNotification = @"FolderArtDidResolveNotification";
+NSNotificationName const FolderArtInCloudNotification = @"FolderArtInCloudNotification";
+NSString *const FolderArtPathKey = @"path";
+NSString *const FolderArtDirectoryKey = @"directory";
 
 static const NSUInteger kThumbnailCacheLimit = 64;
 // Enough that alternating between a few albums does not re-decode each time.
@@ -56,6 +60,7 @@ static NSString *const kNoArtMarker = @"";
     FolderArtFileInfoProvider _fileInfo;
     FolderArtDataReader _dataReader;
     FolderArtDecoder _decoder;
+    BOOL (^_placeholderTest)(NSString *path);
 }
 
 + (instancetype)sharedInstance {
@@ -139,6 +144,9 @@ static NSString *const kNoArtMarker = @"";
         _fileInfo = [fileInfo copy];
         _dataReader = [dataReader copy];
         _decoder = [decoder copy];
+        _placeholderTest = ^BOOL(NSString *path) {
+            return [PlaceholderFiles isDatalessFile:[NSURL fileURLWithPath:path]];
+        };
     }
     return self;
 }
@@ -245,7 +253,7 @@ static NSString *const kNoArtMarker = @"";
     // Read-only: on main; the resolve touches the entry itself.
     os_unfair_lock_lock(&_lock);
     FolderArtEntry *entry = _directories[directory];
-    BOOL needed = !entry.settledEmpty && !entry.readBlockedWithoutGrant;
+    BOOL needed = !entry.settledEmpty && !entry.readBlockedWithoutGrant && !entry.inCloud;
     os_unfair_lock_unlock(&_lock);
     return needed;
 }
@@ -367,6 +375,34 @@ static NSString *const kNoArtMarker = @"";
 }
 
 #pragma mark - Entries
+
+- (BOOL (^)(NSString *))placeholderTest {
+    return _placeholderTest;
+}
+
+- (void)setPlaceholderTest:(BOOL (^)(NSString *))placeholderTest {
+    _placeholderTest = [placeholderTest copy];
+}
+
+- (NSString *)cloudArtPathForAudioFilePath:(NSString *)path {
+    NSString *directory = [self directoryForAudioFilePath:path];
+    if (!directory) {
+        return nil;
+    }
+    os_unfair_lock_lock(&_lock);
+    FolderArtEntry *entry = _directories[directory];
+    NSString *artPath = entry.inCloud ? entry.artPath : nil;
+    os_unfair_lock_unlock(&_lock);
+    return artPath;
+}
+
+- (void)artDidArriveInDirectories:(NSSet<NSString *> *)directories {
+    os_unfair_lock_lock(&_lock);
+    for (NSString *directory in directories) {
+        _directories[directory].inCloud = NO;
+    }
+    os_unfair_lock_unlock(&_lock);
+}
 
 - (BOOL)folderArtEnabled {
     return atomic_load_explicit(&_enabledCache, memory_order_relaxed);
@@ -544,7 +580,7 @@ static NSString *const kNoArtMarker = @"";
 - (void)scheduleResolveOfDirectory:(NSString *)directory {
     os_unfair_lock_lock(&_lock);
     FolderArtEntry *entry = _directories[directory];
-    BOOL skip = entry != nil && (entry.settledEmpty || entry.readBlockedWithoutGrant ||
+    BOOL skip = entry != nil && (entry.settledEmpty || entry.readBlockedWithoutGrant || entry.inCloud ||
             entry.resolving != 0 || entry.scheduled);
     if (!skip) {
         [self entryLocked:directory].scheduled = YES;
@@ -679,11 +715,31 @@ static NSString *const kNoArtMarker = @"";
         LogDebug(@"No folder grant for %@ — skipping folder art read", directory);
         return nil;
     }
-    LogDebug(@"Loading folder art %@", artPath);
-    NSData *data = _dataReader(artPath);
+    // A cover in the cloud is never downloaded here: the read waits until
+    // an app brings it down. The read runs with materialization off, so one
+    // freed after this test fails, and is found in the cloud below.
+    BOOL inCloud = _placeholderTest(artPath);
+    NSData *data = inCloud ? nil : _dataReader(artPath);
+    inCloud = inCloud || (!data && _placeholderTest(artPath));
+    if (!inCloud) {
+        LogDebug(@"Loaded folder art %@", artPath);
+    }
     BOOL settledArtless = NO;
     os_unfair_lock_lock(&_lock);
     FolderArtEntry *entry = [self currentEntryLocked:directory answerGeneration:answerGeneration artPath:artPath];
+    if (inCloud) {
+        BOOL first = entry && !entry.inCloud;
+        entry.inCloud = YES;
+        os_unfair_lock_unlock(&_lock);
+        if (first) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [NSNotificationCenter.defaultCenter postNotificationName:FolderArtInCloudNotification object:self
+                                                                userInfo:@{FolderArtPathKey: artPath,
+                                                                           FolderArtDirectoryKey: directory}];
+            });
+        }
+        return nil;
+    }
     if (data) {
         entry.readFailures = 0;
     }
