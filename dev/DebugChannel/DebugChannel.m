@@ -200,20 +200,45 @@ static void VibeRemoveDebugChannelFiles(NSArray<NSString *> *kinds, NSDate *befo
     }
 }
 
+// Whether a drain runs now, and whether a wake-up came during it.
+static BOOL gDraining;
+static BOOL gDrainAgain;
+
 // notify_post coalesces back-to-back posts, so one wake-up drains every
 // pending command file. It runs the oldest first. A command's id is a UUID,
 // and name order let a backlog's oldest client run out its wait. A client that
 // gave up leaves its reply behind. The drain removes old replies. A pending
 // command is live. The drain never removes one.
-// TRAP: call it only from a main-queue block. A verb that spins the run loop
-// inside one services no other main-queue block, so the next client's command
-// waits for the verb to return and never runs inside it.
+// On main only. A wake-up during a drain, from a run loop a verb spins, runs
+// nothing then. The drain looks again once its verb returns, so the next
+// client's command waits for the verb and never runs inside it.
 static void VibeHandleDebugCommandFiles(void) {
+    if (gDraining) {
+        gDrainAgain = YES;
+        return;
+    }
+    gDraining = YES;
     VibeRemoveDebugChannelFiles(@[@"response", @"screenshot"],
                                 [NSDate dateWithTimeIntervalSinceNow:-kVibeDebugAbandonedFileAge]);
-    for (NSURL *url in VibeDebugChannelFiles(@[@"command"])) {
-        VibeHandleOneDebugCommandFile(url.path);
-    }
+    do {
+        gDrainAgain = NO;
+        for (NSURL *url in VibeDebugChannelFiles(@[@"command"])) {
+            VibeHandleOneDebugCommandFile(url.path);
+        }
+    } while (gDrainAgain);
+    gDraining = NO;
+}
+
+// TRAP: a main-queue block that runs a modal loop, as an alert's runModal
+// from a dispatch to main, services no other main-queue block until it
+// returns. So the wake-up is a block on main's run loop in its common modes,
+// which an idle main, a modal loop, and a menu's tracking all service.
+static void VibeWakeDebugDrain(void) {
+    CFRunLoopRef main = CFRunLoopGetMain();
+    CFRunLoopPerformBlock(main, kCFRunLoopCommonModes, ^{
+        VibeHandleDebugCommandFiles();
+    });
+    CFRunLoopWakeUp(main);
 }
 
 // When this process started. Now when the system cannot say, so every file
@@ -266,9 +291,12 @@ void VibeInstallDebugCommandChannel(NSString *channel, VibeDebugChannelExecutor 
     // run's, and the install drains it. Only this channel's files go.
     VibeRemoveDebugChannelFiles(@[@"command", @"response", @"screenshot"], VibeDebugProcessStartDate());
     static int token;
-    notify_register_dispatch(VibeDebugCommandNotificationName(gChannel).UTF8String, &token,
-                             dispatch_get_main_queue(), ^(int t) {
-        VibeHandleDebugCommandFiles();
+    static dispatch_queue_t listener;
+    if (!listener) {
+        listener = dispatch_queue_create("debug channel listener", DISPATCH_QUEUE_SERIAL);
+    }
+    notify_register_dispatch(VibeDebugCommandNotificationName(gChannel).UTF8String, &token, listener, ^(int t) {
+        VibeWakeDebugDrain();
     });
 #if TARGET_OS_IPHONE
     VibeInstallTmpDirectoryWatcher();

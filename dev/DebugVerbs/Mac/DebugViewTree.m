@@ -133,4 +133,38 @@ NSMenuItem *VibeFindMenuItem(NSMenu *menu, NSString *identifierOrTitle) {
     return nil;
 }
 
+static NSArray<NSView *> *VibeDebugShownViewsUnder(NSView *root) {
+    NSMutableArray<NSView *> *shown = [NSMutableArray array];
+    NSMutableArray<NSView *> *views = [NSMutableArray arrayWithObject:root];
+    while (views.count) {
+        NSView *view = views.firstObject;
+        [views removeObjectAtIndex:0];
+        if (!view.hidden) {
+            [shown addObject:view];
+            [views addObjectsFromArray:view.subviews];
+        }
+    }
+    return shown;
+}
+
+NSArray<NSString *> *VibeDebugTextsUnder(NSView *view) {
+    NSMutableArray<NSString *> *texts = [NSMutableArray array];
+    for (NSView *under in VibeDebugShownViewsUnder(view)) {
+        if ([under isKindOfClass:NSTextField.class] && ((NSTextField *)under).stringValue.length) {
+            [texts addObject:((NSTextField *)under).stringValue];
+        }
+    }
+    return texts;
+}
+
+NSArray<NSButton *> *VibeDebugButtonsUnder(NSView *view) {
+    NSMutableArray<NSButton *> *buttons = [NSMutableArray array];
+    for (NSView *under in VibeDebugShownViewsUnder(view)) {
+        if ([under isKindOfClass:NSButton.class] && ((NSButton *)under).title.length) {
+            [buttons addObject:(NSButton *)under];
+        }
+    }
+    return buttons;
+}
+
 #endif

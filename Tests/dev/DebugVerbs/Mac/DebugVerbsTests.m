@@ -6,6 +6,7 @@
 #import <AppKit/AppKit.h>
 
 #import "DebugCommandDispatch.h"
+#import "DebugModalUI.h"
 #import "DebugProcessHealth.h"
 #import "DebugScreenshot.h"
 #import "DebugStandardVerbs.h"
@@ -154,6 +155,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
     XCTAssertEqualObjects([NSSet setWithArray:verbs], ([NSSet setWithArray:@[
         @"dump_build", @"quit", @"work_tally", @"dump_health", @"block_main", @"block_main_deep",
         @"dump_view_tree", @"dump_menu", @"click_menu", @"dump_screenshot", @"raise_window",
+        @"answer_sheet", @"answer_popover", @"answer_menu",
         @"key", @"key_down", @"key_up", @"click", @"mouse_down", @"mouse_up", @"mouse_move", @"drag", @"scroll",
     ]]));
 
@@ -654,6 +656,176 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
     XCTAssertNotNil(JSONObject(error)[@"error"]);
     XCTAssertEqualObjects(VibeKeyCodeForName(@"return"), @36);
     XCTAssertNil(VibeKeyCodeForName(@"Return"), @"names are lowercase");
+}
+
+#pragma mark - The windows that ask
+
+// Runs the block on the main queue's next turn, as the channel runs a verb,
+// so it lands inside whatever loop main then spins.
+static void OnMainsNextTurn(dispatch_block_t block) {
+    dispatch_async(dispatch_get_main_queue(), block);
+}
+
+// Spins main until the condition holds, or a few seconds pass.
+static BOOL SpinUntil(BOOL (^condition)(void)) {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+    while (!condition() && deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    }
+    return condition();
+}
+
+static NSAlert *AlertOfTwoButtons(void) {
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.messageText = @"Asks";
+    alert.informativeText = @"Why it asks";
+    [alert addButtonWithTitle:@"First"];
+    [alert addButtonWithTitle:@"Second"];
+    return alert;
+}
+
+- (void)testAnAppModalAlertIsReadAndItsPressEndsTheSessionWithThatButton {
+    NSAlert *alert = AlertOfTwoButtons();
+    __block NSDictionary *read = nil;
+    __block NSDictionary *pressed = nil;
+    OnMainsNextTurn(^{
+        read = JSONObject(VibeDebugAnswerModal(@[], nil));
+        pressed = JSONObject(VibeDebugAnswerModal(@[], @"Second"));
+    });
+    // A guard, so a press that never ends the session fails, not hangs.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        if (NSApp.modalWindow == alert.window) {
+            [NSApp abortModal];
+        }
+    });
+    NSModalResponse response = [alert runModal];
+    XCTAssertEqual(response, NSAlertSecondButtonReturn, @"the press ends the session with its button");
+    XCTAssertEqualObjects(read[@"modal"], @YES);
+    XCTAssertEqualObjects(read[@"sheet"], @NO);
+    XCTAssertEqualObjects(read[@"panel"], @NO);
+    XCTAssertEqualObjects(read[@"texts"], (@[@"Asks", @"Why it asks"]));
+    XCTAssertEqualObjects([NSSet setWithArray:read[@"buttons"]], ([NSSet setWithArray:@[@"First", @"Second"]]),
+                          @"in the view tree's order");
+    XCTAssertEqualObjects(pressed[@"pressed"], @"Second");
+    XCTAssertEqualObjects(JSONObject(VibeDebugAnswerModal(@[], nil)), (@{@"ok": @YES, @"sheet": @NO, @"modal": @NO}),
+                          @"none asks once it ends");
+}
+
+- (void)testASheetIsReadAndPressedAndAnUnknownButtonIsRefused {
+    NSWindow *window = [self windowOfSize:NSMakeSize(400, 300)];
+    [window orderFront:nil];
+    NSAlert *alert = AlertOfTwoButtons();
+    __block NSModalResponse response = 0;
+    [alert beginSheetModalForWindow:window completionHandler:^(NSModalResponse returned) {
+        response = returned;
+    }];
+    XCTAssertTrue(SpinUntil(^BOOL { return window.attachedSheet != nil; }));
+    NSWindow *other = [self windowOfSize:NSMakeSize(100, 100)];
+    NSDictionary *read = JSONObject(VibeDebugAnswerModal(@[other, window], nil));
+    XCTAssertEqualObjects(read[@"sheet"], @YES, @"the first owner with a sheet");
+    for (NSString *key in @[@"sheet", @"modal", @"panel"]) {
+        XCTAssertEqual(CFGetTypeID((__bridge CFTypeRef)read[key]), CFBooleanGetTypeID(), @"%@ is true or false", key);
+    }
+    XCTAssertEqualObjects(read[@"modal"], @NO);
+    XCTAssertEqualObjects([NSSet setWithArray:read[@"buttons"]], ([NSSet setWithArray:@[@"First", @"Second"]]));
+    XCTAssertNotNil(JSONObject(VibeDebugAnswerModal(@[window], @"Third"))[@"error"]);
+    // The verb looks past a target window with no sheet, to any window's.
+    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    options.targetWindow = ^NSWindow *(id controller) {
+        return other;
+    };
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs(options);
+    XCTAssertEqualObjects(JSONObject(Run(table, @[@"answer_sheet"], NSNull.null))[@"sheet"], @YES);
+    XCTAssertEqualObjects(JSONObject(Run(table, @[@"answer_sheet", @"First"], NSNull.null))[@"pressed"], @"First");
+    XCTAssertTrue(SpinUntil(^BOOL { return response != 0; }));
+    XCTAssertEqual(response, NSAlertFirstButtonReturn);
+}
+
+- (void)testAPanelSheetSaysSoAndItsCancelEndsIt {
+    NSWindow *window = [self windowOfSize:NSMakeSize(600, 400)];
+    [window orderFront:nil];
+    NSSavePanel *panel = [NSSavePanel savePanel];
+    panel.message = @"Where it goes";
+    [panel beginSheetModalForWindow:window completionHandler:^(NSModalResponse returned) {
+    }];
+    XCTAssertTrue(SpinUntil(^BOOL { return window.attachedSheet != nil; }));
+    NSDictionary *read = JSONObject(VibeDebugAnswerModal(@[window], nil));
+    XCTAssertEqualObjects(read[@"panel"], @YES);
+    XCTAssertEqualObjects(read[@"texts"], @[@"Where it goes"]);
+    XCTAssertEqualObjects(read[@"buttons"], @[@"Cancel"], @"a panel's one button");
+    XCTAssertNotNil(JSONObject(VibeDebugAnswerModal(@[window], @"Save"))[@"error"]);
+    XCTAssertEqualObjects(JSONObject(VibeDebugAnswerModal(@[window], @"Cancel"))[@"pressed"], @"Cancel");
+    // TRAP: host-less, NSApp never runs, and a panel's completion never
+    // comes, even after endSheet:. So the sheet's end is the check here, and
+    // the app's live check sees the completion.
+    XCTAssertTrue(SpinUntil(^BOOL { return window.attachedSheet == nil; }), @"its own cancel: ends it");
+}
+
+- (void)testAShownPopoverIsListedPressedAndClosed {
+    NSWindow *window = [self windowOfSize:NSMakeSize(300, 200)];
+    [window orderFront:nil];
+    DebugVerbsMenuTarget *target = [DebugVerbsMenuTarget new];
+    NSViewController *content = [[NSViewController alloc] init];
+    content.view = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, 200, 80)];
+    NSTextField *label = [NSTextField labelWithString:@"What it says"];
+    label.frame = NSMakeRect(10, 50, 180, 20);
+    NSButton *button = [NSButton buttonWithTitle:@"Do It" target:target action:@selector(fire:)];
+    button.frame = NSMakeRect(10, 10, 100, 30);
+    NSButton *hidden = [NSButton buttonWithTitle:@"Hidden" target:target action:@selector(fire:)];
+    hidden.hidden = YES;
+    [content.view addSubview:label];
+    [content.view addSubview:button];
+    [content.view addSubview:hidden];
+    NSPopover *popover = [[NSPopover alloc] init];
+    popover.contentViewController = content;
+    [popover showRelativeToRect:NSMakeRect(10, 10, 20, 20) ofView:(NSView *)window.contentView
+                  preferredEdge:NSRectEdgeMaxY];
+    XCTAssertEqual(VibeDebugShownPopovers().count, 1u, @"from its show on, before its animation ends");
+
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs([VibeDebugStandardOptions new]);
+    NSDictionary *read = JSONObject(Run(table, @[@"answer_popover"], NSNull.null));
+    XCTAssertEqualObjects(read[@"popovers"], (@[@{@"index": @0, @"content": @"NSViewController",
+                                                  @"texts": @[@"What it says"], @"buttons": @[@"Do It"]}]));
+    XCTAssertNotNil(JSONObject(Run(table, @[@"answer_popover", @"1", @"close"], NSNull.null))[@"error"]);
+    XCTAssertNotNil(JSONObject(Run(table, @[@"answer_popover", @"0", @"Hidden"], NSNull.null))[@"error"],
+                    @"a hidden button is not pressed");
+    XCTAssertEqualObjects(JSONObject(Run(table, @[@"answer_popover", @"0", @"Do", @"It"], NSNull.null))[@"pressed"],
+                          @"Do It", @"the title is the rest of the tokens");
+    XCTAssertEqual(target.fired, 1u);
+    XCTAssertEqualObjects(JSONObject(Run(table, @[@"answer_popover", @"0", @"close"], NSNull.null))[@"closed"], @YES);
+    XCTAssertTrue(SpinUntil(^BOOL { return !popover.shown; }));
+    XCTAssertEqualObjects(JSONObject(Run(table, @[@"answer_popover"], NSNull.null))[@"popovers"], @[]);
+}
+
+- (void)testAPoppedUpMenuIsListedAndItsTrackingCancelledFromMain {
+    NSWindow *window = [self windowOfSize:NSMakeSize(300, 200)];
+    [window makeKeyAndOrderFront:nil];
+    DebugVerbsMenuTarget *target = [DebugVerbsMenuTarget new];
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Pops"];
+    [menu addItemWithTitle:@"One" action:@selector(fire:) keyEquivalent:@""].target = target;
+    [menu addItemWithTitle:@"Two" action:@selector(fire:) keyEquivalent:@""].target = target;
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs([VibeDebugStandardOptions new]);
+    __block NSDictionary *read = nil;
+    __block NSDictionary *cancelled = nil;
+    OnMainsNextTurn(^{
+        read = JSONObject(Run(table, @[@"answer_menu"], NSNull.null));
+        cancelled = JSONObject(Run(table, @[@"answer_menu", @"cancel"], NSNull.null));
+    });
+    // A guard, so a cancel that never lands fails, not hangs.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC), dispatch_get_main_queue(), ^{
+        [menu cancelTracking];
+    });
+    // It returns once its tracking ends.
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(20, 20) inView:window.contentView];
+    XCTAssertNotNil(read, @"main's queue runs while the menu tracks");
+    NSArray *menus = read[@"menus"];
+    XCTAssertEqual(menus.count, 1u);
+    XCTAssertEqualObjects(menus.firstObject[@"title"], @"Pops");
+    XCTAssertEqualObjects([menus.firstObject[@"items"] valueForKey:@"title"], (@[@"One", @"Two"]));
+    XCTAssertEqualObjects(cancelled[@"cancelled"], @1);
+    XCTAssertEqual(target.fired, 0u, @"a cancel sends no item");
+    XCTAssertTrue(SpinUntil(^BOOL { return VibeDebugTrackingMenus().count == 0; }));
+    XCTAssertNotNil(JSONObject(Run(table, @[@"answer_menu", @"pick"], NSNull.null))[@"error"]);
 }
 
 @end

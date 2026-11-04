@@ -3,7 +3,8 @@
 //  vibe-libs
 //
 //  The standard table's mac verbs: the view tree, the menus, the screenshot,
-//  and the window raise.
+//  the window raise, and the windows that ask: sheets, modal windows,
+//  panels, popovers, and open menus.
 //
 
 #import "DebugStandardVerbs.h"
@@ -14,10 +15,12 @@
 #import <ImageIO/ImageIO.h>
 #import "DebugChannel.h"
 #import "DebugCommandDispatch.h"
+#import "DebugModalUI.h"
 #import "DebugScreenshot.h"
 #import "DebugSyntheticInput.h"
 #import "DebugViewTree.h"
 #import "DebugWireFormat.h"
+#import "IntegerTokenRules.h"
 
 static NSWindow *VibeDebugTargetWindow(VibeDebugStandardOptions *options, id controller) {
     return (options.targetWindow ? options.targetWindow(controller) : nil) ?: NSApp.mainWindow;
@@ -37,6 +40,7 @@ static BOOL VibeDebugPerformMenuItem(NSMenuItem *item) {
 }
 
 NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions *options) {
+    VibeDebugWatchModalUI();
     return @[
         VibeDebugCmd(@"dump_view_tree", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
             return VibeViewTreeDump();
@@ -125,6 +129,76 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             return VibeJSONString(@{@"ok": @YES,
                     @"visible": @((BOOL)((window.occlusionState & NSWindowOcclusionStateVisible) != 0)),
                     @"displayAsleep": @((BOOL)(CGDisplayIsAsleep(CGMainDisplayID()) != 0))});
+        }),
+        // The alert that asks: an app-modal window, else the target window's
+        // sheet, else any window's, front to back. With a button's title, the
+        // rest of the tokens, it presses that button, as a click does.
+        VibeDebugCmd(@"answer_sheet [button]", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId,
+                                                              id controller) {
+            NSMutableArray<NSWindow *> *owners = [NSApp.orderedWindows mutableCopy];
+            NSWindow *target = VibeDebugTargetWindow(options, controller);
+            if (target) {
+                [owners insertObject:target atIndex:0];
+            }
+            return VibeDebugAnswerModal(owners, tokens.count > 1 ? VibeRestArgument(tokens) : nil);
+        }),
+        // The popovers showing, oldest first: their content's class, texts,
+        // and buttons. With an index and close, that popover closes, as
+        // Escape does. With an index and a button's title, the rest of the
+        // tokens, it presses the button, as a click does.
+        VibeDebugCmd(@"answer_popover [<index> <close|button>]", 0, ^NSString *(NSArray<NSString *> *tokens,
+                                                                               NSString *commandId, id controller) {
+            NSArray<NSPopover *> *popovers = VibeDebugShownPopovers();
+            if (tokens.count == 1) {
+                NSMutableArray *read = [NSMutableArray array];
+                for (NSPopover *popover in popovers) {
+                    NSView *content = popover.contentViewController.view;
+                    [read addObject:@{
+                        @"index": @(read.count),
+                        @"content": popover.contentViewController.className ?: NSNull.null,
+                        @"texts": content ? VibeDebugTextsUnder(content) : @[],
+                        @"buttons": content ? [VibeDebugButtonsUnder(content) valueForKey:@"title"] : @[],
+                    }];
+                }
+                return VibeJSONString(@{@"ok": @YES, @"popovers": read});
+            }
+            NSUInteger index = 0;
+            if (tokens.count < 3 || !VibeParseNonnegativeInteger(tokens[1], &index)) {
+                return VibeErrorJSON(@"usage: answer_popover [<index> <close|button>]");
+            }
+            if (index >= popovers.count) {
+                return VibeErrorJSON(@"no popover %lu: %lu show", (unsigned long)index, (unsigned long)popovers.count);
+            }
+            NSPopover *popover = popovers[index];
+            NSString *title = VibeRestArgument([tokens subarrayWithRange:NSMakeRange(1, tokens.count - 1)]);
+            if ([title isEqualToString:@"close"]) {
+                [popover performClose:nil];
+                return VibeJSONString(@{@"ok": @YES, @"closed": @YES});
+            }
+            NSView *content = popover.contentViewController.view;
+            NSString *error = VibeDebugPressButton(content ? VibeDebugButtonsUnder(content) : @[], title);
+            return error ?: VibeJSONString(@{@"ok": @YES, @"pressed": title});
+        }),
+        // The menus open now, outermost first, with their items as dump_menu
+        // lists them. With cancel, each ends its tracking, as Escape does,
+        // and no item is sent.
+        VibeDebugCmd(@"answer_menu [cancel]", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId,
+                                                             id controller) {
+            BOOL cancel = tokens.count == 2 && [tokens[1] isEqualToString:@"cancel"];
+            if (tokens.count > 1 && !cancel) {
+                return VibeErrorJSON(@"usage: answer_menu [cancel]");
+            }
+            NSArray<NSMenu *> *menus = VibeDebugTrackingMenus();
+            NSMutableArray *read = [NSMutableArray array];
+            for (NSMenu *menu in menus) {
+                [read addObject:@{@"title": menu.title ?: @"", @"items": VibeMenuArray(menu)}];
+            }
+            if (cancel) {
+                for (NSMenu *menu in menus.reverseObjectEnumerator) {
+                    [menu cancelTracking];
+                }
+            }
+            return VibeJSONString(@{@"ok": @YES, @"menus": read, @"cancelled": @(cancel ? menus.count : 0)});
         }),
     ];
 }

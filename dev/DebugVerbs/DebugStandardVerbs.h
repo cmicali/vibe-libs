@@ -25,8 +25,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSDictionary<NSString *, id> *_Nullable (^healthExtras)(id controller);
 // The app's verbs block_main may chain, after the shared verbs.
 @property (nonatomic, copy, nullable) NSArray<NSDictionary *> *_Nullable (^chainableVerbs)(void);
-// macOS: the window the mouse verbs aim at and raise_window raises. Nil, or a
-// nil answer: NSApp.mainWindow.
+// macOS: the window the mouse verbs aim at and raise_window raises, whose
+// sheet answer_sheet reads first. Nil, or a nil answer: NSApp.mainWindow.
 @property (nonatomic, copy, nullable) NSWindow *_Nullable (^targetWindow)(id controller);
 // macOS: click_menu's dispatch. NO when nothing handled the item. Nil: NSApp
 // sends the item's action, after the validation opening the menu would run.

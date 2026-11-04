@@ -287,8 +287,8 @@ static void InstallChannelOnce(void) {
     XCTAssertEqualObjects(JSONObject(SendArgs(@[@"slow"])), @{@"later": @YES});
 }
 
-// A verb runs in a main-queue block, and a run loop it spins services no
-// other. So a command posted meanwhile runs once the verb returns.
+// A verb's drain runs no other, even from a run loop the verb spins. So a
+// command posted meanwhile runs once the verb returns.
 - (void)testACommandPostedWhileAVerbSpinsMainRunsAfterTheVerb {
     NSString *secondId = NSUUID.UUID.UUIDString;
     __block BOOL spinning = NO;
@@ -313,6 +313,35 @@ static void InstallChannelOnce(void) {
     XCTAssertEqualObjects(JSONObject(AwaitReply(secondId)), @{@"verb": @"second"});
     XCTAssertFalse(ranInsideTheSpin);
     XCTAssertEqualObjects(ran, (@[@"spin", @"second"]));
+}
+
+// A main-queue block that spins main, as an alert's runModal from a dispatch
+// to main does, services no other main-queue block. A command posted
+// meanwhile is still answered, inside the spin.
+- (void)testACommandPostedWhileAMainQueueBlockSpinsMainIsAnsweredInsideIt {
+    gRunning = ^NSString *(NSArray<NSString *> *args, NSString *commandId) {
+        return VibeJSONString(@{@"verb": args.firstObject});
+    };
+    NSString *commandId = NSUUID.UUID.UUIDString;
+    __block BOOL done = NO;
+    __block BOOL answeredInside = NO;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        WriteCommand(@[@"inside"], commandId);
+        Post();
+        NSString *path = VibeDebugResponsePath(TestChannel(), commandId);
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+        while (![NSFileManager.defaultManager fileExistsAtPath:path] && deadline.timeIntervalSinceNow > 0) {
+            [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+        }
+        answeredInside = [NSFileManager.defaultManager fileExistsAtPath:path];
+        done = YES;
+    });
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (!done && deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.mainRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    XCTAssertTrue(answeredInside, @"answered while the block still spun");
+    XCTAssertEqualObjects(JSONObject(AwaitReply(commandId)), @{@"verb": @"inside"});
 }
 
 - (void)testTwoCommandsPostedBackToBackAreBothAnswered {

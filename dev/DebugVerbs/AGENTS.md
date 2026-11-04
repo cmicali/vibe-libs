@@ -1,14 +1,15 @@
 # dev/DebugVerbs
 
-The standard debug verbs: the ones that know nothing of the app, so every app's channel answers them the same way. They read the view tree, the menus, the screenshot, process health, and the build. They stall main on purpose, quit the app, and post synthetic input. It came from Vibe. It depends on `dev/DebugChannel`, for the table's shape and the wire, on `core/Graphics`, for the menu dump's image digest, and on `core/Common`. It builds on both platforms, with `Mac/` and `iOS/` halves.
+The standard debug verbs: the ones that know nothing of the app, so every app's channel answers them the same way. They read the view tree, the menus, the screenshot, process health, and the build, and they answer the sheets, the modal windows, the panels, the popovers, and the open menus. They stall main on purpose, quit the app, and post synthetic input. It came from Vibe. It depends on `dev/DebugChannel`, for the table's shape and the wire, on `core/Graphics`, for the menu dump's image digest, and on `core/Common`. It builds on both platforms, with `Mac/` and `iOS/` halves.
 
 | File | Owns |
 | --- | --- |
 | `DebugStandardVerbs.{h,m}` | `VibeDebugStandardOptions`, `VibeDebugStandardVerbs`, and the shared verbs |
 | `DebugProcessHealth.{h,m}` | the process counters, the malloc counter, and the layer count, on both platforms |
 | `Mac/DebugStandardMacVerbs.m` | the mac verbs of the standard table |
-| `Mac/DebugViewTree.{h,m}` | the window and view tree, the menu dump, and the menu item search |
+| `Mac/DebugViewTree.{h,m}` | the window and view tree, the menu dump, the menu item search, and the shown texts and buttons under a view |
 | `Mac/DebugScreenshot.{h,m}` | the in-process window render, and the notifyutil hook |
+| `Mac/DebugModalUI.{h,m}` | the windows that ask: the popovers showing, the menus tracking, a button's press, and the answer to a sheet, an app-modal window, or a panel |
 | `Mac/DebugSyntheticInput.{h,m}` | the input table, the key, mouse, drag, and scroll posting, the key-code map, and the modifier parser |
 | `iOS/DebugStandardiOSVerbs.m` | the iOS verbs of the standard table |
 | `iOS/DebugiOSCapture.{h,m}` | the key window, the view tree, and the screenshot |
@@ -19,7 +20,7 @@ The standard debug verbs: the ones that know nothing of the app, so every app's 
 | Table | Verbs |
 | --- | --- |
 | standard, shared | `dump_build`, `quit`, `work_tally`, `dump_health`, `block_main`, `block_main_deep` |
-| standard, macOS | `dump_view_tree`, `dump_menu`, `click_menu`, `dump_screenshot`, `raise_window` |
+| standard, macOS | `dump_view_tree`, `dump_menu`, `click_menu`, `dump_screenshot`, `raise_window`, `answer_sheet`, `answer_popover`, `answer_menu` |
 | standard, iOS | `dump_view_tree`, `dump_screenshot`, `set_clipboard`, `sample_frame_rate`, `dump_frame_rate` |
 | input, macOS | `key`, `key_down`, `key_up`, `click`, `mouse_down`, `mouse_up`, `mouse_move`, `drag`, `scroll` |
 
@@ -35,9 +36,20 @@ The options are blocks, so the piece holds no app type. Each block runs on main 
 - **`dump_health`** replies `ok` and `process`, plus `healthExtras`. `VibeJSONString` sorts the keys, so an app that moved its own blocks into `healthExtras` keeps its reply byte-identical. Its wait is 10 s, since an app's extras may read a queue a wedge would hold.
 - **`work_tally`** opens and closes `core/Common`'s work tally. The tally exists only where the app defines `VIBE_SIGNPOSTS`, so a build without it answers an error.
 - **`block_main`** chains a verb from the shared verbs first, then from `chainableVerbs`. The platform verbs stay unchainable. It refuses itself and an unknown verb. It answers nil when the chained verb replies later.
-- **The mouse verbs, `scroll`, and `raise_window`** aim at `targetWindow`. With no block, or a nil answer, they aim at `NSApp.mainWindow`. The key verbs post into the key window. With none, they send to the target window directly.
+- **The mouse verbs, `scroll`, and `raise_window`** aim at `targetWindow`. With no block, or a nil answer, they aim at `NSApp.mainWindow`. `answer_sheet` reads that window's sheet first. The key verbs post into the key window. With none, they send to the target window directly.
 - **`dump_screenshot`** renders the key window, then the main window, then the frontmost visible one. It ignores `targetWindow`. It replies `ok`, `path`, and the file's `width`, `height`, and `scale`. The PNG's resolution is 72 dpi times the scale, and the reply reads the three back from the file.
 - **`click_menu`** searches `NSApp.mainMenu` and calls `performMenuItem`. With no block, NSApp sends the item's action after the validation opening the menu would run. An app passes its own dispatch when a click should prove what a shortcut does. With no key window, as when the app is not active, `click_menu` and `dump_menu` run with the target window standing in for the key window (The input, below). So an item with no target validates and fires as it would with the app in front.
+
+## The windows that ask
+
+**The standard table's build starts keeping the popovers and the menus**, from their notifications, so a popover or a menu opened before it is missed. A popover counts from its will-show, since its did-show waits for its animation, and `shown` is true from the will-show on. A menu counts from its begin-tracking to its end-tracking: a pop-up, a context menu, or the menu bar's.
+
+- **`answer_sheet [button]`** answers `NSApp.modalWindow`, else the target window's sheet, else any window's, front to back. Its reply's `sheet` and `modal` say which asks, and both are false with none. `panel` says it is an open or save panel. With a button's title, the rest of the tokens, it presses that button. `VibeDebugAnswerModal` is its answer, for an app that wants its windows in its own order.
+- **A sandboxed app's panel runs out of process,** so nothing reads its files. Its one button is `Cancel`, which the panel's own `cancel:` ends. An alert's buttons come in the view tree's order, not the alert's.
+- **`answer_popover [<index> <close|button>]`** lists the popovers showing, oldest first: each one's `index`, its content controller's class as `content`, its `texts`, and its `buttons`. With an index, `close` closes it with `performClose:`, and a button's title presses that button. A hidden or disabled button is refused.
+- **`answer_menu [cancel]`** lists the menus tracking, outermost first, each with its `title` and `dump_menu`'s `items`. `cancel` sends each `cancelTracking`, innermost first, and no item is sent.
+- **TRAP: an app-modal session looks at `stopModal` only after its next event,** and a press from the channel is no event. So a press on an app-modal window posts an application-defined event, and the session ends with the button's response.
+- **The channel answers inside these loops** (`dev/DebugChannel`, its TRAP on a modal loop).
 
 ## It compiles in every configuration and ships in none
 
@@ -79,6 +91,7 @@ On iOS, `sample_frame_rate` counts the frames the app is granted for a few secon
 - **The shared verbs**: `dump_build` answers its eight keys plus the extras, and its own keys win. `dump_health` answers the process block and the extras, and the malloc counter's live bytes never exceed its reserved bytes. `block_main` holds main for its seconds, chains a shared verb and an app's verb, refuses itself, an unknown verb, and a platform verb, and answers nil when the chained verb replies later. `work_tally` opens and closes a window.
 - **The view tree and the menus**: the tree names each view's class, identifier, hidden state, and alpha. The menu dump lists a separator, a submenu, a key equivalent, a hidden item, a disabled item, and a state. `click_menu` hands the app's dispatch the item it found, sends the action itself with none, and answers the disabled, hidden, and submenu errors.
 - **The input**: the key verbs post what a real key carries, the shifted character in both fields and the function and numeric-pad flags on an arrow. `click` posts a down and an up per count, with the count ascending. `drag` posts its steps between one down and one up. Each event is read back from the app's own queue. **TRAP: a test calls `[NSApplication sharedApplication]` first, since host-less `NSApp` is nil.** No test asserts key status, since activation may not take on CI.
+- **The windows that ask**: an alert run app-modal is read, and a press from a main-queue block ends its session with that button. A sheet is read from the first owner that has one, its keys are JSON booleans, and an unknown button is refused. `answer_sheet` looks past a target window with no sheet. A save panel's sheet reads as a panel with one button, Cancel, and its cancel ends it. **TRAP: host-less, NSApp never runs, so a panel's completion never comes**, even after `endSheet:`, and the test checks that the sheet ended. A popover is listed from its show on, before its animation ends, and its button is pressed and it closes. A hidden button is not pressed. A menu popped up is listed from a main-queue block while it tracks, and its cancel sends no item.
 - **The screenshot** of a test window is a PNG of its points times its backing scale, and the verb's reply names that size and scale. A glass view's content renders in its place, not as white.
 
 `DebugVerbs-iOS` builds the iOS half. The minimal consumer answers `dump_build` and `dump_health` from the standard table, beside a command of its own, with no `VIBE_SIGNPOSTS`.
