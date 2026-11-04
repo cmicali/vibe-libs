@@ -11,6 +11,10 @@
 // names share.
 - (nonnull NSString *)sha1Hex;
 
+// SHA-256, as raw bytes: a key for content that a crafted collision must not
+// share, such as a picture's archived forms.
+- (nonnull NSData *)sha256Digest;
+
 @end
 
 @interface NSURL (Hash)

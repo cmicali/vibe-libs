@@ -7,6 +7,7 @@
 #import "AudioTrackMetadataInternal.h"
 #import "AudioFileHandle.h"
 #import "NSURL+FilenameTitle.h"
+#import "ArchivedArtShare.h"
 #import "AudioTrackArtwork.h"
 #import "TagLibAudioFile.h"
 #import "CloudFileMaterializer.h"
@@ -454,8 +455,25 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
 + (AudioTrackMetadata *)metadataWithURL:(NSURL *)url
                           displayArtData:(NSData *_Nullable __autoreleasing *_Nullable)displayArtData {
     AudioTrackMetadata *metadata = [[AudioTrackMetadata alloc] initWithURL:url];
-    // Encoding must not populate the display cache during a playlist scan.
-    NSData *encodedThumbnail = [metadata encodeThumbnailDataIfNeeded];
+    // Files that embed one picture share its archived forms
+    // (ArchivedArtShare.h). Both are made, since a later parse of the same
+    // bytes may want the rendition.
+    NSData *picture = [metadata.artwork artDataForArchivedDisplayArt];
+    NSData *encodedThumbnail = nil;
+    NSData *rendition = nil;
+    if (picture) {
+        VibeArchivedArtOfPicture(picture, ^(NSData **thumbnail, NSData **madeRendition) {
+            // Encoding must not populate the display cache during a playlist scan.
+            *thumbnail = [metadata encodeThumbnailDataIfNeeded];
+            *madeRendition = [metadata archivedDisplayArtDataForStorage];
+        }, &encodedThumbnail, &rendition);
+        [metadata.artwork storeEncodedThumbnailData:encodedThumbnail];
+    }
+    // With no shared thumbnail, the row's own decode runs, so a picture that
+    // won't decode marks every row that embeds it, not only the maker's.
+    if (!encodedThumbnail) {
+        encodedThumbnail = [metadata encodeThumbnailDataIfNeeded];
+    }
     if (!encodedThumbnail && metadata.artwork.hasEmbeddedArt) {
         // The fresh row keeps its originals. Cache hits use the rendition.
         LogWarn(@"Thumbnail encode produced nothing for art-bearing %@",
@@ -464,7 +482,7 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
     // Before the discard. An out-param, never row state: a skipped cache
     // write must not leave the rendition pinned on the row.
     if (displayArtData) {
-        *displayArtData = [metadata archivedDisplayArtDataForStorage];
+        *displayArtData = rendition;
     }
     [metadata.artwork discardArtData];
     return metadata;

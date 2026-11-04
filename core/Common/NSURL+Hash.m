@@ -29,6 +29,12 @@ static _Atomic uint64_t sCacheKeyGeneration;
     return [[NSString alloc] initWithBytes:hex length:sizeof(hex) encoding:NSASCIIStringEncoding];
 }
 
+- (NSData *)sha256Digest {
+    unsigned char digest[CC_SHA256_DIGEST_LENGTH];
+    CC_SHA256(self.bytes, (CC_LONG)self.length, digest);
+    return [NSData dataWithBytes:digest length:sizeof digest];
+}
+
 @end
 
 @implementation NSURL (Hash)
