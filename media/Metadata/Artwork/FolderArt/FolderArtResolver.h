@@ -16,6 +16,15 @@ NS_ASSUME_NONNULL_BEGIN
 // included. A view may hold the previous track's art until the answer.
 extern NSNotificationName const FolderArtDidResolveNotification;
 
+// Posted on main, under holdsCloudCovers, when a folder's cover is a cloud
+// placeholder, so its read would download it. The resolver reads none, and
+// waits: an app that wants it downloads it, then calls
+// artDidArriveInDirectories:. The user info's FolderArtPathKey is the
+// cover's path, and FolderArtDirectoryKey its folder.
+extern NSNotificationName const FolderArtInCloudNotification;
+extern NSString *const FolderArtPathKey;
+extern NSString *const FolderArtDirectoryKey;
+
 // Whether folder art is on, and whether a directory may be read without
 // raising a permission panel. An app answers both (setEnabledProvider:).
 typedef BOOL (^FolderArtEnabledProvider)(void);
@@ -65,6 +74,22 @@ typedef BOOL (^FolderArtAccessProvider)(NSString *directory);
 // Forgets no-grant answers and re-arms read-blocked covers, which keep their
 // path. Never a full wipe: an open's grant lands just after its walk.
 - (void)invalidateDirectoriesSettledWithoutGrant;
+
+// Off by default: a read of a cover in the cloud downloads it, as any read
+// does. On, the resolver reads none: it posts FolderArtInCloudNotification
+// once, holds the folder's reads, and waits for the app. An app that turns
+// it on downloads covers under its own rules. Set it before the first read.
+@property (nonatomic) BOOL holdsCloudCovers;
+
+// The folder's cover, when its read found it in the cloud, or nil. A pure
+// read, on any thread.
+- (nullable NSString *)cloudArtPathForAudioFilePath:(nullable NSString *)path;
+
+// The covers of these folders may be on the device now: each in the cloud
+// is read again at once, and its pixels post FolderArtDidResolveNotification.
+// A cover still in the cloud posts FolderArtInCloudNotification again, so an
+// app caps its own retries. Any thread.
+- (void)artDidArriveInDirectories:(NSSet<NSString *> *)directories;
 
 @end
 

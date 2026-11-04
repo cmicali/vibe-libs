@@ -7,6 +7,7 @@
 #import "ImageFixtures.h"
 #import "FolderArtRules.h"
 #import "FolderArtResolverInternal.h"
+#import "PlaceholderFiles+Debug.h"
 
 @interface FolderArtResolverTests : XCTestCase
 @end
@@ -129,6 +130,148 @@
 
     XCTAssertEqualObjects([resolver displayImageForAudioFilePath:track], decoded);
     XCTAssertEqualObjects(readPath, [directory stringByAppendingPathComponent:@"folder.jpg"]);
+}
+
+// The dataless probe answers for the covers in this set, and the test clears
+// it after.
+- (void)holdCoversInTheCloud:(NSMutableSet<NSString *> *)inCloud {
+    [PlaceholderFiles setDatalessProbe:^BOOL(NSURL *url) {
+        @synchronized (inCloud) {
+            return [inCloud containsObject:url.path];
+        }
+    }];
+    [self addTeardownBlock:^{
+        [PlaceholderFiles setDatalessProbe:nil];
+    }];
+}
+
+// Off by default: a cover in the cloud is read, which downloads it, as any
+// read does.
+- (void)testACoverInTheCloudIsReadByDefault {
+    NSString *directory = @"/Library/Albums/CloudByDefault";
+    NSString *track = [directory stringByAppendingPathComponent:@"track.mp3"];
+    [self holdCoversInTheCloud:[NSMutableSet setWithObject:[directory stringByAppendingPathComponent:@"cover.jpg"]]];
+    __block NSUInteger reads = 0;
+    NSImage *decoded = [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        reads += 1;
+        return [NSData dataWithBytes:"x" length:1];
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        return decoded;
+    }];
+    XCTAssertFalse(resolver.holdsCloudCovers);
+    [resolver noteListedDirectories:[NSSet setWithObject:directory] artFilenameByDirectory:@{directory: @"cover.jpg"}];
+    XCTAssertEqualObjects([resolver displayImageForAudioFilePath:track], decoded);
+    XCTAssertEqual(reads, 1u);
+    XCTAssertNil([resolver cloudArtPathForAudioFilePath:track]);
+}
+
+// Held, a cover in the cloud is never read, so nothing downloads it. The
+// folder says so once, keeps its path, and asks for no more loads, and its
+// tries are not failures. Once an app says it arrived, it reads at once, and
+// its pixels post.
+- (void)testACoverInTheCloudWaitsUntilItArrives {
+    NSString *directory = @"/Library/Albums/Cloud";
+    NSString *track = [directory stringByAppendingPathComponent:@"track.mp3"];
+    NSString *cover = [directory stringByAppendingPathComponent:@"cover.jpg"];
+    NSMutableSet<NSString *> *inCloud = [NSMutableSet setWithObject:cover];
+    [self holdCoversInTheCloud:inCloud];
+    __block NSUInteger reads = 0;
+    NSImage *decoded = [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        @synchronized (self) {
+            reads += 1;
+        }
+        return [NSData dataWithBytes:"x" length:1];
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        return decoded;
+    }];
+    resolver.holdsCloudCovers = YES;
+    [resolver noteListedDirectories:[NSSet setWithObject:directory] artFilenameByDirectory:@{directory: @"cover.jpg"}];
+    XCTestExpectation *posted = [self expectationForNotification:FolderArtInCloudNotification object:resolver
+                                                         handler:^BOOL(NSNotification *note) {
+        XCTAssertEqualObjects(note.userInfo[FolderArtPathKey], cover);
+        XCTAssertEqualObjects(note.userInfo[FolderArtDirectoryKey], directory);
+        return YES;
+    }];
+    posted.assertForOverFulfill = YES;
+
+    for (int i = 0; i < 4; i++) {
+        XCTAssertNil([resolver displayImageForAudioFilePath:track]);
+    }
+    XCTAssertNil([resolver cachedThumbnailForAudioFilePath:track], @"a row's ask schedules nothing");
+    XCTAssertEqual(reads, 0u, @"nothing read, so nothing downloaded");
+    XCTAssertFalse([resolver needsBackgroundLoadForAudioFilePath:track], @"redraws stop asking");
+    XCTAssertEqualObjects([resolver cloudArtPathForAudioFilePath:track], cover);
+    XCTAssertEqualObjects([resolver settledArtPathForDirectory:directory], cover, @"not settled as none");
+    [self waitForExpectations:@[posted] timeout:VIBE_TEST_HANG_TIMEOUT];
+
+    @synchronized (inCloud) {
+        [inCloud removeObject:cover];
+    }
+    XCTestExpectation *resolved = [self expectationForNotification:FolderArtDidResolveNotification object:resolver
+                                                           handler:nil];
+    [resolver artDidArriveInDirectories:[NSSet setWithObject:directory]];
+    XCTAssertNil([resolver cloudArtPathForAudioFilePath:track]);
+    [self waitForExpectations:@[resolved] timeout:VIBE_TEST_HANG_TIMEOUT];
+    XCTAssertEqualObjects([resolver cachedThumbnailForAudioFilePath:track], decoded, @"the re-arm read it");
+    XCTAssertEqual(reads, 1u);
+}
+
+// A cover the provider frees between the test and the read fails its read,
+// which runs with materialization off, and is found in the cloud then, not
+// counted as a failure.
+- (void)testACoverFreedDuringItsReadIsInTheCloud {
+    NSString *directory = @"/Library/Albums/Freed";
+    NSString *track = [directory stringByAppendingPathComponent:@"track.mp3"];
+    NSString *cover = [directory stringByAppendingPathComponent:@"cover.jpg"];
+    NSMutableSet<NSString *> *inCloud = [NSMutableSet set];
+    [self holdCoversInTheCloud:inCloud];
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        @synchronized (inCloud) {
+            [inCloud addObject:path];
+        }
+        return nil;
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        return nil;
+    }];
+    resolver.holdsCloudCovers = YES;
+    [resolver noteListedDirectories:[NSSet setWithObject:directory] artFilenameByDirectory:@{directory: @"cover.jpg"}];
+    for (int i = 0; i < 4; i++) {
+        XCTAssertNil([resolver displayImageForAudioFilePath:track]);
+    }
+    XCTAssertEqualObjects([resolver cloudArtPathForAudioFilePath:track], cover);
+    XCTAssertNotNil([resolver settledArtPathForDirectory:directory], @"three tries would have settled it as none");
+}
+
+// A new answer is a new cover: a listing that names another clears the mark,
+// and the folder asks for loads again.
+- (void)testANewCoverClearsTheCloudMark {
+    NSString *directory = @"/Library/Albums/Relisted";
+    NSString *track = [directory stringByAppendingPathComponent:@"track.mp3"];
+    [self holdCoversInTheCloud:[NSMutableSet setWithObject:[directory stringByAppendingPathComponent:@"cover.jpg"]]];
+    NSImage *decoded = [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        return [NSData dataWithBytes:"x" length:1];
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        return decoded;
+    }];
+    resolver.holdsCloudCovers = YES;
+    [resolver noteListedDirectories:[NSSet setWithObject:directory] artFilenameByDirectory:@{directory: @"cover.jpg"}];
+    XCTAssertNil([resolver displayImageForAudioFilePath:track]);
+    XCTAssertNotNil([resolver cloudArtPathForAudioFilePath:track]);
+    [resolver noteListedDirectories:[NSSet setWithObject:directory] artFilenameByDirectory:@{directory: @"folder.jpg"}];
+    XCTAssertNil([resolver cloudArtPathForAudioFilePath:track]);
+    XCTAssertTrue([resolver needsBackgroundLoadForAudioFilePath:track]);
+    XCTAssertEqualObjects([resolver displayImageForAudioFilePath:track], decoded);
 }
 
 - (void)testFinalReadRejectsASymbolicLinkCandidate {

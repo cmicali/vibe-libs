@@ -15,6 +15,10 @@
     return _artPath != nil && _artPath.length == 0;
 }
 
+- (BOOL)readsHeld {
+    return _readBlockedWithoutGrant || _inCloud;
+}
+
 - (BOOL)busy {
     return _resolving != 0 || _decoding > 0 || _scheduled;
 }
@@ -25,6 +29,7 @@
     _resolving = 0;
     _settledWithoutGrant = NO;
     _readBlockedWithoutGrant = NO;
+    _inCloud = NO;
     _readFailures = 0;
 }
 

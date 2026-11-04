@@ -13,32 +13,14 @@
 #import "NSURL+Hash.h"
 #import "PlaceholderFiles.h"
 #import "VibeMacros.h"
+#import "VibeMaterializing.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
-#include <sys/resource.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-// Runs block with this thread unable to materialize a dataless file: a read
-// of one fails with EDEADLK, and the file stays in the cloud. Measured on
-// macOS 27.2 against iCloud Drive and Dropbox placeholders: the open
-// succeeds, and every read fails.
-// TRAP: thread scope, restored after. The thread is the queue's, and runs
-// other work next, such as a sweep's parse that may materialize.
-static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
-    int previous = getiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD);
-    BOOL set = setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD,
-                              IOPOL_MATERIALIZE_DATALESS_FILES_OFF) == 0;
-    if (!set) {
-        LogWarn(@"Could not turn materialization off for a tag read: %s", strerror(errno));
-    }
-    block();
-    if (set && previous >= 0) {
-        setiopolicy_np(IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES, IOPOL_SCOPE_THREAD, previous);
-    }
-}
 
 @implementation AudioTrackMetadataLoader (Reading)
 
@@ -138,7 +120,7 @@ static void VibeWithoutMaterializing(NS_NOESCAPE dispatch_block_t block) {
     uint64_t generation = _owner.cacheGeneration;
     __block NSData *displayArt = nil;
     __block AudioTrackMetadata *metadata = nil;
-    VibeWithoutMaterializing(^{
+    VibeWithoutMaterializing(@"a tag read", ^{
         NSData *art = nil;
         metadata = self->_fileParser ? self->_fileParser(url)
                                      : [AudioTrackMetadata metadataWithURL:url displayArtData:&art];
