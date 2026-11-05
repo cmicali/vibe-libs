@@ -310,27 +310,81 @@ static NSString *VibeMouseReply(NSString *verb, NSWindow *window, NSPoint locati
     });
 }
 
-// A non-key window swallows the first click as activation (acceptsFirstMouse
-// defaults to NO), so mouse injection activates first. The deprecated force
-// spelling, because the cooperative [NSApp activate] is declined while another
-// app is frontmost, which is exactly where a shell-driven test runs.
-// Activation lands asynchronously and events posted before it are swallowed,
-// so spin the run loop briefly for key status; the reply's windowKey reports
-// whether it took.
-void VibeMakeWindowKeyForInjection(NSWindow *window) {
-    if (window.isKeyWindow) {
-        return;
+BOOL VibeDebugInputNeedsFocus = YES;
+
+static NSString *VibeFrontmostName(void) {
+    NSRunningApplication *front = NSWorkspace.sharedWorkspace.frontmostApplication;
+    return front.localizedName ?: front.bundleIdentifier ?: @"another app";
+}
+
+static BOOL VibeScreenLocked(void) {
+    NSDictionary *session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
+    return [session[@"CGSSessionScreenIsLocked"] boolValue];
+}
+
+// TRAP: a click posted while the window isn't key goes nowhere: the window
+// swallows a first click as its activation, and an app behind has no key
+// window at all. So a mouse verb fails instead of answering ok for an event
+// that did nothing.
+NSString *VibeDebugInputFocusError(NSWindow *window, NSString *verb) {
+    if (!VibeDebugInputNeedsFocus || window.isKeyWindow) {
+        return nil;
     }
+    if (!NSApp.isActive) {
+        return VibeErrorJSON(@"%@ would be swallowed: the app is behind (%@ is in front), so window '%@' isn't key. "
+                             @"Run `activate` first, which takes the keyboard from %@.",
+                             verb, VibeFrontmostName(), window.title, VibeFrontmostName());
+    }
+    return VibeErrorJSON(@"%@ would be swallowed: window '%@' isn't key ('%@' is). Run `activate` first.",
+                         verb, window.title, NSApp.keyWindow.title ?: @"none");
+}
+
+// The deprecated force spelling first, since the cooperative [NSApp activate]
+// is declined while another app is frontmost, which is where a shell-driven
+// run sits. Activation lands asynchronously, hence the spin.
+NSString *VibeDebugActivateWindow(NSWindow *window) {
+    if (VibeScreenLocked()) {
+        return VibeErrorJSON(@"the screen is locked, so no app can become active; wait for the user to unlock it");
+    }
+    NSString *front = VibeFrontmostName();
+    BOOL (^took)(void) = ^BOOL {
+        return NSApp.isActive && window.isKeyWindow;
+    };
+    if (!took()) {
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-    [NSApp activateIgnoringOtherApps:YES];
+        [NSApp activateIgnoringOtherApps:YES];
 #pragma clang diagnostic pop
-    [window makeKeyAndOrderFront:nil];
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:1.0];
-    while (!window.isKeyWindow && deadline.timeIntervalSinceNow > 0) {
+        [window makeKeyAndOrderFront:nil];
+    }
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5.0];
+    NSDate *retry = [NSDate dateWithTimeIntervalSinceNow:0.5];
+    while (!took() && deadline.timeIntervalSinceNow > 0) {
         [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode
                                beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
+        if (!NSApp.isActive && retry.timeIntervalSinceNow <= 0) {
+            // The running application's own road, once, for a macOS that
+            // declined the first.
+            [NSRunningApplication.currentApplication activateWithOptions:NSApplicationActivateAllWindows];
+            retry = NSDate.distantFuture;
+        }
+        if (NSApp.isActive && !window.isKeyWindow) {
+            [window makeKeyAndOrderFront:nil];
+        }
     }
+    if (took()) {
+        return nil;
+    }
+    if (!NSApp.isActive) {
+        return VibeErrorJSON(@"macOS declined the activation for 5 s: %@ stays in front. It may still land later, "
+                             @"so run `activate` once more; past that, the app needs the user's click.", front);
+    }
+    return VibeErrorJSON(@"the app is active, but window '%@' didn't become key (it may not take key status)",
+                         window.title);
+}
+
+void VibeMakeWindowKeyForInjection(NSWindow *window) {
+    VibeDebugActivateWindow(window);
 }
 
 static NSEvent *VibeMouseEvent(NSEventType type, NSPoint location, NSInteger windowNumber,
@@ -383,7 +437,6 @@ NSString *VibeInjectMouse(NSWindow *window, NSArray<NSString *> *tokens) {
     if (tokens.count > next) {
         return VibeErrorJSON(@"%@", usage);
     }
-    VibeMakeWindowKeyForInjection(window);
     NSPoint location = VibeWindowPointForContentPoint(window, x, y);
     NSInteger windowNumber = window.windowNumber;
     if (isClick) {
@@ -433,7 +486,6 @@ NSString *VibeInjectDrag(NSWindow *window, NSArray<NSString *> *tokens) {
     if (tokens.count > 6) {
         return VibeErrorJSON(@"%@", usage);
     }
-    VibeMakeWindowKeyForInjection(window);
     NSInteger windowNumber = window.windowNumber;
     NSPoint start = VibeWindowPointForContentPoint(window, x1, y1);
     [NSApp postEvent:VibeMouseEvent(NSEventTypeLeftMouseDown, start, windowNumber, 1, 1.0)
@@ -453,8 +505,7 @@ NSString *VibeInjectDrag(NSWindow *window, NSArray<NSString *> *tokens) {
 // One scroll event at a content point, from the window's own dispatch down.
 // lines, the default, is a wheel's. pixels is a trackpad's precise scroll, and
 // momentum the coast after the fingers lift. dy is the raw delta, before the
-// user's scrolling direction. No activation: a scroll reaches a window that is
-// not key.
+// user's scrolling direction.
 NSString *VibeInjectScroll(NSWindow *window, NSArray<NSString *> *tokens) {
     NSString *usage = @"usage: scroll <x> <y> <dy> [lines|pixels] [momentum]";
     double x = 0, y = 0, dy = 0;
@@ -499,28 +550,59 @@ static NSWindow *VibeDebugTargetWindow(VibeDebugStandardOptions *options, id con
 }
 
 NSArray<NSDictionary *> *VibeDebugInputVerbs(VibeDebugStandardOptions *options) {
-    VibeDebugCommandHandler mouse = ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
-        NSWindow *window = VibeDebugTargetWindow(options, controller);
-        return window ? VibeInjectMouse(window, tokens) : VibeErrorJSON(@"no window to aim at");
+    // Each mouse verb aims at the target window, and fails unless it is key:
+    // a window that isn't key swallows a first click as its activation.
+    VibeDebugCommandHandler (^aimed)(NSString *(^)(NSWindow *, NSArray<NSString *> *)) =
+            ^VibeDebugCommandHandler(NSString *(^post)(NSWindow *, NSArray<NSString *> *)) {
+        return ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
+            NSWindow *window = VibeDebugTargetWindow(options, controller);
+            if (!window) {
+                return VibeErrorJSON(@"no window to aim at");
+            }
+            return VibeDebugInputFocusError(window, tokens.firstObject) ?: post(window, tokens);
+        };
     };
+    VibeDebugCommandHandler mouse = aimed(^NSString *(NSWindow *window, NSArray<NSString *> *tokens) {
+        return VibeInjectMouse(window, tokens);
+    });
     // Into the key window, as a real press goes, so a press reaches whichever
-    // window is key. Straight to the target window when none is.
+    // window is key. Behind, straight to the target window, which a key
+    // reaches with no key status: the reply's queued is false then.
     VibeDebugCommandHandler (^key)(BOOL, BOOL) = ^VibeDebugCommandHandler(BOOL down, BOOL up) {
         return ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
             NSWindow *window = NSApp.keyWindow ?: VibeDebugTargetWindow(options, controller);
-            return window ? VibeInjectKey(window, tokens, down, up) : VibeErrorJSON(@"no window to post into");
+            if (!window) {
+                return VibeErrorJSON(@"no window to post into");
+            }
+            return VibeInjectKey(window, tokens, down, up);
         };
     };
     return @[
+        // The target window key and the app active, from inside, so no
+        // script needs `open -a`. It takes the keyboard from the app in front.
+        VibeDebugCmd(@"activate", 10, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
+            NSWindow *window = VibeDebugTargetWindow(options, controller);
+            if (!window) {
+                return VibeErrorJSON(@"no window to make key");
+            }
+            BOOL was = NSApp.isActive && window.isKeyWindow;
+            NSString *front = VibeFrontmostName();
+            NSString *error = VibeDebugActivateWindow(window);
+            return error ?: VibeJSONString(@{@"ok": @YES, @"active": @YES, @"key": @YES, @"window": window.title,
+                                             @"already": @(was), @"from": was ? (id)NSNull.null : front});
+        }),
         VibeDebugCmd(@"click <x> <y> [left|right] [clickCount]", 0, mouse),
         VibeDebugCmd(@"mouse_down <x> <y> [left|right]", 0, mouse),
         VibeDebugCmd(@"mouse_up <x> <y> [left|right]", 0, mouse),
         VibeDebugCmd(@"mouse_move <x> <y> [left|right]", 0, mouse),
-        VibeDebugCmd(@"drag <x1> <y1> <x2> <y2> [steps]", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
-            NSWindow *window = VibeDebugTargetWindow(options, controller);
-            return window ? VibeInjectDrag(window, tokens) : VibeErrorJSON(@"no window to aim at");
-        }),
-        VibeDebugCmd(@"scroll <x> <y> <dy> [lines|pixels] [momentum]", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
+        VibeDebugCmd(@"drag <x1> <y1> <x2> <y2> [steps]", 0,
+                     aimed(^NSString *(NSWindow *window, NSArray<NSString *> *tokens) {
+            return VibeInjectDrag(window, tokens);
+        })),
+        // A scroll reaches a window that isn't key, as a wheel does, so it
+        // needs no focus.
+        VibeDebugCmd(@"scroll <x> <y> <dy> [lines|pixels] [momentum]", 0, ^NSString *(NSArray<NSString *> *tokens,
+                                                                                    NSString *commandId, id controller) {
             NSWindow *window = VibeDebugTargetWindow(options, controller);
             return window ? VibeInjectScroll(window, tokens) : VibeErrorJSON(@"no window to aim at");
         }),

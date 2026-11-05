@@ -27,6 +27,10 @@ NS_ASSUME_NONNULL_BEGIN
 // PNG's resolution is 72 dpi times the backing scale.
 BOOL VibeDumpWindowSnapshot(NSString *path);
 
+// Writes image to a PNG at path, its resolution 72 dpi times scale, so a
+// reader of the file alone knows its points. NO when the write fails.
+BOOL VibeDebugWritePNG(CGImageRef image, CGFloat scale, NSString *path);
+
 // Renders to path whenever notificationName is posted, so a terminal can take
 // a screenshot with no client:
 //

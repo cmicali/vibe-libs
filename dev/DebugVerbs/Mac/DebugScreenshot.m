@@ -47,6 +47,46 @@ static void VibeCollectBackdropLayers(CALayer *layer, NSMutableArray<CALayer *> 
     }
 }
 
+// X5: a clip view under a toolbar or a header has content insets. On screen,
+// what scrolls up into an inset is covered by the toolbar's and the header's
+// backgrounds, which the render hides. So the render clips each such view to
+// the rect inside its insets, by a frame and bounds that keep its content in
+// place, uncommitted, and gives back what it changed.
+static void VibeClipToContentInsets(NSView *view, NSMutableArray<dispatch_block_t> *restores) {
+    if (view.isHidden || !view.layer) {
+        return;
+    }
+    if ([view isKindOfClass:NSClipView.class]) {
+        NSClipView *clip = (NSClipView *)view;
+        NSEdgeInsets insets = clip.contentInsets;
+        if (insets.top > 0 || insets.bottom > 0 || insets.left > 0 || insets.right > 0) {
+            NSRect inside = clip.bounds;
+            inside.origin.x += insets.left;
+            inside.size.width -= insets.left + insets.right;
+            inside.origin.y += clip.isFlipped ? insets.top : insets.bottom;
+            inside.size.height -= insets.top + insets.bottom;
+            if (inside.size.width > 0 && inside.size.height > 0 && clip.superview) {
+                CALayer *layer = clip.layer;
+                CGRect bounds = layer.bounds;
+                CGPoint position = layer.position;
+                BOOL masks = layer.masksToBounds;
+                // A view's layer frame is its frame in its superview.
+                layer.frame = [clip convertRect:inside toView:clip.superview];
+                layer.bounds = CGRectMake(NSMinX(inside), NSMinY(inside), NSWidth(inside), NSHeight(inside));
+                layer.masksToBounds = YES;
+                [restores addObject:^{
+                    layer.bounds = bounds;
+                    layer.position = position;
+                    layer.masksToBounds = masks;
+                }];
+            }
+        }
+    }
+    for (NSView *subview in view.subviews) {
+        VibeClipToContentInsets(subview, restores);
+    }
+}
+
 BOOL VibeDumpWindowSnapshot(NSString *path) {
     NSWindow *window = NSApp.keyWindow ?: NSApp.mainWindow;
     if (!window) {
@@ -88,18 +128,23 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
     CGContextFillRect(ctx, view.bounds);
     CALayer *layer = view.layer;
     if (layer) {
+        // A layout or a scroll still pending lands first, as the window's next
+        // frame would show it.
+        [window displayIfNeeded];
         NSMutableArray<NSView *> *glassViews = [NSMutableArray array];
         VibeCollectGlassViews(view, glassViews);
         NSMutableArray<CALayer *> *backdrops = [NSMutableArray array];
         VibeCollectBackdropLayers(layer, backdrops);
-        if (glassViews.count > 0 || backdrops.count > 0) {
-            // The hides must stay uncommitted, so that the on-screen window
+        [CATransaction begin];
+        [CATransaction setDisableActions:YES];
+        NSMutableArray<dispatch_block_t> *restores = [NSMutableArray array];
+        VibeClipToContentInsets(view, restores);
+        if (glassViews.count > 0 || backdrops.count > 0 || restores.count > 0) {
+            // The changes must stay uncommitted, so that the on-screen window
             // never flickers. That forces a render of the model tree, since an
             // uncommitted change is invisible to a presentation copy. It costs
-            // the mid-flight animation capture, but only a window with glass
-            // or a backdrop pays for it.
-            [CATransaction begin];
-            [CATransaction setDisableActions:YES];
+            // the mid-flight animation capture, but only a window with glass,
+            // a backdrop, or an inset clip view pays for it.
             for (CALayer *backdrop in backdrops) {
                 backdrop.hidden = YES;
             }
@@ -125,13 +170,16 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
             for (CALayer *backdrop in backdrops) {
                 backdrop.hidden = NO;
             }
-            [CATransaction commit];
+            for (dispatch_block_t restore in restores) {
+                restore();
+            }
         }
         else {
             // The presentation tree captures animations mid-flight.
             CALayer *presentation = layer.presentationLayer ?: layer;
             [presentation renderInContext:ctx];
         }
+        [CATransaction commit];
     }
     else {
         NSGraphicsContext *gc = [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:NO];
@@ -146,19 +194,7 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
         LogError(@"Debug screenshot: image creation failed");
         return NO;
     }
-    NSURL *url = [NSURL fileURLWithPath:path];
-    CGImageDestinationRef dest = CGImageDestinationCreateWithURL((__bridge CFURLRef)url,
-            (__bridge CFStringRef)UTTypePNG.identifier, 1, NULL);
-    BOOL written = NO;
-    if (dest) {
-        // The resolution names the backing scale, so a reader of the file
-        // alone knows its points.
-        NSDictionary *properties = @{(__bridge NSString *)kCGImagePropertyDPIWidth: @(72.0 * scale),
-                                     (__bridge NSString *)kCGImagePropertyDPIHeight: @(72.0 * scale)};
-        CGImageDestinationAddImage(dest, image, (__bridge CFDictionaryRef)properties);
-        written = CGImageDestinationFinalize(dest);
-        CFRelease(dest);
-    }
+    BOOL written = VibeDebugWritePNG(image, scale, path);
     CGImageRelease(image);
     if (written) {
         LogInfo(@"Debug screenshot written to %@", path);
@@ -166,6 +202,21 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
     else {
         LogError(@"Debug screenshot: PNG write to %@ failed", path);
     }
+    return written;
+}
+
+BOOL VibeDebugWritePNG(CGImageRef image, CGFloat scale, NSString *path) {
+    NSURL *url = [NSURL fileURLWithPath:path];
+    CGImageDestinationRef dest = CGImageDestinationCreateWithURL((__bridge CFURLRef)url,
+            (__bridge CFStringRef)UTTypePNG.identifier, 1, NULL);
+    if (!dest) {
+        return NO;
+    }
+    NSDictionary *properties = @{(__bridge NSString *)kCGImagePropertyDPIWidth: @(72.0 * scale),
+                                 (__bridge NSString *)kCGImagePropertyDPIHeight: @(72.0 * scale)};
+    CGImageDestinationAddImage(dest, image, (__bridge CFDictionaryRef)properties);
+    BOOL written = CGImageDestinationFinalize(dest);
+    CFRelease(dest);
     return written;
 }
 
