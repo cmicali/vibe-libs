@@ -15,7 +15,8 @@ Its files import each other as `<PINCache/...>` and `<PINOperation/...>`, so the
 - Outside a TTL cache, a write removes no age-limit xattr, since none is ever set.
 - A hit reads its file outside the cache's one lock, as it already deserialized. So concurrent hits run concurrently.
 - An automatic trim cuts to 90% of the byte limit. So a full cache sorts its entries once per tenth of the limit written, not on every write.
-- `recordsOnDemand` keeps no record of the entries in memory, reading each from its file. A sweep, a trim, an expiry, or an enumeration lists the directory once the disk state is known, outside the lock. It is one way, and for a least-recently-used cache that is not a TTL cache, which it asserts. `files/DiskCache`'s AGENTS.md has what it saves and costs.
+- `recordsOnDemand` keeps no record of the entries in memory, reading each from its file. A sweep lists the directory once the disk state is known, outside the lock, and none runs that has nothing to do: a size trim under its target, or an age trim with no entry made before its date. A write or a removal waits for the launch's count. It is one way, and for a least-recently-used cache that is not a TTL cache, which it asserts. `files/DiskCache`'s AGENTS.md has what it saves and costs.
+- The launch's count enumerates the directory a thousand files to a pool, with no lock held for the listing, not into one array under the lock, which held about 160 MB of URLs at 200,000 entries.
 
 ## License
 

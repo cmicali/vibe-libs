@@ -152,18 +152,32 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
 }
 
 // A trim to a date removes the entries made before it, by their files'
-// creation dates.
+// creation dates, as a store opened again finds them.
 - (void)testATrimToADateRemovesTheEntriesMadeBefore {
+    PINDiskCache *first = [PINCache audioCacheWithName:@"dated" rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    [first setObject:[NSMutableData dataWithLength:1000] forKey:@"old"];
+    [first setObject:[NSMutableData dataWithLength:1000] forKey:@"new"];
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
+                                                 ofItemAtPath:[first fileURLForKey:@"old"].path error:nil]);
+    first = nil;
     PINDiskCache *cache = [PINCache audioCacheWithName:@"dated" rootPath:_root].diskCache;
     VibeWaitForDiskState(cache);
-    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"old"];
-    NSURL *old = [cache fileURLForKey:@"old"];
-    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"new"];
-    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 200]}
-                                                 ofItemAtPath:old.path error:nil]);
-    [cache trimToDate:[NSDate dateWithTimeIntervalSinceNow:-86400.0 * 180]];
+    [cache trimToDate:[NSDate dateWithTimeIntervalSinceNow:-86400.0 * 50]];
     XCTAssertFalse([cache containsObjectForKey:@"old"]);
     XCTAssertTrue([cache containsObjectForKey:@"new"]);
+}
+
+// A store that has seen no entry older than a date lists nothing to trim to
+// it, and still trims one older that a reopening finds.
+- (void)testATrimToADateListsNothingWhenNothingIsThatOld {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"recent" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"one"];
+    NSTimeInterval oldest = [[cache valueForKey:@"oldestCreation"] doubleValue];
+    XCTAssertGreaterThanOrEqual(oldest, [NSDate dateWithTimeIntervalSinceNow:-60].timeIntervalSinceReferenceDate);
+    [cache trimToDate:[NSDate dateWithTimeIntervalSinceNow:-86400.0]];
+    XCTAssertTrue([cache containsObjectForKey:@"one"]);
 }
 
 // A store opened again over entries made 200 days ago, written to before it
