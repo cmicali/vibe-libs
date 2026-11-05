@@ -2,7 +2,7 @@
 //  AudioPlayerCrossfadeTests.m
 //
 //  The whole player on the frame-driven pump, through a crossfade and what
-//  comes after it: a skip's crossfade, and a track end's.
+//  comes after it: a skip's crossfade, a track end's, and a seek inside one.
 //
 
 #import "AudioPlayerCodedTestCase.h"
@@ -55,6 +55,29 @@
     NSUInteger start = [self indexOfFile:3 frame:kCodedDeclickFrames gain:1];
     XCTAssertNotEqual(start, NSNotFound, @"file 3 plays alone after its fade in");
     [self assertFile:3 gain:1 from:kCodedDeclickFrames count:4800 atIndex:start in:@"after the track end's fade"];
+}
+
+// A seek inside a track end's crossfade cuts the track fading out too: a
+// jump answers at once. After the seek's fade in, every frame is the
+// seeked track's own, from where it landed.
+- (void)testASeekInsideATrackEndCrossfadeCutsIt {
+    [self makePlayer];
+    _player.crossfadeMilliseconds = 500;
+    [self playTrack:[VibeTestTrack withURL:_files[1]]];
+    [_player prefetchTrack:[VibeTestTrack withURL:_files[2]]];
+    [self settleUntil:^BOOL { return [self onQueue:@"prefetchedFile"] != nil; }];
+    [self render:kCodedFrames / 2];
+    [self settleUntil:^BOOL { return [self count:@"advance"] == 1; }];
+    XCTAssertEqualObjects(_player.debugRenderCounts[@"retiredFades"], @1, @"file 1 fades out");
+    NSUInteger seeks = [self count:@"seek"];
+    [_player seekToPosition:0.25];
+    [self settleUntil:^BOOL { return [self count:@"seek"] > seeks; }];
+    [self render:9600];
+    XCTAssertEqualObjects(_player.debugRenderCounts[@"retiredFades"], @0, @"the seek cut the fade");
+    uint32_t landed = 12000 + kCodedDeclickFrames;
+    NSUInteger start = [self indexOfFile:2 frame:landed gain:1];
+    XCTAssertNotEqual(start, NSNotFound, @"file 2 plays alone after the seek's fade in");
+    [self assertFile:2 gain:1 from:landed count:4800 atIndex:start in:@"after the seek"];
 }
 
 @end

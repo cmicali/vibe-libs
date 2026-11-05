@@ -876,6 +876,9 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
         return;
     }
     BOOL paused = _state == VibePlayerStatePaused;
+    // A seek jumps, so an older crossfade's tail ends with it, as at a
+    // declicked play.
+    [self cutRetiringVoicesToDeclickOnQueue];
     [self revoiceOnQueueAtPosition:position];
     if (!paused) {
         // Playing can carry a stopped output between an iOS system stop and
@@ -1333,8 +1336,8 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     [self updateDrainTimerOnQueue]; // its death is due within the fade
 }
 
-// For stop, pause, a parked or declicked play, and the failure reset; plain
-// skips never call it.
+// For stop, pause, a seek, a parked or declicked play, and the failure
+// reset; plain skips never call it.
 - (void)cutRetiringVoicesToDeclickOnQueue {
     for (NSNumber *voice in _retiringVoices) {
         [_voiceBus setRamp:[self rampOnQueueToGain:0 milliseconds:kFadeDurationMilliseconds action:VibeVoiceActionRetire]

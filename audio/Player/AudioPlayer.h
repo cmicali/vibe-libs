@@ -155,6 +155,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Track seconds, clamped, playing or paused. didFinishSeeking: settles every
 // seek, one dropped because the track changed or nothing was loaded included.
+// A seek that lands cuts an older crossfade still fading out to the declick.
 - (void)seekToPosition:(NSTimeInterval)position;
 
 // The same, aimed only at track: the play the app's control showed. It is
