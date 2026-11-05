@@ -122,7 +122,7 @@ static NSURL *_sharedTrashURL;
 @synthesize byteLimit = _byteLimit;
 @synthesize ageLimit = _ageLimit;
 @synthesize ttlCache = _ttlCache;
-@synthesize recordsOnDemand = _recordsOnDemand;
+@synthesize recordsOnDemand = _recordsOnDemand; // Vibe: records on demand
 
 #if TARGET_OS_IPHONE
 @synthesize writingProtectionOption = _writingProtectionOption;
@@ -298,7 +298,7 @@ static NSURL *_sharedTrashURL;
         
         _metadata = [[NSMutableDictionary alloc] init];
         _diskStateKnown = NO;
-        _oldestCreation = DBL_MAX;
+        _oldestCreation = DBL_MAX; // Vibe: no entry yet
       
         _cacheURL = [[self class] cacheURLWithRootPath:rootPath prefix:_prefix name:_name];
         
@@ -582,6 +582,12 @@ static NSURL *_sharedTrashURL;
     return record;
 }
 
+// Vibe: the key's record read from its file, with no lock held.
+- (nullable PINDiskCacheMetadata *)_recordForKeyUnlocked:(NSString *)key
+{
+    return [self recordOfFileURL:[self encodedFileURLForKey:key]];
+}
+
 // Vibe: the key's record: the one kept, or read from its file now.
 // TRAP: it reads through a URL of its own, since an NSURL keeps the values it
 // read, and a write's own URL would then give its old size back.
@@ -590,34 +596,54 @@ static NSURL *_sharedTrashURL;
     return _recordsOnDemand ? [self recordOfFileURL:[self encodedFileURLForKey:key]] : _metadata[key];
 }
 
-// Vibe: for a cache that keeps no records, every entry's record, from a
-// listing made once the disk state is known, so the byte count a sweep
-// changes is whole, and before the sweep takes the lock, which the listing
-// would hold for long. nil for a cache that keeps records.
-- (nullable NSDictionary<NSString *, PINDiskCacheMetadata *> *)recordsListedForSweep
+// Vibe: for a cache that keeps no records, every entry's record, or with a
+// date, each made before it, from a listing made once the disk state is
+// known, so the byte count a sweep changes is whole, and before the sweep
+// takes the lock, which the listing would hold for long. It enumerates a
+// thousand files to a pool. nil for a cache that keeps records, which waits
+// for nothing, as upstream's sweeps did not.
+- (nullable NSDictionary<NSString *, PINDiskCacheMetadata *> *)recordsListedForSweepMadeBefore:(nullable NSDate *)date
 {
-    [self lockAndWaitForKnownState];
-        BOOL onDemand = _recordsOnDemand;
-    [self unlock];
-    if (!onDemand) {
+    if (!self.recordsOnDemand) {
         return nil;
     }
-    NSError *error = nil;
-    NSArray *files = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:_cacheURL
-                                                   includingPropertiesForKeys:[PINDiskCache resourceKeys]
-                                                                      options:NSDirectoryEnumerationSkipsHiddenFiles
-                                                                        error:&error];
-    PINDiskCacheError(error);
-    NSMutableDictionary<NSString *, PINDiskCacheMetadata *> *records =
-        [[NSMutableDictionary alloc] initWithCapacity:files.count];
-    for (NSURL *fileURL in files) {
-        NSString *key = [self keyForEncodedFileURL:fileURL];
-        PINDiskCacheMetadata *record = [self recordOfFileURL:fileURL];
-        if (key && record) {
-            records[key] = record;
+    [self lockAndWaitForKnownState];
+    [self unlock];
+    NSDirectoryEnumerator<NSURL *> *files =
+        [[NSFileManager defaultManager] enumeratorAtURL:_cacheURL
+                             includingPropertiesForKeys:[PINDiskCache resourceKeys]
+                                                options:NSDirectoryEnumerationSkipsHiddenFiles |
+                                                        NSDirectoryEnumerationSkipsSubdirectoryDescendants
+                                           errorHandler:^BOOL(NSURL *url, NSError *error) {
+                                               PINDiskCacheError(error);
+                                               return YES;
+                                           }];
+    NSMutableDictionary<NSString *, PINDiskCacheMetadata *> *records = [[NSMutableDictionary alloc] init];
+    for (BOOL more = YES; more;) {
+        @autoreleasepool {
+            for (NSUInteger listed = 0; listed < 1000; listed++) {
+                NSURL *fileURL = [files nextObject];
+                if (!fileURL) {
+                    more = NO;
+                    break;
+                }
+                PINDiskCacheMetadata *record = [self recordOfFileURL:fileURL];
+                if (!record || (date && record.createdDate && [record.createdDate compare:date] != NSOrderedAscending)) {
+                    continue;
+                }
+                NSString *key = [self keyForEncodedFileURL:fileURL];
+                if (key) {
+                    records[key] = record;
+                }
+            }
         }
     }
     return records;
+}
+
+- (nullable NSDictionary<NSString *, PINDiskCacheMetadata *> *)recordsListedForSweep
+{
+    return [self recordsListedForSweepMadeBefore:nil];
 }
 
 // Vibe: whether the cache is over the size, once its disk state is known.
@@ -634,6 +660,7 @@ static NSURL *_sharedTrashURL;
     return over;
 }
 
+// Vibe: records on demand, read under the lock.
 - (BOOL)recordsOnDemand
 {
     [self lock];
@@ -650,7 +677,7 @@ static NSURL *_sharedTrashURL;
     NSAssert(recordsOnDemand || !self.recordsOnDemand, @"Records on demand can't be turned off.");
     NSAssert(!recordsOnDemand || (!self.isTTLCache && self.evictionStrategy == PINCacheEvictionStrategyLeastRecentlyUsed),
              @"Records on demand are for a least-recently-used cache that is not a TTL cache.");
-    if (!recordsOnDemand) {
+    if (!recordsOnDemand || self.isTTLCache || self.evictionStrategy != PINCacheEvictionStrategyLeastRecentlyUsed) {
         return;
     }
     [self lock];
@@ -965,7 +992,7 @@ static NSURL *_sharedTrashURL;
     NSDictionary<NSString *, PINDiskCacheMetadata *> *listed = [self recordsListedForSweep];
     
     [self lockForWriting];
-        NSDictionary<NSString *, PINDiskCacheMetadata *> *records = listed ?: _metadata;
+        NSDictionary<NSString *, PINDiskCacheMetadata *> *records = listed ?: (_recordsOnDemand ? @{} : _metadata);
         if (_byteCount > trimByteCount) {
             keysToRemove = [[NSMutableArray alloc] init];
             
@@ -980,7 +1007,7 @@ static NSURL *_sharedTrashURL;
                 if (byteSize) {
                     bytesSaved += [byteSize unsignedIntegerValue];
                 }
-                if (_byteCount - bytesSaved <= trimByteCount) {
+                if (bytesSaved >= _byteCount || _byteCount - bytesSaved <= trimByteCount) { // Vibe: never wraps
                     break;
                 }
             }
@@ -1007,7 +1034,7 @@ static NSURL *_sharedTrashURL;
     NSDictionary<NSString *, PINDiskCacheMetadata *> *listed = [self recordsListedForSweep];
   
     [self lockForWriting];
-        NSDictionary<NSString *, PINDiskCacheMetadata *> *records = listed ?: _metadata;
+        NSDictionary<NSString *, PINDiskCacheMetadata *> *records = listed ?: (_recordsOnDemand ? @{} : _metadata);
         if (_byteCount > trimByteCount) {
             PINCacheEvictionStrategy strategy = self->_evictionStrategy;
             keysToRemove = [[NSMutableArray alloc] init];
@@ -1042,7 +1069,7 @@ static NSURL *_sharedTrashURL;
                 if (byteSize) {
                     bytesSaved += [byteSize unsignedIntegerValue];
                 }
-                if (_byteCount - bytesSaved <= trimByteCount) {
+                if (bytesSaved >= _byteCount || _byteCount - bytesSaved <= trimByteCount) { // Vibe: never wraps
                     break;
                 }
             }
@@ -1065,9 +1092,9 @@ static NSURL *_sharedTrashURL;
             return;
         }
     }
-    NSDictionary<NSString *, PINDiskCacheMetadata *> *listed = [self recordsListedForSweep];
+    NSDictionary<NSString *, PINDiskCacheMetadata *> *listed = [self recordsListedForSweepMadeBefore:trimDate];
     [self lockForWriting];
-        NSDictionary<NSString *, PINDiskCacheMetadata *> *records = listed ?: _metadata;
+        NSDictionary<NSString *, PINDiskCacheMetadata *> *records = listed ?: (_recordsOnDemand ? @{} : _metadata);
         NSArray *keysSortedByCreatedDate = [records keysSortedByValueUsingComparator:^NSComparisonResult(PINDiskCacheMetadata * _Nonnull obj1, PINDiskCacheMetadata * _Nonnull obj2) {
             return [obj1.createdDate compare:obj2.createdDate];
         }];
@@ -1087,11 +1114,15 @@ static NSURL *_sharedTrashURL;
         }
     [self unlock];
     
+    BOOL removedEvery = YES;
     for (NSString *key in keysToRemove) {
-        [self removeFileAndExecuteBlocksForKey:key];
+        // Vibe: a removal that failed leaves its file, unless it was gone.
+        if (![self removeFileAndExecuteBlocksForKey:key] && [self _recordForKeyUnlocked:key]) {
+            removedEvery = NO;
+        }
     }
     // Vibe: every entry made before the date is gone, so none older is left.
-    if (listed) {
+    if (listed && removedEvery) {
         [self lock];
             _oldestCreation = MAX(_oldestCreation, trimDate.timeIntervalSinceReferenceDate);
         [self unlock];
@@ -1661,7 +1692,7 @@ static NSURL *_sharedTrashURL;
     [self lockForWriting];
         NSDate *now = [NSDate date];
         NSMutableArray<NSString *> *expiredObjectKeys = [NSMutableArray array];
-        [(listed ?: _metadata) enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, PINDiskCacheMetadata * _Nonnull obj, BOOL * _Nonnull stop) {
+        [(listed ?: (_recordsOnDemand ? @{} : _metadata)) enumerateKeysAndObjectsUsingBlock:^(NSString * _Nonnull key, PINDiskCacheMetadata * _Nonnull obj, BOOL * _Nonnull stop) {
             NSTimeInterval ageLimit = obj.ageLimit > 0.0 ? obj.ageLimit : self->_ageLimit;
             NSDate *expirationDate = [obj.createdDate dateByAddingTimeInterval:ageLimit];
             if ([expirationDate compare:now] == NSOrderedAscending) { // Expiration date has passed
@@ -1679,7 +1710,9 @@ static NSURL *_sharedTrashURL;
 - (void)removeAllObjects
 {
     // We don't need to know the disk state since we're just going to remove everything.
-    [self lockForWriting];
+    // Vibe: but a cache that keeps no records waits for its launch's count,
+    // which would otherwise count the files this removes.
+    [self lockForCounting];
         PINCacheBlock willRemoveAllObjectsBlock = self->_willRemoveAllObjectsBlock;
         if (willRemoveAllObjectsBlock) {
             [self unlock];
@@ -1694,6 +1727,7 @@ static NSURL *_sharedTrashURL;
         
         [self->_metadata removeAllObjects];
         self.byteCount = 0; // atomic
+        self->_oldestCreation = DBL_MAX; // Vibe: no entry is left.
     
         PINCacheBlock didRemoveAllObjectsBlock = self->_didRemoveAllObjectsBlock;
         if (didRemoveAllObjectsBlock) {
@@ -1715,7 +1749,7 @@ static NSURL *_sharedTrashURL;
     [self lockAndWaitForKnownState];
         NSDate *now = [NSDate date];
     
-        for (NSString *key in (listed ?: _metadata)) {
+        for (NSString *key in (listed ?: (_recordsOnDemand ? @{} : _metadata))) {
             NSURL *fileURL = [self encodedFileURLForKey:key];
             // If the cache should behave like a TTL cache, then only fetch the object if there's a valid ageLimit and the object is still alive
             NSDate *createdDate = _metadata[key].createdDate;
@@ -1940,7 +1974,8 @@ static NSURL *_sharedTrashURL;
     [self lock];
     
     // Lock if the disk isn't writable.
-    if (_diskWritable == NO) {
+    // Vibe: while, not if, since a wait can wake for nothing.
+    while (_diskWritable == NO) {
         pthread_cond_wait(&_diskWritableCondition, &_mutex);
     }
 }
@@ -1962,7 +1997,8 @@ static NSURL *_sharedTrashURL;
     [self lock];
     
     // Lock if the disk state isn't known.
-    if (_diskStateKnown == NO) {
+    // Vibe: while, not if, since a wait can wake for nothing.
+    while (_diskStateKnown == NO) {
         pthread_cond_wait(&_diskStateKnownCondition, &_mutex);
     }
 }

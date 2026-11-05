@@ -178,7 +178,8 @@ PIN_SUBCLASSING_RESTRICTED
 
 /**
  Vibe: the cache keeps no record of its entries in memory, and reads each from its file. For a least-recently-used
- cache that is not a TTL cache. Setting it drops the records kept, and it can't be turned off.
+ cache that is not a TTL cache, and refused for any other. Set it before the first write and the limits. Setting it
+ drops the records kept, and it can't be turned off.
  */
 @property (atomic, assign) BOOL recordsOnDemand;
 

@@ -168,16 +168,73 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
     XCTAssertTrue([cache containsObjectForKey:@"new"]);
 }
 
-// A store that has seen no entry older than a date lists nothing to trim to
-// it, and still trims one older that a reopening finds.
+// A store that has seen no entry made before a date lists nothing to trim
+// to it: an entry made older behind its back stays, until a reopening reads
+// its date and trims it.
 - (void)testATrimToADateListsNothingWhenNothingIsThatOld {
     PINDiskCache *cache = [PINCache audioCacheWithName:@"recent" rootPath:_root].diskCache;
     VibeWaitForDiskState(cache);
     [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"one"];
-    NSTimeInterval oldest = [[cache valueForKey:@"oldestCreation"] doubleValue];
-    XCTAssertGreaterThanOrEqual(oldest, [NSDate dateWithTimeIntervalSinceNow:-60].timeIntervalSinceReferenceDate);
-    [cache trimToDate:[NSDate dateWithTimeIntervalSinceNow:-86400.0]];
-    XCTAssertTrue([cache containsObjectForKey:@"one"]);
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
+                                                 ofItemAtPath:[cache fileURLForKey:@"one"].path error:nil]);
+    NSDate *trimDate = [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 50];
+    [cache trimToDate:trimDate];
+    XCTAssertTrue([cache containsObjectForKey:@"one"], @"it listed nothing");
+    cache = nil;
+    PINDiskCache *again = [PINCache audioCacheWithName:@"recent" rootPath:_root].diskCache;
+    VibeWaitForDiskState(again);
+    [again trimToDate:trimDate];
+    XCTAssertFalse([again containsObjectForKey:@"one"]);
+}
+
+// A plain store that read its records before the mode keeps their dates in
+// the bound the mode drops them for, so an old one is still trimmed.
+- (void)testRecordsDroppedForTheModeKeepTheirDates {
+    PINDiskCache *first = [[PINCache alloc] initWithName:@"dropped" rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    [first setObject:[NSMutableData dataWithLength:1000] forKey:@"old"];
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
+                                                 ofItemAtPath:[first fileURLForKey:@"old"].path error:nil]);
+    first = nil;
+    PINDiskCache *plain = [[PINCache alloc] initWithName:@"dropped" rootPath:_root].diskCache;
+    VibeWaitForDiskState(plain);
+    XCTAssertEqual(VibeRecordsKept(plain), 1u);
+    plain.recordsOnDemand = YES;
+    [plain trimToDate:[NSDate dateWithTimeIntervalSinceNow:-86400.0 * 50]];
+    XCTAssertFalse([plain containsObjectForKey:@"old"]);
+}
+
+// Removing every entry right as a store opens over its files leaves a count
+// of none, not the files its launch's count saw.
+- (void)testRemovingEveryEntryAtOpenLeavesNoBytes {
+    PINDiskCache *first = [PINCache audioCacheWithName:@"wiped" rootPath:_root].diskCache;
+    for (NSUInteger i = 0; i < 50; i++) {
+        [first setObject:[NSMutableData dataWithLength:5000] forKey:[NSString stringWithFormat:@"%lu", (unsigned long)i]];
+    }
+    first = nil;
+    PINDiskCache *again = [PINCache audioCacheWithName:@"wiped" rootPath:_root].diskCache;
+    [again removeAllObjects];
+    VibeWaitForDiskState(again);
+    XCTAssertEqual(again.byteCount, 0u);
+    XCTAssertEqual(VibeAllocatedBytes(again), 0u);
+}
+
+// A plain store's launch count reads its directory a thousand files to a
+// pool, past a pool's end, and skips a hidden file, as upstream's listing did.
+- (void)testAPlainStoresCountReadsEveryFile {
+    PINDiskCache *first = [[PINCache alloc] initWithName:@"many" rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    NSString *directory = first.cacheURL.path;
+    first = nil;
+    for (NSUInteger i = 0; i < 1500; i++) {
+        [NSData.data writeToFile:[directory stringByAppendingPathComponent:[NSString stringWithFormat:@"file%lu", (unsigned long)i]]
+                      atomically:NO];
+    }
+    [[NSMutableData dataWithLength:5000] writeToFile:[directory stringByAppendingPathComponent:@".hidden"] atomically:NO];
+    PINDiskCache *plain = [[PINCache alloc] initWithName:@"many" rootPath:_root].diskCache;
+    VibeWaitForDiskState(plain);
+    XCTAssertEqual(VibeRecordsKept(plain), 1500u);
+    XCTAssertEqual(plain.byteCount, VibeAllocatedBytes(plain));
 }
 
 // A store opened again over entries made 200 days ago, written to before it
