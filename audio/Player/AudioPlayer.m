@@ -329,11 +329,12 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     NSString *key = track.sourceKey;
     // Before the rebind, which returns early but is still a newer submission.
     [self terminallyRetirePrefetchRequestOnQueue];
+    // The mode can land before main holds the crossfade at the declick, so a
+    // play under it declicks.
+    declick |= [self bitPerfectOnQueue];
     // A parked play is a pause outcome, and a declicked play never
     // crossfades: either cuts any older crossfade tail before the same-path
-    // Loading rebind can return without touching the bus. Otherwise a skip
-    // during a track end's crossfade leaves the track before it fading under
-    // the new one.
+    // Loading rebind can return without touching the bus.
     if (intent.paused || declick) {
         [self cutRetiringVoicesToDeclickOnQueue];
     }
@@ -406,8 +407,6 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     // A voice held buffering is silent, so replacing it is no crossfade: the
     // declick, which also ends its reads, and its stream, at once.
     BOOL replacingAudibleTrack = _voice != 0 && [self renderingOnQueue] && _state == VibePlayerStatePlaying && !_buffering;
-    // The mode can land before main holds the crossfade at the declick.
-    declick |= [self bitPerfectOnQueue];
     _incomingFadeMilliseconds = VibeIncomingFadeMilliseconds(self.crossfadeMilliseconds, replacingAudibleTrack, declick);
     VibeVoiceID voice = [self unpublishVoiceOnQueue];
     [self retireVoiceOnQueue:voice milliseconds:_incomingFadeMilliseconds];
@@ -1334,8 +1333,8 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     [self updateDrainTimerOnQueue]; // its death is due within the fade
 }
 
-// For stop, pause, a parked play and the failure reset; skips never call it,
-// so rapid skips keep the full fade-out.
+// For stop, pause, a parked or declicked play, and the failure reset; plain
+// skips never call it.
 - (void)cutRetiringVoicesToDeclickOnQueue {
     for (NSNumber *voice in _retiringVoices) {
         [_voiceBus setRamp:[self rampOnQueueToGain:0 milliseconds:kFadeDurationMilliseconds action:VibeVoiceActionRetire]
