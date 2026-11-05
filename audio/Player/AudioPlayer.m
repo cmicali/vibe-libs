@@ -329,9 +329,12 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     NSString *key = track.sourceKey;
     // Before the rebind, which returns early but is still a newer submission.
     [self terminallyRetirePrefetchRequestOnQueue];
-    // A parked play is a pause outcome: cut any older crossfade tail before
-    // the same-path Loading rebind can return without touching the bus.
-    if (intent.paused) {
+    // A parked play is a pause outcome, and a declicked play never
+    // crossfades: either cuts any older crossfade tail before the same-path
+    // Loading rebind can return without touching the bus. Otherwise a skip
+    // during a track end's crossfade leaves the track before it fading under
+    // the new one.
+    if (intent.paused || declick) {
         [self cutRetiringVoicesToDeclickOnQueue];
     }
     if ([self rebindLoadingPlayOnQueueForTrack:track path:path intent:intent
