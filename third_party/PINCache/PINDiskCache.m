@@ -66,11 +66,17 @@ static BOOL PINDiskCacheShouldTouch(NSDate *lastModifiedDate, NSDate *now)
     return !lastModifiedDate || [now timeIntervalSinceDate:lastModifiedDate] >= 24 * 60 * 60;
 }
 
-// Vibe: a file's bytes and its last modified date, from one open. nil when
-// the file is gone or can't be read whole.
-static NSData *PINDiskCacheReadFile(NSURL *fileURL, NSDate **outModifiedDate)
+// Vibe: a file's date as Foundation reads it, so the two compare.
+static NSDate *PINDiskCacheDateOfTimespec(struct timespec time)
 {
-    const char *path = fileURL.fileSystemRepresentation;
+    return [NSDate dateWithTimeIntervalSinceReferenceDate:((double)time.tv_sec - NSTimeIntervalSince1970) + 1.0e-9 * (double)time.tv_nsec];
+}
+
+// Vibe: a file's bytes and its creation and last modified dates, from one
+// open. nil when the file is gone or can't be read whole.
+static NSData *PINDiskCacheReadFile(NSURL *fileURL, NSDate **outCreatedDate, NSDate **outModifiedDate)
+{
+    const char *path = PINDiskCacheFileSystemRepresentation(fileURL);
     int fd = path ? open(path, O_RDONLY | O_CLOEXEC) : -1;
     if (fd < 0) {
         return nil;
@@ -93,13 +99,21 @@ static NSData *PINDiskCacheReadFile(NSURL *fileURL, NSDate **outModifiedDate)
         }
         if (bytes && done == length) {
             data = [NSData dataWithBytesNoCopy:bytes length:length freeWhenDone:YES];
-            *outModifiedDate = [NSDate dateWithTimeIntervalSince1970:info.st_mtimespec.tv_sec + info.st_mtimespec.tv_nsec / 1e9];
+            *outCreatedDate = PINDiskCacheDateOfTimespec(info.st_birthtimespec);
+            *outModifiedDate = PINDiskCacheDateOfTimespec(info.st_mtimespec);
         } else {
             free(bytes);
         }
     }
     close(fd);
     return data;
+}
+
+// Vibe: whether two dates of one file are the same, within the rounding of
+// the two ways a date is read.
+static BOOL PINDiskCacheSameFileDate(NSDate *date, NSDate *other)
+{
+    return date && other && fabs([date timeIntervalSinceDate:other]) < 1e-6;
 }
 
 // Vibe: an automatic trim cuts to 90% of the limit, not to just under it, so
@@ -980,6 +994,14 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
 
 - (BOOL)removeFileAndExecuteBlocksForKey:(NSString *)key
 {
+    return [self removeFileAndExecuteBlocksForKey:key madeAt:nil];
+}
+
+// Vibe: with a date, the file goes only while it is the one made then. A write
+// replaces the file with one made later, so a write since a sweep's listing,
+// or since a hit read a file that won't decode, keeps its entry.
+- (BOOL)removeFileAndExecuteBlocksForKey:(NSString *)key madeAt:(nullable NSDate *)createdDate
+{
     NSURL *fileURL = [self encodedFileURLForKey:key];
     if (!fileURL) {
         return NO;
@@ -1001,7 +1023,12 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
         }
 
         // Vibe: its size, read before the file goes, for a cache that keeps no records.
-        NSNumber *byteSize = [self _locked_recordForKey:key].size;
+        PINDiskCacheMetadata *record = [self _locked_recordForKey:key];
+        if (createdDate && !PINDiskCacheSameFileDate(record.createdDate, createdDate)) {
+            [self unlock];
+            return NO;
+        }
+        NSNumber *byteSize = record.size;
         BOOL trashed = [PINDiskCache moveItemAtURLToTrashOrRemove:fileURL];
         if (!trashed) {
             [self unlock];
@@ -1063,8 +1090,10 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
         }
     [self unlock];
     
+    // Vibe: a listed entry written again since goes no more. A hit since the
+    // listing leaves the file's creation date, so its entry still goes.
     for (NSString *key in keysToRemove) {
-        [self removeFileAndExecuteBlocksForKey:key];
+        [self removeFileAndExecuteBlocksForKey:key madeAt:listed[key].createdDate];
     }
 }
 
@@ -1130,8 +1159,10 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
         }
     [self unlock];
     
+    // Vibe: a listed entry written again since goes no more. A hit since the
+    // listing leaves the file's creation date, so its entry still goes.
     for (NSString *key in keysToRemove) {
-        [self removeFileAndExecuteBlocksForKey:key];
+        [self removeFileAndExecuteBlocksForKey:key madeAt:listed[key].createdDate];
     }
 }
 
@@ -1174,7 +1205,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     BOOL removedEvery = YES;
     for (NSString *key in keysToRemove) {
         // Vibe: a removal that failed leaves its file, unless it was gone.
-        if (![self removeFileAndExecuteBlocksForKey:key] && [self _recordForKeyUnlocked:key]) {
+        if (![self removeFileAndExecuteBlocksForKey:key madeAt:listed[key].createdDate] && [self _recordForKeyUnlocked:key]) {
             removedEvery = NO;
         }
     }
@@ -1485,11 +1516,8 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
                   object = _deserializer(objectData, key);
               }
               @catch (NSException *exception) {
-                  NSError *error = nil;
-                  [self lock];
-                      [[NSFileManager defaultManager] removeItemAtPath:[fileURL path] error:&error];
-                  [self unlock];
-                  PINDiskCacheError(error)
+                  // Vibe: removed as any entry is, so the byte count follows.
+                  [self removeFileAndExecuteBlocksForKey:key];
                   PINDiskCacheException(exception);
               }
             }
@@ -1531,8 +1559,9 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     if (outFileURL) {
         *outFileURL = fileURL;
     }
+    NSDate *createdDate = nil;
     NSDate *lastModifiedDate = nil;
-    NSData *objectData = PINDiskCacheReadFile(fileURL, &lastModifiedDate);
+    NSData *objectData = PINDiskCacheReadFile(fileURL, &createdDate, &lastModifiedDate);
     if (!objectData) {
         return nil;
     }
@@ -1541,11 +1570,9 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
         object = _deserializer(objectData, key);
     }
     @catch (NSException *exception) {
-        NSError *error = nil;
-        [self lock];
-            [[NSFileManager defaultManager] removeItemAtPath:[fileURL path] error:&error];
-        [self unlock];
-        PINDiskCacheError(error)
+        // Removed as any entry is, so the byte count follows, and only while
+        // it is the file read.
+        [self removeFileAndExecuteBlocksForKey:key madeAt:createdDate];
         PINDiskCacheException(exception);
     }
     NSDate *now = [NSDate date];
@@ -1861,6 +1888,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     [self lockAndWaitForKnownState];
         NSDate *now = [NSDate date];
     
+        // Vibe: nothing is listed here, and a mode turned on since has no records.
         for (NSString *key in (listed ?: (_recordsOnDemand ? @{} : _metadata))) {
             NSURL *fileURL = [self encodedFileURLForKey:key];
             // If the cache should behave like a TTL cache, then only fetch the object if there's a valid ageLimit and the object is still alive

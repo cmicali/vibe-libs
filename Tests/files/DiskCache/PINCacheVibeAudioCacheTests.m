@@ -383,8 +383,9 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
 }
 
 // A trim sorts its listing before it takes the lock. Writes and hits during
-// it go on: each entry written meanwhile stays, as it was not listed, and the
-// byte count still matches the files.
+// it go on: each entry written meanwhile stays, as it was not listed. A listed
+// entry written again before its removal stays too, as its file is newer than
+// the listing's. The byte count still matches the files.
 - (void)testATrimRacingWritesAndHitsKeepsTheirEntriesAndItsCount {
     PINDiskCache *cache = [PINCache audioCacheWithName:@"racing trim" rootPath:_root].diskCache;
     VibeWaitForDiskState(cache);
@@ -396,11 +397,32 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
     }
     NSUInteger target = cache.byteCount / 2;
     __block _Atomic(int) trimming = 1;
-    __block NSUInteger written = 0;
+    __block _Atomic(NSUInteger) written = 0;
+    // The trim's first removal, of the oldest, waits for a write of a new
+    // key, and writes again the next oldest, which the trim listed.
+    __block _Atomic(int) removals = 0;
+    __weak PINDiskCache *weakCache = cache;
+    cache.willRemoveObjectBlock = ^(PINDiskCache *removing, NSString *key, id<NSCoding> object) {
+        if (atomic_fetch_add(&removals, 1) != 0) {
+            return;
+        }
+        NSUInteger seen = written;
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+        while (written == seen && deadline.timeIntervalSinceNow > 0) {
+            [NSThread sleepForTimeInterval:0.001];
+        }
+        [weakCache setObject:[NSMutableData dataWithLength:7000] forKey:@"listed 1"];
+    };
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (!cache.willRemoveObjectBlock && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.01];
+    }
     dispatch_group_t racers = dispatch_group_create();
     dispatch_group_async(racers, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        for (; trimming || written < 20; written++) {
-            [cache setObject:[NSMutableData dataWithLength:5000] forKey:[NSString stringWithFormat:@"new %lu", (unsigned long)written]];
+        while (trimming || written < 20) {
+            NSUInteger next = written;
+            [cache setObject:[NSMutableData dataWithLength:5000] forKey:[NSString stringWithFormat:@"new %lu", (unsigned long)next]];
+            written = next + 1;
         }
     });
     dispatch_group_async(racers, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -409,15 +431,48 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
             (void)[cache objectForKey:[NSString stringWithFormat:@"listed %lu", (unsigned long)(200 + i % 200)]];
         }
     });
+    NSUInteger before = written;
     [cache trimToSizeByEvictionStrategy:target];
+    NSUInteger during = written - before;
     trimming = 0;
     XCTAssertEqual(dispatch_group_wait(racers, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC))), 0);
-    for (NSUInteger i = 0; i < written; i++) {
+    XCTAssertGreaterThan(during, 0u, @"a write landed during the trim");
+    XCTAssertGreaterThan((NSUInteger)removals, 1u);
+    NSUInteger total = written;
+    for (NSUInteger i = 0; i < total; i++) {
         NSString *key = [NSString stringWithFormat:@"new %lu", (unsigned long)i];
         XCTAssertTrue([cache containsObjectForKey:key], @"%@", key);
     }
     XCTAssertFalse([cache containsObjectForKey:@"listed 0"], @"the least recently used went");
+    XCTAssertFalse([cache containsObjectForKey:@"listed 2"]);
+    XCTAssertEqual([(NSData *)[cache objectForKey:@"listed 1"] length], 7000u, @"written again, it stayed");
     XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+}
+
+// A file that won't decode is removed as any entry is, so the byte count
+// follows it.
+- (void)testAnEntryThatWontDecodeGoesWithItsBytes {
+    PINDiskCache *cache = [[PINDiskCache alloc] initWithName:@"undecodable" rootPath:_root serializer:nil
+                                                deserializer:^id<NSCoding>(NSData *data, NSString *key) {
+        if ([key isEqualToString:@"bad"]) {
+            @throw [NSException exceptionWithName:NSInvalidArchiveOperationException reason:@"won't decode" userInfo:nil];
+        }
+        return data;
+    }];
+    cache.recordsOnDemand = YES;
+    VibeWaitForDiskState(cache);
+    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"good"];
+    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"bad"];
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+    // A Debug build asserts after the removal, so the read may throw.
+    @try {
+        (void)[cache objectForKey:@"bad"];
+    } @catch (NSException *exception) {
+    }
+    XCTAssertFalse([NSFileManager.defaultManager fileExistsAtPath:VibeEntryPath(cache, @"bad")]);
+    XCTAssertTrue([NSFileManager.defaultManager fileExistsAtPath:VibeEntryPath(cache, @"good")]);
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+    XCTAssertGreaterThan(cache.byteCount, 0u);
 }
 
 // An enumeration, as the usage count runs, holds no lock while its block
