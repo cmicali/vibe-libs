@@ -286,6 +286,168 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
     XCTAssertEqual([(NSData *)[cache objectForKey:@"one"] length], 4000u);
 }
 
+#pragma mark - The lock
+
+// An entry's file, found with no hit, which would re-date it.
+static NSString *VibeEntryPath(PINDiskCache *cache, NSString *key) {
+    return [cache.cacheURL URLByAppendingPathComponent:key isDirectory:NO].path;
+}
+
+// Runs work on another thread and reports whether it finished in time.
+static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
+    dispatch_semaphore_t done = dispatch_semaphore_create(0);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        work();
+        dispatch_semaphore_signal(done);
+    });
+    return dispatch_semaphore_wait(done, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC))) == 0;
+}
+
+// A hit and a miss take no lock, so they answer while a write holds it.
+- (void)testAHitAndAMissAnswerWhileTheLockIsHeld {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"unlocked hit" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    [cache setObject:[NSMutableData dataWithLength:3000] forKey:@"one"];
+    __block NSData *hit = nil;
+    __block id miss = @"unread";
+    __block BOOL answered = NO;
+    [cache synchronouslyLockFileAccessWhileExecutingBlock:^(PINDiskCache *locked) {
+        answered = VibeFinishesElsewhere(^{
+            hit = (NSData *)[cache objectForKey:@"one"];
+            miss = [cache objectForKey:@"two"];
+        });
+    }];
+    XCTAssertTrue(answered);
+    XCTAssertEqual(hit.length, 3000u);
+    XCTAssertNil(miss);
+}
+
+// A hit re-dates an entry last used over a day ago, from the dates of the
+// file it read, and leaves one used since.
+- (void)testAHitReDatesOnlyAnEntryADayOld {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"re-date" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    NSDate *twoDays = [NSDate dateWithTimeIntervalSinceNow:-2 * 86400.0];
+    NSDate *anHour = [NSDate dateWithTimeIntervalSinceNow:-3600.0];
+    NSDictionary<NSString *, NSDate *> *used = @{@"old": twoDays, @"recent": anHour};
+    for (NSString *key in used) {
+        [cache setObject:[NSMutableData dataWithLength:100] forKey:key];
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: used[key]}
+                                                     ofItemAtPath:VibeEntryPath(cache, key) error:nil]);
+        XCTAssertNotNil([cache objectForKey:key]);
+    }
+    // The re-date runs on the store's queue.
+    NSDate *(^modified)(NSString *) = ^NSDate *(NSString *key) {
+        return [NSFileManager.defaultManager attributesOfItemAtPath:VibeEntryPath(cache, key) error:nil].fileModificationDate;
+    };
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while ([modified(@"old") timeIntervalSinceNow] < -60 && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.01];
+    }
+    XCTAssertGreaterThan([modified(@"old") timeIntervalSinceNow], -60);
+    XCTAssertEqualWithAccuracy([modified(@"recent") timeIntervalSinceDate:anHour], 0, 1);
+}
+
+// Hits that race writes over their key and its removal each see a whole
+// entry or none.
+- (void)testAHitRacingWritesAndRemovalsSeesAWholeEntryOrNone {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"racing hits" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    NSMutableData *small = [NSMutableData dataWithLength:1000];
+    memset(small.mutableBytes, 0xaa, small.length);
+    NSMutableData *large = [NSMutableData dataWithLength:30000];
+    memset(large.mutableBytes, 0xbb, large.length);
+    __block _Atomic(int) writing = 1;
+    dispatch_group_t writers = dispatch_group_create();
+    dispatch_group_async(writers, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        for (NSUInteger i = 0; writing; i++) {
+            if (i % 3 == 2) {
+                [cache removeObjectForKey:@"key"];
+            } else {
+                [cache setObject:(i % 3 ? large : small) forKey:@"key"];
+            }
+        }
+    });
+    NSUInteger whole = 0;
+    for (NSUInteger i = 0; i < 2000; i++) {
+        NSData *read = (NSData *)[cache objectForKey:@"key"];
+        if (read) {
+            XCTAssertTrue([read isEqualToData:small] || [read isEqualToData:large], @"a read of %lu bytes", (unsigned long)read.length);
+            whole++;
+        }
+    }
+    writing = 0;
+    XCTAssertEqual(dispatch_group_wait(writers, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC))), 0);
+    XCTAssertGreaterThan(whole, 0u);
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+}
+
+// A trim sorts its listing before it takes the lock. Writes and hits during
+// it go on: each entry written meanwhile stays, as it was not listed, and the
+// byte count still matches the files.
+- (void)testATrimRacingWritesAndHitsKeepsTheirEntriesAndItsCount {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"racing trim" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    for (NSUInteger i = 0; i < 400; i++) {
+        NSString *key = [NSString stringWithFormat:@"listed %lu", (unsigned long)i];
+        [cache setObject:[NSMutableData dataWithLength:5000] forKey:key];
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 10 + i]}
+                                                     ofItemAtPath:VibeEntryPath(cache, key) error:nil]);
+    }
+    NSUInteger target = cache.byteCount / 2;
+    __block _Atomic(int) trimming = 1;
+    __block NSUInteger written = 0;
+    dispatch_group_t racers = dispatch_group_create();
+    dispatch_group_async(racers, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        for (; trimming || written < 20; written++) {
+            [cache setObject:[NSMutableData dataWithLength:5000] forKey:[NSString stringWithFormat:@"new %lu", (unsigned long)written]];
+        }
+    });
+    dispatch_group_async(racers, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        for (NSUInteger i = 0; trimming; i++) {
+            // The newer half, which a hit re-dates but the trim keeps anyway.
+            (void)[cache objectForKey:[NSString stringWithFormat:@"listed %lu", (unsigned long)(200 + i % 200)]];
+        }
+    });
+    [cache trimToSizeByEvictionStrategy:target];
+    trimming = 0;
+    XCTAssertEqual(dispatch_group_wait(racers, dispatch_time(DISPATCH_TIME_NOW, (int64_t)(VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC))), 0);
+    for (NSUInteger i = 0; i < written; i++) {
+        NSString *key = [NSString stringWithFormat:@"new %lu", (unsigned long)i];
+        XCTAssertTrue([cache containsObjectForKey:key], @"%@", key);
+    }
+    XCTAssertFalse([cache containsObjectForKey:@"listed 0"], @"the least recently used went");
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+}
+
+// An enumeration, as the usage count runs, holds no lock while its block
+// runs: a write and a hit from another thread answer meanwhile.
+- (void)testAnEnumerationHoldsNoLockWhileItsBlockRuns {
+    PINCache *store = [PINCache audioCacheWithName:@"unlocked usage" rootPath:_root];
+    PINDiskCache *cache = store.diskCache;
+    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"one"];
+    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"two"];
+    __block BOOL answered = NO;
+    __block NSUInteger listed = 0;
+    [cache enumerateObjectsWithBlock:^(NSString *key, NSURL *fileURL, BOOL *stop) {
+        if (listed++ == 0) {
+            answered = VibeFinishesElsewhere(^{
+                [cache setObject:[NSMutableData dataWithLength:2000] forKey:@"three"];
+                (void)[cache objectForKey:@"one"];
+            });
+        }
+    }];
+    XCTAssertTrue(answered);
+    XCTAssertEqual(listed, 2u, @"the listing was made before the write");
+    XCTestExpectation *counted = [self expectationWithDescription:@"counted"];
+    [store audioDiskUsageWithCompletion:^(NSUInteger fileCount, unsigned long long totalBytes) {
+        XCTAssertEqual(fileCount, 3u);
+        XCTAssertGreaterThanOrEqual(totalBytes, 4000u);
+        [counted fulfill];
+    }];
+    [self waitForExpectations:@[counted] timeout:VIBE_TEST_HANG_TIMEOUT];
+}
+
 #pragma mark - Other versions' stores
 
 - (void)makeStores:(NSArray<NSString *> *)names {

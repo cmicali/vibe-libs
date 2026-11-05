@@ -626,6 +626,8 @@ PIN_SUBCLASSING_RESTRICTED
  @see enumerateObjectsWithBlockAsync:completionBlock
  @param block A block to be executed for every object in the cache.
  
+ Vibe: a cache that keeps no records holds no lock while the block runs, and its reads and writes go on.
+ 
  @warning Do not call this method within the event blocks (<didRemoveObjectBlock>, etc.)
  Instead use the asynchronous version, <enumerateObjectsWithBlock:completionBlock:>.
  
