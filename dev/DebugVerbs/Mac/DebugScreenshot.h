@@ -13,18 +13,28 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-// Renders the key window, else the main window, else the frontmost visible
-// one, to a PNG at path. NO when there is no window or the write fails.
+// What every in-process render's reply says of itself: for layout and text
+// only, and capture_window for the real window.
+extern NSString *const VibeDebugRenderNote;
+
+// Renders window's frame view, the title bar and the toolbar with it, to a
+// PNG at path. NO when the window has no content or the write fails.
 //
 // It renders the window's layer tree in-process, with no window-server
-// capture, so it needs no screen-recording permission and works with the
-// display asleep or the window occluded. NSGlassEffectView and
-// CABackdropLayer layers render white this way, so they are hidden, over an
-// appearance-matched flat fill. Each glass view's content then renders on top,
-// in its place. Hiding them forces a model-tree render, so such a window's
-// animations land at their target values; any other window renders the
-// presentation tree mid-flight. Metal content does not render either. The
-// PNG's resolution is 72 dpi times the backing scale.
+// capture, so it needs no permission and works with the display asleep or
+// the window occluded. NSGlassEffectView and CABackdropLayer layers render
+// white this way. So a backdrop gives way to an opaque, appearance-matched
+// fill in its place, in its z-order, and a glass view is hidden, over the same
+// fill, with its content rendered on top, in its place. So what a material
+// covers on screen stays covered, such as rows scrolled under a toolbar or a
+// header. Those changes force a model-tree render, so such a window's animations land at their target
+// values. Any other window renders the presentation tree mid-flight. Metal
+// content does not render either. The PNG's resolution is 72 dpi times the
+// backing scale.
+BOOL VibeDebugRenderWindow(NSWindow *window, NSString *path);
+
+// VibeDebugRenderWindow of the key window, else the main window, else the
+// frontmost visible one.
 BOOL VibeDumpWindowSnapshot(NSString *path);
 
 // Writes image to a PNG at path, its resolution 72 dpi times scale, so a

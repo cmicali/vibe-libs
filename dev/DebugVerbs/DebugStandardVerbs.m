@@ -24,6 +24,15 @@
 #import "VibeWorkTally.h"
 
 @implementation VibeDebugStandardOptions
+
+- (instancetype)init {
+    self = [super init];
+    if (self) {
+        _requiresKeyWindow = YES;
+    }
+    return self;
+}
+
 @end
 
 // Well under a stress driver's 20 s liveness probe, so a stray block is never

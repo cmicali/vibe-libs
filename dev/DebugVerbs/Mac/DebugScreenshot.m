@@ -11,7 +11,11 @@
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <notify.h>
+#import "NSView+DarkMode.h"
 #import "VibeMacros.h"
+
+NSString *const VibeDebugRenderNote = @"in-process, for layout and text only: glass, material, and blending draw "
+                                      @"flat, and no menu or popover shows. capture_window shows the real window";
 
 // A glass view's hosting layer renders as opaque white in renderInContext:,
 // because its real content is composited by the window server, and it paints
@@ -47,60 +51,30 @@ static void VibeCollectBackdropLayers(CALayer *layer, NSMutableArray<CALayer *> 
     }
 }
 
-// X5: a clip view under a toolbar or a header has content insets. On screen,
-// what scrolls up into an inset is covered by the toolbar's and the header's
-// backgrounds, which the render hides. So the render clips each such view to
-// the rect inside its insets, by a frame and bounds that keep its content in
-// place, uncommitted, and gives back what it changed.
-static void VibeClipToContentInsets(NSView *view, NSMutableArray<dispatch_block_t> *restores) {
-    if (view.isHidden || !view.layer) {
-        return;
+static NSWindow *VibeFrontWindow(void) {
+    NSWindow *window = NSApp.keyWindow ?: NSApp.mainWindow;
+    if (window) {
+        return window;
     }
-    if ([view isKindOfClass:NSClipView.class]) {
-        NSClipView *clip = (NSClipView *)view;
-        NSEdgeInsets insets = clip.contentInsets;
-        if (insets.top > 0 || insets.bottom > 0 || insets.left > 0 || insets.right > 0) {
-            NSRect inside = clip.bounds;
-            inside.origin.x += insets.left;
-            inside.size.width -= insets.left + insets.right;
-            inside.origin.y += clip.isFlipped ? insets.top : insets.bottom;
-            inside.size.height -= insets.top + insets.bottom;
-            if (inside.size.width > 0 && inside.size.height > 0 && clip.superview) {
-                CALayer *layer = clip.layer;
-                CGRect bounds = layer.bounds;
-                CGPoint position = layer.position;
-                BOOL masks = layer.masksToBounds;
-                // A view's layer frame is its frame in its superview.
-                layer.frame = [clip convertRect:inside toView:clip.superview];
-                layer.bounds = CGRectMake(NSMinX(inside), NSMinY(inside), NSWidth(inside), NSHeight(inside));
-                layer.masksToBounds = YES;
-                [restores addObject:^{
-                    layer.bounds = bounds;
-                    layer.position = position;
-                    layer.masksToBounds = masks;
-                }];
-            }
+    // Front to back, not creation order: with the app inactive both keyWindow
+    // and mainWindow are nil, and NSApp.windows would hand back the first
+    // window made even while another sits in front.
+    for (NSWindow *candidate in NSApp.orderedWindows) {
+        if (candidate.isVisible && candidate.contentView) {
+            return candidate;
         }
     }
-    for (NSView *subview in view.subviews) {
-        VibeClipToContentInsets(subview, restores);
-    }
+    return nil;
 }
 
 BOOL VibeDumpWindowSnapshot(NSString *path) {
-    NSWindow *window = NSApp.keyWindow ?: NSApp.mainWindow;
-    if (!window) {
-        // Front to back, not creation order: with the app inactive both
-        // keyWindow and mainWindow are nil, and NSApp.windows would hand back
-        // the first window made even while another sits in front.
-        for (NSWindow *candidate in NSApp.orderedWindows) {
-            if (candidate.isVisible && candidate.contentView) {
-                window = candidate;
-                break;
-            }
-        }
-    }
-    NSView *view = window.contentView;
+    NSWindow *window = VibeFrontWindow();
+    return window && VibeDebugRenderWindow(window, path);
+}
+
+BOOL VibeDebugRenderWindow(NSWindow *window, NSString *path) {
+    // The frame view, so the title bar and the toolbar render.
+    NSView *view = window.contentView.superview ?: window.contentView;
     if (!view || NSIsEmptyRect(view.bounds)) {
         LogError(@"Debug screenshot: no window content to render");
         return NO;
@@ -121,10 +95,8 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
     // transparent, so paint an appearance-matched proxy background first.
     // Dark-mode content — white text and drawing at low alpha — then keeps the
     // window's real contrast polarity rather than flattening onto white.
-    NSAppearanceName match = [window.effectiveAppearance
-            bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-    BOOL isDark = [match isEqualToString:NSAppearanceNameDarkAqua];
-    CGContextSetGrayFillColor(ctx, isDark ? 0.1 : 0.95, 1.0);
+    CGFloat gray = window.effectiveAppearance.isDark ? 0.1 : 0.95;
+    CGContextSetGrayFillColor(ctx, gray, 1.0);
     CGContextFillRect(ctx, view.bounds);
     CALayer *layer = view.layer;
     if (layer) {
@@ -135,19 +107,29 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
         VibeCollectGlassViews(view, glassViews);
         NSMutableArray<CALayer *> *backdrops = [NSMutableArray array];
         VibeCollectBackdropLayers(layer, backdrops);
-        [CATransaction begin];
-        [CATransaction setDisableActions:YES];
-        NSMutableArray<dispatch_block_t> *restores = [NSMutableArray array];
-        VibeClipToContentInsets(view, restores);
-        if (glassViews.count > 0 || backdrops.count > 0 || restores.count > 0) {
-            // The changes must stay uncommitted, so that the on-screen window
-            // never flickers. That forces a render of the model tree, since an
+        if (glassViews.count > 0 || backdrops.count > 0) {
+            // The changes stay uncommitted, so that the on-screen window never
+            // flickers. That forces a render of the model tree, since an
             // uncommitted change is invisible to a presentation copy. It costs
-            // the mid-flight animation capture, but only a window with glass,
-            // a backdrop, or an inset clip view pays for it.
+            // the mid-flight animation capture, but only a window with glass
+            // or a backdrop pays for it.
+            [CATransaction begin];
+            [CATransaction setDisableActions:YES];
+            // X5: each backdrop gives way to an opaque fill in its place, in
+            // its z-order, so what a material covers on screen stays covered,
+            // such as the rows that scroll up under a toolbar or a header.
+            CGColorRef fillColor = CGColorCreateGenericGray(gray, 1.0);
+            NSMutableArray<CALayer *> *fills = [NSMutableArray array];
             for (CALayer *backdrop in backdrops) {
+                CALayer *fill = [CALayer layer];
+                fill.frame = backdrop.frame;
+                fill.zPosition = backdrop.zPosition;
+                fill.backgroundColor = fillColor;
+                [backdrop.superlayer insertSublayer:fill above:backdrop];
+                [fills addObject:fill];
                 backdrop.hidden = YES;
             }
+            CGColorRelease(fillColor);
             for (NSView *glass in glassViews) {
                 glass.layer.hidden = YES;
             }
@@ -160,6 +142,9 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
                     NSView *content = ((NSGlassEffectView *)glass).contentView;
                     if (content.layer && !content.isHidden) {
                         NSRect frame = [content convertRect:content.bounds toView:view];
+                        if (view.isFlipped) {
+                            frame.origin.y = NSHeight(view.bounds) - NSMaxY(frame);
+                        }
                         CGContextSaveGState(ctx);
                         CGContextTranslateCTM(ctx, NSMinX(frame), NSMinY(frame));
                         [content.layer renderInContext:ctx];
@@ -167,19 +152,17 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
                     }
                 }
             }
+            [fills makeObjectsPerformSelector:@selector(removeFromSuperlayer)];
             for (CALayer *backdrop in backdrops) {
                 backdrop.hidden = NO;
             }
-            for (dispatch_block_t restore in restores) {
-                restore();
-            }
+            [CATransaction commit];
         }
         else {
             // The presentation tree captures animations mid-flight.
             CALayer *presentation = layer.presentationLayer ?: layer;
             [presentation renderInContext:ctx];
         }
-        [CATransaction commit];
     }
     else {
         NSGraphicsContext *gc = [NSGraphicsContext graphicsContextWithCGContext:ctx flipped:NO];
@@ -227,6 +210,5 @@ void VibeInstallDebugScreenshotHook(NSString *notificationName, NSString *path) 
         VibeDumpWindowSnapshot(output);
     });
 }
-
 
 #endif

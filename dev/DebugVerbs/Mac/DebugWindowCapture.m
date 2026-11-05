@@ -7,55 +7,62 @@
 
 #if DEBUG
 
+#import <QuartzCore/QuartzCore.h>
 #import <ScreenCaptureKit/ScreenCaptureKit.h>
 
 #import "DebugModalUI.h"
 #import "DebugScreenshot.h"
 #import "DebugSyntheticInput.h"
 #import "DebugWireFormat.h"
-
-@implementation VibeDebugCaptureRequest
-@end
+#import "NSView+DarkMode.h"
 
 // A menu's or a popover's frame with this much room around it, so its shadow
 // and its edge show.
 static const CGFloat VibeCaptureMargin = 12;
 
-static NSString *VibeCaptureFallback(void) {
-    return @"dump_screenshot renders in-process with none of that, for layout and text only";
-}
+static NSString *const VibeCaptureFallback = @"dump_screenshot renders in-process instead, for layout and text only";
 
-VibeDebugCaptureRequest *VibeDebugParseCaptureRequest(NSArray<NSString *> *tokens, NSString **errorJSON) {
-    NSString *usage = @"usage: capture_window [key] [menu|popover] [crop <x> <y> <w> <h>] [-]";
-    VibeDebugCaptureRequest *request = [VibeDebugCaptureRequest new];
-    request.crop = NSZeroRect;
+BOOL VibeDebugParseCaptureRequest(NSArray<NSString *> *tokens, VibeDebugCaptureRequest *request,
+                                  NSString **errorJSON) {
+    NSDictionary<NSString *, NSNumber *> *focuses = @{
+        @"menu": @(VibeDebugCaptureFocusMenu),
+        @"popover": @(VibeDebugCaptureFocusPopover),
+    };
+    *request = (VibeDebugCaptureRequest){VibeDebugCaptureFocusWindow, NO, NSZeroRect};
     for (NSUInteger i = 1; i < tokens.count; i++) {
         NSString *token = tokens[i];
-        if ([token isEqualToString:@"key"]) {
-            request.key = YES;
+        NSNumber *focus = focuses[token];
+        if (focus) {
+            if (request->focus != VibeDebugCaptureFocusWindow) {
+                *errorJSON = VibeErrorJSON(@"capture_window takes one of menu and popover, not both");
+                return NO;
+            }
+            request->focus = focus.integerValue;
         }
-        else if (([token isEqualToString:@"menu"] || [token isEqualToString:@"popover"])
-                 && request.focus == VibeDebugCaptureFocusWindow) {
-            request.focus = [token isEqualToString:@"menu"] ? VibeDebugCaptureFocusMenu : VibeDebugCaptureFocusPopover;
+        else if ([token isEqualToString:@"key"]) {
+            request->key = YES;
         }
         else if ([token isEqualToString:@"crop"]) {
-            double x = 0, y = 0, w = 0, h = 0;
-            if (i + 4 >= tokens.count || !VibeParseDouble(tokens[i + 1], &x) || !VibeParseDouble(tokens[i + 2], &y)
-                    || !VibeParseDouble(tokens[i + 3], &w) || !VibeParseDouble(tokens[i + 4], &h) || w <= 0 || h <= 0) {
+            double values[4] = {0, 0, 0, 0};
+            BOOL parsed = i + 4 < tokens.count;
+            for (NSUInteger j = 0; parsed && j < 4; j++) {
+                parsed = VibeParseDouble(tokens[i + 1 + j], &values[j]);
+            }
+            if (!parsed || values[2] <= 0 || values[3] <= 0) {
                 *errorJSON = VibeErrorJSON(@"crop takes <x> <y> <w> <h>, in points from the region's top left, "
                                            @"with a width and a height above 0");
-                return nil;
+                return NO;
             }
-            request.crop = NSMakeRect(x, y, w, h);
+            request->crop = NSMakeRect(values[0], values[1], values[2], values[3]);
             i += 4;
         }
         // The client's own: - writes the PNG to stdout.
         else if (![token isEqualToString:@"-"]) {
-            *errorJSON = VibeErrorJSON(@"%@", usage);
-            return nil;
+            *errorJSON = VibeErrorJSON(@"usage: capture_window [key] [menu|popover] [crop <x> <y> <w> <h>] [-]");
+            return NO;
         }
     }
-    return request;
+    return YES;
 }
 
 NSRect VibeDebugCaptureRegion(NSRect windowFrame, NSArray<NSValue *> *extraFrames, VibeDebugCaptureFocus focus,
@@ -77,36 +84,50 @@ NSRect VibeDebugCaptureRegion(NSRect windowFrame, NSArray<NSValue *> *extraFrame
     return NSIntersectionRect(region, cropped);
 }
 
-static BOOL VibeScreenIsLocked(void) {
+BOOL VibeDebugScreenIsLocked(void) {
     NSDictionary *session = CFBridgingRelease(CGSessionCopyCurrentDictionary());
     return [session[@"CGSSessionScreenIsLocked"] boolValue];
 }
 
-NSString *VibeDebugCaptureBlocker(NSWindow *window) {
-    if (VibeScreenIsLocked()) {
-        return [NSString stringWithFormat:@"the screen is locked, so the window server draws no window to capture; "
-                @"wait for the user to unlock it. %@", VibeCaptureFallback()];
+BOOL VibeDebugDisplayIsAsleep(NSWindow *window) {
+    NSNumber *screen = window.screen.deviceDescription[@"NSScreenNumber"];
+    return CGDisplayIsAsleep(screen ? (CGDirectDisplayID)screen.unsignedIntValue : CGMainDisplayID()) != 0;
+}
+
+NSRect VibeDebugFlipScreenRect(NSRect rect) {
+    CGFloat primaryHeight = NSMaxY(NSScreen.screens.firstObject.frame);
+    return NSMakeRect(NSMinX(rect), primaryHeight - NSMaxY(rect), NSWidth(rect), NSHeight(rect));
+}
+
+NSString *VibeDebugCaptureBlocker(NSWindow *window, NSString **kind) {
+    NSString *found = nil, *message = nil;
+    if (VibeDebugScreenIsLocked()) {
+        found = @"locked";
+        message = @"the screen is locked, so the window server draws no window to capture; wait for the user to "
+                  @"unlock it";
     }
-    CGDirectDisplayID display = (CGDirectDisplayID)[window.screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue];
-    if (CGDisplayIsAsleep(display ?: CGMainDisplayID())) {
-        return [NSString stringWithFormat:@"the display is asleep, so the window server draws no window to capture. %@",
-                VibeCaptureFallback()];
+    else if (VibeDebugDisplayIsAsleep(window)) {
+        found = @"asleep";
+        message = @"the display is asleep, so the window server draws no window to capture";
     }
-    if (!window.isVisible || window.isMiniaturized) {
-        return [NSString stringWithFormat:@"the window isn't on screen (%@), so there is nothing to capture. %@",
-                window.isMiniaturized ? @"it is minimized" : @"it is hidden", VibeCaptureFallback()];
+    else if (!window.isVisible || window.isMiniaturized) {
+        found = @"hidden";
+        message = window.isMiniaturized ? @"the window is minimized, so there is nothing to capture"
+                                        : @"the window isn't on screen, so there is nothing to capture";
     }
-    return nil;
+    if (kind) {
+        *kind = found;
+    }
+    return message ? [NSString stringWithFormat:@"%@. %@", message, VibeCaptureFallback] : nil;
+}
+
+static NSDictionary *VibeRectJSON(NSRect rect) {
+    return @{@"x": @(NSMinX(rect)), @"y": @(NSMinY(rect)), @"width": @(NSWidth(rect)), @"height": @(NSHeight(rect))};
 }
 
 // The window's sheets and child windows, a popover's among them, nested.
 static void VibeCollectOwnedWindows(NSWindow *window, NSMutableArray<NSWindow *> *out) {
-    NSMutableArray<NSWindow *> *owned = [NSMutableArray arrayWithArray:window.sheets];
-    if (window.attachedSheet && ![owned containsObject:window.attachedSheet]) {
-        [owned addObject:window.attachedSheet];
-    }
-    [owned addObjectsFromArray:window.childWindows ?: @[]];
-    for (NSWindow *child in owned) {
+    for (NSWindow *child in [window.sheets arrayByAddingObjectsFromArray:window.childWindows ?: @[]]) {
         if (child.isVisible && ![out containsObject:child]) {
             [out addObject:child];
             VibeCollectOwnedWindows(child, out);
@@ -114,221 +135,187 @@ static void VibeCollectOwnedWindows(NSWindow *window, NSMutableArray<NSWindow *>
     }
 }
 
-// A Cocoa screen rect, whose origin is the primary screen's bottom left, as
-// Quartz's, whose origin is its top left.
-static CGRect VibeQuartzRect(NSRect rect) {
-    CGFloat primaryHeight = NSMaxY(NSScreen.screens.firstObject.frame);
-    return CGRectMake(NSMinX(rect), primaryHeight - NSMaxY(rect), NSWidth(rect), NSHeight(rect));
-}
-
-static NSRect VibeCocoaRect(CGRect rect) {
-    CGFloat primaryHeight = NSMaxY(NSScreen.screens.firstObject.frame);
-    return NSMakeRect(CGRectGetMinX(rect), primaryHeight - CGRectGetMaxY(rect), CGRectGetWidth(rect),
-                      CGRectGetHeight(rect));
-}
-
-static NSString *VibeCaptureErrorJSON(NSError *error) API_AVAILABLE(macos(12.3)) {
-    if ([error.domain isEqualToString:SCStreamErrorDomain] && error.code == SCStreamErrorUserDeclined) {
-        return VibeErrorJSON(@"capture_window needs Screen Recording permission for this app, which macOS keeps "
-                             @"per code identity: grant it once in System Settings > Privacy & Security > "
-                             @"Screen & System Audio Recording. %@", VibeCaptureFallback());
-    }
-    return VibeErrorJSON(@"ScreenCaptureKit couldn't capture the window: %@ (%@ %ld). %@",
-                         error.localizedDescription, error.domain, (long)error.code, VibeCaptureFallback());
-}
-
-static NSDictionary *VibeRectJSON(NSRect rect) {
-    return @{@"x": @(NSMinX(rect)), @"y": @(NSMinY(rect)), @"width": @(NSWidth(rect)), @"height": @(NSHeight(rect))};
-}
-
-static void VibeCapture(NSWindow *window, VibeDebugCaptureRequest *request, NSString *path,
+static void VibeCapture(NSWindow *window, VibeDebugCaptureRequest request, NSString *path,
                         SCShareableContent *content, void (^completion)(NSString *)) API_AVAILABLE(macos(14.4));
 
-void VibeDebugCaptureWindow(NSWindow *window, VibeDebugCaptureRequest *request, NSString *path,
+void VibeDebugCaptureWindow(NSWindow *window, VibeDebugCaptureRequest request, NSString *path,
                             void (^completion)(NSString *replyJSON)) {
-    NSString *blocker = VibeDebugCaptureBlocker(window);
+    NSString *kind = nil;
+    NSString *blocker = VibeDebugCaptureBlocker(window, &kind);
     if (blocker) {
-        completion(VibeErrorJSON(@"%@", blocker));
+        completion(VibeJSONString(@{@"error": blocker, @"blocker": kind}));
         return;
     }
     if (@available(macOS 14.4, *)) {
-        if (request.key) {
-            NSString *error = VibeDebugActivateWindow(window);
+        void (^capture)(void) = ^{
+            // The process's own windows, which it may capture with no consent
+            // from the user. A getShareableContent… call would list every
+            // app's, and needs Screen Recording.
+            [SCShareableContent getCurrentProcessShareableContentWithCompletionHandler:^(SCShareableContent *shared,
+                                                                                         NSError *error) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    if (!shared) {
+                        completion(VibeErrorJSON(@"ScreenCaptureKit lists no content for this app: %@. %@",
+                                                 error.localizedDescription, VibeCaptureFallback));
+                        return;
+                    }
+                    VibeCapture(window, request, path, shared, completion);
+                });
+            }];
+        };
+        if (!request.key || (NSApp.isActive && window.isKeyWindow)) {
+            capture();
+            return;
+        }
+        VibeDebugActivateWindow(window, ^(NSString *error) {
             if (error) {
                 completion(error);
                 return;
             }
-            // The window redraws as key on its next pass.
+            // The window draws as key on its next pass, which the flush
+            // commits. A frame later the window server has composited it.
             [window displayIfNeeded];
-            [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.15]];
-        }
-        // The current process's own windows, which it may capture with no
-        // permission from the user. A getShareableContent… call would list
-        // every app's, and needs Screen Recording.
-        [SCShareableContent getCurrentProcessShareableContentWithCompletionHandler:^(SCShareableContent *content,
-                                                                                     NSError *error) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (!content) {
-                    completion(VibeCaptureErrorJSON(error));
-                    return;
-                }
-                VibeCapture(window, request, path, content, completion);
-            });
-        }];
+            [CATransaction flush];
+            NSInteger fps = MAX(window.screen.maximumFramesPerSecond, 30);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(NSEC_PER_SEC / fps)), dispatch_get_main_queue(),
+                           capture);
+        });
     }
     else {
         completion(VibeErrorJSON(@"capture_window needs macOS 14.4, for ScreenCaptureKit's own-process capture. %@",
-                                 VibeCaptureFallback()));
+                                 VibeCaptureFallback));
     }
 }
 
-static void VibeCapture(NSWindow *window, VibeDebugCaptureRequest *request, NSString *path,
+static void VibeCapture(NSWindow *window, VibeDebugCaptureRequest request, NSString *path,
                         SCShareableContent *content, void (^completion)(NSString *)) API_AVAILABLE(macos(14.4)) {
+    // The list names other processes' windows too, redacted. Only this app's
+    // are ever taken in.
     pid_t pid = NSProcessInfo.processInfo.processIdentifier;
     NSMutableDictionary<NSNumber *, SCWindow *> *byID = [NSMutableDictionary dictionary];
-    // The list names other processes' windows too, redacted. Only this
-    // app's are ever taken in.
     for (SCWindow *scWindow in content.windows) {
-        if (scWindow.owningApplication.processID == pid) {
+        if (scWindow.owningApplication.processID == pid && scWindow.isOnScreen) {
             byID[@(scWindow.windowID)] = scWindow;
         }
     }
     SCWindow *main = byID[@(window.windowNumber)];
-    if (!main || !main.isOnScreen) {
+    if (!main) {
         completion(VibeErrorJSON(@"the window server lists no window %ld on screen for this app. %@",
-                                 (long)window.windowNumber, VibeCaptureFallback()));
+                                 (long)window.windowNumber, VibeCaptureFallback));
         return;
     }
-    // The window, then what it owns, then the popovers and the open menus.
-    NSMutableArray<SCWindow *> *included = [NSMutableArray arrayWithObject:main];
-    NSMutableArray<NSDictionary *> *described = [NSMutableArray arrayWithObject:@{
-        @"id": @(main.windowID), @"kind": @"window", @"title": main.title ?: @"",
-    }];
-    NSMutableArray<NSValue *> *popoverFrames = [NSMutableArray array];
+    NSMutableSet<NSNumber *> *popoverIDs = [NSMutableSet set];
+    for (NSPopover *popover in VibeDebugShownPopovers()) {
+        [popoverIDs addObject:@(popover.contentViewController.view.window.windowNumber)];
+    }
+    // The window, then what it owns, then the popovers and the open menus,
+    // each once, with its kind.
+    NSMutableArray<SCWindow *> *included = [NSMutableArray array];
+    NSMutableArray<NSDictionary *> *described = [NSMutableArray array];
     NSMutableArray<NSValue *> *menuFrames = [NSMutableArray array];
+    NSMutableArray<NSValue *> *popoverFrames = [NSMutableArray array];
     void (^include)(SCWindow *, NSString *) = ^(SCWindow *scWindow, NSString *kind) {
-        if (!scWindow || !scWindow.isOnScreen || [included containsObject:scWindow]) {
+        if (!scWindow || [included containsObject:scWindow]) {
             return;
         }
         [included addObject:scWindow];
         [described addObject:@{@"id": @(scWindow.windowID), @"kind": kind, @"title": scWindow.title ?: @""}];
+        NSValue *frame = [NSValue valueWithRect:VibeDebugFlipScreenRect(scWindow.frame)];
+        if ([kind isEqualToString:@"menu"]) {
+            [menuFrames addObject:frame];
+        }
+        else if ([kind isEqualToString:@"popover"]) {
+            [popoverFrames addObject:frame];
+        }
     };
+    include(main, @"window");
     NSMutableArray<NSWindow *> *owned = [NSMutableArray array];
     VibeCollectOwnedWindows(window, owned);
     for (NSWindow *child in owned) {
-        include(byID[@(child.windowNumber)], child.isSheet ? @"sheet" : @"child");
+        NSNumber *number = @(child.windowNumber);
+        include(byID[number], [popoverIDs containsObject:number] ? @"popover" : child.isSheet ? @"sheet" : @"child");
     }
-    for (NSPopover *popover in VibeDebugShownPopovers()) {
-        NSWindow *popoverWindow = popover.contentViewController.view.window;
-        SCWindow *scWindow = byID[@(popoverWindow.windowNumber)];
-        if (scWindow.isOnScreen) {
-            // A popover's window may already be in as a child window.
-            [included removeObject:scWindow];
-            [described filterUsingPredicate:[NSPredicate predicateWithFormat:@"id != %@", @(scWindow.windowID)]];
-            include(scWindow, @"popover");
-            [popoverFrames addObject:[NSValue valueWithRect:VibeCocoaRect(scWindow.frame)]];
-        }
+    for (NSNumber *number in popoverIDs) {
+        include(byID[number], @"popover");
     }
     // A menu's window is the app's own, at the pop-up menu's level, and only
     // the window server lists it. The menu bar itself is the system's.
     for (SCWindow *scWindow in byID.allValues) {
-        if (scWindow.isOnScreen && scWindow.windowLayer >= kCGPopUpMenuWindowLevel
-                && scWindow.windowLayer < kCGOverlayWindowLevel) {
+        if (scWindow.windowLayer >= kCGPopUpMenuWindowLevel && scWindow.windowLayer < kCGOverlayWindowLevel) {
             include(scWindow, @"menu");
-            [menuFrames addObject:[NSValue valueWithRect:VibeCocoaRect(scWindow.frame)]];
         }
     }
     NSArray<NSValue *> *extras = request.focus == VibeDebugCaptureFocusMenu ? menuFrames
             : request.focus == VibeDebugCaptureFocusPopover ? popoverFrames
             : [menuFrames arrayByAddingObjectsFromArray:popoverFrames];
-    if (request.focus == VibeDebugCaptureFocusMenu && menuFrames.count == 0) {
-        completion(VibeErrorJSON(@"no menu of this app is open; open one with a click first (answer_menu lists them)"));
-        return;
-    }
-    if (request.focus == VibeDebugCaptureFocusPopover && popoverFrames.count == 0) {
-        completion(VibeErrorJSON(@"no popover of this app shows (answer_popover lists them)"));
-        return;
-    }
-    NSRect region = VibeDebugCaptureRegion(VibeCocoaRect(main.frame), extras, request.focus, request.crop);
-    if (NSIsEmptyRect(region)) {
-        completion(VibeErrorJSON(@"the crop lies outside the captured region"));
-        return;
-    }
-    CGRect quartzRegion = VibeQuartzRect(region);
+    // The window's own frame: the window server's can lie a point inside it.
+    NSRect region = VibeDebugCaptureRegion(window.frame, extras, request.focus, request.crop);
+    // The display that holds the region's middle, and what it holds of it.
+    CGRect quartzRegion = VibeDebugFlipScreenRect(region);
     CGPoint middle = CGPointMake(CGRectGetMidX(quartzRegion), CGRectGetMidY(quartzRegion));
     SCDisplay *display = nil;
     for (SCDisplay *candidate in content.displays) {
         if (CGRectContainsPoint(candidate.frame, middle)) {
             display = candidate;
-            break;
         }
     }
-    display = display ?: content.displays.firstObject;
-    if (!display) {
-        completion(VibeErrorJSON(@"ScreenCaptureKit lists no display for this app. %@", VibeCaptureFallback()));
+    CGRect source = display ? CGRectIntersection(quartzRegion, display.frame) : CGRectNull;
+    if (CGRectIsEmpty(source)) {
+        NSString *message = extras.count > 0 || request.focus == VibeDebugCaptureFocusWindow
+                ? @"the crop lies outside the captured region, or the region off its display"
+                : request.focus == VibeDebugCaptureFocusMenu
+                ? @"no menu of this app is open; open one with a click first (answer_menu lists them)"
+                : @"no popover of this app shows (answer_popover lists them)";
+        completion(VibeErrorJSON(@"%@", message));
         return;
     }
+    region = VibeDebugFlipScreenRect(source);
     // Only the app's own windows draw, over a clear background: no desktop,
     // no Dock, no menu bar, and no other app's window, wherever it sits.
     SCContentFilter *filter = [[SCContentFilter alloc] initWithDisplay:display includingWindows:included];
-    filter.includeMenuBar = NO;
-    CGFloat scale = filter.pointPixelScale > 0 ? filter.pointPixelScale : window.backingScaleFactor;
-    CGRect source = CGRectIntersection(CGRectOffset(quartzRegion, -CGRectGetMinX(display.frame),
-                                                    -CGRectGetMinY(display.frame)),
-                                       CGRectMake(0, 0, CGRectGetWidth(display.frame), CGRectGetHeight(display.frame)));
-    if (CGRectIsEmpty(source)) {
-        completion(VibeErrorJSON(@"the window lies off its display"));
-        return;
-    }
-    // What the display holds of the region, which the reply names.
-    region = VibeCocoaRect(CGRectOffset(source, CGRectGetMinX(display.frame), CGRectGetMinY(display.frame)));
+    CGFloat scale = filter.pointPixelScale;
     SCStreamConfiguration *config = [SCStreamConfiguration new];
-    config.sourceRect = source;
+    config.sourceRect = CGRectOffset(source, -CGRectGetMinX(display.frame), -CGRectGetMinY(display.frame));
     config.width = (size_t)llround(CGRectGetWidth(source) * scale);
     config.height = (size_t)llround(CGRectGetHeight(source) * scale);
     config.showsCursor = NO;
     config.captureResolution = SCCaptureResolutionBest;
     config.backgroundColor = CGColorGetConstantColor(kCGColorClear);
     config.colorSpaceName = kCGColorSpaceSRGB;
-    BOOL windowKey = window.isKeyWindow;
-    BOOL appActive = NSApp.isActive;
-    BOOL occluded = !(window.occlusionState & NSWindowOcclusionStateVisible);
-    NSAppearanceName appearance = [window.effectiveAppearance
-            bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
+    NSRect frame = window.frame;
+    NSDictionary *reply = @{
+        @"ok": @YES,
+        @"path": path,
+        @"scale": @(scale),
+        @"method": @"ScreenCaptureKit",
+        @"windowKey": @(window.isKeyWindow),
+        @"appActive": @(NSApp.isActive),
+        @"occluded": @(!(window.occlusionState & NSWindowOcclusionStateVisible)),
+        @"dark": @(window.effectiveAppearance.isDark),
+        @"region": VibeRectJSON(NSMakeRect(NSMinX(region) - NSMinX(frame), NSMaxY(frame) - NSMaxY(region),
+                                           NSWidth(region), NSHeight(region))),
+        @"windows": described,
+    };
     [SCScreenshotManager captureImageWithFilter:filter configuration:config
                               completionHandler:^(CGImageRef image, NSError *error) {
-        CGImageRetain(image);
+        // Encoded here, on ScreenCaptureKit's queue. Only the reply goes to
+        // main.
+        NSString *json = nil;
+        if (!image) {
+            json = VibeErrorJSON(@"ScreenCaptureKit couldn't capture the window: %@ (%@ %ld). %@",
+                                 error.localizedDescription, error.domain, (long)error.code, VibeCaptureFallback);
+        }
+        else if (!VibeDebugWritePNG(image, scale, path)) {
+            json = VibeErrorJSON(@"the capture's PNG couldn't be written to %@", path);
+        }
+        else {
+            NSMutableDictionary *answer = [reply mutableCopy];
+            answer[@"width"] = @(CGImageGetWidth(image));
+            answer[@"height"] = @(CGImageGetHeight(image));
+            json = VibeJSONString(answer);
+        }
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (!image) {
-                completion(VibeCaptureErrorJSON(error));
-                return;
-            }
-            BOOL written = VibeDebugWritePNG(image, scale, path);
-            size_t width = CGImageGetWidth(image), height = CGImageGetHeight(image);
-            CGImageRelease(image);
-            if (!written) {
-                completion(VibeErrorJSON(@"the capture's PNG couldn't be written to %@", path));
-                return;
-            }
-            NSRect frame = window.frame;
-            completion(VibeJSONString(@{
-                @"ok": @YES,
-                @"path": path,
-                @"width": @(width),
-                @"height": @(height),
-                @"scale": @(scale),
-                @"method": @"ScreenCaptureKit",
-                @"windowKey": @(windowKey),
-                @"appActive": @(appActive),
-                @"occluded": @(occluded),
-                @"dark": @([appearance isEqualToString:NSAppearanceNameDarkAqua]),
-                // The region's top left from the window's, in points, so a
-                // point in the image maps to the window.
-                @"region": @{@"x": @(NSMinX(region) - NSMinX(frame)), @"y": @(NSMaxY(frame) - NSMaxY(region)),
-                             @"width": @(NSWidth(region)), @"height": @(NSHeight(region))},
-                @"screenRegion": VibeRectJSON(region),
-                @"windows": described,
-            }));
+            completion(json);
         });
     }];
 }

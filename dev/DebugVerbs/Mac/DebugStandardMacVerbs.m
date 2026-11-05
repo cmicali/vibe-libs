@@ -55,18 +55,27 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             // differ from what the user would see in front.
             return VibeJSONString(@{@"menu": menu, @"appActive": @(NSApp.isActive)});
         }),
-        VibeDebugCmd(@"dump_screenshot [- | <label>]", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
-            // The arguments are the client's; see DebugClient.m.
+        // The target window rendered in-process, its frame view with it, or
+        // with sheet, its attached sheet. The arguments are otherwise the
+        // client's; see DebugClient.m.
+        VibeDebugCmd(@"dump_screenshot [sheet] [- | <label>]", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
+            NSWindow *window = VibeDebugTargetWindow(options, controller);
+            if ([tokens containsObject:@"sheet"]) {
+                window = window.attachedSheet;
+                if (!window) {
+                    return VibeErrorJSON(@"the window shows no sheet");
+                }
+            }
+            if (!window) {
+                return VibeErrorJSON(@"no window to render");
+            }
             NSString *path = VibeDebugScreenshotPathForCommand(VibeDebugChannelName(), commandId);
-            if (!VibeDumpWindowSnapshot(path)) {
+            if (!VibeDebugRenderWindow(window, path)) {
                 return VibeErrorJSON(@"screenshot failed to render or write; see app log");
             }
             // The size and scale come back from the file, so they are the
             // file's.
-            // The render is no capture: say so in every reply.
-            NSMutableDictionary *reply = [@{@"ok": @YES, @"path": path,
-                    @"render": @"in-process, for layout and text only: glass, material, and blending draw flat. "
-                               @"capture_window shows the real window"} mutableCopy];
+            NSMutableDictionary *reply = [@{@"ok": @YES, @"path": path, @"render": VibeDebugRenderNote} mutableCopy];
             CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], NULL);
             NSDictionary *properties = source
                     ? CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL)) : nil;
@@ -85,8 +94,8 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
         VibeDebugCmd(@"capture_window [key] [menu|popover] [crop <x> <y> <w> <h>] [-]", 10,
                      ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
             NSString *error = nil;
-            VibeDebugCaptureRequest *request = VibeDebugParseCaptureRequest(tokens, &error);
-            if (!request) {
+            VibeDebugCaptureRequest request;
+            if (!VibeDebugParseCaptureRequest(tokens, &request, &error)) {
                 return error;
             }
             NSWindow *window = VibeDebugTargetWindow(options, controller);
@@ -113,7 +122,7 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             // window stands in for it, so an item with no target finds one.
             BOOL behind = NSApp.keyWindow == nil;
             __block BOOL performed = NO;
-            VibeWithStandInKeyWindow(NSApp.keyWindow ? nil : VibeDebugTargetWindow(options, controller), ^{
+            VibeWithStandInKeyWindow(behind ? VibeDebugTargetWindow(options, controller) : nil, ^{
                 performed = options.performMenuItem ? options.performMenuItem(controller, item)
                                                     : VibeDebugPerformMenuItem(item);
             });
@@ -166,7 +175,7 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             }
             return VibeJSONString(@{@"ok": @YES,
                     @"visible": @((BOOL)((window.occlusionState & NSWindowOcclusionStateVisible) != 0)),
-                    @"displayAsleep": @((BOOL)(CGDisplayIsAsleep(CGMainDisplayID()) != 0))});
+                    @"displayAsleep": @(VibeDebugDisplayIsAsleep(window))});
         }),
         // The alert that asks: an app-modal window, else the target window's
         // sheet, else any window's, front to back. With a button's title, the

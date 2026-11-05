@@ -18,29 +18,27 @@ NS_ASSUME_NONNULL_BEGIN
 // The input table: activate, key, key_down, key_up, click, mouse_down,
 // mouse_up, mouse_move, drag, and scroll. An app opts into it beside the
 // standard table. The mouse verbs and scroll aim at the options'
-// targetWindow. A mouse verb fails, and posts nothing, while that window
-// isn't key, since the window would swallow the click. The key verbs post
-// into the key window. With none, as when the app is behind, they send to the
-// target window directly, and the reply's queued is false. activate makes the
+// targetWindow. With the options' requiresKeyWindow, a mouse verb fails, and
+// posts nothing, while that window isn't key, since the window would swallow
+// the click. The key verbs post into the key window. With none, as when the
+// app is behind, they send to the target window directly. activate makes the
 // target window key and the app active, from inside the app, if macOS lets it.
 NSArray<NSDictionary *> *VibeDebugInputVerbs(VibeDebugStandardOptions *options);
 
 // Nil while window is key. Otherwise the error reply verb answers, which says
 // what is in front and to run activate first. Main thread only.
-NSString *_Nullable VibeDebugInputFocusError(NSWindow *_Nullable window, NSString *verb);
-
-// YES by default. A host-less test sets it NO, since its NSApp is never
-// active, to run a mouse verb's posting.
-extern BOOL VibeDebugInputNeedsFocus;
+NSString *_Nullable VibeDebugInputFocusError(NSWindow *window, NSString *verb);
 
 // Makes window key and the app active, as a click on the window would, and
-// spins the run loop up to five seconds for both. Nil when they took, else the
-// error reply: a locked screen, or macOS keeping another app in front. It
-// takes the keyboard from the app in front. Main thread only.
-NSString *_Nullable VibeDebugActivateWindow(NSWindow *window);
+// calls completion on main once both took, with nil, or after five seconds,
+// with the error reply: a locked screen, or macOS keeping another app in
+// front. It takes the keyboard from the app in front. Main thread only.
+void VibeDebugActivateWindow(NSWindow *window, void (^completion)(NSString *_Nullable errorJSON));
 
-// VibeDebugActivateWindow for an app's own verb that posts its own events,
-// with its error dropped: the caller reads window.isKeyWindow after.
+// Deprecated: an app's own verb checks VibeDebugInputFocusError and leaves
+// activation to the activate verb. Activates the app and spins the run loop up
+// to a second for window to become key. It carries no deprecated attribute,
+// since a caller that treats warnings as errors would stop building.
 void VibeMakeWindowKeyForInjection(NSWindow *window);
 
 // tokens[0] is the verb: key, key_down, or key_up. Posts into window while
@@ -61,7 +59,8 @@ void VibeSendKeyToWindow(NSWindow *window, NSEvent *event);
 void VibeWithStandInKeyWindow(NSWindow *_Nullable window, void (NS_NOESCAPE ^block)(void));
 
 // tokens[0] is the verb: click, mouse_down, mouse_up, or mouse_move. It
-// posts whether or not window is key: the input table checks first.
+// posts whether or not window is key: the input table checks first, and a
+// caller of its own checks VibeDebugInputFocusError.
 NSString *VibeInjectMouse(NSWindow *window, NSArray<NSString *> *tokens);
 NSString *VibeInjectDrag(NSWindow *window, NSArray<NSString *> *tokens);
 NSString *VibeInjectScroll(NSWindow *window, NSArray<NSString *> *tokens);

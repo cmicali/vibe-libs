@@ -137,8 +137,9 @@ static int VibeDebugClientRunOne(NSArray<NSString *> *args, BOOL inScript, VibeD
                 // the sandbox freely. `<verb> -` writes the raw bytes to
                 // stdout and the JSON reply to stderr. In a script the reply
                 // line carries the bytes as base64 plus any label.
-                if (!failed && [options.fileVerbs containsObject:args.firstObject]
-                            && (inScript || [args containsObject:@"-"])) {
+                BOOL fileVerb = [options.fileVerbs containsObject:args.firstObject]
+                        || [@[@"dump_screenshot", @"capture_window"] containsObject:args.firstObject];
+                if (!failed && fileVerb && (inScript || [args containsObject:@"-"])) {
                     NSString *pngPath = [reply[@"path"] isKindOfClass:NSString.class] ? reply[@"path"] : nil;
                     NSData *png = pngPath ? [NSData dataWithContentsOfFile:pngPath] : nil;
                     // Consumed here, or the per-command files pile up all run.

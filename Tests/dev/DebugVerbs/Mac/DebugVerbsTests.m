@@ -6,6 +6,7 @@
 #import <AppKit/AppKit.h>
 
 #import "DebugCommandDispatch.h"
+#import "DrawnViewTestSupport.h"
 #import "DebugModalUI.h"
 #import "DebugProcessHealth.h"
 #import "DebugScreenshot.h"
@@ -105,6 +106,43 @@ static id JSONObject(NSString *json) {
     return data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
 }
 
+// Host-less, NSApp is never active, so a test's options don't ask for a key
+// window. Only the focus check's own test does.
+static VibeDebugStandardOptions *TestOptions(void) {
+    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    options.requiresKeyWindow = NO;
+    return options;
+}
+
+static NSString *TempPNGPath(void) {
+    return [NSTemporaryDirectory() stringByAppendingPathComponent:
+            [NSString stringWithFormat:@"debug-verbs-%@.png", NSUUID.UUID.UUIDString]];
+}
+
+static BOOL SpinUntil(BOOL (^condition)(void)) {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:6];
+    while (!condition() && deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
+    }
+    return condition();
+}
+
+// The render of window, read back. Its rows run from the window's top.
+static NSBitmapImageRep *Rendered(NSWindow *window) {
+    NSString *path = TempPNGPath();
+    NSBitmapImageRep *image = VibeDebugRenderWindow(window, path)
+            ? [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:path]] : nil;
+    [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+    return image;
+}
+
+// The pixel at a point of window's content, from its top left, in a render or
+// a capture of the whole window at scale.
+static NSColor *ContentPixel(NSBitmapImageRep *image, NSWindow *window, CGFloat scale, CGFloat x, CGFloat y) {
+    CGFloat top = NSHeight(window.frame) - NSHeight(window.contentView.frame);
+    return VibePixel(image, YES, x * scale, (y + top) * scale);
+}
+
 static NSString *Run(NSArray<NSDictionary *> *table, NSArray<NSString *> *tokens, id controller) {
     NSDictionary *spec = VibeDebugSpecForVerb(table, tokens.firstObject);
     return spec ? ((VibeDebugCommandHandler)spec[@"handler"])(tokens, NSUUID.UUID.UUIDString, controller) : nil;
@@ -114,8 +152,6 @@ static NSString *Run(NSArray<NSDictionary *> *table, NSArray<NSString *> *tokens
     // TRAP: host-less, NSApp is nil until this runs, and every window and
     // event needs it.
     [NSApplication sharedApplication];
-    // Host-less, NSApp is never active, so the input verbs would refuse.
-    VibeDebugInputNeedsFocus = NO;
     _windows = [NSMutableArray array];
     _mainMenu = NSApp.mainMenu;
     // Drop anything an earlier test left queued.
@@ -124,7 +160,6 @@ static NSString *Run(NSArray<NSDictionary *> *table, NSArray<NSString *> *tokens
 }
 
 - (void)tearDown {
-    VibeDebugInputNeedsFocus = YES;
     for (NSWindow *window in _windows) {
         [window close];
     }
@@ -157,7 +192,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
 #pragma mark - The table
 
 - (void)testEveryVerbIsUniqueEveryUsageParsesAndTheWaitsAreVibes {
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     NSArray<NSDictionary *> *standard = VibeDebugStandardVerbs(options);
     NSArray<NSDictionary *> *input = VibeDebugInputVerbs(options);
     NSMutableArray<NSString *> *verbs = [NSMutableArray array];
@@ -193,7 +228,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
 - (void)testDumpBuildAnswersItsKeysAndTheExtras {
     NSObject *controller = [NSObject new];
     __block id seen = nil;
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     options.buildExtras = ^NSDictionary *(id given) {
         seen = given;
         return @{@"storesOpen": @YES, @"bundleId": @"not this one"};
@@ -211,7 +246,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
 }
 
 - (void)testDumpHealthAnswersTheProcessAndTheExtras {
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     options.healthExtras = ^NSDictionary *(id controller) {
         return @{@"app": @{@"rows": @3}, @"ok": @NO};
     };
@@ -237,7 +272,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
 }
 
 - (void)testBlockMainHoldsMainAndChainsASharedVerbOrTheAppsOwn {
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     options.chainableVerbs = ^NSArray<NSDictionary *> *{
         return @[
             VibeDebugCmd(@"ping", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
@@ -278,7 +313,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
 }
 
 - (void)testWorkTallyOpensAndClosesAWindow {
-    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs([VibeDebugStandardOptions new]);
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs(TestOptions());
     XCTAssertEqualObjects(JSONObject(Run(table, @[@"work_tally", @"begin"], NSNull.null)), @{@"ok": @YES});
     VibeSignpostCount(debug_verbs_test);
     NSDictionary *window = JSONObject(Run(table, @[@"work_tally", @"end"], NSNull.null));
@@ -348,7 +383,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
 - (void)testTheMenuDumpListsEachKindOfItem {
     DebugVerbsMenuTarget *target = [DebugVerbsMenuTarget new];
     NSApp.mainMenu = [self menuWithTarget:target];
-    NSDictionary *reply = JSONObject(Run(VibeDebugStandardVerbs([VibeDebugStandardOptions new]), @[@"dump_menu"],
+    NSDictionary *reply = JSONObject(Run(VibeDebugStandardVerbs(TestOptions()), @[@"dump_menu"],
                                          NSNull.null));
     NSArray *items = [reply[@"menu"] firstObject][@"items"];
     XCTAssertEqual(items.count, 6u);
@@ -373,7 +408,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
     NSObject *controller = [NSObject new];
     __block NSMenuItem *performed = nil;
     __block id seen = nil;
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     options.performMenuItem = ^BOOL(id given, NSMenuItem *item) {
         seen = given;
         performed = item;
@@ -400,7 +435,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
 - (void)testClickMenuSendsTheActionWhenTheAppPassesNoDispatch {
     DebugVerbsMenuTarget *target = [DebugVerbsMenuTarget new];
     NSApp.mainMenu = [self menuWithTarget:target];
-    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs([VibeDebugStandardOptions new]);
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs(TestOptions());
     XCTAssertEqualObjects(JSONObject(Run(table, @[@"click_menu", @"Keyed"], NSNull.null))[@"ok"], @YES);
     XCTAssertEqual(target.fired, 1u);
     XCTAssertEqualObjects(JSONObject(Run(table, @[@"click_menu", @"Hidden"], NSNull.null)),
@@ -414,8 +449,7 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
     NSWindow *window = [self windowOfSize:NSMakeSize(120, 80)];
     window.contentView.wantsLayer = YES;
     [window orderFront:nil];
-    NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:
-            [NSString stringWithFormat:@"debug-verbs-%@.png", NSUUID.UUID.UUIDString]];
+    NSString *path = TempPNGPath();
     XCTAssertTrue(VibeDumpWindowSnapshot(path));
     NSData *png = [NSData dataWithContentsOfFile:path];
     [NSFileManager.defaultManager removeItemAtPath:path error:nil];
@@ -423,22 +457,37 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
     XCTAssertEqual(memcmp(png.bytes, signature, sizeof(signature)), 0);
     NSBitmapImageRep *image = [NSBitmapImageRep imageRepWithData:png];
     CGFloat scale = window.backingScaleFactor;
-    XCTAssertEqual(image.pixelsWide, (NSInteger)llround(120 * scale));
-    XCTAssertEqual(image.pixelsHigh, (NSInteger)llround(80 * scale));
+    XCTAssertEqual(image.pixelsWide, (NSInteger)llround(NSWidth(window.frame) * scale), @"the frame, title bar and all");
+    XCTAssertEqual(image.pixelsHigh, (NSInteger)llround(NSHeight(window.frame) * scale));
 }
 
-- (void)testTheScreenshotVerbAnswersItsFileSizeAndScale {
+- (void)testTheScreenshotVerbRendersTheTargetWindowOrItsSheet {
     NSWindow *window = [self windowOfSize:NSMakeSize(90, 60)];
     [window orderFront:nil];
-    NSDictionary *reply = JSONObject(Run(VibeDebugStandardVerbs([VibeDebugStandardOptions new]),
-                                         @[@"dump_screenshot"], NSNull.null));
+    VibeDebugStandardOptions *options = TestOptions();
+    options.targetWindow = ^NSWindow *(id controller) {
+        return window;
+    };
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs(options);
+    NSDictionary *reply = JSONObject(Run(table, @[@"dump_screenshot", @"-"], NSNull.null));
     [NSFileManager.defaultManager removeItemAtPath:reply[@"path"] error:nil];
     XCTAssertEqualObjects(reply[@"ok"], @YES);
     XCTAssertNotNil(reply[@"path"], @"the key a client reads stays");
+    XCTAssertEqualObjects(reply[@"render"], VibeDebugRenderNote, @"it says it is no capture");
     CGFloat scale = window.backingScaleFactor;
-    XCTAssertEqualObjects(reply[@"width"], @(llround(90 * scale)));
-    XCTAssertEqualObjects(reply[@"height"], @(llround(60 * scale)));
+    XCTAssertEqualObjects(reply[@"width"], @(llround(NSWidth(window.frame) * scale)));
+    XCTAssertEqualObjects(reply[@"height"], @(llround(NSHeight(window.frame) * scale)));
     XCTAssertEqualWithAccuracy([reply[@"scale"] doubleValue], scale, 0.001);
+    XCTAssertEqualObjects(JSONObject(Run(table, @[@"dump_screenshot", @"sheet"], NSNull.null))[@"error"],
+                          @"the window shows no sheet");
+    NSWindow *sheet = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 70, 40) styleMask:NSWindowStyleMaskTitled
+                                                    backing:NSBackingStoreBuffered defer:NO];
+    [window beginSheet:sheet completionHandler:nil];
+    XCTAssertTrue(SpinUntil(^BOOL { return window.attachedSheet != nil; }));
+    reply = JSONObject(Run(table, @[@"dump_screenshot", @"sheet", @"-"], NSNull.null));
+    [NSFileManager.defaultManager removeItemAtPath:reply[@"path"] error:nil];
+    XCTAssertEqualObjects(reply[@"width"], @(llround(NSWidth(sheet.frame) * scale)), @"the sheet alone");
+    [window endSheet:sheet];
 }
 
 // A glass view's layer renders white, so the render hides it, and draws its
@@ -455,16 +504,10 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
         [window.contentView addSubview:glass];
         [window orderFront:nil];
         [window displayIfNeeded];
-        NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:
-                [NSString stringWithFormat:@"debug-verbs-%@.png", NSUUID.UUID.UUIDString]];
-        XCTAssertTrue(VibeDumpWindowSnapshot(path));
-        NSBitmapImageRep *image = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:path]];
-        [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+        NSBitmapImageRep *image = Rendered(window);
         CGFloat scale = window.backingScaleFactor;
-        NSColor *inside = [[image colorAtX:(NSInteger)(25 * scale) y:(NSInteger)(30 * scale)]
-                colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
-        NSColor *outside = [[image colorAtX:(NSInteger)(75 * scale) y:(NSInteger)(30 * scale)]
-                colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+        NSColor *inside = ContentPixel(image, window, scale, 25, 30);
+        NSColor *outside = ContentPixel(image, window, scale, 75, 30);
         XCTAssertGreaterThan(inside.redComponent, 0.8, @"the content renders: %@", inside);
         XCTAssertLessThan(inside.greenComponent, 0.3, @"not the glass's white: %@", inside);
         XCTAssertEqualWithAccuracy(outside.redComponent, outside.greenComponent, 0.05,
@@ -475,80 +518,67 @@ static NSArray<NSEvent *> *QueuedEvents(NSEventMask mask) {
     }
 }
 
-// The color of the render at a point, in points from the window's top left.
-static NSColor *RenderedColor(NSBitmapImageRep *image, CGFloat scale, CGFloat x, CGFloat y) {
-    return [[image colorAtX:(NSInteger)(x * scale) y:(NSInteger)(y * scale)] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
-}
-
 static BOOL IsRed(NSColor *color) {
     return color.redComponent > 0.8 && color.greenComponent < 0.3;
 }
 
-// X5: a scroll view under a toolbar insets its clip view. Its document starts
-// below the inset, and what scrolls up under the inset is covered by the
-// toolbar's and the header's backgrounds on screen. The render must do both.
-- (void)testAClipViewsContentInsetsRenderAsTheWindowShowsThem {
-    NSWindow *window = [self windowOfSize:NSMakeSize(100, 200)];
+// X5: a scroll view under a window's toolbar insets its clip view, and its
+// pocket's material covers what scrolls up under the toolbar on screen. The
+// render puts a fill in the material's place, so the rows there stay hidden.
+- (void)testWhatScrollsUnderTheToolbarStaysCovered {
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(100, 100, 100, 300)
+            styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskFullSizeContentView
+              backing:NSBackingStoreBuffered defer:NO];
+    window.releasedWhenClosed = NO;
+    [_windows addObject:window];
+    window.toolbar = [[NSToolbar alloc] initWithIdentifier:NSUUID.UUID.UUIDString];
     window.contentView.wantsLayer = YES;
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:window.contentView.bounds];
-    scroll.automaticallyAdjustsContentInsets = NO;
-    scroll.contentInsets = NSEdgeInsetsMake(60, 0, 0, 0);
-    scroll.drawsBackground = NO;
-    scroll.documentView = [[DebugVerbsBandView alloc] initWithFrame:NSMakeRect(0, 0, 100, 400)];
+    scroll.documentView = [[DebugVerbsBandView alloc] initWithFrame:NSMakeRect(0, 0, 100, 600)];
     [window.contentView addSubview:scroll];
-    if (@available(macOS 26.0, *)) {
-        // A glass view makes the render take its model-tree road.
-        [window.contentView addSubview:[[NSGlassEffectView alloc] initWithFrame:NSMakeRect(90, 190, 10, 10)]];
-    }
     [window orderFront:nil];
-    NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:
-            [NSString stringWithFormat:@"debug-verbs-%@.png", NSUUID.UUID.UUIDString]];
+    [window displayIfNeeded];
+    CGFloat inset = scroll.contentInsets.top;
+    XCTAssertGreaterThan(inset, 20, @"the scroll view sits under the toolbar");
     CGFloat scale = window.backingScaleFactor;
     // At the top, the band sits just below the inset.
-    [scroll.documentView scrollPoint:NSMakePoint(0, -60)];
+    XCTAssertTrue(IsRed(ContentPixel(Rendered(window), window, scale, 50, inset + 10)), @"the band sits below the inset");
+    // Scrolled 10 points, most of the band is under the inset, where the
+    // pocket covers it.
+    [scroll.documentView scrollPoint:NSMakePoint(0, 10 - inset)];
     [window displayIfNeeded];
-    XCTAssertEqualWithAccuracy(scroll.contentView.bounds.origin.y, -60, 0.5, @"the clip starts above its document");
-    XCTAssertTrue(VibeDumpWindowSnapshot(path));
-    NSBitmapImageRep *top = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:path]];
-    XCTAssertFalse(IsRed(RenderedColor(top, scale, 50, 10)), @"the inset shows no band");
-    XCTAssertTrue(IsRed(RenderedColor(top, scale, 50, 70)), @"the band sits below the inset");
-    XCTAssertGreaterThan(RenderedColor(top, scale, 50, 100).greenComponent, 0.8, @"the document's white follows");
-    // Scrolled 20 points, the band is under the inset, where the window
-    // covers it.
-    [scroll.documentView scrollPoint:NSMakePoint(0, -40)];
-    [window displayIfNeeded];
-    XCTAssertEqualWithAccuracy(scroll.contentView.bounds.origin.y, -40, 0.5);
-    XCTAssertTrue(VibeDumpWindowSnapshot(path));
-    NSBitmapImageRep *scrolled = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:path]];
-    [NSFileManager.defaultManager removeItemAtPath:path error:nil];
-    for (CGFloat y = 2; y < 60; y += 4) {
-        XCTAssertFalse(IsRed(RenderedColor(scrolled, scale, 50, y)), @"no band under the inset at %.0f", y);
+    NSBitmapImageRep *scrolled = Rendered(window);
+    for (CGFloat y = 2; y < inset; y += 4) {
+        XCTAssertFalse(IsRed(ContentPixel(scrolled, window, scale, 50, y)), @"no band under the inset at %.0f", y);
     }
-    XCTAssertGreaterThan(RenderedColor(scrolled, scale, 50, 70).greenComponent, 0.8, @"the document's white shows below");
+    XCTAssertTrue(IsRed(ContentPixel(scrolled, window, scale, 50, inset + 2)), @"the band's rest shows below it");
 }
 
 #pragma mark - The real capture
 
-static VibeDebugCaptureRequest *Parse(NSArray<NSString *> *tokens, NSString **error) {
-    return VibeDebugParseCaptureRequest([@[@"capture_window"] arrayByAddingObjectsFromArray:tokens], error);
+static BOOL Parse(NSArray<NSString *> *tokens, VibeDebugCaptureRequest *request, NSString **error) {
+    return VibeDebugParseCaptureRequest([@[@"capture_window"] arrayByAddingObjectsFromArray:tokens], request, error);
 }
 
 - (void)testTheCapturesArgumentsParse {
     NSString *error = nil;
-    VibeDebugCaptureRequest *plain = Parse(@[@"-"], &error);
-    XCTAssertNotNil(plain, @"the client's - is the client's");
-    XCTAssertFalse(plain.key);
-    XCTAssertEqual(plain.focus, VibeDebugCaptureFocusWindow);
-    XCTAssertTrue(NSIsEmptyRect(plain.crop));
-    VibeDebugCaptureRequest *full = Parse(@[@"key", @"menu", @"crop", @"10", @"20", @"30.5", @"40", @"-"], &error);
-    XCTAssertTrue(full.key);
-    XCTAssertEqual(full.focus, VibeDebugCaptureFocusMenu);
-    XCTAssertTrue(NSEqualRects(full.crop, NSMakeRect(10, 20, 30.5, 40)));
-    XCTAssertEqual(Parse(@[@"popover"], &error).focus, VibeDebugCaptureFocusPopover);
-    for (NSArray<NSString *> *bad in @[@[@"menu", @"popover"], @[@"crop", @"1", @"2", @"3"], @[@"crop", @"1", @"2", @"0", @"4"],
+    VibeDebugCaptureRequest request;
+    XCTAssertTrue(Parse(@[@"-"], &request, &error), @"the client's - is the client's");
+    XCTAssertFalse(request.key);
+    XCTAssertEqual(request.focus, VibeDebugCaptureFocusWindow);
+    XCTAssertTrue(NSIsEmptyRect(request.crop));
+    XCTAssertTrue(Parse(@[@"key", @"menu", @"crop", @"10", @"20", @"30.5", @"40", @"-"], &request, &error));
+    XCTAssertTrue(request.key);
+    XCTAssertEqual(request.focus, VibeDebugCaptureFocusMenu);
+    XCTAssertTrue(NSEqualRects(request.crop, NSMakeRect(10, 20, 30.5, 40)));
+    XCTAssertTrue(Parse(@[@"popover"], &request, &error));
+    XCTAssertEqual(request.focus, VibeDebugCaptureFocusPopover);
+    XCTAssertFalse(Parse(@[@"menu", @"popover"], &request, &error));
+    XCTAssertEqualObjects(JSONObject(error)[@"error"], @"capture_window takes one of menu and popover, not both");
+    for (NSArray<NSString *> *bad in @[@[@"crop", @"1", @"2", @"3"], @[@"crop", @"1", @"2", @"0", @"4"],
                                         @[@"crop", @"a", @"2", @"3", @"4"], @[@"window"]]) {
         error = nil;
-        XCTAssertNil(Parse(bad, &error), @"%@", bad);
+        XCTAssertFalse(Parse(bad, &request, &error), @"%@", bad);
         XCTAssertNotNil(JSONObject(error)[@"error"], @"%@", bad);
     }
 }
@@ -575,61 +605,87 @@ static VibeDebugCaptureRequest *Parse(NSArray<NSString *> *tokens, NSString **er
                                NSMakeRect(480, 390, 20, 10)));
     XCTAssertTrue(NSIsEmptyRect(VibeDebugCaptureRegion(window, none, VibeDebugCaptureFocusWindow,
                                                        NSMakeRect(500, 0, 50, 10))));
+    // The flip is its own inverse.
+    NSRect rect = NSMakeRect(10, 20, 30, 40);
+    XCTAssertTrue(NSEqualRects(VibeDebugFlipScreenRect(VibeDebugFlipScreenRect(rect)), rect));
 }
 
 // A hidden window has nothing for the window server to composite, and the
-// verb says so, naming the in-process render.
+// verb says so, with its blocker, naming the in-process render.
 - (void)testTheCaptureOfAHiddenWindowFailsPlainly {
     NSWindow *window = [self windowOfSize:NSMakeSize(80, 60)];
-    NSString *blocker = VibeDebugCaptureBlocker(window);
-    XCTAssertTrue([blocker containsString:@"isn't on screen"], @"%@", blocker);
+    NSString *kind = nil;
+    NSString *blocker = VibeDebugCaptureBlocker(window, &kind);
+    if ([kind isEqualToString:@"locked"] || [kind isEqualToString:@"asleep"]) {
+        XCTSkip(@"%@", blocker);
+    }
+    XCTAssertEqualObjects(kind, @"hidden");
     XCTAssertTrue([blocker containsString:@"dump_screenshot"], @"%@", blocker);
     __block NSString *reply = nil;
-    VibeDebugCaptureWindow(window, [VibeDebugCaptureRequest new], @"/nonexistent.png", ^(NSString *json) {
+    VibeDebugCaptureWindow(window, (VibeDebugCaptureRequest){0}, @"/nonexistent.png", ^(NSString *json) {
         reply = json;
     });
-    XCTAssertTrue([JSONObject(reply)[@"error"] containsString:@"isn't on screen"], @"%@", reply);
+    XCTAssertEqualObjects(JSONObject(reply)[@"blocker"], @"hidden", @"%@", reply);
+}
+
+// The capture of window, its reply, and its image, or a skip where the window
+// server draws nothing. The window server lists a window a moment after it
+// orders in, so the capture tries again while it lists none.
+- (NSDictionary *)captureOrSkip:(NSWindow *)window image:(NSBitmapImageRep **)image {
+    NSString *blocker = VibeDebugCaptureBlocker(window, NULL);
+    if (blocker) {
+        XCTSkip(@"%@", blocker);
+    }
+    NSString *path = TempPNGPath();
+    __block NSDictionary *answer = nil;
+    for (NSUInteger tries = 0; tries < 10 && ![answer[@"ok"] boolValue]; tries++) {
+        __block NSString *reply = nil;
+        VibeDebugCaptureWindow(window, (VibeDebugCaptureRequest){0}, path, ^(NSString *json) {
+            reply = json;
+        });
+        SpinUntil(^BOOL { return reply != nil; });
+        answer = JSONObject(reply);
+    }
+    *image = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:path]];
+    [NSFileManager.defaultManager removeItemAtPath:path error:nil];
+    XCTAssertEqualObjects(answer[@"ok"], @YES, @"%@", answer);
+    return answer;
 }
 
 // The real capture of a window the test shows: its points times its scale,
-// and red where its content is red. It needs the window server, so it skips
-// with the screen locked or asleep.
+// and red where its content is red, with no permission.
 - (void)testTheCaptureIsTheWindowAsTheWindowServerDrawsIt {
     NSWindow *window = [self windowOfSize:NSMakeSize(120, 80)];
     window.contentView.wantsLayer = YES;
     window.contentView.layer.backgroundColor = NSColor.redColor.CGColor;
     [window orderFront:nil];
-    [window displayIfNeeded];
-    // The window server lists a new window a moment after it orders in.
-    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.3]];
-    NSString *blocker = VibeDebugCaptureBlocker(window);
-    if (blocker) {
-        XCTSkip(@"%@", blocker);
-    }
-    NSString *path = [NSTemporaryDirectory() stringByAppendingPathComponent:
-            [NSString stringWithFormat:@"debug-verbs-%@.png", NSUUID.UUID.UUIDString]];
-    __block NSString *reply = nil;
-    VibeDebugCaptureWindow(window, [VibeDebugCaptureRequest new], path, ^(NSString *json) {
-        reply = json;
-    });
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:10];
-    while (!reply && deadline.timeIntervalSinceNow > 0) {
-        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.05]];
-    }
-    NSDictionary *answer = JSONObject(reply);
-    XCTAssertEqualObjects(answer[@"ok"], @YES, @"%@", reply);
+    NSBitmapImageRep *image = nil;
+    NSDictionary *answer = [self captureOrSkip:window image:&image];
     XCTAssertEqualObjects(answer[@"method"], @"ScreenCaptureKit");
-    NSBitmapImageRep *image = [NSBitmapImageRep imageRepWithData:[NSData dataWithContentsOfFile:path]];
-    [NSFileManager.defaultManager removeItemAtPath:path error:nil];
     CGFloat scale = [answer[@"scale"] doubleValue];
-    NSRect frame = window.frame;
-    XCTAssertEqual(image.pixelsWide, (NSInteger)llround(NSWidth(frame) * scale), @"the frame, title bar and all");
-    XCTAssertEqual(image.pixelsHigh, (NSInteger)llround(NSHeight(frame) * scale));
-    NSColor *middle = [[image colorAtX:image.pixelsWide / 2 y:image.pixelsHigh - (NSInteger)(20 * scale)]
-            colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
-    XCTAssertGreaterThan(middle.redComponent, 0.8, @"%@", middle);
-    XCTAssertLessThan(middle.greenComponent, 0.3, @"%@", middle);
+    XCTAssertEqual(image.pixelsWide, (NSInteger)llround(NSWidth(window.frame) * scale), @"the frame, title bar and all");
+    XCTAssertEqual(image.pixelsHigh, (NSInteger)llround(NSHeight(window.frame) * scale));
+    XCTAssertTrue(IsRed(ContentPixel(image, window, scale, 60, 60)), @"%@", ContentPixel(image, window, scale, 60, 60));
     XCTAssertEqualObjects([answer[@"windows"] valueForKey:@"kind"], @[@"window"]);
+}
+
+// A window in front, which another app's would be, is left out: the target's
+// own pixels show where it covers them.
+- (void)testTheCaptureLeavesOutAWindowInFront {
+    NSWindow *window = [self windowOfSize:NSMakeSize(120, 80)];
+    window.contentView.wantsLayer = YES;
+    window.contentView.layer.backgroundColor = NSColor.redColor.CGColor;
+    [window orderFront:nil];
+    NSWindow *cover = [self windowOfSize:NSMakeSize(200, 160)];
+    [cover setFrameOrigin:NSMakePoint(NSMinX(window.frame) - 40, NSMinY(window.frame) - 40)];
+    cover.contentView.wantsLayer = YES;
+    cover.contentView.layer.backgroundColor = NSColor.blueColor.CGColor;
+    [cover orderFront:nil];
+    NSBitmapImageRep *image = nil;
+    NSDictionary *answer = [self captureOrSkip:window image:&image];
+    XCTAssertEqualObjects(answer[@"occluded"], @YES, @"the reply says a window covers it");
+    NSColor *middle = ContentPixel(image, window, [answer[@"scale"] doubleValue], 60, 60);
+    XCTAssertTrue(IsRed(middle), @"the target's red, not the cover's blue: %@", middle);
 }
 
 #pragma mark - The input table
@@ -658,7 +714,7 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
 
 - (void)testTheKeyVerbsSendWhatARealKeyCarries {
     DebugVerbsKeyWindow *window = [self keyWindowOfSize:NSMakeSize(100, 100)];
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     options.targetWindow = ^NSWindow *(id controller) {
         return window;
     };
@@ -705,7 +761,7 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
         XCTSkip(@"an earlier test left a key window");
     }
     DebugVerbsKeyWindow *window = [self keyWindowOfSize:NSMakeSize(100, 100)];
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     options.targetWindow = ^NSWindow *(id controller) {
         return window;
     };
@@ -740,7 +796,7 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
     NSApp.mainMenu = bar;
     XCTAssertNil([NSApp targetForAction:@selector(fire:)], @"with no key window, NSApp finds no target");
 
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     options.targetWindow = ^NSWindow *(id unused) {
         return window;
     };
@@ -762,7 +818,7 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
     top.submenu = [[NSMenu alloc] initWithTitle:@"File"];
     [top.submenu addItemWithTitle:@"Fire" action:@selector(fire:) keyEquivalent:@"k"];
     NSApp.mainMenu = bar;
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     NSArray<NSDictionary *> *table = VibeDebugStandardVerbs(options);
 
     XCTAssertTrue([JSONObject(Run(table, @[@"click_menu", @"Fire"], NSNull.null))[@"error"]
@@ -785,10 +841,11 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
     if (NSApp.isActive) {
         XCTSkip(@"the test process is the active app");
     }
-    VibeDebugInputNeedsFocus = YES;
     NSWindow *window = [self windowOfSize:NSMakeSize(100, 100)];
     [window orderFront:nil];
+    // The default, which the other tests turn off.
     VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    XCTAssertTrue(options.requiresKeyWindow);
     options.targetWindow = ^NSWindow *(id controller) {
         return window;
     };
@@ -804,7 +861,12 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
     }
     XCTAssertEqual(QueuedEvents(NSEventMaskLeftMouseDown | NSEventMaskLeftMouseUp | NSEventMaskLeftMouseDragged
                                 | NSEventMaskMouseMoved).count, 0u, @"nothing went to the queue");
-    XCTAssertNotNil(JSONObject(Run(input, @[@"activate"], NSNull.null)), @"activate answers either way");
+    XCTAssertNil(Run(input, @[@"activate"], NSNull.null), @"activate replies later");
+    __block BOOL answered = NO;
+    VibeDebugActivateWindow(window, ^(NSString *error) {
+        answered = YES;
+    });
+    XCTAssertTrue(SpinUntil(^BOOL { return answered; }), @"it answers within its 5 s, either way");
 }
 
 // Behind, click_menu still sends through the stand-in, and its reply says so.
@@ -816,7 +878,7 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
     }
     DebugVerbsMenuTarget *target = [DebugVerbsMenuTarget new];
     NSApp.mainMenu = [self menuWithTarget:target];
-    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs([VibeDebugStandardOptions new]);
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs(TestOptions());
     NSDictionary *reply = JSONObject(Run(table, @[@"click_menu", @"Keyed"], NSNull.null));
     XCTAssertEqualObjects(reply[@"behind"], @YES, @"%@", reply);
     XCTAssertEqual(target.fired, 1u);
@@ -827,7 +889,9 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
 
 - (void)testClickPostsADownAndAnUpPerCountWithTheCountAscending {
     NSWindow *window = [self windowOfSize:NSMakeSize(100, 100)];
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    // On screen, as a target window is, so its events carry its number.
+    [window orderFront:nil];
+    VibeDebugStandardOptions *options = TestOptions();
     options.targetWindow = ^NSWindow *(id controller) {
         return window;
     };
@@ -852,7 +916,9 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
 
 - (void)testDragPostsItsStepsBetweenOneDownAndOneUp {
     NSWindow *window = [self windowOfSize:NSMakeSize(100, 100)];
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    // On screen, as a target window is, so its events carry its number.
+    [window orderFront:nil];
+    VibeDebugStandardOptions *options = TestOptions();
     options.targetWindow = ^NSWindow *(id controller) {
         return window;
     };
@@ -888,15 +954,6 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
 // so it lands inside whatever loop main then spins.
 static void OnMainsNextTurn(dispatch_block_t block) {
     dispatch_async(dispatch_get_main_queue(), block);
-}
-
-// Spins main until the condition holds, or a few seconds pass.
-static BOOL SpinUntil(BOOL (^condition)(void)) {
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
-    while (!condition() && deadline.timeIntervalSinceNow > 0) {
-        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.02]];
-    }
-    return condition();
 }
 
 static NSAlert *AlertOfTwoButtons(void) {
@@ -954,7 +1011,7 @@ static NSAlert *AlertOfTwoButtons(void) {
     XCTAssertEqualObjects([NSSet setWithArray:read[@"buttons"]], ([NSSet setWithArray:@[@"First", @"Second"]]));
     XCTAssertNotNil(JSONObject(VibeDebugAnswerModal(@[window], @"Third"))[@"error"]);
     // The verb looks past a target window with no sheet, to any window's.
-    VibeDebugStandardOptions *options = [VibeDebugStandardOptions new];
+    VibeDebugStandardOptions *options = TestOptions();
     options.targetWindow = ^NSWindow *(id controller) {
         return other;
     };
@@ -1006,7 +1063,7 @@ static NSAlert *AlertOfTwoButtons(void) {
                   preferredEdge:NSRectEdgeMaxY];
     XCTAssertEqual(VibeDebugShownPopovers().count, 1u, @"from its show on, before its animation ends");
 
-    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs([VibeDebugStandardOptions new]);
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs(TestOptions());
     NSDictionary *read = JSONObject(Run(table, @[@"answer_popover"], NSNull.null));
     XCTAssertEqualObjects(read[@"popovers"], (@[@{@"index": @0, @"content": @"NSViewController",
                                                   @"texts": @[@"What it says"], @"buttons": @[@"Do It"]}]));
@@ -1028,7 +1085,7 @@ static NSAlert *AlertOfTwoButtons(void) {
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Pops"];
     [menu addItemWithTitle:@"One" action:@selector(fire:) keyEquivalent:@""].target = target;
     [menu addItemWithTitle:@"Two" action:@selector(fire:) keyEquivalent:@""].target = target;
-    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs([VibeDebugStandardOptions new]);
+    NSArray<NSDictionary *> *table = VibeDebugStandardVerbs(TestOptions());
     __block NSDictionary *read = nil;
     __block NSDictionary *cancelled = nil;
     OnMainsNextTurn(^{
