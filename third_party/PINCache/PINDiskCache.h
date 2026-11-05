@@ -177,6 +177,16 @@ PIN_SUBCLASSING_RESTRICTED
 @property (atomic, assign) PINCacheEvictionStrategy evictionStrategy;
 
 /**
+ Vibe: whether the cache keeps no record of its entries in memory, reading each from its file when it needs one. A
+ cache keeps a record of every entry by default, about 180 bytes each with its key, so a store of 200,000 entries
+ holds about 36 MB for as long as it lives. With records on demand it holds none: a miss tries the file, a hit reads
+ its dates from the file, the byte count is kept as a running total, and a trim or an enumeration lists the directory
+ for the call alone. Setting it drops any records already read. For a cache that is least recently used, and not a
+ TTL cache, since it keeps neither access counts nor object-level age limits.
+ */
+@property (atomic, assign) BOOL recordsOnDemand;
+
+/**
  The writing protection option used when writing a file on disk. This value is used every time an object is set.
  NSDataWritingAtomic and NSDataWritingWithoutOverwriting are ignored if set
  Defaults to NSDataWritingFileProtectionNone.

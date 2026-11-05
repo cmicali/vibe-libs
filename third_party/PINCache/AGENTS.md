@@ -15,6 +15,7 @@ Its files import each other as `<PINCache/...>` and `<PINOperation/...>`, so the
 - Outside a TTL cache, a write removes no age-limit xattr, since none is ever set.
 - A hit reads its file outside the cache's one lock, as it already deserialized. So concurrent hits run concurrently.
 - An automatic trim cuts to 90% of the byte limit. So a full cache sorts its entries once per tenth of the limit written, not on every write.
+- `recordsOnDemand` keeps no record of the entries in memory. A cache keeps one for every entry by default, about 170 bytes each with its key, so 200,000 entries hold about 33 MB for the cache's life. With it set, a miss tries the file, a hit reads the file's dates before it re-dates it, and the byte count is a running total, with the old size read from the file before a write or a removal replaces it. A trim, an expiry, and an enumeration list the directory for the call alone, under the cache's lock, as a trim already sorted under it. It is for a least-recently-used cache that is not a TTL cache, since it keeps neither access counts nor object-level age limits. Setting it drops any records already read.
 
 ## License
 
