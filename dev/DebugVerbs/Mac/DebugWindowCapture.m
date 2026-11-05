@@ -125,12 +125,18 @@ static NSDictionary *VibeRectJSON(NSRect rect) {
     return @{@"x": @(NSMinX(rect)), @"y": @(NSMinY(rect)), @"width": @(NSWidth(rect)), @"height": @(NSHeight(rect))};
 }
 
-// The window's sheets and child windows, a popover's among them, nested.
-static void VibeCollectOwnedWindows(NSWindow *window, NSMutableArray<NSWindow *> *out) {
+// The window's sheets and child windows, a popover's among them, nested,
+// each with its kind. What a sheet owns is the sheet's: on macOS 26 its
+// glass is a child window of its own, which the window server draws in the
+// sheet's place.
+static void VibeCollectOwnedWindows(NSWindow *window, NSString *_Nullable inherited,
+                                    NSMutableArray<NSWindow *> *windows, NSMutableArray<NSString *> *kinds) {
     for (NSWindow *child in [window.sheets arrayByAddingObjectsFromArray:window.childWindows ?: @[]]) {
-        if (child.isVisible && ![out containsObject:child]) {
-            [out addObject:child];
-            VibeCollectOwnedWindows(child, out);
+        if (child.isVisible && ![windows containsObject:child]) {
+            NSString *kind = inherited ?: ([window.sheets containsObject:child] ? @"sheet" : @"child");
+            [windows addObject:child];
+            [kinds addObject:kind];
+            VibeCollectOwnedWindows(child, [kind isEqualToString:@"sheet"] ? kind : inherited, windows, kinds);
         }
     }
 }
@@ -230,17 +236,20 @@ static void VibeCapture(NSWindow *window, VibeDebugCaptureRequest request, NSStr
     };
     include(main, @"window");
     NSMutableArray<NSWindow *> *owned = [NSMutableArray array];
-    VibeCollectOwnedWindows(window, owned);
-    for (NSWindow *child in owned) {
+    NSMutableArray<NSString *> *kinds = [NSMutableArray array];
+    VibeCollectOwnedWindows(window, nil, owned, kinds);
+    [owned enumerateObjectsUsingBlock:^(NSWindow *child, NSUInteger i, BOOL *stop) {
         NSNumber *number = @(child.windowNumber);
-        include(byID[number], [popoverIDs containsObject:number] ? @"popover" : child.isSheet ? @"sheet" : @"child");
-    }
+        include(byID[number], [popoverIDs containsObject:number] ? @"popover" : kinds[i]);
+    }];
     for (NSNumber *number in popoverIDs) {
         include(byID[number], @"popover");
     }
     // A menu's window is the app's own, at the pop-up menu's level, and only
-    // the window server lists it. The menu bar itself is the system's.
-    for (SCWindow *scWindow in byID.allValues) {
+    // the window server lists it. The menu bar itself is the system's. A menu
+    // that stopped tracking fades out a moment longer, and is left out.
+    BOOL tracking = VibeDebugTrackingMenus().count > 0;
+    for (SCWindow *scWindow in tracking ? byID.allValues : @[]) {
         if (scWindow.windowLayer >= kCGPopUpMenuWindowLevel && scWindow.windowLayer < kCGOverlayWindowLevel) {
             include(scWindow, @"menu");
         }
@@ -290,7 +299,7 @@ static void VibeCapture(NSWindow *window, VibeDebugCaptureRequest request, NSStr
         @"method": @"ScreenCaptureKit",
         @"windowKey": @(window.isKeyWindow),
         @"appActive": @(NSApp.isActive),
-        @"occluded": @(!(window.occlusionState & NSWindowOcclusionStateVisible)),
+        @"occluded": @((BOOL)!(window.occlusionState & NSWindowOcclusionStateVisible)),
         @"dark": @(window.effectiveAppearance.isDark),
         @"region": VibeRectJSON(NSMakeRect(NSMinX(region) - NSMinX(frame), NSMaxY(frame) - NSMaxY(region),
                                            NSWidth(region), NSHeight(region))),
