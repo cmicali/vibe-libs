@@ -53,6 +53,239 @@
     [self waitForExpectations:@[counted] timeout:VIBE_TEST_HANG_TIMEOUT];
 }
 
+#pragma mark - Records on demand
+
+// The records a store keeps in memory, which a store made here never has. Its
+// private dictionary, read by key, since the cache is vendored here.
+static NSUInteger VibeRecordsKept(PINDiskCache *cache) {
+    return [[cache valueForKey:@"metadata"] count];
+}
+
+// Waits until the store has read its directory once, as its enumeration does.
+static void VibeWaitForDiskState(PINDiskCache *cache) {
+    [cache enumerateObjectsWithBlock:^(NSString *key, NSURL *fileURL, BOOL *stop) {
+        *stop = YES;
+    }];
+}
+
+// The bytes the store's files take on disk, as it counts them.
+static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
+    NSUInteger bytes = 0;
+    for (NSURL *file in [NSFileManager.defaultManager contentsOfDirectoryAtURL:cache.cacheURL
+                                                   includingPropertiesForKeys:@[NSURLTotalFileAllocatedSizeKey]
+                                                                      options:NSDirectoryEnumerationSkipsHiddenFiles
+                                                                        error:nil]) {
+        NSNumber *size = nil;
+        [file getResourceValue:&size forKey:NSURLTotalFileAllocatedSizeKey error:nil];
+        bytes += size.unsignedIntegerValue;
+    }
+    return bytes;
+}
+
+// A store keeps no record of its entries in memory, and reads each from its
+// file: a hit, a miss, and whether it holds a key.
+- (void)testAStoreKeepsNoRecordOfItsEntries {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"records" rootPath:_root].diskCache;
+    XCTAssertTrue(cache.recordsOnDemand);
+    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"one"];
+    [cache setObject:[NSMutableData dataWithLength:2000] forKey:@"two"];
+    VibeWaitForDiskState(cache);
+    XCTAssertEqual(VibeRecordsKept(cache), 0u);
+    XCTAssertEqual([(NSData *)[cache objectForKey:@"two"] length], 2000u);
+    XCTAssertNil([cache objectForKey:@"three"]);
+    XCTAssertTrue([cache containsObjectForKey:@"one"]);
+    XCTAssertFalse([cache containsObjectForKey:@"three"]);
+    __block NSUInteger listed = 0;
+    [cache enumerateObjectsWithBlock:^(NSString *key, NSURL *fileURL, BOOL *stop) {
+        listed++;
+    }];
+    XCTAssertEqual(listed, 2u);
+    XCTAssertEqual(VibeRecordsKept(cache), 0u);
+}
+
+// The byte count follows each write, each write over an entry, and each
+// removal, with no record to read the old size from.
+- (void)testItsByteCountFollowsEveryWriteAndRemoval {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"bytes" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"one"];
+    [cache setObject:[NSMutableData dataWithLength:30000] forKey:@"two"];
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+    [cache setObject:[NSMutableData dataWithLength:90000] forKey:@"one"];
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+    [cache removeObjectForKey:@"two"];
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+    XCTAssertGreaterThan(cache.byteCount, 0u);
+}
+
+// A store opened again counts the bytes its files take, and keeps no records.
+- (void)testAStoreOpenedAgainCountsItsFiles {
+    PINDiskCache *first = [PINCache audioCacheWithName:@"again" rootPath:_root].diskCache;
+    [first setObject:[NSMutableData dataWithLength:5000] forKey:@"one"];
+    [first setObject:[NSMutableData dataWithLength:7000] forKey:@"two"];
+    NSUInteger bytes = VibeAllocatedBytes(first);
+    PINDiskCache *again = [PINCache audioCacheWithName:@"again" rootPath:_root].diskCache;
+    VibeWaitForDiskState(again);
+    XCTAssertEqual(again.byteCount, bytes);
+    XCTAssertEqual(VibeRecordsKept(again), 0u);
+}
+
+// A trim by size removes the entries used longest ago first, by their files'
+// dates.
+- (void)testATrimRemovesTheLeastRecentlyUsedFirst {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"trim" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    NSArray<NSString *> *keys = @[@"oldest", @"older", @"newest"];
+    for (NSUInteger i = 0; i < keys.count; i++) {
+        [cache setObject:[NSMutableData dataWithLength:10000] forKey:keys[i]];
+        NSURL *file = [cache fileURLForKey:keys[i]];
+        NSDate *used = [NSDate dateWithTimeIntervalSinceNow:-86400.0 * (10 - i)];
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: used}
+                                                     ofItemAtPath:file.path error:nil]);
+    }
+    NSUInteger one = VibeAllocatedBytes(cache) / 3;
+    [cache trimToSizeByEvictionStrategy:one];
+    XCTAssertFalse([cache containsObjectForKey:@"oldest"]);
+    XCTAssertFalse([cache containsObjectForKey:@"older"]);
+    XCTAssertTrue([cache containsObjectForKey:@"newest"]);
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+}
+
+// A trim to a date removes the entries made before it, by their files'
+// creation dates, as a store opened again finds them.
+- (void)testATrimToADateRemovesTheEntriesMadeBefore {
+    PINDiskCache *first = [PINCache audioCacheWithName:@"dated" rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    [first setObject:[NSMutableData dataWithLength:1000] forKey:@"old"];
+    [first setObject:[NSMutableData dataWithLength:1000] forKey:@"new"];
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
+                                                 ofItemAtPath:[first fileURLForKey:@"old"].path error:nil]);
+    first = nil;
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"dated" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    [cache trimToDate:[NSDate dateWithTimeIntervalSinceNow:-86400.0 * 50]];
+    XCTAssertFalse([cache containsObjectForKey:@"old"]);
+    XCTAssertTrue([cache containsObjectForKey:@"new"]);
+}
+
+// A store that has seen no entry made before a date lists nothing to trim
+// to it: an entry made older behind its back stays, until a reopening reads
+// its date and trims it.
+- (void)testATrimToADateListsNothingWhenNothingIsThatOld {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"recent" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"one"];
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
+                                                 ofItemAtPath:[cache fileURLForKey:@"one"].path error:nil]);
+    NSDate *trimDate = [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 50];
+    [cache trimToDate:trimDate];
+    XCTAssertTrue([cache containsObjectForKey:@"one"], @"it listed nothing");
+    cache = nil;
+    PINDiskCache *again = [PINCache audioCacheWithName:@"recent" rootPath:_root].diskCache;
+    VibeWaitForDiskState(again);
+    [again trimToDate:trimDate];
+    XCTAssertFalse([again containsObjectForKey:@"one"]);
+}
+
+// A plain store that read its records before the mode keeps their dates in
+// the bound the mode drops them for, so an old one is still trimmed.
+- (void)testRecordsDroppedForTheModeKeepTheirDates {
+    PINDiskCache *first = [[PINCache alloc] initWithName:@"dropped" rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    [first setObject:[NSMutableData dataWithLength:1000] forKey:@"old"];
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
+                                                 ofItemAtPath:[first fileURLForKey:@"old"].path error:nil]);
+    first = nil;
+    PINDiskCache *plain = [[PINCache alloc] initWithName:@"dropped" rootPath:_root].diskCache;
+    VibeWaitForDiskState(plain);
+    XCTAssertEqual(VibeRecordsKept(plain), 1u);
+    plain.recordsOnDemand = YES;
+    [plain trimToDate:[NSDate dateWithTimeIntervalSinceNow:-86400.0 * 50]];
+    XCTAssertFalse([plain containsObjectForKey:@"old"]);
+}
+
+// Removing every entry right as a store opens over its files leaves a count
+// of none, not the files its launch's count saw.
+- (void)testRemovingEveryEntryAtOpenLeavesNoBytes {
+    PINDiskCache *first = [PINCache audioCacheWithName:@"wiped" rootPath:_root].diskCache;
+    for (NSUInteger i = 0; i < 50; i++) {
+        [first setObject:[NSMutableData dataWithLength:5000] forKey:[NSString stringWithFormat:@"%lu", (unsigned long)i]];
+    }
+    first = nil;
+    PINDiskCache *again = [PINCache audioCacheWithName:@"wiped" rootPath:_root].diskCache;
+    [again removeAllObjects];
+    VibeWaitForDiskState(again);
+    XCTAssertEqual(again.byteCount, 0u);
+    XCTAssertEqual(VibeAllocatedBytes(again), 0u);
+}
+
+// A plain store's launch count reads its directory a thousand files to a
+// pool, past a pool's end, and skips a hidden file, as upstream's listing did.
+- (void)testAPlainStoresCountReadsEveryFile {
+    PINDiskCache *first = [[PINCache alloc] initWithName:@"many" rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    NSString *directory = first.cacheURL.path;
+    first = nil;
+    for (NSUInteger i = 0; i < 1500; i++) {
+        [NSData.data writeToFile:[directory stringByAppendingPathComponent:[NSString stringWithFormat:@"file%lu", (unsigned long)i]]
+                      atomically:NO];
+    }
+    [[NSMutableData dataWithLength:5000] writeToFile:[directory stringByAppendingPathComponent:@".hidden"] atomically:NO];
+    PINDiskCache *plain = [[PINCache alloc] initWithName:@"many" rootPath:_root].diskCache;
+    VibeWaitForDiskState(plain);
+    XCTAssertEqual(VibeRecordsKept(plain), 1500u);
+    XCTAssertEqual(plain.byteCount, VibeAllocatedBytes(plain));
+}
+
+// A store opened again over entries made 200 days ago, written to before it
+// has counted its files, ages them out and keeps the rest, with a byte count
+// that never wraps below zero.
+- (void)testAStoreOpenedOverOldEntriesKeepsItsCount {
+    PINDiskCache *first = [PINCache audioCacheWithName:@"aged" rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    for (NSString *key in @[@"old one", @"old two", @"young"]) {
+        [first setObject:[NSMutableData dataWithLength:20000] forKey:key];
+    }
+    NSDate *made = [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 200];
+    for (NSString *key in @[@"old one", @"old two"]) {
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: made}
+                                                     ofItemAtPath:[first fileURLForKey:key].path error:nil]);
+    }
+    first = nil;
+    PINDiskCache *again = [PINCache audioCacheWithName:@"aged" rootPath:_root].diskCache;
+    [again setObject:[NSMutableData dataWithLength:1000] forKey:@"new"];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (([again containsObjectForKey:@"old one"] || [again containsObjectForKey:@"old two"])
+            && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.05];
+    }
+    XCTAssertFalse([again containsObjectForKey:@"old one"]);
+    XCTAssertTrue([again containsObjectForKey:@"young"]);
+    XCTAssertTrue([again containsObjectForKey:@"new"]);
+    XCTAssertEqual(again.byteCount, VibeAllocatedBytes(again));
+}
+
+// Records on demand can't be turned off: nothing would read the records back.
+- (void)testRecordsOnDemandIsOneWay {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"one way" rootPath:_root].diskCache;
+    XCTAssertThrows(cache.recordsOnDemand = NO);
+    XCTAssertTrue(cache.recordsOnDemand);
+}
+
+// A plain store keeps a record of each entry. Asked for records on demand, it
+// drops them, and keeps its byte count.
+- (void)testRecordsOnDemandDropsTheRecordsKept {
+    PINDiskCache *cache = [[PINCache alloc] initWithName:@"plain" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    [cache setObject:[NSMutableData dataWithLength:4000] forKey:@"one"];
+    XCTAssertEqual(VibeRecordsKept(cache), 1u);
+    NSUInteger bytes = cache.byteCount;
+    cache.recordsOnDemand = YES;
+    XCTAssertEqual(VibeRecordsKept(cache), 0u);
+    XCTAssertEqual(cache.byteCount, bytes);
+    XCTAssertEqual([(NSData *)[cache objectForKey:@"one"] length], 4000u);
+}
+
 #pragma mark - Other versions' stores
 
 - (void)makeStores:(NSArray<NSString *> *)names {

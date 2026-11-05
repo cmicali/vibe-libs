@@ -25,6 +25,10 @@ static NSString *VibeAudioCacheFamily(NSString *name) {
 
 + (PINCache *)audioCacheWithName:(NSString *)name rootPath:(NSString *)rootPath {
     PINCache *cache = rootPath ? [[PINCache alloc] initWithName:name rootPath:rootPath] : [[PINCache alloc] initWithName:name];
+    // The byte limit lets a store hold about 250,000 entries, whose records
+    // would keep about 40 MB, so it keeps none (files/DiskCache's AGENTS.md).
+    // First, so the limits' trims see it.
+    cache.diskCache.recordsOnDemand = YES;
     cache.diskCache.byteLimit = kAudioCacheByteLimit;
     cache.diskCache.ageLimit = kAudioCacheAgeLimit;
     return cache;

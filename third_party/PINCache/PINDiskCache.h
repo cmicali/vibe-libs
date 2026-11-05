@@ -177,6 +177,13 @@ PIN_SUBCLASSING_RESTRICTED
 @property (atomic, assign) PINCacheEvictionStrategy evictionStrategy;
 
 /**
+ Vibe: the cache keeps no record of its entries in memory, and reads each from its file. For a least-recently-used
+ cache that is not a TTL cache, and refused for any other. Set it before the first write and the limits. Setting it
+ drops the records kept, and it can't be turned off.
+ */
+@property (atomic, assign) BOOL recordsOnDemand;
+
+/**
  The writing protection option used when writing a file on disk. This value is used every time an object is set.
  NSDataWritingAtomic and NSDataWritingWithoutOverwriting are ignored if set
  Defaults to NSDataWritingFileProtectionNone.
