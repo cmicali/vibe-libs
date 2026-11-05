@@ -28,6 +28,10 @@ NS_ASSUME_NONNULL_BEGIN
 // macOS: the window the mouse verbs aim at and raise_window raises, whose
 // sheet answer_sheet reads first. Nil, or a nil answer: NSApp.mainWindow.
 @property (nonatomic, copy, nullable) NSWindow *_Nullable (^targetWindow)(id controller);
+// macOS: a mouse verb fails while the target window isn't key, which would
+// swallow its click. YES by default. A host-less test sets it NO, since its
+// NSApp is never active.
+@property (nonatomic) BOOL requiresKeyWindow;
 // macOS: click_menu's dispatch. NO when nothing handled the item. Nil: NSApp
 // sends the item's action, after the validation opening the menu would run.
 @property (nonatomic, copy, nullable) BOOL (^performMenuItem)(id controller, NSMenuItem *item);

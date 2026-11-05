@@ -11,7 +11,11 @@
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <notify.h>
+#import "NSView+DarkMode.h"
 #import "VibeMacros.h"
+
+NSString *const VibeDebugRenderNote = @"in-process, for layout and text only: glass, material, and blending draw "
+                                      @"flat, and no menu or popover shows. capture_window shows the real window";
 
 // A glass view's hosting layer renders as opaque white in renderInContext:,
 // because its real content is composited by the window server, and it paints
@@ -47,20 +51,30 @@ static void VibeCollectBackdropLayers(CALayer *layer, NSMutableArray<CALayer *> 
     }
 }
 
-BOOL VibeDumpWindowSnapshot(NSString *path) {
+static NSWindow *VibeFrontWindow(void) {
     NSWindow *window = NSApp.keyWindow ?: NSApp.mainWindow;
-    if (!window) {
-        // Front to back, not creation order: with the app inactive both
-        // keyWindow and mainWindow are nil, and NSApp.windows would hand back
-        // the first window made even while another sits in front.
-        for (NSWindow *candidate in NSApp.orderedWindows) {
-            if (candidate.isVisible && candidate.contentView) {
-                window = candidate;
-                break;
-            }
+    if (window) {
+        return window;
+    }
+    // Front to back, not creation order: with the app inactive both keyWindow
+    // and mainWindow are nil, and NSApp.windows would hand back the first
+    // window made even while another sits in front.
+    for (NSWindow *candidate in NSApp.orderedWindows) {
+        if (candidate.isVisible && candidate.contentView) {
+            return candidate;
         }
     }
-    NSView *view = window.contentView;
+    return nil;
+}
+
+BOOL VibeDumpWindowSnapshot(NSString *path) {
+    NSWindow *window = VibeFrontWindow();
+    return window && VibeDebugRenderWindow(window, path);
+}
+
+BOOL VibeDebugRenderWindow(NSWindow *window, NSString *path) {
+    // The frame view, so the title bar and the toolbar render.
+    NSView *view = window.contentView.superview ?: window.contentView;
     if (!view || NSIsEmptyRect(view.bounds)) {
         LogError(@"Debug screenshot: no window content to render");
         return NO;
@@ -81,28 +95,41 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
     // transparent, so paint an appearance-matched proxy background first.
     // Dark-mode content — white text and drawing at low alpha — then keeps the
     // window's real contrast polarity rather than flattening onto white.
-    NSAppearanceName match = [window.effectiveAppearance
-            bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]];
-    BOOL isDark = [match isEqualToString:NSAppearanceNameDarkAqua];
-    CGContextSetGrayFillColor(ctx, isDark ? 0.1 : 0.95, 1.0);
+    CGFloat gray = window.effectiveAppearance.isDark ? 0.1 : 0.95;
+    CGContextSetGrayFillColor(ctx, gray, 1.0);
     CGContextFillRect(ctx, view.bounds);
     CALayer *layer = view.layer;
     if (layer) {
+        // A layout or a scroll still pending lands first, as the window's next
+        // frame would show it.
+        [window displayIfNeeded];
         NSMutableArray<NSView *> *glassViews = [NSMutableArray array];
         VibeCollectGlassViews(view, glassViews);
         NSMutableArray<CALayer *> *backdrops = [NSMutableArray array];
         VibeCollectBackdropLayers(layer, backdrops);
         if (glassViews.count > 0 || backdrops.count > 0) {
-            // The hides must stay uncommitted, so that the on-screen window
-            // never flickers. That forces a render of the model tree, since an
+            // The changes stay uncommitted, so that the on-screen window never
+            // flickers. That forces a render of the model tree, since an
             // uncommitted change is invisible to a presentation copy. It costs
             // the mid-flight animation capture, but only a window with glass
             // or a backdrop pays for it.
             [CATransaction begin];
             [CATransaction setDisableActions:YES];
+            // X5: each backdrop gives way to an opaque fill in its place, in
+            // its z-order, so what a material covers on screen stays covered,
+            // such as the rows that scroll up under a toolbar or a header.
+            CGColorRef fillColor = CGColorCreateGenericGray(gray, 1.0);
+            NSMutableArray<CALayer *> *fills = [NSMutableArray array];
             for (CALayer *backdrop in backdrops) {
+                CALayer *fill = [CALayer layer];
+                fill.frame = backdrop.frame;
+                fill.zPosition = backdrop.zPosition;
+                fill.backgroundColor = fillColor;
+                [backdrop.superlayer insertSublayer:fill above:backdrop];
+                [fills addObject:fill];
                 backdrop.hidden = YES;
             }
+            CGColorRelease(fillColor);
             for (NSView *glass in glassViews) {
                 glass.layer.hidden = YES;
             }
@@ -115,6 +142,9 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
                     NSView *content = ((NSGlassEffectView *)glass).contentView;
                     if (content.layer && !content.isHidden) {
                         NSRect frame = [content convertRect:content.bounds toView:view];
+                        if (view.isFlipped) {
+                            frame.origin.y = NSHeight(view.bounds) - NSMaxY(frame);
+                        }
                         CGContextSaveGState(ctx);
                         CGContextTranslateCTM(ctx, NSMinX(frame), NSMinY(frame));
                         [content.layer renderInContext:ctx];
@@ -122,6 +152,7 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
                     }
                 }
             }
+            [fills makeObjectsPerformSelector:@selector(removeFromSuperlayer)];
             for (CALayer *backdrop in backdrops) {
                 backdrop.hidden = NO;
             }
@@ -146,19 +177,7 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
         LogError(@"Debug screenshot: image creation failed");
         return NO;
     }
-    NSURL *url = [NSURL fileURLWithPath:path];
-    CGImageDestinationRef dest = CGImageDestinationCreateWithURL((__bridge CFURLRef)url,
-            (__bridge CFStringRef)UTTypePNG.identifier, 1, NULL);
-    BOOL written = NO;
-    if (dest) {
-        // The resolution names the backing scale, so a reader of the file
-        // alone knows its points.
-        NSDictionary *properties = @{(__bridge NSString *)kCGImagePropertyDPIWidth: @(72.0 * scale),
-                                     (__bridge NSString *)kCGImagePropertyDPIHeight: @(72.0 * scale)};
-        CGImageDestinationAddImage(dest, image, (__bridge CFDictionaryRef)properties);
-        written = CGImageDestinationFinalize(dest);
-        CFRelease(dest);
-    }
+    BOOL written = VibeDebugWritePNG(image, scale, path);
     CGImageRelease(image);
     if (written) {
         LogInfo(@"Debug screenshot written to %@", path);
@@ -169,6 +188,21 @@ BOOL VibeDumpWindowSnapshot(NSString *path) {
     return written;
 }
 
+BOOL VibeDebugWritePNG(CGImageRef image, CGFloat scale, NSString *path) {
+    NSURL *url = [NSURL fileURLWithPath:path];
+    CGImageDestinationRef dest = CGImageDestinationCreateWithURL((__bridge CFURLRef)url,
+            (__bridge CFStringRef)UTTypePNG.identifier, 1, NULL);
+    if (!dest) {
+        return NO;
+    }
+    NSDictionary *properties = @{(__bridge NSString *)kCGImagePropertyDPIWidth: @(72.0 * scale),
+                                 (__bridge NSString *)kCGImagePropertyDPIHeight: @(72.0 * scale)};
+    CGImageDestinationAddImage(dest, image, (__bridge CFDictionaryRef)properties);
+    BOOL written = CGImageDestinationFinalize(dest);
+    CFRelease(dest);
+    return written;
+}
+
 void VibeInstallDebugScreenshotHook(NSString *notificationName, NSString *path) {
     static int token;
     NSString *output = [path copy];
@@ -176,6 +210,5 @@ void VibeInstallDebugScreenshotHook(NSString *notificationName, NSString *path) 
         VibeDumpWindowSnapshot(output);
     });
 }
-
 
 #endif

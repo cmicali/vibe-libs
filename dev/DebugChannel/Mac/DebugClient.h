@@ -31,7 +31,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy, nullable) NSTimeInterval (^waitForVerb)(NSString *verb);
 // Verbs whose reply's "path" is a file the client reads and removes: its
 // bytes go to stdout under "-", and as base64 in a script's reply line.
-// Default: none.
+// The standard file verbs, dump_screenshot and capture_window, are file verbs
+// always, so an app lists only its own. Default: none.
 @property (nonatomic, copy) NSArray<NSString *> *fileVerbs;
 // A verb the client runs in its own process. Answers its exit code, or -1
 // when it is no local verb. print writes a reply as the client does.

@@ -888,6 +888,7 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
         GCC_PREPROCESSOR_DEFINITIONS: ["$(inherited)", "DEBUG=1", "VIBE_SIGNPOSTS=1", "VIBE_TEST_HANG_TIMEOUT=10"]
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support"]
 
   # dev/DebugVerbs built for iOS, with DEBUG in every configuration, so its iOS
   # half compiles.

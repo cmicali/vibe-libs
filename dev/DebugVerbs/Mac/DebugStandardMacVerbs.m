@@ -19,6 +19,7 @@
 #import "DebugScreenshot.h"
 #import "DebugSyntheticInput.h"
 #import "DebugViewTree.h"
+#import "DebugWindowCapture.h"
 #import "DebugWireFormat.h"
 #import "IntegerTokenRules.h"
 
@@ -50,17 +51,31 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             VibeWithStandInKeyWindow(NSApp.keyWindow ? nil : VibeDebugTargetWindow(options, controller), ^{
                 menu = VibeMenuArray(NSApp.mainMenu);
             });
-            return VibeJSONString(@{@"menu": menu});
+            // Behind, a stand-in key window validates the items, which can
+            // differ from what the user would see in front.
+            return VibeJSONString(@{@"menu": menu, @"appActive": @(NSApp.isActive)});
         }),
-        VibeDebugCmd(@"dump_screenshot [- | <label>]", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
-            // The arguments are the client's; see DebugClient.m.
+        // The target window rendered in-process, its frame view with it, or
+        // with sheet, its attached sheet. The arguments are otherwise the
+        // client's; see DebugClient.m.
+        VibeDebugCmd(@"dump_screenshot [sheet] [- | <label>]", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
+            NSWindow *window = VibeDebugTargetWindow(options, controller);
+            if ([tokens containsObject:@"sheet"]) {
+                window = window.attachedSheet;
+                if (!window) {
+                    return VibeErrorJSON(@"the window shows no sheet");
+                }
+            }
+            if (!window) {
+                return VibeErrorJSON(@"no window to render");
+            }
             NSString *path = VibeDebugScreenshotPathForCommand(VibeDebugChannelName(), commandId);
-            if (!VibeDumpWindowSnapshot(path)) {
+            if (!VibeDebugRenderWindow(window, path)) {
                 return VibeErrorJSON(@"screenshot failed to render or write; see app log");
             }
             // The size and scale come back from the file, so they are the
             // file's.
-            NSMutableDictionary *reply = [@{@"ok": @YES, @"path": path} mutableCopy];
+            NSMutableDictionary *reply = [@{@"ok": @YES, @"path": path, @"render": VibeDebugRenderNote} mutableCopy];
             CGImageSourceRef source = CGImageSourceCreateWithURL((__bridge CFURLRef)[NSURL fileURLWithPath:path], NULL);
             NSDictionary *properties = source
                     ? CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL)) : nil;
@@ -73,6 +88,26 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             reply[@"scale"] = dpi ? @(dpi.doubleValue / 72.0) : NSNull.null;
             return VibeJSONString(reply);
         }),
+        // The target window as the window server composites it, with its
+        // sheets, popovers, and open menus: glass, vibrancy, and blending
+        // as on screen. Never another app's window. It replies later.
+        VibeDebugCmd(@"capture_window [key] [menu|popover] [crop <x> <y> <w> <h>] [-]", 10,
+                     ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
+            NSString *error = nil;
+            VibeDebugCaptureRequest request;
+            if (!VibeDebugParseCaptureRequest(tokens, &request, &error)) {
+                return error;
+            }
+            NSWindow *window = VibeDebugTargetWindow(options, controller);
+            if (!window) {
+                return VibeErrorJSON(@"no window to capture");
+            }
+            NSString *path = VibeDebugScreenshotPathForCommand(VibeDebugChannelName(), commandId);
+            VibeDebugCaptureWindow(window, request, path, ^(NSString *reply) {
+                VibeWriteDebugResponse(commandId, reply);
+            });
+            return nil;
+        }),
         VibeDebugCmd(@"click_menu <identifier-or-title>", 0, ^NSString *(NSArray<NSString *> *tokens, NSString *commandId, id controller) {
             if (tokens.count < 2) {
                 return VibeErrorJSON(@"usage: click_menu <identifier-or-title>");
@@ -83,10 +118,11 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             if (!item) {
                 return VibeErrorJSON(@"no menu item with identifier or title '%@' (run `dump_menu` to list)", name);
             }
-            // With no key window, as when the app is not active, the target
+            // With no key window, as when the app is behind, the target
             // window stands in for it, so an item with no target finds one.
+            BOOL behind = NSApp.keyWindow == nil;
             __block BOOL performed = NO;
-            VibeWithStandInKeyWindow(NSApp.keyWindow ? nil : VibeDebugTargetWindow(options, controller), ^{
+            VibeWithStandInKeyWindow(behind ? VibeDebugTargetWindow(options, controller) : nil, ^{
                 performed = options.performMenuItem ? options.performMenuItem(controller, item)
                                                     : VibeDebugPerformMenuItem(item);
             });
@@ -97,6 +133,15 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
                 if (item.isHiddenOrHasHiddenAncestor) {
                     return VibeErrorJSON(@"menu item '%@' is hidden", item.title);
                 }
+                // TRAP: behind, AppKit's own lookups skip the stand-in, such
+                // as a window controller's supplementalTargetForAction:, so
+                // an item with no target can read disabled only because the
+                // app is behind.
+                if (behind && !item.target) {
+                    return VibeErrorJSON(@"menu item '%@' is %@ while the app is behind, which may be why: its target "
+                                         @"may be one only a real key window finds. Run `activate`, then try again",
+                                         item.title, item.isEnabled ? @"unhandled" : @"disabled");
+                }
                 return item.isEnabled
                         ? VibeErrorJSON(@"no responder handled %@", NSStringFromSelector(item.action))
                         : VibeErrorJSON(@"menu item '%@' is disabled", item.title);
@@ -105,6 +150,8 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
                 @"ok": @YES,
                 @"clicked": item.title,
                 @"action": item.action ? NSStringFromSelector(item.action) : (id)NSNull.null,
+                // Sent through the stand-in, with the app still behind.
+                @"behind": @(behind),
             });
         }),
         // TRAP: a shell-driven launch lands behind the frontmost app (the
@@ -128,7 +175,7 @@ NSArray<NSDictionary *> *VibeDebugStandardPlatformVerbs(VibeDebugStandardOptions
             }
             return VibeJSONString(@{@"ok": @YES,
                     @"visible": @((BOOL)((window.occlusionState & NSWindowOcclusionStateVisible) != 0)),
-                    @"displayAsleep": @((BOOL)(CGDisplayIsAsleep(CGMainDisplayID()) != 0))});
+                    @"displayAsleep": @(VibeDebugDisplayIsAsleep(window))});
         }),
         // The alert that asks: an app-modal window, else the target window's
         // sheet, else any window's, front to back. With a button's title, the
