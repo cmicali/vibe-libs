@@ -889,8 +889,10 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
 
 - (void)testClickPostsADownAndAnUpPerCountWithTheCountAscending {
     NSWindow *window = [self windowOfSize:NSMakeSize(100, 100)];
-    // On screen, as a target window is, so its events carry its number.
-    [window orderFront:nil];
+    // Key, as a run makes it with activate, as the verbs did themselves
+    // before. On CI, a window that isn't key read its events' points as the
+    // screen's.
+    VibeMakeWindowKeyForInjection(window);
     VibeDebugStandardOptions *options = TestOptions();
     options.targetWindow = ^NSWindow *(id controller) {
         return window;
@@ -916,8 +918,10 @@ static NSArray<NSEvent *> *SentKeys(DebugVerbsKeyWindow *window, NSString *json)
 
 - (void)testDragPostsItsStepsBetweenOneDownAndOneUp {
     NSWindow *window = [self windowOfSize:NSMakeSize(100, 100)];
-    // On screen, as a target window is, so its events carry its number.
-    [window orderFront:nil];
+    // Key, as a run makes it with activate, as the verbs did themselves
+    // before. On CI, a window that isn't key read its events' points as the
+    // screen's.
+    VibeMakeWindowKeyForInjection(window);
     VibeDebugStandardOptions *options = TestOptions();
     options.targetWindow = ^NSWindow *(id controller) {
         return window;
