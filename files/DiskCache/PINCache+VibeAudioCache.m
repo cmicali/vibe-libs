@@ -27,8 +27,8 @@ static NSString *VibeAudioCacheFamily(NSString *name) {
     PINCache *cache = rootPath ? [[PINCache alloc] initWithName:name rootPath:rootPath] : [[PINCache alloc] initWithName:name];
     cache.diskCache.byteLimit = kAudioCacheByteLimit;
     cache.diskCache.ageLimit = kAudioCacheAgeLimit;
-    // A store of every track's tags, art, or waveform holds an entry per file,
-    // so it keeps no record of each in memory.
+    // The byte limit lets a store hold about 250,000 entries, whose records
+    // would keep about 40 MB, so it keeps none (files/DiskCache's AGENTS.md).
     cache.diskCache.recordsOnDemand = YES;
     return cache;
 }

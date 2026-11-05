@@ -55,7 +55,8 @@
 
 #pragma mark - Records on demand
 
-// The records a store keeps in memory, which a store made here never has.
+// The records a store keeps in memory, which a store made here never has. Its
+// private dictionary, read by key, since the cache is vendored here.
 static NSUInteger VibeRecordsKept(PINDiskCache *cache) {
     return [[cache valueForKey:@"metadata"] count];
 }
@@ -163,6 +164,41 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
     [cache trimToDate:[NSDate dateWithTimeIntervalSinceNow:-86400.0 * 180]];
     XCTAssertFalse([cache containsObjectForKey:@"old"]);
     XCTAssertTrue([cache containsObjectForKey:@"new"]);
+}
+
+// A store opened again over entries made 200 days ago, written to before it
+// has counted its files, ages them out and keeps the rest, with a byte count
+// that never wraps below zero.
+- (void)testAStoreOpenedOverOldEntriesKeepsItsCount {
+    PINDiskCache *first = [PINCache audioCacheWithName:@"aged" rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    for (NSString *key in @[@"old one", @"old two", @"young"]) {
+        [first setObject:[NSMutableData dataWithLength:20000] forKey:key];
+    }
+    NSDate *made = [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 200];
+    for (NSString *key in @[@"old one", @"old two"]) {
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: made}
+                                                     ofItemAtPath:[first fileURLForKey:key].path error:nil]);
+    }
+    first = nil;
+    PINDiskCache *again = [PINCache audioCacheWithName:@"aged" rootPath:_root].diskCache;
+    [again setObject:[NSMutableData dataWithLength:1000] forKey:@"new"];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (([again containsObjectForKey:@"old one"] || [again containsObjectForKey:@"old two"])
+            && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.05];
+    }
+    XCTAssertFalse([again containsObjectForKey:@"old one"]);
+    XCTAssertTrue([again containsObjectForKey:@"young"]);
+    XCTAssertTrue([again containsObjectForKey:@"new"]);
+    XCTAssertEqual(again.byteCount, VibeAllocatedBytes(again));
+}
+
+// Records on demand can't be turned off: nothing would read the records back.
+- (void)testRecordsOnDemandIsOneWay {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"one way" rootPath:_root].diskCache;
+    XCTAssertThrows(cache.recordsOnDemand = NO);
+    XCTAssertTrue(cache.recordsOnDemand);
 }
 
 // A plain store keeps a record of each entry. Asked for records on demand, it
