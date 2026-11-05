@@ -5,8 +5,8 @@
 //  sample of every fixture names its file and its frame, so a capture shows
 //  exactly what played. A gain that is a power of two scales a sample
 //  exactly, so a sample divided by its gain still names where it came from.
-//  It runs no tests. AudioPlayerReparkTests and AudioPlayerFileGainTests
-//  subclass it.
+//  It runs no tests. AudioPlayerReparkTests, AudioPlayerFileGainTests, and
+//  AudioPlayerCrossfadeTests subclass it.
 //
 
 #import <XCTest/XCTest.h>

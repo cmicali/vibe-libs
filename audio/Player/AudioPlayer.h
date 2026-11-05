@@ -149,11 +149,13 @@ NS_ASSUME_NONNULL_BEGIN
 // whole file but for a cue row — clamped), optionally parked. It is for a
 // swap to the same audio in another file, such as a converted copy, and for a
 // replacement that must land parked. It always declicks and never
-// crossfades. Otherwise it is an ordinary play:.
+// crossfades, and it cuts an older crossfade still fading out to the
+// declick too. Otherwise it is an ordinary play:.
 - (void)play:(id<VibePlayableItem>)track atPosition:(NSTimeInterval)position startPaused:(BOOL)startPaused;
 
 // Track seconds, clamped, playing or paused. didFinishSeeking: settles every
 // seek, one dropped because the track changed or nothing was loaded included.
+// A seek that lands cuts an older crossfade still fading out to the declick.
 - (void)seekToPosition:(NSTimeInterval)position;
 
 // The same, aimed only at track: the play the app's control showed. It is
