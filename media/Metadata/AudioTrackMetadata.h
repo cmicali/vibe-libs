@@ -100,7 +100,9 @@ FOUNDATION_EXPORT NSNotificationName const AudioTrackMetadataThumbnailDidLoadNot
 
 // Admits one bounded full-art load when needed. stillWanted is checked on main
 // at each cancellation edge; completion runs on main only for a current,
-// still-wanted request.
+// still-wanted request. A request with nothing to load, one past the bound on
+// loads, or one made while a load is pending is dropped with no callback. A
+// caller that does not redraw must ask again itself (J6).
 - (void)loadArtIfNeededStillWanted:(BOOL (^)(void))stillWanted
                         completion:(void (^)(VibeImage *_Nullable art))completion;
 
