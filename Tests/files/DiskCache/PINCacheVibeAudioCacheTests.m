@@ -453,7 +453,10 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
 // A file that won't decode is removed as any entry is, so the byte count
 // follows it.
 - (void)testAnEntryThatWontDecodeGoesWithItsBytes {
-    PINDiskCache *cache = [[PINDiskCache alloc] initWithName:@"undecodable" rootPath:_root serializer:nil
+    PINDiskCache *cache = [[PINDiskCache alloc] initWithName:@"undecodable" rootPath:_root
+                                                  serializer:^NSData *(id<NSCoding> object, NSString *key) {
+        return (NSData *)object;
+    }
                                                 deserializer:^id<NSCoding>(NSData *data, NSString *key) {
         if ([key isEqualToString:@"bad"]) {
             @throw [NSException exceptionWithName:NSInvalidArchiveOperationException reason:@"won't decode" userInfo:nil];
