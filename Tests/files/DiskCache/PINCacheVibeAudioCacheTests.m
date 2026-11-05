@@ -5,6 +5,7 @@
 //
 
 #import <XCTest/XCTest.h>
+#import <stdatomic.h>
 
 #import "PINCache+VibeAudioCache.h"
 
