@@ -450,6 +450,18 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/Shortcuts/Mac"]
 
+  # The wells a drag of files over a window shows. macOS only, so no iOS
+  # target may list it. Its files sit in its Mac/ half, as Shortcuts' do. It
+  # lists Graphics for the tinted symbol.
+  VibeLibsDropWells:
+    templates: [VibeLibsGraphics]
+    sources:
+      - path: ui/DropWells
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/DropWells/Mac"]
+
   # Security-scoped bookmarks and folder grants, with the grant panel. macOS
   # only, so no iOS target may list it. Its files sit in its Mac/ half, as
   # Shortcuts' do. It lists Common for the path spelling and the log and

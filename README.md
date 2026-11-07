@@ -6,7 +6,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first forty-five pieces are here.** Each came from Vibe. The ten under `third_party/` are the libraries Vibe vendored. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first forty-six pieces are here.** Each came from Vibe. The ten under `third_party/` are the libraries Vibe vendored. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |
@@ -38,6 +38,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `ui/Controls` | The loading and equalizer indicators on both platforms. On the mac, buttons, drawn sliders and switches, image views, a link label, and the pitch fader. |
 | `ui/SettingsWindow` | A System Settings window with a sidebar, search, history, and form views. macOS only. |
 | `ui/Shortcuts` | Remappable shortcuts and their recorder pane. macOS only. |
+| `ui/DropWells` | The wells a drag of files over a window shows. macOS only. |
 | `system/NowPlaying` | A bridge to the system's Now Playing info and remote commands. |
 | `system/AppOpening` | One open request from the batches the mac splits it into, delivered in order. macOS only. |
 | `system/Updates` | Sparkle for a direct-download mac app. macOS only. |

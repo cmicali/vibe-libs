@@ -773,6 +773,20 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support"]
 
+  # ui/DropWells, tested on macOS. It is macOS only, so it has no iOS target.
+  DropWellsTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsDropWells]
+    templateAttributes:
+      excludedPlatform: iOS
+    sources:
+      - path: Tests/ui/DropWells
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
   # ui/Shortcuts, tested on macOS. It is macOS only, so it has no iOS target.
   ShortcutsTests:
     type: bundle.unit-test
@@ -1147,6 +1161,7 @@ schemes:
         Controls-iOS: all
         SettingsWindowTests: [test]
         ShortcutsTests: [test]
+        DropWellsTests: [test]
         SandboxAccessTests: [test]
         NowPlayingTests: [test]
         NowPlaying-iOS: all
@@ -1181,7 +1196,7 @@ schemes:
                 FXTests, MeterTests, FileLoadingTests, DiskCacheTests, HTTPTests,
                 RemoteFilesTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
                 MetadataTests, PlayQueueTests, PlaylistsTests, FolderScanTests, WaveformTests, WaveformLoadingTests,
-                WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests,
+                WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
                 SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, DebugVerbsTests,
                 TaglibTests, PINCacheTests, PINOperationTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
                 OggTests, VorbisTests, SparkleTests]
