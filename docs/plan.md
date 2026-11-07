@@ -138,9 +138,11 @@ vibe-libs/
 │   │                    and forward history, the pane base, and the form views: cards, rows,
 │   │                    captions, lists, color-pair wells, sliders with readouts; the
 │   │                    walker's debug seam
-│   └── Shortcuts ○      macOS only: a shortcut as a key code or character with modifiers,
-│                        its matching, its name and key equivalent under the current
-│                        layout, and the recorder pane over rows the app supplies
+│   ├── Shortcuts ○      macOS only: a shortcut as a key code or character with modifiers,
+│   │                    its matching, its name and key equivalent under the current
+│   │                    layout, and the recorder pane over rows the app supplies
+│   └── DropWells        macOS only: the wells a drag of files over a window shows, each a
+│                        symbol, a label, and the app's action, lit under the pointer
 │
 ├── system/
 │   ├── NowPlaying       Now Playing info and remote commands, fed the track's values
@@ -202,6 +204,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | ui/Controls | core/Graphics |
 | ui/SettingsWindow | ui/Controls, core/Graphics, macOS only |
 | ui/Shortcuts | ui/SettingsWindow, macOS only |
+| ui/DropWells | core/Graphics, macOS only |
 | system/NowPlaying | core/Graphics, media/PlayQueue |
 | system/AppOpening | nothing, macOS only |
 | system/Updates | third_party/Sparkle, macOS only |
@@ -626,6 +629,8 @@ Each remaining candidate moves when a second app needs it, with the cuts it was 
 - **SandboxAccess, AppOpening, DebugChannel, and iOSDriver**, each with its part of seam 21, when a consumer needs it.
 - **The pitch fader** joins `ui/Controls` with its part of seam 21. It moved on 2026-10-23 in this repo's #51 and Vibe #399. The fader and its panel joined `ui/Controls`' `Mac/` half. Their 4 files and their test moved with their history, the test runs here, and Vibe compiles them through Controls' template. Their part of seam 21 was four values, which a prep commit in Vibe turned into pushes. The panel takes its title, the fader's VoiceOver label, one formatter for its readout and the fader's spoken value, and its corner radius. So Controls' map row and template are unchanged.
 - **The standard debug verbs and the debug client**, since Vibe, the other app, and the third app each need them. [debug-verbs.md](debug-verbs.md) is the plan: a new piece, `dev/DebugVerbs`, the client's move into DebugChannel's `Mac/` half, and each app taking them. Planned on 2026-10-30. They moved on 2026-10-30 (this repo's #87). The piece's 16 files, its doc, and the client's 2 files moved with their history, after a prep pull request in Vibe staged them. Their tests are new here. The consumer answers `dump_build` and `dump_health` from the standard table.
+
+- **The drop wells**, since Vibe and the other app each show them over a drop. Built on 2026-11-07 as a new piece, `ui/DropWells`, from Vibe's playlist drop zone. Its wells, their titles, symbols, and actions, and its style are values the app passes. Vibe's drop zone keeps its rest well and uses the piece for the drag.
 
 **Wave 10 moved the rest but the pitch fader on 2026-10-23**, in this order:
 
