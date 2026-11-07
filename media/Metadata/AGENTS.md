@@ -20,6 +20,7 @@ The tag record and its CoreAudio fallback, the disk cache of tags, the backgroun
 - `EmbeddedThumbnailCache` is the decoded thumbnails every row shares, in one bounded LRU.
 - `ArchivedArtShare` is a picture's archived forms, shared by the files that embed it (Embedded artwork, below).
 - `NSURL+FilenameTitle` is the title a file's name gives, which a parse without a tagged title keeps.
+- `VibeTrackDisplay.h` is what a row shows of a track, a whole file or a CUE window of one: its title, its artist, and its length. A sheet's title and performer win over the file's tags, which name the whole image, and a window with an end is its own length. A title only the file name gives is nil, so each app shows the name its own way. It came from Vibe's row.
 - `AlbumGroupingRules.h` is which album a track belongs to (The tag fields, below).
 - `Artwork/FolderArt/` is the cover fallback (Folder art, below).
 
