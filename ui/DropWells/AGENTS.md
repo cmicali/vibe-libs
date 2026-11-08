@@ -10,7 +10,7 @@ The wells a drag of files over a window shows: dashed, rounded wells, each an SF
 
 **Which wells show is the app's.** It sets `wells`, an array of `VibeDropWell`, each a title, a symbol name, and an identifier. The identifier is the app's name for the well's action. The view reads none of them but to draw and to answer.
 
-- **The style is the app's too** (`VibeDropWellsStyle`). `systemStyle` uses the label colors and the focus ring's color, which follow the appearance. An app with a fixed palette sets its own colors and font.
+- **The style is the app's too** (`VibeDropWellsStyle`). It is `systemStyle` by default, and nil sets it back. A subclass's copy keeps its class. `systemStyle` uses the label colors and the focus ring's color, which follow the appearance. An app with a fixed palette sets its own colors and font.
 - **The blur is off by default** (`showsBlur`). An app turns it on over rows, so the wells read against them. Over an empty view it stays off.
 - **A row of wells stacks below `minimumWellWidth`**, top to bottom. 0, the default, never stacks.
 - **The fade is on by default** (`fadesStateChanges`). A caller that fades its own layer around the view turns it off, so the two fades don't stack.
@@ -19,7 +19,7 @@ The wells a drag of files over a window shows: dashed, rounded wells, each an SF
 
 **The wells sit 20 pt inside the view, 16 pt apart, in one row.** Each takes an equal share, floored. The last is anchored to the far edge, so the rounding slack lands in a gap. One well spans the whole inset view. Stacked, the same rules run top to bottom.
 
-**A view too short for a well shows nothing and answers nothing** (`effectivelyVisible`). A host that collapses squashes the view to almost no height. The view also clips, since views don't clip by default.
+**A view too short for a well shows nothing and answers nothing** (`effectivelyVisible`). Stacked, it must fit every well and every gap. A host that collapses squashes the view to almost no height. The view also clips, since views don't clip by default.
 
 ## The drag
 
@@ -31,4 +31,4 @@ The wells a drag of files over a window shows: dashed, rounded wells, each an SF
 
 ## Tests
 
-`Tests/ui/DropWells/Mac/` holds `VibeDropWellsViewTests`: one, two, and three wells, the slack in the gap, the stacking, the light through a drag, the drop's read after the drag ends, a hidden and a squashed view, the blur, new wells dropping a light, and a draw with the system style. The window is kept off every display.
+`Tests/ui/DropWells/Mac/` holds `VibeDropWellsViewTests`: one, two, and three wells, the slack in the gap, the stacking, the light through a drag, the drop's read after the drag ends, a hidden and a squashed view, a view too short for its stacked wells, a nil style, a style's copy, the blur, new wells dropping a light, and a draw with the system style. The window is kept off every display.

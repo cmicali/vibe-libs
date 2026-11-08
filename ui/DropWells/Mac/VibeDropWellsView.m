@@ -61,7 +61,7 @@ static const CFTimeInterval kStateFadeDuration = 0.12;
 }
 
 - (id)copyWithZone:(nullable NSZone *)zone {
-    VibeDropWellsStyle *copy = [[VibeDropWellsStyle alloc] init];
+    VibeDropWellsStyle *copy = [[[self class] alloc] init];
     copy.strokeColor = _strokeColor;
     copy.hoverStrokeColor = _hoverStrokeColor;
     copy.hoverFillColor = _hoverFillColor;
@@ -144,8 +144,9 @@ static const CFTimeInterval kStateFadeDuration = 0.12;
     _canvas.needsDisplay = YES;
 }
 
-- (void)setStyle:(VibeDropWellsStyle *)style {
-    _style = [style copy];
+// A nil style would draw with no font, which throws.
+- (void)setStyle:(nullable VibeDropWellsStyle *)style {
+    _style = style ? [style copy] : [VibeDropWellsStyle systemStyle];
     [_symbolCache removeAllObjects];
     _canvas.needsDisplay = YES;
 }
@@ -172,9 +173,12 @@ static const CFTimeInterval kStateFadeDuration = 0.12;
 
 #pragma mark - Geometry
 
+// Stacked, every well and every gap must fit, or the wells' heights go
+// negative.
 - (BOOL)isEffectivelyVisible {
-    return self.window && !self.hiddenOrHasHiddenAncestor &&
-           NSHeight(self.bounds) > 2 * kWellInset + 2 * kWellCornerRadius;
+    NSUInteger rows = self.stacked ? _wells.count : 1;
+    CGFloat least = 2 * kWellInset + rows * 2 * kWellCornerRadius + (rows - 1) * kWellGap;
+    return self.window && !self.hiddenOrHasHiddenAncestor && NSHeight(self.bounds) > least;
 }
 
 - (NSRect)fullWellRect {
