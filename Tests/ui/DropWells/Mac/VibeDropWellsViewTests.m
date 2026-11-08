@@ -13,6 +13,13 @@
 @interface VibeDropWellsViewTests : XCTestCase
 @end
 
+// An app's own style.
+@interface VibeDropWellsTestStyle : VibeDropWellsStyle
+@end
+
+@implementation VibeDropWellsTestStyle
+@end
+
 @implementation VibeDropWellsViewTests {
     NSWindow *_window;
     VibeDropWellsView *_view;
@@ -123,6 +130,50 @@
     XCTAssertFalse(_view.effectivelyVisible, @"too short for a well");
     [_view fileDragUpdatedAtWindowPoint:NSMakePoint(100, 30)];
     XCTAssertFalse(_view.dragActive);
+}
+
+// Stacked, the view must fit every well and every gap: 40 pt of inset, 20
+// pt for each of three wells, and two 16 pt gaps make 132.
+- (void)testAViewTooShortForEveryStackedWellShowsNothing {
+    _view.wells = [self wells:3];
+    _view.minimumWellWidth = 200;
+    _view.frame = NSMakeRect(0, 0, 600, 70);
+    XCTAssertTrue(_view.stacked);
+    XCTAssertFalse(_view.effectivelyVisible, @"one well fits, but three don't");
+    [_view fileDragUpdatedAtWindowPoint:NSMakePoint(300, 35)];
+    XCTAssertFalse(_view.dragActive);
+    _view.frame = NSMakeRect(0, 0, 600, 132);
+    XCTAssertFalse(_view.effectivelyVisible);
+    _view.frame = NSMakeRect(0, 0, 600, 140);
+    XCTAssertTrue(_view.effectivelyVisible);
+    for (NSUInteger i = 0; i < 3; i++) {
+        XCTAssertGreaterThan(NSHeight([_view rectOfWellAtIndex:i]), 0);
+    }
+    [_view fileDragUpdatedAtWindowPoint:[self centerOf:1]];
+    XCTAssertEqualObjects(_view.hoveredIdentifier, @"w1");
+}
+
+// nil sets the system style back, so a draw never meets a nil font.
+- (void)testANilStyleDrawsWithTheSystemStyle {
+    _view.wells = [self wells:2];
+    _view.style = nil;
+    XCTAssertNotNil(_view.style);
+    XCTAssertEqualObjects(_view.style.font, [NSFont systemFontOfSize:14]);
+    [_view fileDragUpdatedAtWindowPoint:[self centerOf:0]];
+    NSBitmapImageRep *rep = [_view bitmapImageRepForCachingDisplayInRect:_view.bounds];
+    [_view cacheDisplayInRect:_view.bounds toBitmapImageRep:rep];
+    XCTAssertNotNil(rep);
+}
+
+// A copy of a style's subclass is that subclass.
+- (void)testAStylesCopyKeepsItsClass {
+    VibeDropWellsTestStyle *style = [[VibeDropWellsTestStyle alloc] init];
+    style.contentColor = NSColor.redColor;
+    VibeDropWellsStyle *copy = [style copy];
+    XCTAssertTrue([copy isKindOfClass:VibeDropWellsTestStyle.class]);
+    XCTAssertEqualObjects(copy.contentColor, NSColor.redColor);
+    _view.style = style;
+    XCTAssertTrue([_view.style isKindOfClass:VibeDropWellsTestStyle.class]);
 }
 
 - (void)testTheBlurShowsOnlyDuringADragWhenAsked {

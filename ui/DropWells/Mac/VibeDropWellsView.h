@@ -18,6 +18,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 + (instancetype)wellWithIdentifier:(NSString *)identifier title:(NSString *)title symbolName:(NSString *)symbolName;
 - (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
 
 @property (nonatomic, readonly, copy) NSString *identifier;
 @property (nonatomic, readonly, copy) NSString *title;
@@ -47,7 +48,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Left to right, or top to bottom once stacked. Empty draws nothing.
 @property (nonatomic, copy) NSArray<VibeDropWell *> *wells;
-@property (nonatomic, copy) VibeDropWellsStyle *style;
+// The system style by default. nil sets it back.
+@property (nonatomic, copy, null_resettable) VibeDropWellsStyle *style;
 // A blur over the views beneath while the wells show, so they read against
 // rows. Off by default.
 @property (nonatomic) BOOL showsBlur;
@@ -76,7 +78,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (nullable NSString *)wellIdentifierAtWindowPoint:(NSPoint)point;
 // A well's rect in the view's coordinates. NSZeroRect past the last.
 - (NSRect)rectOfWellAtIndex:(NSUInteger)index;
-// The view is shown, and tall enough to draw a well.
+// The view is shown, and tall enough to draw a well, or every well once
+// they stack.
 @property (nonatomic, readonly, getter=isEffectivelyVisible) BOOL effectivelyVisible;
 
 @end
