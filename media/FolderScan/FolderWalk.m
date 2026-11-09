@@ -24,6 +24,7 @@ static VibePlaylistFolderGrantHandler sPlaylistFolderGrantHandler;
 static VibeWalkedFileHandler sWalkedFileHandler;
 static VibeWalkedDirectoriesHandler sWalkedDirectoriesHandler;
 static VibeBulkOpenDirectoriesHandler sBulkOpenDirectoriesHandler;
+static VibeEmbeddedSheetReadHandler sEmbeddedSheetReadHandler;
 
 static VibeWalkedFileHandler WalkedFileHandler(void) {
     @synchronized (FolderWalk.class) {
@@ -40,6 +41,12 @@ static VibeWalkedDirectoriesHandler WalkedDirectoriesHandler(void) {
 static VibeBulkOpenDirectoriesHandler BulkOpenDirectoriesHandler(void) {
     @synchronized (FolderWalk.class) {
         return sBulkOpenDirectoriesHandler;
+    }
+}
+
+static VibeEmbeddedSheetReadHandler EmbeddedSheetReadHandler(void) {
+    @synchronized (FolderWalk.class) {
+        return sEmbeddedSheetReadHandler;
     }
 }
 
@@ -67,6 +74,12 @@ static VibeBulkOpenDirectoriesHandler BulkOpenDirectoriesHandler(void) {
 + (void)setBulkOpenDirectoriesHandler:(VibeBulkOpenDirectoriesHandler)handler {
     @synchronized (self) {
         sBulkOpenDirectoriesHandler = [handler copy];
+    }
+}
+
++ (void)setEmbeddedSheetReadHandler:(VibeEmbeddedSheetReadHandler)handler {
+    @synchronized (self) {
+        sEmbeddedSheetReadHandler = [handler copy];
     }
 }
 
@@ -636,7 +649,11 @@ static NSMutableArray<NSURL *> *VibeListedAudioURLs(NSURL *dir, VibeFolderOpenSo
         NSNumber *size = nil;
         [url getResourceValue:&size forKey:NSURLFileSizeKey error:NULL];
         if (size.longLongValue >= kVibeEmbeddedCueMinimumBytes && ![PlaceholderFiles isDatalessFile:url]) {
-            NSArray<VibePlaylistEntry *> *entries = [VibePlaylistFile cueEntriesEmbeddedInFLACAtURL:url];
+            VibeEmbeddedSheetRead read = ^NSArray<VibePlaylistEntry *> *{
+                return [VibePlaylistFile cueEntriesEmbeddedInFLACAtURL:url];
+            };
+            VibeEmbeddedSheetReadHandler handler = EmbeddedSheetReadHandler();
+            NSArray<VibePlaylistEntry *> *entries = handler ? handler(url, read) : read();
             if (entries.count > 0) {
                 return entries;
             }

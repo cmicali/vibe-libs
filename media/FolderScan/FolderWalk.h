@@ -34,6 +34,17 @@ typedef void (^VibeWalkedDirectoriesHandler)(NSSet<NSString *> *directories,
 // is a fair price. Once per expansion; never for a single file.
 typedef void (^VibeBulkOpenDirectoriesHandler)(NSSet<NSString *> *directories);
 
+// Runs around each read of a sheet embedded in a FLAC, the walk's one read
+// of an audio file's contents, on the thread that reads it. read reads the
+// sheet and answers its entries, or none. The handler calls it at most once
+// and answers what it answered, or skips it and answers nil, so the file is
+// one entry whole. An app can mark the file before the read and clear it
+// after, so a file whose read crashes the process is skipped at the next
+// launch. Unset, the walk reads directly.
+typedef NSArray<VibePlaylistEntry *> *_Nonnull (^VibeEmbeddedSheetRead)(void);
+typedef NSArray<VibePlaylistEntry *> *_Nullable (^VibeEmbeddedSheetReadHandler)(NSURL *url,
+                                                                                VibeEmbeddedSheetRead read);
+
 // What a catalog scan may read of a file's contents.
 typedef NS_ENUM(NSInteger, VibeFolderScanReadPolicy) {
     // Nothing: every file is an entry whole, a CUE sheet included, and no
@@ -76,6 +87,7 @@ typedef NS_ERROR_ENUM(VibeFolderScanErrorDomain, VibeFolderScanError) {
 + (void)setWalkedFileHandler:(nullable VibeWalkedFileHandler)handler;
 + (void)setWalkedDirectoriesHandler:(nullable VibeWalkedDirectoriesHandler)handler;
 + (void)setBulkOpenDirectoriesHandler:(nullable VibeBulkOpenDirectoriesHandler)handler;
++ (void)setEmbeddedSheetReadHandler:(nullable VibeEmbeddedSheetReadHandler)handler;
 
 // Expands folders and top-level playlist files to entries and filters to
 // playable extensions, on a four-wide queue. Callers order overlapping
