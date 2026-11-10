@@ -1541,4 +1541,128 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
     XCTAssertEqualObjects([self sortedRelativePaths:batches], (@[@"library/a.mp3"]));
 }
 
+#pragma mark - The open, in batches
+
+// Runs the batched open to its end, and answers its batches in order.
+- (NSArray<NSArray<VibePlaylistEntry *> *> *)batchesOfList:(NSArray<NSURL *> *)list
+                                                  progress:(NSProgress *)progress
+                                                   onBatch:(nullable void (^)(NSUInteger index))onBatch
+                                               folderCount:(NSUInteger *)folderCount {
+    NSMutableArray<NSArray<VibePlaylistEntry *> *> *batches = [NSMutableArray array];
+    XCTestExpectation *done = [self expectationWithDescription:@"completion"];
+    __block NSUInteger folders = 0;
+    [FolderWalk expandAndFilterList:list sortedBy:VibeFolderOpenSortName progress:progress
+                              batch:^(NSArray<VibePlaylistEntry *> *entries) {
+                                  XCTAssertFalse(NSThread.isMainThread);
+                                  @synchronized (batches) {
+                                      [batches addObject:entries];
+                                  }
+                                  if (onBatch) {
+                                      onBatch(batches.count - 1);
+                                  }
+                              }
+                         completion:^(NSUInteger count) {
+                             folders = count;
+                             [done fulfill];
+                         }];
+    [self waitForExpectations:@[done] timeout:VIBE_TEST_HANG_TIMEOUT];
+    *folderCount = folders;
+    return batches;
+}
+
+- (void)testTheBatchesGatherToTheWholeExpansionWithTheFirstEntryAlone {
+    [self makeFile:@"folder/b/2.mp3"];
+    [self makeFile:@"folder/a.mp3"];
+    [self makeFile:@"folder/mix.flac"];
+    [self makeText:kTwoTrackSheet at:@"folder/mix.cue"];
+    [self makeFile:@"folder/b/10.mp3"];
+    NSURL *loose = [self makeFile:@"loose.mp3"];
+    NSURL *playlist = [self makeText:@"loose.mp3\nfolder/a.mp3\n" at:@"list.m3u"];
+    NSArray<NSURL *> *list = @[[self makeDirectory:@"folder"], loose, playlist];
+
+    NSUInteger folderCount = 0;
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches = [self batchesOfList:list progress:[NSProgress new] onBatch:nil
+                                                               folderCount:&folderCount];
+
+    NSMutableArray<VibePlaylistEntry *> *gathered = [NSMutableArray array];
+    for (NSArray<VibePlaylistEntry *> *batch in batches) {
+        [gathered addObjectsFromArray:batch];
+    }
+    NSUInteger wholeFolderCount = 0;
+    XCTAssertEqualObjects([self relativePaths:gathered], [self expandAndFilter:list folderCount:&wholeFolderCount]);
+    XCTAssertEqual(folderCount, wholeFolderCount);
+    XCTAssertEqual(batches.firstObject.count, 1u);
+}
+
+- (void)testASheetClaimsItsFileBeforeTheFirstEntryLeaves {
+    // The sheet sorts after its file, so only a walk that reads every sheet
+    // first can hand over the file's first window first.
+    [self makeFile:@"folder/a mix.flac"];
+    [self makeText:[kTwoTrackSheet stringByReplacingOccurrencesOfString:@"mix.flac" withString:@"a mix.flac"]
+                at:@"folder/z.cue"];
+
+    NSUInteger folderCount = 0;
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches = [self batchesOfList:@[[self makeDirectory:@"folder"]]
+                                                                  progress:[NSProgress new]
+                                                                   onBatch:nil
+                                                               folderCount:&folderCount];
+
+    XCTAssertEqualObjects([self relativePaths:batches.firstObject], @[@"folder/a mix.flac#0-4500"]);
+}
+
+- (void)testABigFolderLeavesInBatchesOfTheLimit {
+    NSUInteger count = 2 * VibeFolderScanBatchLimit + 10;
+    for (NSUInteger i = 0; i < count; i++) {
+        [self makeFile:[NSString stringWithFormat:@"folder/%04lu.mp3", (unsigned long)i]];
+    }
+    NSProgress *progress = [NSProgress new];
+
+    NSUInteger folderCount = 0;
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches = [self batchesOfList:@[[self makeDirectory:@"folder"]]
+                                                                  progress:progress
+                                                                   onBatch:nil
+                                                               folderCount:&folderCount];
+
+    NSMutableArray<NSNumber *> *sizes = [NSMutableArray array];
+    for (NSArray<VibePlaylistEntry *> *batch in batches) {
+        [sizes addObject:@(batch.count)];
+    }
+    XCTAssertEqualObjects(sizes, (@[@1, @(VibeFolderScanBatchLimit), @(VibeFolderScanBatchLimit), @9]));
+    XCTAssertEqual(progress.completedUnitCount, (int64_t)count);
+    XCTAssertEqual(folderCount, 1u);
+}
+
+- (void)testACancelStopsTheBatches {
+    for (NSUInteger i = 0; i < 3 * VibeFolderScanBatchLimit; i++) {
+        [self makeFile:[NSString stringWithFormat:@"folder/%04lu.mp3", (unsigned long)i]];
+    }
+    NSProgress *progress = [NSProgress new];
+
+    NSUInteger folderCount = 0;
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches = [self batchesOfList:@[[self makeDirectory:@"folder"],
+                                                                             [self makeFile:@"after.mp3"]]
+                                                                  progress:progress
+                                                                   onBatch:^(NSUInteger index) {
+                                                                       [progress cancel];
+                                                                   }
+                                                               folderCount:&folderCount];
+
+    XCTAssertEqual(batches.count, 1u);
+    XCTAssertEqual(batches.firstObject.count, 1u);
+}
+
+- (void)testACancelBeforeTheWalkHandsOverNothing {
+    [self makeFile:@"folder/a.mp3"];
+    NSProgress *progress = [NSProgress new];
+    [progress cancel];
+
+    NSUInteger folderCount = 0;
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches = [self batchesOfList:@[[self makeDirectory:@"folder"]]
+                                                                  progress:progress
+                                                                   onBatch:nil
+                                                               folderCount:&folderCount];
+
+    XCTAssertEqual(batches.count, 0u);
+}
+
 @end
