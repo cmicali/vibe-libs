@@ -38,11 +38,12 @@ typedef void (^VibeBulkOpenDirectoriesHandler)(NSSet<NSString *> *directories);
 // of an audio file's contents, on the thread that reads it. read reads the
 // sheet and answers its entries, or none. The handler calls it at most once
 // and answers what it answered, or skips it and answers nil, so the file is
-// one entry whole. An app can mark the file before the read and clear it
-// after, so a file whose read crashes the process is skipped at the next
-// launch. Unset, the walk reads directly.
+// one entry whole. scanning says a catalog scan reads it, in the background,
+// rather than an open the user waits on. An app can mark the file before the
+// read and clear it after, so a file whose read crashes the process is
+// skipped at the next launch. Unset, the walk reads directly.
 typedef NSArray<VibePlaylistEntry *> *_Nonnull (^VibeEmbeddedSheetRead)(void);
-typedef NSArray<VibePlaylistEntry *> *_Nullable (^VibeEmbeddedSheetReadHandler)(NSURL *url,
+typedef NSArray<VibePlaylistEntry *> *_Nullable (^VibeEmbeddedSheetReadHandler)(NSURL *url, BOOL scanning,
                                                                                 VibeEmbeddedSheetRead read);
 
 // What a catalog scan may read of a file's contents.

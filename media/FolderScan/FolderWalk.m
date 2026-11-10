@@ -26,6 +26,10 @@ static VibeWalkedDirectoriesHandler sWalkedDirectoriesHandler;
 static VibeBulkOpenDirectoriesHandler sBulkOpenDirectoriesHandler;
 static VibeEmbeddedSheetReadHandler sEmbeddedSheetReadHandler;
 
+// Whether the thread runs a catalog scan's walk, for the embedded-sheet
+// handler. Each scan walks its roots on one thread of its own.
+static __thread BOOL sScanning;
+
 static VibeWalkedFileHandler WalkedFileHandler(void) {
     @synchronized (FolderWalk.class) {
         return sWalkedFileHandler;
@@ -653,7 +657,7 @@ static NSMutableArray<NSURL *> *VibeListedAudioURLs(NSURL *dir, VibeFolderOpenSo
                 return [VibePlaylistFile cueEntriesEmbeddedInFLACAtURL:url];
             };
             VibeEmbeddedSheetReadHandler handler = EmbeddedSheetReadHandler();
-            NSArray<VibePlaylistEntry *> *entries = handler ? handler(url, read) : read();
+            NSArray<VibePlaylistEntry *> *entries = handler ? handler(url, sScanning, read) : read();
             if (entries.count > 0) {
                 return entries;
             }
@@ -777,6 +781,7 @@ const NSUInteger VibeFolderScanBatchLimit = 256;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSMutableArray<NSArray<NSError *> *> *failureLists = [NSMutableArray arrayWithCapacity:roots.count];
         NSMutableArray<NSNumber *> *verdicts = [NSMutableArray arrayWithCapacity:roots.count];
+        sScanning = YES;
         VibeWithoutMaterializing(@"a scan", ^{ for (NSURL *root in roots) {
             NSMutableArray<NSError *> *failures = [NSMutableArray array];
             if (!progress.isCancelled) {
@@ -804,6 +809,7 @@ const NSUInteger VibeFolderScanBatchLimit = 256;
             [failureLists addObject:failures];
             [verdicts addObject:@(failures.count > 0 ? VibeFolderScanVerdictPartial : VibeFolderScanVerdictComplete)];
         } });
+        sScanning = NO;
         if (progress.isCancelled) {
             for (NSUInteger index = 0; index < verdicts.count; index++) {
                 verdicts[index] = @(VibeFolderScanVerdictCancelled);

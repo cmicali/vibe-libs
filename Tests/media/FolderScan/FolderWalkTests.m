@@ -566,7 +566,7 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
 - (void)testTheEmbeddedSheetHandlerWrapsTheRead {
     NSURL *flac = [self makeFLAC:@"folder/mix.flac" sheet:kTwoTrackSheet size:kLargeFLACBytes];
     NSMutableArray<NSString *> *seen = [NSMutableArray array];
-    [FolderWalk setEmbeddedSheetReadHandler:^NSArray<VibePlaylistEntry *> *(NSURL *url, VibeEmbeddedSheetRead read) {
+    [FolderWalk setEmbeddedSheetReadHandler:^NSArray<VibePlaylistEntry *> *(NSURL *url, BOOL scanning, VibeEmbeddedSheetRead read) {
         @synchronized (seen) {
             [seen addObject:url.lastPathComponent];
         }
@@ -578,10 +578,34 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     XCTAssertEqualObjects(seen, (@[flac.lastPathComponent]));
 }
 
+// The handler hears whether a catalog scan reads the sheet, or an open.
+- (void)testTheEmbeddedSheetHandlerTellsAScanFromAnOpen {
+    [self makeFLAC:@"folder/mix.flac" sheet:kTwoTrackSheet size:kLargeFLACBytes];
+    NSMutableArray<NSNumber *> *scanning = [NSMutableArray array];
+    [FolderWalk setEmbeddedSheetReadHandler:^NSArray<VibePlaylistEntry *> *(NSURL *url, BOOL scan,
+                                                                             VibeEmbeddedSheetRead read) {
+        @synchronized (scanning) {
+            [scanning addObject:@(scan)];
+        }
+        return read();
+    }];
+    [self expandAndFilter:@[[self makeDirectory:@"folder"]] folderCount:NULL];
+    XCTestExpectation *scanned = [self expectationWithDescription:@"scan"];
+    [FolderWalk scanRoots:@[[self makeDirectory:@"folder"]] readPolicy:VibeFolderScanReadPolicyLocal
+                 progress:[NSProgress discreteProgressWithTotalUnitCount:0]
+                    batch:^(NSArray<VibePlaylistEntry *> *entries) {
+    } completion:^(NSArray<NSNumber *> *verdicts, NSArray<NSArray<NSError *> *> *failures) {
+        [scanned fulfill];
+    }];
+    [self waitForExpectations:@[scanned] timeout:10];
+
+    XCTAssertEqualObjects(scanning, (@[@NO, @YES]));
+}
+
 // A handler that skips the read leaves the file whole.
 - (void)testAnEmbeddedSheetHandlerCanSkipTheRead {
     [self makeFLAC:@"folder/mix.flac" sheet:kTwoTrackSheet size:kLargeFLACBytes];
-    [FolderWalk setEmbeddedSheetReadHandler:^NSArray<VibePlaylistEntry *> *(NSURL *url, VibeEmbeddedSheetRead read) {
+    [FolderWalk setEmbeddedSheetReadHandler:^NSArray<VibePlaylistEntry *> *(NSURL *url, BOOL scanning, VibeEmbeddedSheetRead read) {
         return nil;
     }];
 
@@ -593,7 +617,7 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
 - (void)testAnOrdinaryFLACNeverReachesTheEmbeddedSheetHandler {
     [self makeFLAC:@"folder/mix.flac" sheet:kTwoTrackSheet size:0];
     __block NSUInteger calls = 0;
-    [FolderWalk setEmbeddedSheetReadHandler:^NSArray<VibePlaylistEntry *> *(NSURL *url, VibeEmbeddedSheetRead read) {
+    [FolderWalk setEmbeddedSheetReadHandler:^NSArray<VibePlaylistEntry *> *(NSURL *url, BOOL scanning, VibeEmbeddedSheetRead read) {
         calls += 1;
         return read();
     }];
