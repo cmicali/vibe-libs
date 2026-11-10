@@ -17,6 +17,7 @@ The folder walk: whatever the user opened, a file, a folder, or a playlist file,
 - `setPlaylistFolderGrantHandler:`: the grant a playlist file's unreadable entries need. It runs on a worker and blocks until answered. Only the macOS build asks it.
 - `setWalkedFileHandler:`: a rank for each file a folder walk lists, by name. The walk keeps the first best-ranked file of each directory and knows nothing of what the rank means. An app may install `media/Metadata`'s cover rank, `VibeFolderArtCandidateRank`.
 - `setWalkedDirectoriesHandler:` and `setBulkOpenDirectoriesHandler:`: the folders it listed with the file it kept in each, and a bulk open's loose folders. An app's cover resolver can take them rather than pay for its own listing.
+- `setEmbeddedSheetReadHandler:`: runs around each read of a sheet embedded in a FLAC, on the reading thread, and says whether a catalog scan reads it or an open the user waits on. It may skip the read, so the file is one entry whole. An app marks the file before the read and clears it after, so a file whose read crashes the process is skipped at the next launch.
 
 **Unset handlers mean the walk still works and throws the extra facts away.** That is what the tests install. A walk that called a singleton behind a setting, a grant, and a modal panel could not be tested. `FolderWalkInternal.h` exposes the synchronous expansion steps for those tests. Do not import it outside `FolderWalk.m`, the tests, and an app's benchmarks.
 
