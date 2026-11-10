@@ -27,6 +27,14 @@ The folder walk: whatever the user opened, a file, a folder, or a playlist file,
 
 **The order applies only to what the walk expanded.** The user's top-level URLs and a playlist file's order are kept. A recursive walk sorts by whole path, so subfolders stay grouped. Newest first prefetches `NSURLContentModificationDateKey` in the enumeration. Name breaks equal dates, as for a folder copied in one go. As received is APFS hash order on a local volume, effectively random. It is meaningful only on a file provider, whose listing order is what the choice exists for. **TRAP: decorate the dates and names once, never read them in the comparator** (the file's `TRAP:` says why).
 
+## The open, in batches
+
+**`expandAndFilterList:sortedBy:progress:batch:completion:` is the open, handed over as it is made.** A player can start the first entry while the rest are made. Gathered, its batches are exactly what the one-answer open gives: the same walk, the same sort, and the same filter, through one emitting core under both.
+
+**A folder's first entry leaves only once the folder is listed in full, sorted, and its sheets read.** A sheet anywhere in the walk can claim any file, by a relative path, `../`, or an absolute one. So the walk's first entry is not known before then, and an earlier guess could play a file a sheet later cuts. What waits for its turn is each file's own entries: a large FLAC's read for its sheet, and a playlist file's expansion. The first batch holds the first entry alone. Each later one holds at most `VibeFolderScanBatchLimit` entries, in order.
+
+**The token is an `NSProgress`, as the scan's.** A cancel stops the listing between entries, and no batch starts after it. A newer open cancels an older one's walk, which then stops listing a slow share. A cancelled open reports no bulk open's folders.
+
 ## The catalog scan
 
 **`scanRoots:readPolicy:progress:batch:completion:` lists every file under each root, for a catalog.** It runs the open's enumerator, `VibeWalkTree`, so the two cannot list a folder differently. They differ in what they do with the files. The open gathers the whole walk, sorts it, and cuts its sheets over the whole listing. The scan takes no sort order, since a catalog orders itself. It hands over each directory's entries once that directory is listed in full.

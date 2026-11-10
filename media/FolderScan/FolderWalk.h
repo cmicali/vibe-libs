@@ -103,6 +103,28 @@ typedef NS_ERROR_ENUM(VibeFolderScanErrorDomain, VibeFolderScanError) {
                    sortedBy:(VibeFolderOpenSort)sort
                  completion:(void (^)(NSArray<VibePlaylistEntry *> *entries, NSUInteger folderCount))completion;
 
+// The same expansion, in the same order, handed over as it is made, so a
+// player can start the first entry while the rest are made. The first batch
+// holds the first entry alone. Each later one holds at most
+// VibeFolderScanBatchLimit entries, in order. A folder is listed in full,
+// sorted, and its sheets read before its first entry leaves, so no sheet can
+// claim a file already handed over. Each entry after that is made as it is
+// reached, so a file's own reads, such as a large FLAC's sheet, wait until
+// the entries before it have left. batch and completion run on the expansion
+// worker. Gathered, the batches are what expandAndFilterList:sortedBy:
+// completion: gives.
+//
+// progress is the token. Cancelling it stops the listing between entries,
+// and no batch starts after the cancel. The walk adds each batch's count to
+// its completedUnitCount once the batch returns. completion runs once, after
+// the last batch or the cancel, with how many top-level URLs were
+// directories. A cancelled walk reports no bulk open's folders.
++ (void)expandAndFilterList:(NSArray<NSURL *> *)list
+                   sortedBy:(VibeFolderOpenSort)sort
+                   progress:(NSProgress *)progress
+                      batch:(void (^)(NSArray<VibePlaylistEntry *> *entries))batch
+                 completion:(void (^)(NSUInteger folderCount))completion;
+
 // Every file under each root, in order, as entries, with nothing sorted. It
 // runs at utility QoS on a worker of its own, never one of the open's four.
 //
