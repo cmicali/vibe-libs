@@ -91,6 +91,9 @@ typedef AudioTrackArchivedArtProvider AudioTrackArchivedDisplayArtProvider;
 
 // The full-art load, in AudioTrackArtwork+Loading.m.
 @interface AudioTrackArtwork (Loading)
+// AudioTrackMetadata's setEmbeddedArtFileReadHandler:, which says what it
+// does. Any thread.
++ (void)setFileReadHandler:(nullable void (^)(NSURL *url, dispatch_block_t read))handler;
 
 - (BOOL)artNeedsLoad;
 

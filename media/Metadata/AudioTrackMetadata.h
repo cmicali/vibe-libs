@@ -14,10 +14,22 @@ NS_ASSUME_NONNULL_BEGIN
 // The object is the AudioTrackMetadata whose cachedThumbnail is now non-nil.
 FOUNDATION_EXPORT NSNotificationName const AudioTrackMetadataThumbnailDidLoadNotification;
 
+// A full-art load's read of the file itself: TagLib's embedded picture and
+// its decode, on the load's worker, when no decoded art, bytes, or rendition
+// stand in. The handler calls read once to run it, or never to skip the
+// file, which then loads as a failed read does. It may wait, since it runs on
+// a worker. An app sets one to guard the read, as against a file that
+// crashes it.
+typedef void (^VibeEmbeddedArtFileReadHandler)(NSURL *url, dispatch_block_t read);
+
 @interface AudioTrackMetadata : NSObject <NSSecureCoding, NSCopying>
 
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
+
+// Runs every full-art load's read of a file through handler, in this
+// process. nil runs each as is. Any thread.
++ (void)setEmbeddedArtFileReadHandler:(nullable VibeEmbeddedArtFileReadHandler)handler;
 
 // Any field can be absent from the file or the cache entry. A failed parse
 // keeps the filename title and any facts read before the failure.

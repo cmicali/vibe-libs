@@ -21,7 +21,32 @@ static const NSUInteger kMaxEmbeddedArtExtractionFailures = 3;
 // poll; it only gates the next pass that asks.
 static const NSTimeInterval kEmbeddedArtExtractionRetryBackoff = 2.0;
 
+// The app's handler around a read of the file, set once, read by each
+// extraction.
+static void (^VibeFileReadHandlerBlock)(NSURL *, dispatch_block_t);
+static NSObject *VibeFileReadHandlerLock(void) {
+    static NSObject *lock;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        lock = [[NSObject alloc] init];
+    });
+    return lock;
+}
+
+static void (^VibeFileReadHandler(void))(NSURL *, dispatch_block_t) {
+    @synchronized (VibeFileReadHandlerLock()) {
+        return VibeFileReadHandlerBlock;
+    }
+}
+
 @implementation AudioTrackArtwork (Loading)
+
++ (void)setFileReadHandler:(void (^)(NSURL *, dispatch_block_t))handler {
+    @synchronized (VibeFileReadHandlerLock()) {
+        VibeFileReadHandlerBlock = [handler copy];
+    }
+}
+
 
 // Never under the monitor: the injected clock is arbitrary code.
 - (NSTimeInterval)nowSeconds {
@@ -139,17 +164,40 @@ static const NSTimeInterval kEmbeddedArtExtractionRetryBackoff = 2.0;
             return _embeddedArt ?: decodedProviderArt;
         }
     }
+    VibeImage *decoded = nil;
     if (!dataToDecode && pathToExtract) {
-        extractionResult = _extractor(pathToExtract, &dataToDecode);
-        if (extractionResult == VibeEmbeddedArtExtractionFoundArt && !dataToDecode) {
-            LogWarn(@"Embedded art extractor reported art without bytes for %@",
-                    pathToExtract.lastPathComponent);
-            extractionResult = VibeEmbeddedArtExtractionReadFailed;
+        // The read and its decode go through the app's handler together, so
+        // a picture that crashes either is guarded. A skip leaves the read
+        // failed.
+        __block NSData *extracted = nil;
+        __block VibeImage *extractedArt = nil;
+        __block VibeEmbeddedArtExtractionResult result = VibeEmbeddedArtExtractionReadFailed;
+        AudioTrackArtworkExtractor extractor = _extractor;
+        dispatch_block_t read = ^{
+            NSData *bytes = nil;
+            result = extractor(pathToExtract, &bytes);
+            if (result == VibeEmbeddedArtExtractionFoundArt && !bytes) {
+                LogWarn(@"Embedded art extractor reported art without bytes for %@",
+                        pathToExtract.lastPathComponent);
+                result = VibeEmbeddedArtExtractionReadFailed;
+            }
+            extracted = bytes;
+            extractedArt = bytes ? VibeDecodedImageWithData(bytes, kVibeDisplayArtDimension) : nil;
+        };
+        void (^handler)(NSURL *, dispatch_block_t) = VibeFileReadHandler();
+        if (handler) {
+            handler([NSURL fileURLWithPath:pathToExtract isDirectory:NO], read);
         }
+        else {
+            read();
+        }
+        extractionResult = result;
+        dataToDecode = extracted;
+        decoded = extractedArt;
     }
-    VibeImage *decoded = dataToDecode
-            ? VibeDecodedImageWithData(dataToDecode, kVibeDisplayArtDimension)
-            : nil;
+    else if (dataToDecode) {
+        decoded = VibeDecodedImageWithData(dataToDecode, kVibeDisplayArtDimension);
+    }
     // Start the backoff after the read returns, even if the read was slow.
     NSTimeInterval completedAt = [self nowSeconds];
     @synchronized (self) {

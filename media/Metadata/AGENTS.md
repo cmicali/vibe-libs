@@ -145,6 +145,8 @@ Opus defines the R128 gains. The parse reads them from any Xiph comment, since t
 
 **Embedded extraction is tri-state: art, conclusively none, or read failed.** Conclusive absence or an image decode failure enables the folder fallback. A failed read stays unknown and retryable: three reads per display pass, with a two-second per-row backoff. `hasEmbeddedArt` is archived in the entry, and the thumbnail bytes in their own store, so an entry whose thumbnail is gone is not mistaken for artless. Its row thumbnail then decodes from the rendition when one is available.
 
+**An app may guard the read of the file.** A full-art load that reaches source-file extraction runs the extraction and its decode inside the handler `setEmbeddedArtFileReadHandler:` sets, once a process, on the load's worker. The handler runs the read once, or skips the file, which then loads as a failed read does. Decoded art, in-memory bytes, and the rendition never reach it, so it costs a load nothing when no file is read. An app guards a file that crashes the read this way, as FolderScan's sheet handler guards a sheet's.
+
 **No artwork monitor is held across file I/O or image decoding**, since a provider read can block indefinitely. An entered TagLib read cannot be cancelled and keeps its scheduler slot to completion. Demotion (`discardDecodedArt`) fences its store and re-enters admission if the row is wanted again. **TRAP:** demotion leaves the in-flight extraction claim set, or the next pass could start a second uncancellable read (`AudioTrackArtwork.m`).
 
 ## The stores
