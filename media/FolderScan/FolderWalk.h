@@ -106,11 +106,13 @@ typedef NS_ERROR_ENUM(VibeFolderScanErrorDomain, VibeFolderScanError) {
 // The same expansion, in the same order, handed over as it is made, so a
 // player can start the first entry while the rest are made. The first batch
 // holds the first entry alone. Each later one holds at most
-// VibeFolderScanBatchLimit entries, in order. A folder is listed in full,
-// sorted, and its sheets read before its first entry leaves, so no sheet can
-// claim a file already handed over. Each entry after that is made as it is
-// reached, so a file's own reads, such as a large FLAC's sheet, wait until
-// the entries before it have left. batch and completion run on the expansion
+// VibeFolderScanBatchLimit entries, in order. A folder is listed in full and
+// its sheets read before its first entry leaves, so no sheet can claim a file
+// already handed over. Under name and newest first, the first entry then
+// leaves before the rest is sorted, unless two paths tie in the order, when it
+// waits for the whole sort. As received is never sorted. Each entry after
+// that is made as it is reached, so a file's own reads, such as a large FLAC's
+// sheet, wait until the entries before it have left. batch and completion run on the expansion
 // worker. Gathered, the batches are what expandAndFilterList:sortedBy:
 // completion: gives.
 //
