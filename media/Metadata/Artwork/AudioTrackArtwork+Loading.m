@@ -21,10 +21,10 @@ static const NSUInteger kMaxEmbeddedArtExtractionFailures = 3;
 // poll; it only gates the next pass that asks.
 static const NSTimeInterval kEmbeddedArtExtractionRetryBackoff = 2.0;
 
-// The app's handler around a read of the file, set once, read by each
-// extraction.
-static void (^VibeFileReadHandlerBlock)(NSURL *, dispatch_block_t);
-static NSObject *VibeFileReadHandlerLock(void) {
+// The app's handler around each read and decode of a file's own art, set
+// once.
+static void (^VibeArtReadHandlerBlock)(NSURL *, dispatch_block_t);
+static NSObject *VibeArtReadHandlerLock(void) {
     static NSObject *lock;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -33,17 +33,42 @@ static NSObject *VibeFileReadHandlerLock(void) {
     return lock;
 }
 
-static void (^VibeFileReadHandler(void))(NSURL *, dispatch_block_t) {
-    @synchronized (VibeFileReadHandlerLock()) {
-        return VibeFileReadHandlerBlock;
+static void (^VibeArtReadHandler(void))(NSURL *, dispatch_block_t) {
+    @synchronized (VibeArtReadHandlerLock()) {
+        return VibeArtReadHandlerBlock;
     }
 }
 
 @implementation AudioTrackArtwork (Loading)
 
-+ (void)setFileReadHandler:(void (^)(NSURL *, dispatch_block_t))handler {
-    @synchronized (VibeFileReadHandlerLock()) {
-        VibeFileReadHandlerBlock = [handler copy];
++ (void)setArtReadHandler:(void (^)(NSURL *, dispatch_block_t))handler {
+    @synchronized (VibeArtReadHandlerLock()) {
+        VibeArtReadHandlerBlock = [handler copy];
+    }
+}
+
+// Runs read, a read or a decode of the file's own art, through the app's
+// handler. NO when the handler skipped it.
+- (BOOL)runArtRead:(NS_NOESCAPE dispatch_block_t)read {
+    void (^handler)(NSURL *, dispatch_block_t) = VibeArtReadHandler();
+    if (!handler || !_sourceFilePath) {
+        read();
+        return YES;
+    }
+    __block BOOL ran = NO;
+    handler([NSURL fileURLWithPath:_sourceFilePath isDirectory:NO], ^{
+        ran = YES;
+        read();
+    });
+    return ran;
+}
+
+// A skip: nothing is read or decoded again for this row, and nothing is
+// settled about the file.
+- (VibeImage *)skippedArt {
+    @synchronized (self) {
+        _embeddedReadSkipped = YES;
+        return _embeddedArt;
     }
 }
 
@@ -61,7 +86,7 @@ static void (^VibeFileReadHandler(void))(NSURL *, dispatch_block_t) {
 - (BOOL)canStartEmbeddedExtractionLockedAt:(NSTimeInterval)now {
     return !VibeEmbeddedArtFactIsSettled(_embeddedArtFact)
             && !_embeddedExtractionInFlight &&
-            !_embeddedUndecodable &&
+            !_embeddedUndecodable && !_embeddedReadSkipped &&
             _embeddedExtractionFailures < kMaxEmbeddedArtExtractionFailures &&
             [self retryBackoffHasElapsedLocked:now] &&
             _sourceFilePath != nil && _extractor != nil;
@@ -137,10 +162,20 @@ static void (^VibeFileReadHandler(void))(NSURL *, dispatch_block_t) {
     }
     // Outside the monitor: a provider read can block indefinitely.
     if (providerToRead) {
-        dataToDecode = providerToRead();
-        VibeImage *decodedProviderArt = dataToDecode
-                ? VibeDecodedImageWithData(dataToDecode, kVibeDisplayArtDimension)
-                : nil;
+        // A rendition within its bound is the file's own bytes, so its
+        // decode goes through the app's handler too.
+        __block NSData *archived = nil;
+        __block VibeImage *archivedArt = nil;
+        if (![self runArtRead:^{
+                archived = providerToRead();
+                archivedArt = archived
+                        ? VibeDecodedImageWithData(archived, kVibeDisplayArtDimension)
+                        : nil;
+            }]) {
+            return [self skippedArt];
+        }
+        dataToDecode = archived;
+        VibeImage *decodedProviderArt = archivedArt;
         if (!decodedProviderArt) {
             // Not undecodable: the file's own art may be fine. Drop the
             // provider and take the demotion fence, so finishRequest
@@ -165,15 +200,15 @@ static void (^VibeFileReadHandler(void))(NSURL *, dispatch_block_t) {
         }
     }
     VibeImage *decoded = nil;
+    BOOL ran = YES;
     if (!dataToDecode && pathToExtract) {
         // The read and its decode go through the app's handler together, so
-        // a picture that crashes either is guarded. A skip leaves the read
-        // failed.
+        // a picture that crashes either is guarded.
         __block NSData *extracted = nil;
         __block VibeImage *extractedArt = nil;
         __block VibeEmbeddedArtExtractionResult result = VibeEmbeddedArtExtractionReadFailed;
         AudioTrackArtworkExtractor extractor = _extractor;
-        dispatch_block_t read = ^{
+        ran = [self runArtRead:^{
             NSData *bytes = nil;
             result = extractor(pathToExtract, &bytes);
             if (result == VibeEmbeddedArtExtractionFoundArt && !bytes) {
@@ -183,20 +218,27 @@ static void (^VibeFileReadHandler(void))(NSURL *, dispatch_block_t) {
             }
             extracted = bytes;
             extractedArt = bytes ? VibeDecodedImageWithData(bytes, kVibeDisplayArtDimension) : nil;
-        };
-        void (^handler)(NSURL *, dispatch_block_t) = VibeFileReadHandler();
-        if (handler) {
-            handler([NSURL fileURLWithPath:pathToExtract isDirectory:NO], read);
-        }
-        else {
-            read();
-        }
+        }];
         extractionResult = result;
         dataToDecode = extracted;
         decoded = extractedArt;
     }
     else if (dataToDecode) {
-        decoded = VibeDecodedImageWithData(dataToDecode, kVibeDisplayArtDimension);
+        // Bytes the parse kept are the file's own, decoded at full size.
+        NSData *bytes = dataToDecode;
+        __block VibeImage *bytesArt = nil;
+        ran = [self runArtRead:^{
+            bytesArt = VibeDecodedImageWithData(bytes, kVibeDisplayArtDimension);
+        }];
+        decoded = bytesArt;
+    }
+    if (!ran) {
+        @synchronized (self) {
+            if (pathToExtract) {
+                _embeddedExtractionInFlight = NO;
+            }
+        }
+        return [self skippedArt];
     }
     // Start the backoff after the read returns, even if the read was slow.
     NSTimeInterval completedAt = [self nowSeconds];
@@ -258,7 +300,7 @@ static void (^VibeFileReadHandler(void))(NSURL *, dispatch_block_t) {
         // The backoff applies here too, so a pass inside the window answers
         // NO rather than dispatching a load that would no-op.
         BOOL canExtract = [self canStartEmbeddedExtractionLockedAt:now];
-        if (!_embeddedUndecodable && (_embeddedArtData != nil ||
+        if (!_embeddedUndecodable && !_embeddedReadSkipped && (_embeddedArtData != nil ||
                 _archivedDisplayArtProvider != nil || canExtract)) {
             return YES;
         }
@@ -282,7 +324,7 @@ static void (^VibeFileReadHandler(void))(NSURL *, dispatch_block_t) {
         }
         BOOL canExtract = [self canStartEmbeddedExtractionLockedAt:now];
         BOOL hasArchivedRendition = _archivedDisplayArtProvider != nil;
-        BOOL needsEmbeddedWork = !_embeddedUndecodable &&
+        BOOL needsEmbeddedWork = !_embeddedUndecodable && !_embeddedReadSkipped &&
                 (_embeddedArtData != nil || hasArchivedRendition || canExtract);
         // No source URL while a rendition stands in: it must not materialize
         // the song.

@@ -343,8 +343,8 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
     return value > 0 ? value : 0;
 }
 
-+ (void)setEmbeddedArtFileReadHandler:(VibeEmbeddedArtFileReadHandler)handler {
-    [AudioTrackArtwork setFileReadHandler:handler];
++ (void)setEmbeddedArtReadHandler:(VibeEmbeddedArtReadHandler)handler {
+    [AudioTrackArtwork setArtReadHandler:handler];
 }
 
 + (BOOL)supportsSecureCoding {

@@ -237,22 +237,22 @@
         return VibeEmbeddedArtExtractionFoundArt;
     }];
     NSMutableArray<NSURL *> *handled = [NSMutableArray array];
-    [AudioTrackArtwork setFileReadHandler:^(NSURL *url, dispatch_block_t read) {
+    [AudioTrackArtwork setArtReadHandler:^(NSURL *url, dispatch_block_t read) {
         [handled addObject:url];
         XCTAssertEqual(extractionCount, 0u, @"the read waits for the handler");
         read();
     }];
     VibeImage *art = [artwork loadArtBlockingForExpectedGeneration:0 sourceFileReadAllowed:YES];
-    [AudioTrackArtwork setFileReadHandler:nil];
+    [AudioTrackArtwork setArtReadHandler:nil];
 
     XCTAssertNotNil(art);
     XCTAssertEqual(extractionCount, 1u);
     XCTAssertEqualObjects(handled, @[[NSURL fileURLWithPath:@"/tmp/handled-art.flac"]]);
 }
 
-// A handler that skips the file leaves the read failed: no art, nothing
-// settled, and a later pass may read again.
-- (void)testASkippedFileReadsNothing {
+// A handler that skips the file reads nothing, settles nothing about it,
+// asks no folder cover, and is not asked again.
+- (void)testASkippedFileIsNotTriedAgain {
     __block NSUInteger extractionCount = 0;
     AudioTrackArtwork *artwork = [self unloadedArtworkAtPath:@"/tmp/skipped-art.flac"
             extractor:^VibeEmbeddedArtExtractionResult(
@@ -260,37 +260,89 @@
         extractionCount++;
         return VibeEmbeddedArtExtractionNoArt;
     }];
-    [AudioTrackArtwork setFileReadHandler:^(NSURL *url, dispatch_block_t read) {
+    __block NSUInteger handled = 0;
+    [AudioTrackArtwork setArtReadHandler:^(NSURL *url, dispatch_block_t read) {
+        handled++;
     }];
     VibeImage *art = [artwork loadArtBlockingForExpectedGeneration:0 sourceFileReadAllowed:YES];
-    [AudioTrackArtwork setFileReadHandler:nil];
+    XCTAssertFalse(artwork.artNeedsLoad, @"a skip is not retried");
+    XCTAssertNil([artwork loadArtBlockingForExpectedGeneration:0 sourceFileReadAllowed:YES]);
+    [AudioTrackArtwork setArtReadHandler:nil];
 
     XCTAssertNil(art);
     XCTAssertEqual(extractionCount, 0u);
-    XCTAssertTrue(artwork.hasEmbeddedArt, @"a skip is not a verdict on the file");
+    XCTAssertEqual(handled, 1u);
+    XCTAssertTrue(artwork.hasEmbeddedArt, @"a skip is no verdict on the file");
 }
 
-// Bytes already in memory decode with no read of the file, so the handler
-// never hears of them.
-- (void)testInMemoryBytesSkipTheHandler {
-    AudioTrackArtwork *artwork = [[AudioTrackArtwork alloc]
-            initWithSourceFilePath:@"/tmp/in-memory-handled.flac"
-                         extractor:^VibeEmbeddedArtExtractionResult(
-                                 NSString *path, NSData *__autoreleasing *artData) {
-        return VibeEmbeddedArtExtractionReadFailed;
-    }];
-    artwork.folderArt = nil;
-    [artwork adoptParsedArtData:[self embeddedArtData]];
-    __block NSUInteger handled = 0;
-    [AudioTrackArtwork setFileReadHandler:^(NSURL *url, dispatch_block_t read) {
-        handled++;
-        read();
-    }];
-    VibeImage *art = [artwork loadArtBlockingForExpectedGeneration:0 sourceFileReadAllowed:YES];
-    [AudioTrackArtwork setFileReadHandler:nil];
+// Bytes a parse kept are the file's own: their full-size decode runs
+// through the handler, and a skip decodes nothing.
+- (void)testInMemoryBytesDecodeThroughTheHandler {
+    for (NSNumber *skips in @[@NO, @YES]) {
+        AudioTrackArtwork *artwork = [[AudioTrackArtwork alloc]
+                initWithSourceFilePath:@"/tmp/in-memory-handled.flac"
+                             extractor:^VibeEmbeddedArtExtractionResult(
+                                     NSString *path, NSData *__autoreleasing *artData) {
+            return VibeEmbeddedArtExtractionReadFailed;
+        }];
+        artwork.folderArt = nil;
+        [artwork adoptParsedArtData:[self embeddedArtData]];
+        __block NSUInteger handled = 0;
+        [AudioTrackArtwork setArtReadHandler:^(NSURL *url, dispatch_block_t read) {
+            handled++;
+            if (!skips.boolValue) {
+                read();
+            }
+        }];
+        VibeImage *art = [artwork loadArtBlockingForExpectedGeneration:0 sourceFileReadAllowed:YES];
+        [AudioTrackArtwork setArtReadHandler:nil];
 
-    XCTAssertNotNil(art);
-    XCTAssertEqual(handled, 0u);
+        XCTAssertEqual(handled, 1u);
+        if (skips.boolValue) {
+            XCTAssertNil(art);
+            XCTAssertFalse(artwork.artNeedsLoad);
+        } else {
+            XCTAssertNotNil(art);
+        }
+    }
+}
+
+// The archived rendition is the file's own bytes within its bound: its
+// read and decode run through the handler, and a skip reads nothing.
+- (void)testTheRenditionDecodesThroughTheHandler {
+    NSData *embedded = [self embeddedArtData];
+    for (NSNumber *skips in @[@NO, @YES]) {
+        __block NSUInteger provided = 0;
+        AudioTrackArtwork *artwork = [self unloadedArtworkAtPath:@"/tmp/rendition-handled.flac"
+                extractor:^VibeEmbeddedArtExtractionResult(
+                        NSString *path, NSData *__autoreleasing *artData) {
+            return VibeEmbeddedArtExtractionReadFailed;
+        }];
+        artwork.archivedDisplayArtProvider = ^NSData *{
+            provided++;
+            return embedded;
+        };
+        __block NSUInteger handled = 0;
+        [AudioTrackArtwork setArtReadHandler:^(NSURL *url, dispatch_block_t read) {
+            handled++;
+            if (!skips.boolValue) {
+                read();
+            }
+        }];
+        VibeImage *art = [artwork loadArtBlockingForExpectedGeneration:0 sourceFileReadAllowed:YES];
+
+        XCTAssertEqual(handled, 1u);
+        XCTAssertEqual(provided, skips.boolValue ? 0u : 1u);
+        if (skips.boolValue) {
+            XCTAssertNil(art);
+        } else {
+            XCTAssertNotNil(art);
+            // Art already decoded decodes nothing new, so it costs nothing.
+            XCTAssertNotNil([artwork loadArtBlockingForExpectedGeneration:0 sourceFileReadAllowed:YES]);
+            XCTAssertEqual(handled, 1u);
+        }
+        [AudioTrackArtwork setArtReadHandler:nil];
+    }
 }
 
 - (void)testConclusiveNilCompletesExactlyOnce {

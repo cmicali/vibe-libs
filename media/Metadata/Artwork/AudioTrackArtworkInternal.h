@@ -56,6 +56,9 @@ static inline BOOL VibeEmbeddedArtFactIsSettled(VibeEmbeddedArtFact fact) {
     // Monotonic; 0 for none.
     NSTimeInterval _embeddedExtractionRetryNotBefore;
     BOOL _embeddedUndecodable;
+    // The app's handler skipped this row's art: no load reads or decodes it
+    // again, and no folder cover stands in, since the file may carry art.
+    BOOL _embeddedReadSkipped;
     NSUInteger _artGeneration;
     BOOL _artLoadPending;
     // sourceFilePath's storage, declared so +Loading can read it.
