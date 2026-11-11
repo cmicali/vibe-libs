@@ -731,6 +731,37 @@ static NSArray<VibePlaylistEntry *> *VibeEntriesForWalk(NSArray<NSURL *> *urls, 
     return entries;
 }
 
+// The position in urls, unsorted, of the entry the whole sorted walk would
+// hand over first, with its sheets read into *sheets. NSNotFound when two
+// sheets tie in the order, and *sheets is then nil, since only the whole sort
+// says which claims first. NSNotFound too when nothing has entries, or two
+// paths with entries tie.
+static NSUInteger VibeEarlyFirstWalkEntry(NSArray<NSURL *> *urls, VibeURLOrder order,
+                                          VibeWalkSheets *_Nullable *_Nonnull sheets) {
+    // The sheets alone, sorted, claim as they would in the whole sorted walk,
+    // since only their order among themselves decides a claim.
+    NSMutableArray<NSNumber *> *sheetPositions = [NSMutableArray array];
+    for (NSUInteger index = 0; index < urls.count; index++) {
+        if ([VibePlaylistFile isCueExtension:urls[index].pathExtension.lowercaseString]) {
+            [sheetPositions addObject:@(index)];
+        }
+    }
+    [sheetPositions sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
+        return order(a.unsignedIntegerValue, b.unsignedIntegerValue);
+    }];
+    NSMutableArray<NSURL *> *sheetsInOrder = [NSMutableArray arrayWithCapacity:sheetPositions.count];
+    for (NSUInteger position = 0; position < sheetPositions.count; position++) {
+        if (position > 0 && order(sheetPositions[position - 1].unsignedIntegerValue,
+                                  sheetPositions[position].unsignedIntegerValue) == NSOrderedSame) {
+            *sheets = nil;
+            return NSNotFound;
+        }
+        [sheetsInOrder addObject:urls[sheetPositions[position].unsignedIntegerValue]];
+    }
+    *sheets = VibeReadWalkSheets(urls, sheetsInOrder, nil, YES);
+    return VibeFirstWalkEntryIndex(urls, *sheets, order);
+}
+
 static BOOL VibeEmitExpandedDirectory(NSURL *dir, VibeFolderOpenSort sort, NSProgress *_Nullable progress,
                                       VibeEntriesSink emit) {
     __block NSMutableArray<NSURL *> *listed = nil;
@@ -745,38 +776,16 @@ static BOOL VibeEmitExpandedDirectory(NSURL *dir, VibeFolderOpenSort sort, NSPro
     if (!order) {
         return VibeEmitEntriesForWalk(listed, nil, YES, emit);
     }
-    // The sheets alone, sorted, claim as they would in the whole sorted walk,
-    // since only their order among themselves decides a claim. Two that tie
-    // could sort either way, so they wait for the whole sort.
-    NSMutableArray<NSNumber *> *sheetPositions = [NSMutableArray array];
-    for (NSUInteger index = 0; index < listed.count; index++) {
-        if ([VibePlaylistFile isCueExtension:listed[index].pathExtension.lowercaseString]) {
-            [sheetPositions addObject:@(index)];
-        }
-    }
-    [sheetPositions sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
-        return order(a.unsignedIntegerValue, b.unsignedIntegerValue);
-    }];
-    NSMutableArray<NSURL *> *sheetsInOrder = [NSMutableArray arrayWithCapacity:sheetPositions.count];
-    BOOL sheetsTie = NO;
-    for (NSUInteger position = 0; position < sheetPositions.count; position++) {
-        [sheetsInOrder addObject:listed[sheetPositions[position].unsignedIntegerValue]];
-        sheetsTie |= position > 0 && order(sheetPositions[position - 1].unsignedIntegerValue,
-                                           sheetPositions[position].unsignedIntegerValue) == NSOrderedSame;
-    }
     // The first entry leaves before the whole sort, which is most of what a
     // large tree waits for once it is listed.
     VibeWalkSheets *sheets = nil;
+    NSUInteger first = VibeEarlyFirstWalkEntry(listed, order, &sheets);
     NSURL *handedOver = nil;
-    if (!sheetsTie) {
-        sheets = VibeReadWalkSheets(listed, sheetsInOrder, nil, YES);
-        NSUInteger first = VibeFirstWalkEntryIndex(listed, sheets, order);
-        if (first != NSNotFound) {
-            handedOver = listed[first];
-            NSArray<VibePlaylistEntry *> *entries = VibeWalkEntriesOf(handedOver, sheets);
-            if (entries.count > 0 && !emit(VibeEntriesBesideSheet(entries, sheets.unread))) {
-                return NO;
-            }
+    if (first != NSNotFound) {
+        handedOver = listed[first];
+        NSArray<VibePlaylistEntry *> *entries = VibeWalkEntriesOf(handedOver, sheets);
+        if (entries.count > 0 && !emit(VibeEntriesBesideSheet(entries, sheets.unread))) {
+            return NO;
         }
     }
     VibeSortURLsByOrder(listed, order);
@@ -784,14 +793,29 @@ static BOOL VibeEmitExpandedDirectory(NSURL *dir, VibeFolderOpenSort sort, NSPro
     return VibeEmitWalkEntries(listed, sheets, handedOver, emit);
 }
 
-+ (NSArray<NSURL *> *)sortedListingOfDirectory:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort {
++ (NSArray<NSURL *> *)listingOfDirectory:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort {
     __block NSMutableArray<NSURL *> *listed = nil;
     VibeWalkTree(dir, sort, nil, NO, NO, nil, ^(NSMutableArray<NSURL *> *files) {
         listed = files;
     });
-    listed = listed ?: [NSMutableArray array];
+    return listed ?: [NSMutableArray array];
+}
+
++ (NSArray<NSURL *> *)sortedListingOfDirectory:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort {
+    NSMutableArray<NSURL *> *listed = [[self listingOfDirectory:dir sortedBy:sort] mutableCopy];
     VibeSortAudioURLs(listed, sort, YES);
     return listed;
+}
+
++ (NSUInteger)firstEntryIndexOfListing:(NSArray<NSURL *> *)urls sortedBy:(VibeFolderOpenSort)sort {
+    VibeURLOrder order = VibeAudioURLOrder(urls, sort, YES);
+    return order ? [self firstEntryIndexOfListing:urls order:order] : NSNotFound;
+}
+
++ (NSUInteger)firstEntryIndexOfListing:(NSArray<NSURL *> *)urls
+                                 order:(NSComparisonResult (^)(NSUInteger a, NSUInteger b))order {
+    VibeWalkSheets *sheets = nil;
+    return VibeEarlyFirstWalkEntry(urls, order, &sheets);
 }
 
 + (NSArray<VibePlaylistEntry *> *)entriesForWalk:(NSArray<NSURL *> *)urls {

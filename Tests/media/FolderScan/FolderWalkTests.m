@@ -1682,12 +1682,45 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
     return [self relativePaths:[FolderWalk entriesForWalk:[FolderWalk sortedListingOfDirectory:dir sortedBy:sort]]];
 }
 
-// The walk both ways, and its batches, which must all agree.
+- (NSString *)relativePath:(NSURL *)url {
+    NSString *path = url.path ?: @"";
+    for (NSString *prefix in @[[_root.path stringByAppendingString:@"/"],
+                               [_root.path.stringByStandardizingPath stringByAppendingString:@"/"]]) {
+        if ([path hasPrefix:prefix]) {
+            return [path substringFromIndex:prefix.length].precomposedStringWithCanonicalMapping;
+        }
+    }
+    return path.precomposedStringWithCanonicalMapping;
+}
+
+// The path the walk picks to hand over before the whole sort, or nil when it
+// waits for the sort.
+- (nullable NSString *)earlyPickIn:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort {
+    NSArray<NSURL *> *listing = [FolderWalk listingOfDirectory:dir sortedBy:sort];
+    NSUInteger index = [FolderWalk firstEntryIndexOfListing:listing sortedBy:sort];
+    return index == NSNotFound ? nil : [self relativePath:listing[index]];
+}
+
+// The walk both ways, and its batches, which must all agree. Under name and
+// newest first, the walk picks the whole sort's first entry, its file or its
+// sheet, before the sort. As received is never sorted, so it picks nothing.
 - (void)assertTheFirstEntryLeavesAsTheWholeSortWouldIn:(NSURL *)dir context:(NSString *)context {
     for (NSNumber *sort in @[@(VibeFolderOpenSortName), @(VibeFolderOpenSortNewestFirst),
                              @(VibeFolderOpenSortAsReceived)]) {
         VibeFolderOpenSort order = (VibeFolderOpenSort)sort.integerValue;
-        NSArray<NSString *> *whole = [self entriesOfWholeSortOf:dir sortedBy:order];
+        NSArray<VibePlaylistEntry *> *wholeEntries =
+                [FolderWalk entriesForWalk:[FolderWalk sortedListingOfDirectory:dir sortedBy:order]];
+        NSArray<NSString *> *whole = [self relativePaths:wholeEntries];
+        NSString *pick = [self earlyPickIn:dir sortedBy:order];
+        VibePlaylistEntry *first = wholeEntries.firstObject;
+        if (order == VibeFolderOpenSortAsReceived || !first) {
+            XCTAssertNil(pick, @"%@, sort %@", context, sort);
+        }
+        else {
+            XCTAssertTrue([pick isEqualToString:[self relativePath:first.url]]
+                          || (first.cueSheetURL && [pick isEqualToString:[self relativePath:first.cueSheetURL]]),
+                          @"%@, sort %@: picked %@ for %@", context, sort, pick, whole.firstObject);
+        }
         XCTAssertEqualObjects([self relativePaths:[FolderWalk expandDirectory:dir sortedBy:order]], whole,
                               @"%@, sort %@", context, sort);
         NSUInteger folderCount = 0;
@@ -1717,6 +1750,7 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
                                                                    onBatch:nil folderCount:&folderCount];
 
     XCTAssertEqualObjects([self relativePaths:batches.firstObject], @[@"folder/b/song.mp3"]);
+    XCTAssertEqualObjects([self earlyPickIn:folder sortedBy:VibeFolderOpenSortName], @"folder/b/song.mp3");
     XCTAssertEqualObjects([self entriesOfWholeSortOf:folder sortedBy:VibeFolderOpenSortName],
                           (@[@"folder/b/song.mp3", @"folder/a/mix.flac#0-4500", @"folder/a/mix.flac#4500-0"]));
     [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:folder context:@"claimed across folders"];
@@ -1735,6 +1769,7 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
         [whole addObject:path.precomposedStringWithCanonicalMapping];
     }
     XCTAssertEqualObjects(whole, (@[@"folder/e/a.mp3", @"folder/é/b.mp3", @"folder/e/z.mp3"]));
+    XCTAssertEqualObjects([self earlyPickIn:folder sortedBy:VibeFolderOpenSortName], @"folder/e/a.mp3");
     [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:folder context:@"accents"];
 }
 
@@ -1746,6 +1781,7 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
     NSURL *folder = [self makeDirectory:@"folder"];
 
     XCTAssertEqualObjects([self entriesOfWholeSortOf:folder sortedBy:VibeFolderOpenSortName], @[]);
+    XCTAssertNil([self earlyPickIn:folder sortedBy:VibeFolderOpenSortName]);
     [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:folder context:@"nothing playable"];
 }
 
@@ -1833,6 +1869,119 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
         [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:[self makeDirectory:tree]
                                                      context:[NSString stringWithFormat:@"seed %ld", seed]];
     }
+}
+
+// A sheet that sorts first and cut something is the pick.
+- (void)testASheetThatSortsFirstIsThePick {
+    [self makeFile:@"folder/z/mix.flac"];
+    [self makeText:[kTwoTrackSheet stringByReplacingOccurrencesOfString:@"mix.flac" withString:@"../z/mix.flac"]
+                at:@"folder/a/mix.cue"];
+    [self makeFile:@"folder/m/song.mp3"];
+    NSURL *folder = [self makeDirectory:@"folder"];
+
+    XCTAssertEqualObjects([self earlyPickIn:folder sortedBy:VibeFolderOpenSortName], @"folder/a/mix.cue");
+    [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:folder context:@"sheet first"];
+}
+
+- (void)testAsReceivedPicksNothingBeforeTheSort {
+    [self makeFile:@"folder/a.mp3"];
+    NSURL *folder = [self makeDirectory:@"folder"];
+
+    XCTAssertNil([self earlyPickIn:folder sortedBy:VibeFolderOpenSortAsReceived]);
+}
+
+// localizedStandardCompare: breaks every tie between two names it was tried
+// on, so no file names reach a tie. An order passed in does.
+- (void)testTwoPathsThatTieWaitForTheWholeSort {
+    [self makeFile:@"folder/a.mp3"];
+    [self makeFile:@"folder/b.mp3"];
+    NSArray<NSURL *> *listing = [FolderWalk listingOfDirectory:[self makeDirectory:@"folder"]
+                                                      sortedBy:VibeFolderOpenSortName];
+    NSComparisonResult (^ties)(NSUInteger, NSUInteger) = ^NSComparisonResult(NSUInteger a, NSUInteger b) {
+        return NSOrderedSame;
+    };
+    NSComparisonResult (^byIndex)(NSUInteger, NSUInteger) = ^NSComparisonResult(NSUInteger a, NSUInteger b) {
+        return a < b ? NSOrderedAscending : a > b ? NSOrderedDescending : NSOrderedSame;
+    };
+
+    XCTAssertEqual([FolderWalk firstEntryIndexOfListing:listing order:ties], (NSUInteger)NSNotFound);
+    XCTAssertEqual([FolderWalk firstEntryIndexOfListing:listing order:byIndex], 0u);
+}
+
+// Two sheets that tie could claim either way, so nothing is picked, even
+// though a file with entries sorts strictly first.
+- (void)testTwoSheetsThatTieWaitForTheWholeSort {
+    [self makeFile:@"folder/a.mp3"];
+    [self makeFile:@"folder/mix.flac"];
+    [self makeText:kTwoTrackSheet at:@"folder/one.cue"];
+    [self makeText:kTwoTrackSheet at:@"folder/two.cue"];
+    NSArray<NSURL *> *listing = [FolderWalk listingOfDirectory:[self makeDirectory:@"folder"]
+                                                      sortedBy:VibeFolderOpenSortName];
+    NSUInteger audio = [listing indexOfObjectPassingTest:^BOOL(NSURL *url, NSUInteger index, BOOL *stop) {
+        return [url.lastPathComponent isEqualToString:@"a.mp3"];
+    }];
+    // a.mp3 first, every other path after it and tied with the rest.
+    NSComparisonResult (^sheetsTie)(NSUInteger, NSUInteger) = ^NSComparisonResult(NSUInteger a, NSUInteger b) {
+        if (a == b) {
+            return NSOrderedSame;
+        }
+        return a == audio ? NSOrderedAscending : b == audio ? NSOrderedDescending : NSOrderedSame;
+    };
+    NSComparisonResult (^audioFirst)(NSUInteger, NSUInteger) = ^NSComparisonResult(NSUInteger a, NSUInteger b) {
+        if (a == audio || b == audio) {
+            return a == b ? NSOrderedSame : a == audio ? NSOrderedAscending : NSOrderedDescending;
+        }
+        return a < b ? NSOrderedAscending : a > b ? NSOrderedDescending : NSOrderedSame;
+    };
+
+    XCTAssertEqual([FolderWalk firstEntryIndexOfListing:listing order:sheetsTie], (NSUInteger)NSNotFound);
+    XCTAssertEqual([FolderWalk firstEntryIndexOfListing:listing order:audioFirst], audio);
+}
+
+// On a case-sensitive volume, folders e and E both exist, and interleave with
+// é as whole paths sort. A disk image gives the tests one.
+- (void)testCaseVariantFoldersOnACaseSensitiveVolumeHandOutWhatTheWholeSortDoes {
+    NSString *image = [_root.path stringByAppendingPathComponent:@"cased.dmg"];
+    NSString *mount = [_root.path stringByAppendingPathComponent:@"cased"];
+    NSTask *create = [NSTask launchedTaskWithExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/hdiutil"]
+                                                 arguments:@[@"create", @"-quiet", @"-size", @"16m",
+                                                             @"-fs", @"Case-sensitive APFS", @"-volname",
+                                                             @"cased", image]
+                                                     error:NULL terminationHandler:nil];
+    [create waitUntilExit];
+    XCTSkipIf(create.terminationStatus != 0, @"hdiutil could not create a case-sensitive image here");
+    NSTask *attach = [NSTask launchedTaskWithExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/hdiutil"]
+                                                 arguments:@[@"attach", @"-quiet", @"-nobrowse",
+                                                             @"-mountpoint", mount, image]
+                                                     error:NULL terminationHandler:nil];
+    [attach waitUntilExit];
+    XCTSkipIf(attach.terminationStatus != 0, @"hdiutil could not attach the image here");
+    [self addTeardownBlock:^{
+        NSTask *detach = [NSTask launchedTaskWithExecutableURL:[NSURL fileURLWithPath:@"/usr/bin/hdiutil"]
+                                                     arguments:@[@"detach", @"-quiet", @"-force", mount]
+                                                         error:NULL terminationHandler:nil];
+        [detach waitUntilExit];
+    }];
+
+    [self makeFile:@"cased/folder/e/a.mp3"];
+    [self makeFile:@"cased/folder/E/m.mp3"];
+    [self makeFile:@"cased/folder/é/b.mp3"];
+    [self makeFile:@"cased/folder/e/z.mp3"];
+    [self makeFile:@"cased/folder/E/mix.flac"];
+    [self makeText:[kTwoTrackSheet stringByReplacingOccurrencesOfString:@"mix.flac" withString:@"../E/mix.flac"]
+                at:@"cased/folder/e/mix.cue"];
+    [self makeText:[kTwoTrackSheet stringByReplacingOccurrencesOfString:@"mix.flac" withString:@"../E/mix.flac"]
+                at:@"cased/folder/E/mix.cue"];
+    NSURL *folder = [self makeDirectory:@"cased/folder"];
+    NSArray<NSURL *> *listing = [FolderWalk listingOfDirectory:folder sortedBy:VibeFolderOpenSortName];
+    XCTAssertEqual(listing.count, 7u, @"the volume folded e and E: %@", listing);
+
+    NSMutableArray<NSString *> *whole = [NSMutableArray array];
+    for (NSString *path in [self entriesOfWholeSortOf:folder sortedBy:VibeFolderOpenSortName]) {
+        [whole addObject:path.precomposedStringWithCanonicalMapping];
+    }
+    XCTAssertEqualObjects(whole.firstObject, @"cased/folder/e/a.mp3");
+    [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:folder context:@"case-sensitive"];
 }
 
 @end
