@@ -44,11 +44,14 @@ consumer:
 	build/ConsumerDerivedData/Build/Products/Release/Consumer
 
 # The message filter a move runs has its test here too.
+# With SINCE, a change to a TagLib file must change TagLib's dated record too.
 # Checks the piece rules, then breaks each rule in a copy to prove the check fails.
 check-pieces:
 	python3 -I scripts/checks/check-pieces.py
 	python3 -I scripts/checks/check-pieces-test.py
 	python3 -I scripts/checks/filter-messages-test.py
+	python3 -I scripts/checks/taglib-record.py $(if $(SINCE),--since '$(SINCE)')
+	python3 -I scripts/checks/taglib-record-test.py
 
 # Runs the strings tools' self-test over a tiny app of their own.
 test-strings:

@@ -36,13 +36,17 @@ License text: <https://www.mozilla.org/MPL/1.1/>
 MPL 1.1 §3.6 requires the license text to accompany the distribution. The full
 text is vendored at `third_party/taglib/LICENSE.MPL`.
 
+vibe-libs modifies three of TagLib's files. MPL 1.1 §3.3 asks for a record of
+the changes and their dates. It is `third_party/taglib/CHANGES.md`, and each
+modified file names it at its top.
+
 ## UTF8-CPP
 
 `third_party/taglib/toolkit/utf8-cpp.checked.h` and `utf8-cpp.core.h` are
 not TagLib's own code and are not covered by TagLib's dual license. They carry
 a Boost-Software-License-style permissive grant requiring only that the
-copyright notice and license text be retained, which vendoring the files
-unmodified satisfies.
+copyright notice and license text be retained, which the vendored files do.
+Their small changes are listed in `third_party/taglib/CHANGES.md`.
 
 Copyright 2006 Nemanja Trifunovic.
 

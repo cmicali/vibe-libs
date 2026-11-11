@@ -1,3 +1,4 @@
+// vibe-libs changed this file from TagLib 2.3.2. See CHANGES.md in third_party/taglib.
 /***************************************************************************
     copyright            : (C) 2002 - 2008 by Scott Wheeler
     email                : wheeler@kde.org
