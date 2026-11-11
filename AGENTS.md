@@ -12,7 +12,7 @@ The Xcode project is generated from `project.yml` by XcodeGen and is not checked
 | --- | --- |
 | `make test` | Every piece's tests on macOS, Debug, each piece built with the headermap off and no prefix header. |
 | `make build-ios` | Every piece but the macOS-only ones built for the iOS simulator, so an AppKit leak fails. |
-| `make check-pieces` | The piece rules below, the dependency map in the plan, each target's excluded platform, no `#if DEBUG` in a header, the other app's name nowhere, no merge conflict marker, no doc line over 1,500 characters, `VibeUpdater.m` as the one source of `system/Updates` that reaches Sparkle, and the piece count this file and the README give. Then it breaks each rule in a copy of the repo and fails unless the check catches it. Last, it tests the message filter a move runs. |
+| `make check-pieces` | The piece rules below, the dependency map in the plan, each target's excluded platform, no `#if DEBUG` in a header, the other app's name nowhere, no merge conflict marker, no doc line over 1,500 characters, `VibeUpdater.m` as the one source of `system/Updates` that reaches Sparkle, and the piece count this file and the README give. Then it breaks each rule in a copy of the repo and fails unless the check catches it. Then it tests the message filter a move runs. Last, with `SINCE`, it fails a change to a TagLib file that leaves `third_party/taglib/CHANGES.md` alone. |
 | `make consumer` | A minimal app outside this repo's project includes `vibe-libs.yml` as an app would, builds with no prefix header and no headermap, and runs. |
 | `make test-strings` | The strings tools' self-test, over a tiny app of their own. |
 

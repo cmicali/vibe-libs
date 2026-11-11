@@ -1,3 +1,4 @@
+// vibe-libs changed this file from UTF8-CPP 2.3.5. See CHANGES.md in third_party/taglib.
 // Copyright 2006-2016 Nemanja Trifunovic
 
 /*
