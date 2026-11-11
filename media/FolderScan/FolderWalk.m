@@ -58,6 +58,21 @@ static VibeEmbeddedSheetReadHandler EmbeddedSheetReadHandler(void) {
 }
 
 
+// A walk's sheets, read: each sheet's entries, each claimed file, and the
+// sheets not read.
+@interface VibeWalkSheets : NSObject
+@property (nonatomic) NSMutableDictionary<NSURL *, NSArray<VibePlaylistEntry *> *> *entriesBySheet;
+// Each claimed file to the sheet that cut it.
+@property (nonatomic) NSMutableDictionary<NSURL *, NSURL *> *claimed;
+@property (nonatomic) NSMutableSet<NSURL *> *unreadSheets;
+// The first unread sheet by path, which every entry names.
+@property (nonatomic, nullable) NSURL *unread;
+@end
+
+@implementation VibeWalkSheets
+@end
+
+
 @implementation FolderWalk
 
 + (void)setPlaylistFolderGrantHandler:(VibePlaylistFolderGrantHandler)handler {
@@ -142,59 +157,80 @@ static BOOL VibePathIsDirectlyInside(NSString *path, NSString *directory) {
 // byFullPath sorts a recursive walk by whole path, grouping subfolders. The
 // name is also newest-first's tiebreak, so a batch copy reads in track order.
 //
+// Whole paths compare as one string, so a recursive walk's subfolders are not
+// always grouped: case and accents weigh less than the next path component,
+// so "e/a", "é/a", "E/m", and "e/z" sort in that order.
+//
 // TRAP: decorate the dates and names once, never read them in the comparator,
 // which runs O(n log n) times: NSURL.path mints a string per read, and a date
 // the enumeration did not prefetch is a file-provider round trip. They are
 // read by position, as hashing an NSURL in the comparator costs a pass over
 // its string; the positions sort as the URLs did, by the same comparisons.
-static void VibeSortAudioURLs(NSMutableArray<NSURL*> *urls, VibeFolderOpenSort sort,
-                              BOOL byFullPath) {
+//
+// The order is a comparator over the urls' positions, so a caller can also
+// pick the least of them in one pass. nil for as received, which keeps the
+// listing's order.
+typedef NSComparisonResult (^VibeURLOrder)(NSUInteger a, NSUInteger b);
+
+static VibeURLOrder _Nullable VibeAudioURLOrder(NSArray<NSURL*> *urls, VibeFolderOpenSort sort, BOOL byFullPath) {
     if (sort == VibeFolderOpenSortAsReceived) {
-        return;
+        return nil;
     }
     NSUInteger count = urls.count;
     NSMutableArray<NSString*> *names = [NSMutableArray arrayWithCapacity:count];
-    NSMutableArray<NSNumber*> *order = [NSMutableArray arrayWithCapacity:count];
     for (NSURL *url in urls) {
-        [order addObject:@(names.count)];
         [names addObject:(byFullPath ? url.path : url.lastPathComponent) ?: @""];
     }
-    NSComparisonResult (^byName)(NSUInteger, NSUInteger) = ^(NSUInteger a, NSUInteger b) {
+    VibeURLOrder byName = ^(NSUInteger a, NSUInteger b) {
         return [names[a] localizedStandardCompare:names[b]];
     };
     if (sort != VibeFolderOpenSortNewestFirst) {
-        [order sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
-            return byName(a.unsignedIntegerValue, b.unsignedIntegerValue);
-        }];
+        return byName;
     }
-    else {
-        // NSNull for undated.
-        NSMutableArray *dates = [NSMutableArray arrayWithCapacity:count];
-        for (NSURL *url in urls) {
-            NSDate *modified = nil;
-            [url getResourceValue:&modified forKey:NSURLContentModificationDateKey error:NULL];
-            [dates addObject:modified ?: NSNull.null];
-        }
-        // Undated files sort last, by name, keeping the order total.
-        [order sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
-            NSUInteger indexA = a.unsignedIntegerValue;
-            NSUInteger indexB = b.unsignedIntegerValue;
-            id dateA = dates[indexA];
-            id dateB = dates[indexB];
-            if (dateA == NSNull.null || dateB == NSNull.null) {
-                if (dateA != dateB) {
-                    return dateA != NSNull.null ? NSOrderedAscending : NSOrderedDescending;
-                }
-                return byName(indexA, indexB);
+    // NSNull for undated.
+    NSMutableArray *dates = [NSMutableArray arrayWithCapacity:count];
+    for (NSURL *url in urls) {
+        NSDate *modified = nil;
+        [url getResourceValue:&modified forKey:NSURLContentModificationDateKey error:NULL];
+        [dates addObject:modified ?: NSNull.null];
+    }
+    // Undated files sort last, by name, keeping the order total.
+    return ^NSComparisonResult(NSUInteger indexA, NSUInteger indexB) {
+        id dateA = dates[indexA];
+        id dateB = dates[indexB];
+        if (dateA == NSNull.null || dateB == NSNull.null) {
+            if (dateA != dateB) {
+                return dateA != NSNull.null ? NSOrderedAscending : NSOrderedDescending;
             }
-            NSComparisonResult newestFirst = [(NSDate *)dateB compare:dateA];
-            return newestFirst != NSOrderedSame ? newestFirst : byName(indexA, indexB);
-        }];
+            return byName(indexA, indexB);
+        }
+        NSComparisonResult newestFirst = [(NSDate *)dateB compare:dateA];
+        return newestFirst != NSOrderedSame ? newestFirst : byName(indexA, indexB);
+    };
+}
+
+// Sorts urls in place by an order made over them as they stand.
+static void VibeSortURLsByOrder(NSMutableArray<NSURL*> *urls, VibeURLOrder _Nullable urlOrder) {
+    if (!urlOrder) {
+        return;
     }
+    NSUInteger count = urls.count;
+    NSMutableArray<NSNumber*> *order = [NSMutableArray arrayWithCapacity:count];
+    for (NSUInteger index = 0; index < count; index++) {
+        [order addObject:@(index)];
+    }
+    [order sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
+        return urlOrder(a.unsignedIntegerValue, b.unsignedIntegerValue);
+    }];
     NSArray<NSURL*> *unsorted = [urls copy];
     for (NSUInteger position = 0; position < count; position++) {
         urls[position] = unsorted[order[position].unsignedIntegerValue];
     }
+}
+
+static void VibeSortAudioURLs(NSMutableArray<NSURL*> *urls, VibeFolderOpenSort sort,
+                              BOOL byFullPath) {
+    VibeSortURLsByOrder(urls, VibeAudioURLOrder(urls, sort, byFullPath));
 }
 
 // What both listings prefetch. Every key is one more attribute the provider
@@ -460,9 +496,10 @@ static BOOL VibeWalkTree(NSURL *dir, VibeFolderOpenSort sort, NSProgress *progre
 }
 
 // The nonempty audio under dir, sorted, as entries handed to emit in order.
-// The whole tree is listed and sorted, and its sheets read, before the first
-// entry leaves. A cancelled progress stops the listing between entries. NO
-// when the progress or emit stopped it.
+// The whole tree is listed and its sheets read before the first entry leaves,
+// since a sheet anywhere can claim any file. The first entry is then found in
+// one pass, and leaves before the rest is sorted. A cancelled progress stops
+// the listing between entries. NO when the progress or emit stopped it.
 static BOOL VibeEmitExpandedDirectory(NSURL *dir, VibeFolderOpenSort sort, NSProgress *_Nullable progress,
                                       VibeEntriesSink emit);
 
@@ -571,6 +608,71 @@ static NSArray<VibePlaylistEntry *> *VibeEntriesBesideSheet(NSArray<VibePlaylist
     return beside;
 }
 
+// Reads the sheets among sheetsInOrder, in that order, against the listing
+// urls. Where two sheets name one file, the first claims it, so the order
+// must be the walk's.
+static VibeWalkSheets *VibeReadWalkSheets(NSArray<NSURL *> *urls, NSArray<NSURL *> *sheetsInOrder,
+                                          NSMutableArray<NSError *> *failures, BOOL readsPlaceholderSheets) {
+    VibeWalkSheets *read = [VibeWalkSheets new];
+    NSMutableArray<NSURL *> *sheets = [NSMutableArray array];
+    read.unreadSheets = [NSMutableSet set];
+    for (NSURL *url in sheetsInOrder) {
+        if ([VibePlaylistFile isCueExtension:url.pathExtension.lowercaseString]) {
+            if (readsPlaceholderSheets || ![PlaceholderFiles isDatalessFile:url]) {
+                [sheets addObject:url];
+            }
+            else {
+                [read.unreadSheets addObject:url];
+            }
+        }
+    }
+    read.unread = VibeFirstUnreadSheet(read.unreadSheets);
+    read.entriesBySheet = [NSMutableDictionary dictionary];
+    read.claimed = [NSMutableDictionary dictionary];
+    if (sheets.count > 0) {
+        NSSet<NSURL *> *listed = [NSSet setWithArray:urls];
+        NSDictionary<NSString *, NSArray<NSURL *> *> *knownFiles = VibeKnownFiles(urls);
+        NSMutableDictionary<NSURL *, NSNumber *> *playable = [NSMutableDictionary dictionary];
+        for (NSURL *sheet in sheets) {
+            NSMutableArray<VibePlaylistEntry *> *entries = [NSMutableArray array];
+            for (VibePlaylistEntry *entry in VibePlayableSheetEntries(sheet, listed, knownFiles, playable, failures)) {
+                NSURL *cutBy = read.claimed[entry.url];
+                if (!cutBy || cutBy == sheet) {
+                    [entries addObject:entry];
+                    read.claimed[entry.url] = sheet;
+                }
+            }
+            read.entriesBySheet[sheet] = entries;
+        }
+    }
+    return read;
+}
+
+// What url plays as: a sheet's entries, nothing for a claimed file or an
+// unread sheet, else the file's own entries. Only the last reads anything.
+static NSArray<VibePlaylistEntry *> *VibeWalkEntriesOf(NSURL *url, VibeWalkSheets *sheets) {
+    NSArray<VibePlaylistEntry *> *entries = sheets.entriesBySheet[url];
+    if (!entries && !sheets.claimed[url] && ![sheets.unreadSheets containsObject:url]) {
+        entries = [FolderWalk entriesForFile:url];
+    }
+    return entries;
+}
+
+// urls' entries in order, skipping the url already handed over.
+static BOOL VibeEmitWalkEntries(NSArray<NSURL *> *urls, VibeWalkSheets *sheets, NSURL *_Nullable handedOver,
+                                VibeEntriesSink emit) {
+    for (NSURL *url in urls) {
+        if (url == handedOver) {
+            continue;
+        }
+        NSArray<VibePlaylistEntry *> *entries = VibeWalkEntriesOf(url, sheets);
+        if (entries.count > 0 && !emit(VibeEntriesBesideSheet(entries, sheets.unread))) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
 // Each audio file its entries (entriesForFile:), and each sheet its entries in
 // its sorted place. A sheet resolves against the walk's own listing first and
 // claims its files, so none also appears whole or is opened for its own sheet,
@@ -587,48 +689,36 @@ static NSArray<VibePlaylistEntry *> *VibeEntriesBesideSheet(NSArray<VibePlaylist
 // so the entries emit hands over are the ones the whole call would make.
 static BOOL VibeEmitEntriesForWalk(NSArray<NSURL *> *urls, NSMutableArray<NSError *> *failures,
                                    BOOL readsPlaceholderSheets, VibeEntriesSink emit) {
-    NSMutableArray<NSURL *> *sheets = [NSMutableArray array];
-    NSMutableSet<NSURL *> *unreadSheets = [NSMutableSet set];
-    for (NSURL *url in urls) {
-        if ([VibePlaylistFile isCueExtension:url.pathExtension.lowercaseString]) {
-            if (readsPlaceholderSheets || ![PlaceholderFiles isDatalessFile:url]) {
-                [sheets addObject:url];
-            }
-            else {
-                [unreadSheets addObject:url];
-            }
+    return VibeEmitWalkEntries(urls, VibeReadWalkSheets(urls, urls, failures, readsPlaceholderSheets), nil, emit);
+}
+
+// The position of the url whose entries a sorted walk hands over first, or
+// NSNotFound when none has any, or when another ties with it, since the sort
+// may then put either first. That url sorts before every other with entries.
+// One that sorts before it has none: a claimed file or a sheet that cut
+// nothing. A sheet always has its entries already, and a file that is not
+// claimed always makes at least one, so no file is read to answer.
+static NSUInteger VibeFirstWalkEntryIndex(NSArray<NSURL *> *urls, VibeWalkSheets *sheets, VibeURLOrder order) {
+    NSUInteger first = NSNotFound;
+    BOOL tied = NO;
+    for (NSUInteger index = 0; index < urls.count; index++) {
+        NSURL *url = urls[index];
+        NSArray<VibePlaylistEntry *> *sheetEntries = sheets.entriesBySheet[url];
+        BOOL hasEntries = sheetEntries ? sheetEntries.count > 0
+                                       : !sheets.claimed[url] && ![sheets.unreadSheets containsObject:url];
+        if (!hasEntries) {
+            continue;
+        }
+        NSComparisonResult result = first == NSNotFound ? NSOrderedAscending : order(index, first);
+        if (result == NSOrderedAscending) {
+            first = index;
+            tied = NO;
+        }
+        else if (result == NSOrderedSame) {
+            tied = YES;
         }
     }
-    NSURL *unread = VibeFirstUnreadSheet(unreadSheets);
-    NSMutableDictionary<NSURL *, NSArray<VibePlaylistEntry *> *> *entriesBySheet = [NSMutableDictionary dictionary];
-    // Each claimed file to the sheet that cut it.
-    NSMutableDictionary<NSURL *, NSURL *> *claimed = [NSMutableDictionary dictionary];
-    if (sheets.count > 0) {
-        NSSet<NSURL *> *listed = [NSSet setWithArray:urls];
-        NSDictionary<NSString *, NSArray<NSURL *> *> *knownFiles = VibeKnownFiles(urls);
-        NSMutableDictionary<NSURL *, NSNumber *> *playable = [NSMutableDictionary dictionary];
-        for (NSURL *sheet in sheets) {
-            NSMutableArray<VibePlaylistEntry *> *entries = [NSMutableArray array];
-            for (VibePlaylistEntry *entry in VibePlayableSheetEntries(sheet, listed, knownFiles, playable, failures)) {
-                NSURL *cutBy = claimed[entry.url];
-                if (!cutBy || cutBy == sheet) {
-                    [entries addObject:entry];
-                    claimed[entry.url] = sheet;
-                }
-            }
-            entriesBySheet[sheet] = entries;
-        }
-    }
-    for (NSURL *url in urls) {
-        NSArray<VibePlaylistEntry *> *entries = entriesBySheet[url];
-        if (!entries && !claimed[url] && ![unreadSheets containsObject:url]) {
-            entries = [FolderWalk entriesForFile:url];
-        }
-        if (entries.count > 0 && !emit(VibeEntriesBesideSheet(entries, unread))) {
-            return NO;
-        }
-    }
-    return YES;
+    return tied ? NSNotFound : first;
 }
 
 static NSArray<VibePlaylistEntry *> *VibeEntriesForWalk(NSArray<NSURL *> *urls, NSMutableArray<NSError *> *failures,
@@ -650,8 +740,58 @@ static BOOL VibeEmitExpandedDirectory(NSURL *dir, VibeFolderOpenSort sort, NSPro
     if (!walked) {
         return NO;
     }
+    listed = listed ?: [NSMutableArray array];
+    VibeURLOrder order = VibeAudioURLOrder(listed, sort, YES);
+    if (!order) {
+        return VibeEmitEntriesForWalk(listed, nil, YES, emit);
+    }
+    // The sheets alone, sorted, claim as they would in the whole sorted walk,
+    // since only their order among themselves decides a claim. Two that tie
+    // could sort either way, so they wait for the whole sort.
+    NSMutableArray<NSNumber *> *sheetPositions = [NSMutableArray array];
+    for (NSUInteger index = 0; index < listed.count; index++) {
+        if ([VibePlaylistFile isCueExtension:listed[index].pathExtension.lowercaseString]) {
+            [sheetPositions addObject:@(index)];
+        }
+    }
+    [sheetPositions sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
+        return order(a.unsignedIntegerValue, b.unsignedIntegerValue);
+    }];
+    NSMutableArray<NSURL *> *sheetsInOrder = [NSMutableArray arrayWithCapacity:sheetPositions.count];
+    BOOL sheetsTie = NO;
+    for (NSUInteger position = 0; position < sheetPositions.count; position++) {
+        [sheetsInOrder addObject:listed[sheetPositions[position].unsignedIntegerValue]];
+        sheetsTie |= position > 0 && order(sheetPositions[position - 1].unsignedIntegerValue,
+                                           sheetPositions[position].unsignedIntegerValue) == NSOrderedSame;
+    }
+    // The first entry leaves before the whole sort, which is most of what a
+    // large tree waits for once it is listed.
+    VibeWalkSheets *sheets = nil;
+    NSURL *handedOver = nil;
+    if (!sheetsTie) {
+        sheets = VibeReadWalkSheets(listed, sheetsInOrder, nil, YES);
+        NSUInteger first = VibeFirstWalkEntryIndex(listed, sheets, order);
+        if (first != NSNotFound) {
+            handedOver = listed[first];
+            NSArray<VibePlaylistEntry *> *entries = VibeWalkEntriesOf(handedOver, sheets);
+            if (entries.count > 0 && !emit(VibeEntriesBesideSheet(entries, sheets.unread))) {
+                return NO;
+            }
+        }
+    }
+    VibeSortURLsByOrder(listed, order);
+    sheets = sheets ?: VibeReadWalkSheets(listed, listed, nil, YES);
+    return VibeEmitWalkEntries(listed, sheets, handedOver, emit);
+}
+
++ (NSArray<NSURL *> *)sortedListingOfDirectory:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort {
+    __block NSMutableArray<NSURL *> *listed = nil;
+    VibeWalkTree(dir, sort, nil, NO, NO, nil, ^(NSMutableArray<NSURL *> *files) {
+        listed = files;
+    });
+    listed = listed ?: [NSMutableArray array];
     VibeSortAudioURLs(listed, sort, YES);
-    return VibeEmitEntriesForWalk(listed ?: @[], nil, YES, emit);
+    return listed;
 }
 
 + (NSArray<VibePlaylistEntry *> *)entriesForWalk:(NSArray<NSURL *> *)urls {

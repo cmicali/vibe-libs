@@ -1548,10 +1548,19 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
                                                   progress:(NSProgress *)progress
                                                    onBatch:(nullable void (^)(NSUInteger index))onBatch
                                                folderCount:(NSUInteger *)folderCount {
+    return [self batchesOfList:list sortedBy:VibeFolderOpenSortName progress:progress onBatch:onBatch
+                   folderCount:folderCount];
+}
+
+- (NSArray<NSArray<VibePlaylistEntry *> *> *)batchesOfList:(NSArray<NSURL *> *)list
+                                                  sortedBy:(VibeFolderOpenSort)sort
+                                                  progress:(NSProgress *)progress
+                                                   onBatch:(nullable void (^)(NSUInteger index))onBatch
+                                               folderCount:(NSUInteger *)folderCount {
     NSMutableArray<NSArray<VibePlaylistEntry *> *> *batches = [NSMutableArray array];
     XCTestExpectation *done = [self expectationWithDescription:@"completion"];
     __block NSUInteger folders = 0;
-    [FolderWalk expandAndFilterList:list sortedBy:VibeFolderOpenSortName progress:progress
+    [FolderWalk expandAndFilterList:list sortedBy:sort progress:progress
                               batch:^(NSArray<VibePlaylistEntry *> *entries) {
                                   XCTAssertFalse(NSThread.isMainThread);
                                   @synchronized (batches) {
@@ -1663,6 +1672,167 @@ static const time_t kVibeUnreadAccessTime = 1000000000;
                                                                folderCount:&folderCount];
 
     XCTAssertEqual(batches.count, 0u);
+}
+
+#pragma mark - The first entry before the whole sort
+
+// What the walk made before it handed out its first entry early: the whole
+// listing sorted, then its entries in order.
+- (NSArray<NSString *> *)entriesOfWholeSortOf:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort {
+    return [self relativePaths:[FolderWalk entriesForWalk:[FolderWalk sortedListingOfDirectory:dir sortedBy:sort]]];
+}
+
+// The walk both ways, and its batches, which must all agree.
+- (void)assertTheFirstEntryLeavesAsTheWholeSortWouldIn:(NSURL *)dir context:(NSString *)context {
+    for (NSNumber *sort in @[@(VibeFolderOpenSortName), @(VibeFolderOpenSortNewestFirst),
+                             @(VibeFolderOpenSortAsReceived)]) {
+        VibeFolderOpenSort order = (VibeFolderOpenSort)sort.integerValue;
+        NSArray<NSString *> *whole = [self entriesOfWholeSortOf:dir sortedBy:order];
+        XCTAssertEqualObjects([self relativePaths:[FolderWalk expandDirectory:dir sortedBy:order]], whole,
+                              @"%@, sort %@", context, sort);
+        NSUInteger folderCount = 0;
+        NSArray<NSArray<VibePlaylistEntry *> *> *batches = [self batchesOfList:@[dir] sortedBy:order
+                                                                      progress:[NSProgress new] onBatch:nil
+                                                                   folderCount:&folderCount];
+        NSMutableArray<VibePlaylistEntry *> *gathered = [NSMutableArray array];
+        for (NSArray<VibePlaylistEntry *> *batch in batches) {
+            [gathered addObjectsFromArray:batch];
+        }
+        XCTAssertEqualObjects([self relativePaths:gathered], whole, @"%@, sort %@", context, sort);
+        XCTAssertEqual(batches.firstObject.count, whole.count > 0 ? 1u : 0u, @"%@, sort %@", context, sort);
+    }
+}
+
+// A sheet in a later folder claims the file that sorts first, so the first
+// entry is the next file, and the claimed file plays at the sheet's place.
+- (void)testASheetInALaterFolderKeepsTheFileItClaimsFromLeavingFirst {
+    [self makeFile:@"folder/a/mix.flac"];
+    [self makeFile:@"folder/b/song.mp3"];
+    [self makeText:[kTwoTrackSheet stringByReplacingOccurrencesOfString:@"mix.flac" withString:@"../a/mix.flac"]
+                at:@"folder/z/mix.cue"];
+    NSURL *folder = [self makeDirectory:@"folder"];
+
+    NSUInteger folderCount = 0;
+    NSArray<NSArray<VibePlaylistEntry *> *> *batches = [self batchesOfList:@[folder] progress:[NSProgress new]
+                                                                   onBatch:nil folderCount:&folderCount];
+
+    XCTAssertEqualObjects([self relativePaths:batches.firstObject], @[@"folder/b/song.mp3"]);
+    XCTAssertEqualObjects([self entriesOfWholeSortOf:folder sortedBy:VibeFolderOpenSortName],
+                          (@[@"folder/b/song.mp3", @"folder/a/mix.flac#0-4500", @"folder/a/mix.flac#4500-0"]));
+    [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:folder context:@"claimed across folders"];
+}
+
+// Whole paths compare as one string, so folders whose names differ only by
+// an accent interleave, and the first entry follows the strings.
+- (void)testFoldersThatDifferByAnAccentInterleaveAsTheWholeSortDoes {
+    [self makeFile:@"folder/e/a.mp3"];
+    [self makeFile:@"folder/é/b.mp3"];
+    [self makeFile:@"folder/e/z.mp3"];
+    NSURL *folder = [self makeDirectory:@"folder"];
+
+    NSMutableArray<NSString *> *whole = [NSMutableArray array];
+    for (NSString *path in [self entriesOfWholeSortOf:folder sortedBy:VibeFolderOpenSortName]) {
+        [whole addObject:path.precomposedStringWithCanonicalMapping];
+    }
+    XCTAssertEqualObjects(whole, (@[@"folder/e/a.mp3", @"folder/é/b.mp3", @"folder/e/z.mp3"]));
+    [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:folder context:@"accents"];
+}
+
+- (void)testATreeWithNothingPlayableHandsOverNoBatch {
+    [self makeDirectory:@"folder/empty"];
+    [self makeText:@"x" at:@"folder/notes.txt"];
+    [self makeText:@"a.mp3\n" at:@"folder/list.m3u"];
+    [self makeText:kTwoTrackSheet at:@"folder/sheet/mix.cue"];
+    NSURL *folder = [self makeDirectory:@"folder"];
+
+    XCTAssertEqualObjects([self entriesOfWholeSortOf:folder sortedBy:VibeFolderOpenSortName], @[]);
+    [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:folder context:@"nothing playable"];
+}
+
+// Generated trees, each walked both ways under every order: sheets beside
+// their files, in other folders, and naming nothing, sheets that sort before
+// the files they claim, empty files and folders, playlist files, names that
+// sort between folders, a folder link, an unreadable folder, and dates that tie.
+- (void)testGeneratedTreesHandOutTheFirstEntryTheWholeSortWould {
+    XCTSkipIf(geteuid() == 0, @"root reads through every permission bit, so nothing can be unreadable");
+    NSArray<NSString *> *folders = @[@"", @"e", @"é", @"e b", @"a-b", @"a", @"Disc 1", @"Disc 10", @"Disc 2",
+                                     @"z", @"e/Disc 1", @"é/a", @"a/a-b"];
+    NSArray<NSString *> *files = @[@"01.mp3", @"1 b.mp3", @"z.mp3", @"mix.flac", @"a mix.flac", @"Track10.mp3",
+                                   @"track2.mp3", @"é.mp3", @"e.mp3"];
+    NSArray<NSDate *> *dates = @[[NSDate dateWithTimeIntervalSince1970:1000000000],
+                                 [NSDate dateWithTimeIntervalSince1970:1100000000],
+                                 [NSDate dateWithTimeIntervalSince1970:1200000000]];
+    NSArray<NSString *> *allFolders = folders;
+    for (long seed = 1; seed <= 40; seed++) {
+        srand48(seed);
+        // A few folders each, so sheets meet the same files often.
+        NSMutableArray<NSString *> *picked = [NSMutableArray array];
+        for (NSUInteger count = 0; count < 4; count++) {
+            [picked addObject:allFolders[(NSUInteger)(drand48() * allFolders.count)]];
+        }
+        folders = picked;
+        NSString *tree = [NSString stringWithFormat:@"tree%ld", seed];
+        NSString *(^inFolder)(NSString *, NSString *) = ^NSString *(NSString *folder, NSString *name) {
+            NSString *base = folder.length > 0 ? [tree stringByAppendingPathComponent:folder] : tree;
+            return [base stringByAppendingPathComponent:name];
+        };
+        BOOL locked = NO;
+        NSUInteger items = 6 + (NSUInteger)(drand48() * 18);
+        for (NSUInteger item = 0; item < items; item++) {
+            NSString *folder = folders[(NSUInteger)(drand48() * folders.count)];
+            double kind = drand48();
+            NSURL *made = nil;
+            if (kind < 0.5) {
+                made = [self makeFile:inFolder(folder, files[(NSUInteger)(drand48() * files.count)])];
+            }
+            else if (kind < 0.75) {
+                // Beside, in another folder by a relative path, or naming nothing.
+                NSString *target = @"mix.flac";
+                double where = drand48();
+                if (where < 0.4) {
+                    NSString *other = folders[(NSUInteger)(drand48() * folders.count)];
+                    NSString *up = [@"" stringByPaddingToLength:3 * (folder.length > 0 ? folder.pathComponents.count : 0)
+                                                     withString:@"../" startingAtIndex:0];
+                    target = [up stringByAppendingString:(other.length > 0
+                            ? [other stringByAppendingPathComponent:@"a mix.flac"] : @"a mix.flac")];
+                }
+                else if (where < 0.5) {
+                    target = @"missing.flac";
+                }
+                NSArray<NSString *> *sheets = @[@"mix.cue", @"0.cue", @"zz.cue"];
+                made = [self makeText:[kTwoTrackSheet stringByReplacingOccurrencesOfString:@"mix.flac" withString:target]
+                                   at:inFolder(folder, sheets[(NSUInteger)(drand48() * sheets.count)])];
+            }
+            else if (kind < 0.82) {
+                NSURL *url = [_root URLByAppendingPathComponent:inFolder(folder, @"empty.mp3")];
+                [NSFileManager.defaultManager createDirectoryAtURL:url.URLByDeletingLastPathComponent
+                                       withIntermediateDirectories:YES attributes:nil error:nil];
+                XCTAssertTrue([[NSData data] writeToURL:url atomically:YES]);
+            }
+            else if (kind < 0.88) {
+                made = [self makeText:@"01.mp3\n" at:inFolder(folder, @"list.m3u")];
+            }
+            else if (kind < 0.93) {
+                [self makeDirectory:inFolder(folder, @"empty folder")];
+            }
+            else if (kind < 0.96 && !locked) {
+                locked = YES;
+                [self makeFile:inFolder(@"locked", @"hidden.mp3")];
+                chmod([_root URLByAppendingPathComponent:inFolder(@"locked", @"")].fileSystemRepresentation, 0);
+            }
+            else if (kind >= 0.96) {
+                [self makeFile:[NSString stringWithFormat:@"linked%ld/song.mp3", seed]];
+                [self makeLink:inFolder(folder, @"link") to:[NSString stringWithFormat:@"linked%ld", seed]];
+            }
+            if (made) {
+                [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate:
+                                                                      dates[(NSUInteger)(drand48() * dates.count)]}
+                                               ofItemAtPath:made.path error:NULL];
+            }
+        }
+        [self assertTheFirstEntryLeavesAsTheWholeSortWouldIn:[self makeDirectory:tree]
+                                                     context:[NSString stringWithFormat:@"seed %ld", seed]];
+    }
 }
 
 @end

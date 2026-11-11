@@ -17,6 +17,10 @@ NS_ASSUME_NONNULL_BEGIN
 // grouping subfolders.
 + (NSArray<VibePlaylistEntry *> *)expandDirectory:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort;
 
+// The listing a walk of dir sorts, sorted in full before any entry is made:
+// what the walk's entries came from before it handed out its first one early.
++ (NSArray<NSURL *> *)sortedListingOfDirectory:(NSURL *)dir sortedBy:(VibeFolderOpenSort)sort;
+
 // The already-sorted listing, with sheets standing in for their audio files.
 + (NSArray<VibePlaylistEntry *> *)entriesForWalk:(NSArray<NSURL *> *)urls;
 
