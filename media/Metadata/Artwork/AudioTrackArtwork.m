@@ -113,6 +113,7 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
         copy->_archivedDisplayArtProvider = _archivedDisplayArtProvider;
         copy->_archivedThumbnailProvider = _archivedThumbnailProvider;
         copy->_embeddedUndecodable = _embeddedUndecodable;
+        copy->_embeddedReadSkipped = _embeddedReadSkipped;
         copy->_embeddedArtFact = VibeEmbeddedArtFactHasArt(_embeddedArtFact)
                 ? (_embeddedUndecodable ? VibeEmbeddedArtFactHasArtSettled
                                         : VibeEmbeddedArtFactHasArtNeedsRead)
