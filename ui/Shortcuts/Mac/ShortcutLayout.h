@@ -28,8 +28,10 @@ void VibeShortcutForgetLayout(void);
 // the fixed and character shortcuts.
 unichar VibeShortcutCharacterForKeyCode(unsigned short keyCode, NSEventModifierFlags modifiers);
 
-// The key that types character in that layer, kVibeShortcutKeyMask when no
-// key does. The lowest key code wins, so the answer is the same every time.
+// The main-keyboard key that types character in that layer,
+// kVibeShortcutKeyMask when none does. A keypad key is never the answer,
+// since a menu cannot draw one apart from the main keyboard's. The lowest key
+// code wins, so the answer is the same every time.
 unsigned short VibeShortcutKeyCodeForCharacter(unichar character, NSEventModifierFlags modifiers);
 
 // The key's name as a menu draws it, in the same layer, nil for a key no
@@ -42,5 +44,17 @@ NSString *VibeShortcutDisplayString(VibeShortcut shortcut);
 // The key equivalent and modifier mask a menu item takes for shortcut. Nil,
 // with an empty mask, for None or a key the layout cannot name.
 NSString *_Nullable VibeShortcutKeyEquivalent(VibeShortcut shortcut, NSEventModifierFlags *mask);
+
+// The shortcut a menu item's key equivalent and modifier mask spell, None for
+// an empty or multi-character one. A special key's equivalent gives its key-code shortcut, a
+// capital its lowercase character with Shift added, per the NSMenuItem
+// contract, and any other character a character shortcut.
+VibeShortcut VibeShortcutForKeyEquivalent(NSString *keyEquivalent, NSEventModifierFlags mask);
+
+// The key equivalent and mask a menu draws for shortcut, as one string, nil
+// for None or a key the layout cannot name. Two shortcuts with one spelling
+// are one press. It is the layout's VibeShortcutRules spelling, and folds only
+// Shift into the equivalent.
+NSString *_Nullable VibeShortcutMenuSpelling(VibeShortcut shortcut);
 
 NS_ASSUME_NONNULL_END

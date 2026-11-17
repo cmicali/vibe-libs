@@ -41,7 +41,7 @@ static __kindof NSView *_Nullable Find(NSView *view, Class kind, BOOL (^match)(i
     [NSApplication sharedApplication];
     VibeShortcutSetKeyNames(@"Space", @"Keypad %@", @"Key %ld", @"None");
     NSArray<NSArray *> *table = @[
-        @[@"play", @(VibeShortcutMake(49, 0))],
+        @[@"play", @(VibeShortcutMake(kVibeKeyCodeSpace, 0))],
         @[@"next", @(VibeShortcutMake(45, 0))],
     ];
     NSMutableDictionary<NSString *, NSNumber *> *store = [NSMutableDictionary dictionary];

@@ -20,7 +20,7 @@ static const NSEventModifierFlags kOption = NSEventModifierFlagOption;
 // by key code, Command defaults by character, and one command with none.
 static NSArray<NSArray *> *Table(void) {
     return @[
-        @[@"play",      @(VibeShortcutMake(49, 0))],   // Space
+        @[@"play",      @(VibeShortcutMake(kVibeKeyCodeSpace, 0))],   // Space
         @[@"select",    @(VibeShortcutMake(kVibeKeyCodeReturn, 0))],
         @[@"next",      @(VibeShortcutMake(45, 0))],   // N
         @[@"shuffle",   @(VibeShortcutMakeCharacter('s', kCmd | kOption))],
@@ -55,7 +55,7 @@ static VibeShortcut MenuItemForKey(NSString *identifier, VibeShortcut shortcut, 
 - (void)testBareKeysMatchByPhysicalKeyWithTheirExactModifiers {
     XCTAssertEqualObjects(CommandForKey(0, 0, nil), @"skip");
     XCTAssertEqualObjects(CommandForKey(12, 0, nil), @"low_kill");
-    XCTAssertEqualObjects(CommandForKey(49, 0, nil), @"play");
+    XCTAssertEqualObjects(CommandForKey(kVibeKeyCodeSpace, 0, nil), @"play");
     // Shift, or any modifier, is a different shortcut.
     XCTAssertNil(CommandForKey(0, kShift, nil));
     // Caps Lock and the function flag are not part of a shortcut.
@@ -206,6 +206,14 @@ static VibeShortcut MenuItemForKey(NSString *identifier, VibeShortcut shortcut, 
     XCTAssertNil(VibeShortcutOwner(Table(), VibeShortcutMake(31, kCmd), 0, nil, nil));
 }
 
+- (void)testACharacterShortcutPassedInMatchesByItsCharacterAlone {
+    // F12's key code is the code of 'o', so a key-code read would give pin.
+    NSDictionary *overrides = @{@"pin": @(VibeShortcutMake(111, kCmd))};
+    XCTAssertEqualObjects(VibeShortcutOwner(Table(), VibeShortcutMakeCharacter('o', kCmd), 0, overrides, nil), @"open");
+    XCTAssertEqualObjects(VibeShortcutOwner(Table(), VibeShortcutMake(111, kCmd), 0, overrides, nil), @"pin");
+    XCTAssertNil(VibeShortcutOwner(Table(), VibeShortcutMakeCharacter('k', kCmd), 0, overrides, nil));
+}
+
 - (void)testOnlyAKeyCodeWithModifiersOrNoneIsStorable {
     XCTAssertTrue(VibeShortcutIsStorable(@(kVibeShortcutNone)));
     XCTAssertTrue(VibeShortcutIsStorable(@(VibeShortcutMake(40, kCmd | kShift | kOption | NSEventModifierFlagControl))));
@@ -247,11 +255,168 @@ static VibeShortcut MenuItemForKey(NSString *identifier, VibeShortcut shortcut, 
 }
 
 - (void)testADuplicateResolvesToTheFirstCommandInTableOrder {
-    NSDictionary *stored = @{@"pitch": @(VibeShortcutMake(49, 0))}; // Space, as play's default
-    XCTAssertEqualObjects(CommandForKey(49, 0, stored), @"play");
+    NSDictionary *stored = @{@"pitch": @(VibeShortcutMake(kVibeKeyCodeSpace, 0))}; // Space, as play's default
+    XCTAssertEqualObjects(CommandForKey(kVibeKeyCodeSpace, 0, stored), @"play");
     // The menu bar agrees: only play's item carries Space.
-    XCTAssertEqual(MenuItemForKey(@"play", VibeShortcutMake(49, 0), ' ', stored), VibeShortcutMake(49, 0));
-    XCTAssertEqual(MenuItemForKey(@"pitch", VibeShortcutMake(49, 0), ' ', stored), kVibeShortcutNone);
+    XCTAssertEqual(MenuItemForKey(@"play", VibeShortcutMake(kVibeKeyCodeSpace, 0), ' ', stored), VibeShortcutMake(kVibeKeyCodeSpace, 0));
+    XCTAssertEqual(MenuItemForKey(@"pitch", VibeShortcutMake(kVibeKeyCodeSpace, 0), ' ', stored), kVibeShortcutNone);
+}
+
+- (void)testCanonicalFoldsAKeyCodeAndLeavesTheRest {
+    XCTAssertEqual(VibeShortcutCanonical(VibeShortcutMake(kVibeKeyCodeKeypadEnter, kCmd)),
+                   VibeShortcutMake(kVibeKeyCodeReturn, kCmd));
+    XCTAssertEqual(VibeShortcutCanonical(VibeShortcutMake(kVibeKeyCodeForwardDelete, 0)),
+                   VibeShortcutMake(kVibeKeyCodeDelete, 0));
+    XCTAssertEqual(VibeShortcutCanonical(VibeShortcutMakeCharacter('o', kCmd)), VibeShortcutMakeCharacter('o', kCmd));
+    XCTAssertEqual(VibeShortcutCanonical(kVibeShortcutNone), kVibeShortcutNone);
+}
+
+#pragma mark - An app's own rules
+
+// An app whose defaults are ⌘ and an arrow: an arrow is reserved only without
+// Command, and bare Return is the lists'.
+static BOOL AppIsReserved(unsigned short keyCode, unichar character, NSEventModifierFlags modifiers) {
+    switch (keyCode) {
+        case kVibeKeyCodeLeftArrow: case kVibeKeyCodeRightArrow:
+        case kVibeKeyCodeDownArrow: case kVibeKeyCodeUpArrow:
+            return (modifiers & kCmd) == 0;
+        case kVibeKeyCodeReturn:
+            return modifiers == 0;
+    }
+    return VibeShortcutIsReserved(keyCode, character, modifiers);
+}
+
+// A menu's spelling over a few US keys, with no layout: a shifted letter or =
+// rides in its Shift character, as VibeShortcutKeyEquivalent does.
+static NSString *_Nullable AppSpelling(VibeShortcut shortcut) {
+    if (shortcut == kVibeShortcutNone) {
+        return nil;
+    }
+    NSEventModifierFlags modifiers = VibeShortcutModifiers(shortcut);
+    unichar character = 0;
+    if (VibeShortcutIsCharacter(shortcut)) {
+        character = VibeShortcutKey(shortcut);
+    } else {
+        switch (VibeShortcutKey(shortcut)) {
+            case 24: character = '='; break;
+            case 31: character = 'o'; break;
+            case 40: character = 'k'; break;
+            default: return nil;
+        }
+    }
+    if (modifiers & kShift) {
+        if (character == '=') {
+            character = '+';
+            modifiers &= ~kShift;
+        } else if (character >= 'a' && character <= 'z') {
+            character = character - 'a' + 'A';
+            modifiers &= ~kShift;
+        }
+    }
+    return [NSString stringWithFormat:@"%lx %C", (unsigned long)modifiers, character];
+}
+
+// The app's own table: mark's default is the key the user later gave play.
+static NSArray<NSArray *> *AppTable(void) {
+    return @[
+        @[@"mark",       @(VibeShortcutMake(40, 0))],   // K
+        @[@"next_track", @(VibeShortcutMake(kVibeKeyCodeRightArrow, kCmd))],
+        @[@"zoom_in",    @(VibeShortcutMakeCharacter('+', kCmd))],
+        @[@"play",       @(VibeShortcutMake(kVibeKeyCodeSpace, 0))],
+        @[@"open",       @(VibeShortcutMakeCharacter('o', kCmd))],
+        @[@"select",     @(kVibeShortcutNone)],
+    ];
+}
+
+- (void)testAnAppsReservedRuleFreesCommandArrowAndReservesBareReturn {
+    VibeShortcutRules rules = {AppIsReserved, NO, NULL};
+    VibeShortcut nextKey = VibeShortcutMake(kVibeKeyCodeRightArrow, kCmd);
+    XCTAssertEqual(VibeShortcutForMenuItemUnderRules(AppTable(), @"next_track", nextKey, kVibeShortcutKeyMask, 0,
+                                                     nil, rules), nextKey);
+    XCTAssertEqual(VibeShortcutForMenuItem(AppTable(), @"next_track", nextKey, kVibeShortcutKeyMask, 0, nil),
+                   kVibeShortcutNone, @"the default rule reserves an arrow with any modifier");
+    XCTAssertEqualObjects(VibeShortcutCommandForPressUnderRules(AppTable(), kVibeKeyCodeRightArrow, kCmd, 0, 0,
+                                                                nil, rules), @"next_track");
+    XCTAssertNil(VibeShortcutCommandForPress(AppTable(), kVibeKeyCodeRightArrow, kCmd, 0, 0, nil));
+    XCTAssertNil(VibeShortcutCommandForPressUnderRules(AppTable(), kVibeKeyCodeRightArrow, 0, 0, 0, nil, rules),
+                 @"a bare arrow is the list's");
+
+    VibeShortcut returnKey = VibeShortcutMake(kVibeKeyCodeReturn, 0);
+    NSDictionary *overrides = @{@"select": @(returnKey)};
+    XCTAssertTrue(VibeShortcutIsReservedUnderRules(rules, kVibeKeyCodeKeypadEnter, 0, 0), @"Enter is Return");
+    XCTAssertFalse(VibeShortcutIsReservedUnderRules(rules, kVibeKeyCodeReturn, 0, kCmd));
+    XCTAssertFalse(VibeShortcutIsReservedUnderRules(kVibeShortcutDefaultRules, kVibeKeyCodeReturn, 0, 0));
+    XCTAssertEqual(VibeShortcutForMenuItemUnderRules(AppTable(), @"select", returnKey, kVibeShortcutKeyMask, 0,
+                                                     overrides, rules), kVibeShortcutNone);
+    XCTAssertNil(VibeShortcutCommandForPressUnderRules(AppTable(), kVibeKeyCodeKeypadEnter, 0, 0, 0, overrides, rules));
+    XCTAssertEqualObjects(VibeShortcutCommandForPress(AppTable(), kVibeKeyCodeReturn, 0, 0, 0, overrides), @"select");
+    XCTAssertTrue(VibeShortcutIsReservedUnderRules(rules, 12, 'q', kCmd), @"the system's keys stay reserved");
+}
+
+- (void)testAnOverrideOutranksAnEarlierDefaultWhenTheRulesSaySo {
+    VibeShortcutRules rules = {NULL, YES, NULL};
+    VibeShortcut k = VibeShortcutMake(40, 0);
+    NSDictionary *overrides = @{@"play": @(k)};
+    XCTAssertEqualObjects(VibeShortcutOwner(AppTable(), k, 'k', overrides, nil), @"mark", @"table order");
+    XCTAssertEqualObjects(VibeShortcutOwnerUnderRules(AppTable(), k, 'k', overrides, nil, rules), @"play");
+    XCTAssertEqualObjects(VibeShortcutCommandForPressUnderRules(AppTable(), 40, 0, 0, 'k', overrides, rules), @"play");
+    XCTAssertEqual(VibeShortcutForMenuItemUnderRules(AppTable(), @"play", k, kVibeShortcutKeyMask, 'k', overrides,
+                                                     rules), k);
+    XCTAssertEqual(VibeShortcutForMenuItemUnderRules(AppTable(), @"mark", k, kVibeShortcutKeyMask, 'k', overrides,
+                                                     rules), kVibeShortcutNone);
+
+    // A recording takes K from play, and from mark too, so mark never
+    // surfaces with it.
+    NSString *loser = nil;
+    NSDictionary *next = VibeShortcutOverridesByAssigningUnderRules(AppTable(), overrides, @"open", k, 'k', &loser,
+                                                                    rules);
+    XCTAssertEqualObjects(loser, @"play");
+    XCTAssertEqual(VibeShortcutEffective(AppTable(), @"play", next), kVibeShortcutNone);
+    XCTAssertEqual(VibeShortcutEffective(AppTable(), @"mark", next), kVibeShortcutNone);
+    XCTAssertEqualObjects(VibeShortcutOwnerUnderRules(AppTable(), k, 'k', next, nil, rules), @"open");
+
+    // The default rules take K from mark alone, and play keeps it.
+    next = VibeShortcutOverridesByAssigning(AppTable(), overrides, @"open", k, 'k', &loser);
+    XCTAssertEqualObjects(loser, @"mark");
+    XCTAssertEqualObjects(next[@"play"], @(k));
+}
+
+- (void)testACharacterDefaultCollidesWithARecordedKeyAMenuSpellsTheSame {
+    VibeShortcutRules rules = {NULL, NO, AppSpelling};
+    VibeShortcut shiftEquals = VibeShortcutMake(24, kCmd | kShift);
+    XCTAssertNil(VibeShortcutOwner(AppTable(), shiftEquals, '=', nil, nil), @"the encodings differ");
+    XCTAssertEqualObjects(VibeShortcutOwnerUnderRules(AppTable(), shiftEquals, '=', nil, nil, rules), @"zoom_in");
+    XCTAssertEqualObjects(VibeShortcutCommandForPressUnderRules(AppTable(), 24, kCmd | kShift, '+', '=', nil, rules),
+                          @"zoom_in");
+
+    // Recorded on open, it takes the key from zoom_in.
+    NSString *loser = nil;
+    NSDictionary *overrides = VibeShortcutOverridesByAssigningUnderRules(AppTable(), nil, @"open", shiftEquals, '=',
+                                                                         &loser, rules);
+    XCTAssertEqualObjects(loser, @"zoom_in");
+    XCTAssertEqual(VibeShortcutEffective(AppTable(), @"zoom_in", overrides), kVibeShortcutNone);
+
+    // Both on the key at once: the menu bar gives it to the first.
+    overrides = @{@"open": @(shiftEquals)};
+    VibeShortcut plus = VibeShortcutMakeCharacter('+', kCmd);
+    XCTAssertEqual(VibeShortcutForMenuItemUnderRules(AppTable(), @"zoom_in", plus, kVibeShortcutKeyMask, 0, overrides,
+                                                     rules), plus, @"no key types + unshifted on US");
+    XCTAssertEqual(VibeShortcutForMenuItemUnderRules(AppTable(), @"open", shiftEquals, kVibeShortcutKeyMask, '=',
+                                                     overrides, rules), kVibeShortcutNone);
+    XCTAssertEqual(VibeShortcutForMenuItem(AppTable(), @"open", shiftEquals, kVibeShortcutKeyMask, '=', overrides),
+                   shiftEquals);
+
+    // A recording a menu spells as the command's own default is the default.
+    overrides = VibeShortcutOverridesByAssigningUnderRules(AppTable(), @{@"zoom_in": @(VibeShortcutMake(40, kCmd))},
+                                                           @"zoom_in", shiftEquals, '=', &loser, rules);
+    XCTAssertNil(loser);
+    XCTAssertEqualObjects(overrides, @{});
+    overrides = VibeShortcutOverridesByAssigningUnderRules(AppTable(), nil, @"open", VibeShortcutMake(31, kCmd),
+                                                           'o', &loser, rules);
+    XCTAssertEqualObjects(overrides, @{});
+    XCTAssertEqualObjects(VibeShortcutOverridesByAssigning(AppTable(), nil, @"open", VibeShortcutMake(31, kCmd), 'o',
+                                                           &loser),
+                          @{@"open": @(VibeShortcutMake(31, kCmd))}, @"the default rules compare encodings");
 }
 
 @end
