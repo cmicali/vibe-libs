@@ -95,7 +95,7 @@ static unsigned short SpecialKeyCode(unichar character) {
         codes = reverse;
     });
     NSNumber *keyCode = codes[[NSString stringWithCharacters:&character length:1]];
-    return keyCode ? keyCode.unsignedShortValue : kVibeShortcutKeyMask;
+    return keyCode != nil ? keyCode.unsignedShortValue : kVibeShortcutKeyMask;
 }
 
 // Built from the ASCII-capable layout so a Greek or Cyrillic user's menus show

@@ -174,7 +174,6 @@ static void (^VibeArtReadHandler(void))(NSURL *, dispatch_block_t) {
             }]) {
             return [self skippedArt];
         }
-        dataToDecode = archived;
         VibeImage *decodedProviderArt = archivedArt;
         if (!decodedProviderArt) {
             // Not undecodable: the file's own art may be fine. Drop the
