@@ -92,12 +92,16 @@ static const CGFloat kSettingsRowIndent = 20;
 
 // An empty caption hides the label and recenters the title. Answers whether
 // the row's height changed; the caller remeasures the pane only then.
-// A caption never widens its pane. It wraps in the room between the title's
-// leading edge and the controls, which the row follows on each layout.
 - (BOOL)setCaption:(nullable NSString *)caption;
 // What the row does, then on its own line why it is unavailable or how it
 // settled; a nil detail leaves the description alone.
 - (BOOL)setCaption:(NSString *)caption detail:(nullable NSString *)detail;
+
+// YES wraps the caption in the room between the title's leading edge and the
+// controls, which the row follows on each layout, so a long caption never
+// widens its pane. NO, the default, keeps the caption on one line, and the
+// pane widens to fit it. It holds for a caption set later too.
+@property (nonatomic) BOOL wrapsCaption;
 
 // A setting under another: the title sits in by kSettingsRowIndent per
 // level, and the caption stays under it, whether it shows now or later.

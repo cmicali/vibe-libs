@@ -153,6 +153,8 @@ static const CGFloat kInlineTitleInset = 10;
 
 @end
 
+static void CollectRows(NSView *view, NSMutableArray<SettingsRowView *> *rows);
+
 @implementation SettingsPaneViewController {
     NSStackView *_sectionStack;
     NSSize _lastNaturalSize;
@@ -212,6 +214,11 @@ static const CGFloat kInlineTitleInset = 10;
         [section.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
     }
     _sectionStack = stack;
+    if (_wrapsRowCaptions) {
+        NSMutableArray<SettingsRowView *> *rows = [NSMutableArray array];
+        CollectRows(stack, rows);
+        for (SettingsRowView *row in rows) row.wrapsCaption = YES;
+    }
     NSSize paneSize = [self naturalPaneSize];
 
     SettingsFillView *view = [[SettingsFillView alloc]

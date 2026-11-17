@@ -240,15 +240,9 @@ static CGFloat SettingsCaptionHeight(NSTextField *label, NSString *text, CGFloat
         captionLabel.font = [NSFont systemFontOfSize:NSFont.smallSystemFontSize];
         captionLabel.textColor = NSColor.secondaryLabelColor;
         captionLabel.hidden = YES;
-        // TRAP: below the fitting priority, or the unwrapped text widens the
-        // shared pane size, and every pane with it. The caption wraps at
-        // preferredMaxLayoutWidth instead, which layout keeps at the room
-        // the row gives it.
-        [captionLabel setContentCompressionResistancePriority:NSLayoutPriorityFittingSizeCompression - 1
-                                               forOrientation:NSLayoutConstraintOrientationHorizontal];
         [self addSubview:captionLabel];
         _captionLabel = captionLabel;
-        [self updateCaptionWrappingWidth];
+        [self applyCaptionWrapping];
         _captionConstraints = @[
             [_titleLabel.topAnchor constraintEqualToAnchor:self.topAnchor constant:kRowPaddingV],
             [captionLabel.topAnchor constraintEqualToAnchor:_titleLabel.bottomAnchor constant:2],
@@ -286,8 +280,34 @@ static CGFloat SettingsCaptionHeight(NSTextField *label, NSString *text, CGFloat
             - _titleLeadingConstraint.constant;
 }
 
-- (void)updateCaptionWrappingWidth {
+// TRAP: a wrapping caption resists compression below the fitting priority,
+// or its unwrapped text widens the shared pane size, and every pane with it.
+// It wraps at preferredMaxLayoutWidth instead, which layout keeps at the room
+// the row gives it. Unwrapped, it keeps AppKit's defaults: one line, which
+// the pane widens to fit.
+- (void)applyCaptionWrapping {
     if (!_captionLabel) {
+        return;
+    }
+    [_captionLabel setContentCompressionResistancePriority:_wrapsCaption
+            ? NSLayoutPriorityFittingSizeCompression - 1 : NSLayoutPriorityDefaultHigh
+                                            forOrientation:NSLayoutConstraintOrientationHorizontal];
+    if (_wrapsCaption) {
+        [self updateCaptionWrappingWidth];
+    } else if (_captionLabel.preferredMaxLayoutWidth != 0) {
+        _captionLabel.preferredMaxLayoutWidth = 0;
+    }
+}
+
+- (void)setWrapsCaption:(BOOL)wrapsCaption {
+    if (wrapsCaption != _wrapsCaption) {
+        _wrapsCaption = wrapsCaption;
+        [self applyCaptionWrapping];
+    }
+}
+
+- (void)updateCaptionWrappingWidth {
+    if (!_captionLabel || !_wrapsCaption) {
         return;
     }
     CGFloat room = [self captionRoom];

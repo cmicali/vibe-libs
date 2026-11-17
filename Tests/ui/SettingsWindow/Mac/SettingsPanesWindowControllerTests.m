@@ -193,14 +193,35 @@
     XCTAssertGreaterThanOrEqual(general.height, kSettingsPaneMinHeight);
 }
 
-// A caption too long for the design width wraps, and leaves every pane at
-// that width, whether it is there at the start or comes later.
-- (void)testALongCaptionLeavesThePanesAtTheDesignWidth {
+// The default: one long caption widens every pane.
+- (void)testALongCaptionWidensEveryPaneUnlessItWraps {
+    SettingsTestPane *general = [self paneWithRowTitle:@"Dark mode" control:[[VibeSwitch alloc] init]];
+    general.rowCaption = @"A caption long enough to run well past any card of the design width, so it "
+            @"pushes the controls and every pane out with it.";
+    SettingsTestPane *sound = [self paneWithRowTitle:@"Volume" control:[[VibeSwitch alloc] init]];
+    [_controller.window close];
+    _controller = [[SettingsPanesWindowController alloc]
+            initWithPaneGroups:@[@[[SettingsPanesWindowController paneItemWithViewController:general
+                    identifier:@"general" label:@"General" symbolName:@"gearshape"],
+                                   [SettingsPanesWindowController paneItemWithViewController:sound
+                    identifier:@"sound" label:@"Sound" symbolName:@"speaker.wave.2"]]]
+                     backTitle:@"Back" forwardTitle:@"Forward" undoTitle:@"Undo" redoTitle:@"Redo"
+             searchPlaceholder:@"Search" noResultsText:@"No Results"];
+    XCTAssertGreaterThan(sound.sharedPaneSize.width, kSettingsPaneWidth + 200);
+    XCTAssertEqual(general.sharedPaneSize.width, sound.sharedPaneSize.width);
+}
+
+// With its pane's captions wrapping, a caption too long for the design width
+// leaves every pane at that width, whether it is there at the start or comes
+// later.
+- (void)testAWrappingCaptionLeavesThePanesAtTheDesignWidth {
     NSString *caption = @"A caption long enough to run well past any card of the design width, so it "
             @"must wrap under its title rather than push the controls and every pane out with it.";
     SettingsTestPane *general = [self paneWithRowTitle:@"Dark mode" control:[[VibeSwitch alloc] init]];
     general.rowCaption = caption;
+    general.wrapsRowCaptions = YES;
     SettingsTestPane *sound = [self paneWithRowTitle:@"Volume" control:[[VibeSwitch alloc] init]];
+    sound.wrapsRowCaptions = YES;
     [_controller.window close];
     _controller = [[SettingsPanesWindowController alloc]
             initWithPaneGroups:@[@[[SettingsPanesWindowController paneItemWithViewController:general

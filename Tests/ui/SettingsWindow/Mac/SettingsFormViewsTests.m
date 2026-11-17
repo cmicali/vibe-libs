@@ -152,10 +152,32 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
     return [label alignmentRectForFrame:label.frame];
 }
 
-- (void)testALongCaptionNeverWidensItsRow {
+// The default: a caption keeps one line, and its row is as wide as it.
+- (void)testACaptionKeepsOneLineUnlessToldToWrap {
     SettingsRowView *plain = [SettingsRowView rowWithTitle:@"Volume" control:[[VibeSwitch alloc] init]];
     SettingsRowView *captioned = [SettingsRowView rowWithTitle:@"Volume" caption:kLongCaption
                                                        control:[[VibeSwitch alloc] init]];
+    XCTAssertFalse(captioned.wrapsCaption);
+    XCTAssertEqual(captioned.captionLabel.preferredMaxLayoutWidth, 0);
+    CGFloat oneLine = captioned.captionLabel.intrinsicContentSize.width;
+    XCTAssertGreaterThan(captioned.fittingSize.width, plain.fittingSize.width + 400);
+    XCTAssertGreaterThanOrEqual(captioned.fittingSize.width, oneLine);
+
+    // Wrapping turns on and off again on a caption that is already there.
+    captioned.wrapsCaption = YES;
+    XCTAssertEqualWithAccuracy(captioned.fittingSize.width, plain.fittingSize.width, 0.5);
+    captioned.wrapsCaption = NO;
+    XCTAssertEqual(captioned.captionLabel.preferredMaxLayoutWidth, 0);
+    XCTAssertGreaterThanOrEqual(captioned.fittingSize.width, oneLine);
+}
+
+- (void)testAWrappingCaptionNeverWidensItsRow {
+    SettingsRowView *plain = [SettingsRowView rowWithTitle:@"Volume" control:[[VibeSwitch alloc] init]];
+    SettingsRowView *captioned = [SettingsRowView rowWithTitle:@"Volume" caption:kLongCaption
+                                                       control:[[VibeSwitch alloc] init]];
+    captioned.wrapsCaption = YES;
+    // Set before the caption exists, it holds for the caption that comes.
+    plain.wrapsCaption = YES;
     XCTAssertEqualWithAccuracy(captioned.fittingSize.width, plain.fittingSize.width, 0.5);
     [plain setCaption:kLongCaption];
     XCTAssertEqualWithAccuracy(plain.fittingSize.width, captioned.fittingSize.width, 0.5);
@@ -168,6 +190,7 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
 - (void)testACaptionFirstWrapsAtTheDesignWidth {
     VibeSwitch *toggle = [[VibeSwitch alloc] init];
     SettingsRowView *row = [SettingsRowView rowWithTitle:@"Volume" caption:kLongCaption control:toggle];
+    row.wrapsCaption = YES;
     XCTAssertEqualWithAccuracy(row.captionLabel.preferredMaxLayoutWidth,
                                440 - 16 - 16 - 8 - toggle.fittingSize.width, 0.5);
 }
@@ -175,6 +198,7 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
 - (void)testACaptionWrapsInTheRoomItsRowGivesIt {
     VibeSwitch *toggle = [[VibeSwitch alloc] init];
     SettingsRowView *row = [SettingsRowView rowWithTitle:@"Volume" caption:kLongCaption control:toggle];
+    row.wrapsCaption = YES;
     NSLayoutConstraint *width = nil;
     SettingsSectionView *section = [self sectionWithRow:row width:440 constraint:&width];
     NSTextField *caption = row.captionLabel;
@@ -199,6 +223,7 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
 - (void)testACaptionSetLaterWrapsTheSame {
     VibeSwitch *toggle = [[VibeSwitch alloc] init];
     SettingsRowView *row = [SettingsRowView rowWithTitle:@"Volume" control:toggle];
+    row.wrapsCaption = YES;
     SettingsSectionView *section = [self sectionWithRow:row width:440 constraint:NULL];
     CGFloat bare = NSHeight(row.frame);
     XCTAssertTrue([row setCaption:kLongCaption]);
@@ -250,6 +275,7 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
 - (void)testACaptionSetAfterAnIndentSitsUnderTheTitle {
     VibeSwitch *toggle = [[VibeSwitch alloc] init];
     SettingsRowView *row = [SettingsRowView rowWithTitle:@"Volume" control:toggle];
+    row.wrapsCaption = YES;
     row.indentLevel = 1;
     [row setCaption:kLongCaption];
     XCTAssertEqualWithAccuracy(row.captionLabel.preferredMaxLayoutWidth,
