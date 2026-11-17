@@ -52,6 +52,27 @@ static PINOperationDataCoalescingBlock PINDiskTrimmingDateCoalescingBlock = ^id(
     return (result == NSOrderedDescending) ? newDate : existingDate;
 };
 
+// Vibe: a record's dates and size are nil when its file's attributes could
+// not be read. [NSNumber compare:nil] raises, and [NSDate compare:nil] calls
+// nil equal to everything, so the trims sort with total orders: a nil date is
+// oldest and a nil size largest. Unknown entries go first. From upstream's
+// 0073330.
+static NSComparisonResult PINDiskCacheCompareDates(NSDate * _Nullable date1, NSDate * _Nullable date2)
+{
+    if (date1 == nil || date2 == nil) {
+        return date1 == date2 ? NSOrderedSame : (date1 == nil ? NSOrderedAscending : NSOrderedDescending);
+    }
+    return [date1 compare:date2];
+}
+
+static NSComparisonResult PINDiskCacheCompareSizes(NSNumber * _Nullable size1, NSNumber * _Nullable size2)
+{
+    if (size1 == nil || size2 == nil) {
+        return size1 == size2 ? NSOrderedSame : (size1 == nil ? NSOrderedDescending : NSOrderedAscending);
+    }
+    return [size1 compare:size2];
+}
+
 const char * PINDiskCacheFileSystemRepresentation(NSURL *url)
 {
     return url.fileSystemRepresentation;
@@ -1064,7 +1085,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     }
     NSDictionary<NSString *, PINDiskCacheMetadata *> *listed = [self recordsListedForSweep];
     NSComparator bySize = ^NSComparisonResult(PINDiskCacheMetadata * _Nonnull obj1, PINDiskCacheMetadata * _Nonnull obj2) {
-        return [obj1.size compare:obj2.size];
+        return PINDiskCacheCompareSizes(obj1.size, obj2.size); // Vibe: nil-safe
     };
     // Vibe: a listing is the sweep's own, so it is sorted before the lock.
     NSArray *listedSorted = [listed keysSortedByValueUsingComparator:bySize];
@@ -1113,7 +1134,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     // Vibe: a listing is the sweep's own, so it is sorted before the lock. A
     // cache that keeps no records is least-recently-used.
     NSArray *listedSorted = [listed keysSortedByValueUsingComparator:^NSComparisonResult(PINDiskCacheMetadata * _Nonnull obj1, PINDiskCacheMetadata * _Nonnull obj2) {
-        return [obj1.lastModifiedDate compare:obj2.lastModifiedDate];
+        return PINDiskCacheCompareDates(obj1.lastModifiedDate, obj2.lastModifiedDate); // Vibe: nil-safe
     }];
   
     [self lockForWriting];
@@ -1127,7 +1148,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
             if (!keysSortedByEvictionStrategy) switch (strategy) {
                 case PINCacheEvictionStrategyLeastRecentlyUsed:
                     keysSortedByEvictionStrategy = [records keysSortedByValueUsingComparator:^NSComparisonResult(PINDiskCacheMetadata * _Nonnull obj1, PINDiskCacheMetadata * _Nonnull obj2) {
-                        return [obj1.lastModifiedDate compare:obj2.lastModifiedDate];
+                        return PINDiskCacheCompareDates(obj1.lastModifiedDate, obj2.lastModifiedDate); // Vibe: nil-safe
                     }];
                     break;
                     
@@ -1138,7 +1159,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
                         } else if (obj1.accessCount > obj2.accessCount) {
                             return NSOrderedDescending;
                         } else {
-                            return [obj1.lastModifiedDate compare:obj2.lastModifiedDate];
+                            return PINDiskCacheCompareDates(obj1.lastModifiedDate, obj2.lastModifiedDate); // Vibe: nil-safe
                         }
                     }];
                     break;
@@ -1179,7 +1200,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     }
     NSDictionary<NSString *, PINDiskCacheMetadata *> *listed = [self recordsListedForSweepMadeBefore:trimDate];
     NSComparator byCreatedDate = ^NSComparisonResult(PINDiskCacheMetadata * _Nonnull obj1, PINDiskCacheMetadata * _Nonnull obj2) {
-        return [obj1.createdDate compare:obj2.createdDate];
+        return PINDiskCacheCompareDates(obj1.createdDate, obj2.createdDate); // Vibe: nil-safe
     };
     // Vibe: a listing is the sweep's own, so it is sorted before the lock.
     NSArray *listedSorted = [listed keysSortedByValueUsingComparator:byCreatedDate];
