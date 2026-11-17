@@ -28,6 +28,7 @@ On 2026-10-03, `5341fe88` replaced the files with 2.3.2's and re-applied the sam
 | 2026-10-03 | the three files above | The update to 2.3.2 re-applied all three edits unchanged (`5341fe88`). |
 | 2026-11-11 | the three files above | Each gained a one-line comment above its license header that points to this record. |
 | 2026-11-17 | `riff/wav/infotag.cpp` | Upstream `f9efbc7` (TagLib #1454), not yet released. An INFO chunk header cut short by the tag's end no longer makes a field. Its size check wrapped below zero, so up to 7 trailing bytes read as an empty field. |
+| 2026-11-17 | `mpeg/id3v2/id3v2framefactory.cpp` | Upstream `62db511` (TagLib #1457), not yet released. A genre's `(n)` codes are read without copying the rest of the string for each, and at most 50,000 are read. A frame of 100,000 codes took about 100 s to parse, and now takes 0.03 s. |
 
 ## Files added around TagLib
 
