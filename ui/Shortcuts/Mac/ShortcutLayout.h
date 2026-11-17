@@ -28,8 +28,10 @@ void VibeShortcutForgetLayout(void);
 // the fixed and character shortcuts.
 unichar VibeShortcutCharacterForKeyCode(unsigned short keyCode, NSEventModifierFlags modifiers);
 
-// The key that types character in that layer, kVibeShortcutKeyMask when no
-// key does. The lowest key code wins, so the answer is the same every time.
+// The main-keyboard key that types character in that layer,
+// kVibeShortcutKeyMask when none does. A keypad key is never the answer,
+// since a menu cannot draw one apart from the main keyboard's. The lowest key
+// code wins, so the answer is the same every time.
 unsigned short VibeShortcutKeyCodeForCharacter(unichar character, NSEventModifierFlags modifiers);
 
 // The key's name as a menu draws it, in the same layer, nil for a key no

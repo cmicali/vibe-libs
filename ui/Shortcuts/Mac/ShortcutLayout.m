@@ -159,6 +159,11 @@ unichar VibeShortcutCharacterForKeyCode(unsigned short keyCode, NSEventModifierF
 
 unsigned short VibeShortcutKeyCodeForCharacter(unichar character, NSEventModifierFlags modifiers) {
     for (unsigned short keyCode = 0; keyCode < 128; keyCode++) {
+        // TRAP: a keypad key is reserved, so answering one, as the keypad's
+        // + is on US, takes a character default's equivalent away.
+        if (VibeShortcutIsKeypadKey(keyCode)) {
+            continue;
+        }
         NSString *typed = LayoutCharacter(keyCode, modifiers);
         if (typed.length == 1 && [typed characterAtIndex:0] == character) {
             return keyCode;

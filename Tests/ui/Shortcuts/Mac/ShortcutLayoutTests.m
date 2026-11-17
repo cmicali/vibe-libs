@@ -121,4 +121,26 @@ static const NSEventModifierFlags kShift = NSEventModifierFlagShift;
                           VibeShortcutMenuSpelling(VibeShortcutMake(kVibeKeyCodeReturn, 0)), @"Enter is Return");
 }
 
+- (void)testACommandPlusDefaultKeepsItsKey {
+    // On US, only the keypad types + unshifted, and the keypad is reserved.
+    VibeShortcut plus = VibeShortcutForKeyEquivalent(@"+", kCmd);
+    XCTAssertEqual(plus, VibeShortcutMakeCharacter('+', kCmd));
+    NSArray<NSArray *> *commands = @[@[@"bigger", @(plus)]];
+    unsigned short layoutKeyCode = VibeShortcutKeyCodeForCharacter('+', kCmd);
+    XCTAssertEqual(VibeShortcutForMenuItem(commands, @"bigger", plus, layoutKeyCode, 0, @{}), plus);
+}
+
+- (void)testNoCharacterAnswersAKeypadKey {
+    for (NSString *key in @[@"+", @"-", @"*", @"/", @"=", @".", @"0", @"1", @"5", @"9"]) {
+        for (NSNumber *layer in @[@0, @(kCmd)]) {
+            unsigned short keyCode = VibeShortcutKeyCodeForCharacter([key characterAtIndex:0], layer.unsignedIntegerValue);
+            XCTAssertFalse(VibeShortcutIsKeypadKey(keyCode), @"%@ in layer %@ gave key %u", key, layer, keyCode);
+            if (keyCode != kVibeShortcutKeyMask) {
+                XCTAssertEqual(VibeShortcutCharacterForKeyCode(keyCode, layer.unsignedIntegerValue),
+                               [key characterAtIndex:0], @"%@", key);
+            }
+        }
+    }
+}
+
 @end
