@@ -31,6 +31,7 @@ On 2026-10-03, `5341fe88` replaced the files with 2.3.2's and re-applied the sam
 | 2026-11-17 | `mpeg/id3v2/id3v2framefactory.cpp` | Upstream `62db511` (TagLib #1457), not yet released. A genre's `(n)` codes are read without copying the rest of the string for each, and at most 50,000 are read. A frame of 100,000 codes took about 100 s to parse, and now takes 0.03 s. |
 | 2026-11-17 | `ape/apeitem.cpp`, `mpeg/id3v2/frames/textidentificationframe.cpp` | Upstream `5bd11b2` (TagLib #1458), not yet released. An ID3v2 text frame or an APE text item with more values than 50,000, or one per 32 bytes when that is more than 1,024, is refused. A 1 MB frame of 500,000 values held 186 MB, and now holds 6 MB. |
 | 2026-11-17 | `mpeg/id3v2/id3v2tag.cpp` | Upstream `40503eb` (TagLib #1483), not yet released. A frame with an invalid ID is skipped when a valid frame follows it, instead of ending the tag. Before, every later frame was lost, often the picture. |
+| 2026-11-17 | `toolkit/tbytevector.cpp`, `toolkit/tbytevector.h` | Upstream `629b707` (TagLib #1484), not yet released. `ByteVector::fromBase64` skips whitespace, so a line-wrapped `METADATA_BLOCK_PICTURE` in a Vorbis or Opus comment decodes. Before, it decoded to nothing and the art was missing. |
 
 ## Files added around TagLib
 
