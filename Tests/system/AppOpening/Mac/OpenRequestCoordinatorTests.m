@@ -1,11 +1,12 @@
 //
 // Open expansion may finish out of order, or never: burst ordering,
-// replacement supersession, and giving up on a straggler.
+// replacement supersession, giving up on a straggler, and a request in parts.
 //
 
 #import <XCTest/XCTest.h>
 
 #import "OpenRequestCoordinator.h"
+#import "OpenRequestCoordinator+Debug.h"
 
 @interface OpenRequestCoordinatorTests : XCTestCase
 @end
@@ -270,6 +271,98 @@ static NSArray<NSURL *> *OpenRows(NSUInteger count) {
     OpenRequestToken *append = [self beginAppending:YES tagged:@"first"];
     [_coordinator finishRequest:append rows:OpenRows(1) folderCount:0];
     XCTAssertEqualObjects(_deliveries, (@[@"first:append:1:0"]));
+}
+
+- (void)testAHeadsPartsDeliverAtOnceAndThenAppend {
+    OpenRequestToken *walk = [self beginAppending:NO tagged:@"walk"];
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(1)];
+    XCTAssertEqualObjects(_deliveries, (@[@"walk:replace:1:0"]));
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(3)];
+    [_coordinator finishRequest:walk rows:@[] folderCount:2];
+    XCTAssertEqualObjects(_deliveries, (@[@"walk:replace:1:0", @"walk:append:3:0", @"walk:append:0:2"]));
+}
+
+- (void)testAnAppendWaitsBehindAHeadStillSendingParts {
+    OpenRequestToken *walk = [self beginAppending:NO tagged:@"walk"];
+    OpenRequestToken *append = [self beginAppending:YES tagged:@"append"];
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(1)];
+    [_coordinator finishRequest:append rows:OpenRows(2) folderCount:0];
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(4)];
+    XCTAssertEqualObjects(_deliveries, (@[@"walk:replace:1:0", @"walk:append:4:0"]));
+    [_coordinator finishRequest:walk rows:@[] folderCount:1];
+    XCTAssertEqualObjects(_deliveries, (@[@"walk:replace:1:0", @"walk:append:4:0", @"walk:append:0:1",
+                                          @"append:append:2:0"]));
+}
+
+- (void)testALaterRequestsPartsWaitForTheEarlierFinish {
+    OpenRequestToken *first = [self beginAppending:NO tagged:@"first"];
+    OpenRequestToken *second = [self beginAppending:YES tagged:@"second"];
+    [_coordinator deliverPartOfRequest:second rows:OpenRows(1)];
+    [_coordinator deliverPartOfRequest:second rows:OpenRows(2)];
+    XCTAssertEqual(_deliveries.count, 0u);
+    [_coordinator finishRequest:first rows:OpenRows(3) folderCount:0];
+    XCTAssertEqualObjects(_deliveries, (@[@"first:replace:3:0", @"second:append:1:0", @"second:append:2:0"]));
+    [_coordinator finishRequest:second rows:@[] folderCount:1];
+    XCTAssertEqualObjects(_deliveries.lastObject, @"second:append:0:1");
+}
+
+- (void)testAHeadSendingPartsArmsNoDeadlineAlone {
+    OpenRequestToken *walk = [self beginAppending:NO tagged:@"walk"];
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(1)];
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(1)];
+    XCTAssertEqual(_deadlines.count, 0u);
+    [_coordinator abandonStalledRequests];
+    [_coordinator finishRequest:walk rows:OpenRows(1) folderCount:1];
+    XCTAssertEqualObjects(_deliveries.lastObject, @"walk:append:1:1");
+}
+
+- (void)testEachPartRestartsTheDeadlineOfWhatWaitsBehind {
+    OpenRequestToken *walk = [self beginAppending:NO tagged:@"walk"];
+    OpenRequestToken *append = [self beginAppending:YES tagged:@"append"];
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(1)];
+    [_coordinator finishRequest:append rows:OpenRows(2) folderCount:0];
+    XCTAssertEqual(_deadlines.count, 1u);
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(1)];
+    XCTAssertEqual(_deadlines.count, 2u);
+    // The older deadline is stale and gives up on nothing.
+    [self fireNextDeadline];
+    XCTAssertEqual(_deliveries.count, 2u);
+    [self fireNextDeadline];
+    XCTAssertEqualObjects(_deliveries.lastObject, @"append:append:2:0");
+    // The walk was given up on, so its rest is dropped.
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(5)];
+    [_coordinator finishRequest:walk rows:OpenRows(1) folderCount:1];
+    XCTAssertEqual(_deliveries.count, 3u);
+}
+
+- (void)testPartsOfASupersededOrFinishedRequestAreDropped {
+    OpenRequestToken *old = [self beginAppending:NO tagged:@"old"];
+    OpenRequestToken *walk = [self beginAppending:NO tagged:@"walk"];
+    [_coordinator deliverPartOfRequest:old rows:OpenRows(1)];
+    [_coordinator deliverPartOfRequest:walk rows:@[]];
+    XCTAssertEqual(_deliveries.count, 0u);
+    [_coordinator finishRequest:walk rows:OpenRows(2) folderCount:0];
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(1)];
+    XCTAssertEqualObjects(_deliveries, (@[@"walk:replace:2:0"]));
+}
+
+- (void)testAPartsDeliveryThatBeginsAReplacementStopsTheOlderParts {
+    OpenRequestCoordinator *coordinator = _coordinator;
+    NSMutableArray<NSString *> *deliveries = _deliveries;
+    OpenRequestToken *first = [self beginAppending:NO tagged:@"first"];
+    __block NSUInteger parts = 0;
+    OpenRequestToken *walk = [_coordinator beginRequestAppending:YES
+                                                        delivery:^(NSArray *rows, NSUInteger folders, BOOL appending) {
+        [deliveries addObject:[NSString stringWithFormat:@"walk:%lu", (unsigned long)rows.count]];
+        if (++parts == 1) {
+            [coordinator beginRequestAppending:NO delivery:^(NSArray *r, NSUInteger f, BOOL a) {}];
+        }
+    }];
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(1)];
+    [_coordinator deliverPartOfRequest:walk rows:OpenRows(2)];
+    [_coordinator finishRequest:first rows:OpenRows(3) folderCount:0];
+    XCTAssertEqualObjects(_deliveries, (@[@"first:replace:3:0", @"walk:1"]));
+    XCTAssertEqual(_coordinator.debugBufferedResultCount, 0u);
 }
 
 @end

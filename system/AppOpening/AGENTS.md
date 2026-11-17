@@ -5,7 +5,7 @@ On the mac, one open request from the batches Launch Services splits it into, de
 | File | Owns |
 | --- | --- |
 | `OpenBurstCoalescer.{h,m}` | the burst: the queue before launch, the first batch that replaces, the later batches that append, and the deliberate open that ends a burst; the launch order of drain, restore, and empty state; the paths among a process's arguments |
-| `OpenRequestCoordinator.{h,m}` | each request's expanded rows, delivered in submission order: supersession by a replacing request, holds, and the straggler deadline |
+| `OpenRequestCoordinator.{h,m}` | each request's expanded rows, whole or in parts, delivered in submission order: supersession by a replacing request, holds, and the straggler deadline |
 | `OpenBurstCoalescer+Debug.h`, `OpenRequestCoordinator+Debug.h` | the seams: the queued URLs and the buffered results |
 
 Both are main-thread only.
@@ -30,11 +30,12 @@ The sink gets each batch unexpanded, with whether it appends. Expanding it is th
 
 - **A replacing request supersedes every older one** (`beginRequestAppending:` with NO). It starts a new generation, and every older token stops being current. `isRequestCurrent:` lets an owner stop work it no longer needs.
 - **A result may finish out of order** (`finishRequest:rows:folderCount:`). It buffers until every earlier request of its generation has finished. Then each delivers through its own block, on main, in submission order. A superseded token's result is dropped.
+- **A request may arrive in parts** (`deliverPartOfRequest:rows:`), so a long walk plays its first entry before the rest is made. A part delivers in turn, as a finished result does. The request stays at the head until it finishes, so an append behind it waits. Once a part has delivered, the request's later parts and its finish deliver as appends. The finish carries the folder count. A delivery that begins a replacing request stops the older request's buffered parts.
 - **The rows are the caller's own objects.** The coordinator never reads, copies, or compares them. It hands each array back as it came. The folder count rides with it.
 - **`invalidate` supersedes every pending request and buffered result.** Call it before clearing the list the opens land in, so a late result cannot refill it.
 - **Use one coordinator for each list the opens land in.** Otherwise a drop could be overwritten by an older, slower open from another funnel. `sharedCoordinator` is that one for an app with one list. `-init` makes an independent one.
 
-**A finished result waits at most ten seconds behind an earlier one.** The deadline is not a bound on expansion. Nothing is armed until a later request has finished. Then the coordinator gives up on the one request at the head, and delivers what that frees. A slow request behind a wedged one still delivers, and each stalled request costs one deadline. A skipped request's late result is dropped. `abandonStalledRequests` is the deadline's action, exposed for tests.
+**A finished result waits at most ten seconds behind an earlier one.** The deadline is not a bound on expansion. Nothing is armed until a later request has finished. Then the coordinator gives up on the one request at the head, and delivers what that frees. A slow request behind a wedged one still delivers, and each stalled request costs one deadline. A skipped request's late parts and result are dropped. Its parts already delivered stay. **TRAP: a head still sending parts is not stalled.** It arms no deadline while nothing waits behind it, and each part restarts the deadline of what does. Otherwise a walk of a slow share would be cut off after ten seconds. `abandonStalledRequests` is the deadline's action, exposed for tests.
 
 **A held request is never given up on** (`holdRequest:`, `releaseRequest:`). Its owner is still deciding what it opens, in a wait that is bounded and can be cancelled, such as resolving a dropped link. The release gives the head a full deadline from then. A hold or release on a superseded token does nothing.
 
@@ -46,6 +47,6 @@ The sink gets each batch unexpanded, with whether it appends. Expanding it is th
 
 ## Tests
 
-`Tests/system/AppOpening/Mac/` holds `OpenBurstCoalescerTests` and `OpenRequestCoordinatorTests`, 14 each. The coalescer's cover the burst's shape, deliberate opens, a burst that straddles launch, the launch order, and the argument scan. The coordinator's cover ordering, supersession, `invalidate`, the straggler deadline, holds, and a first append that stays an append. Each scheduler is injected and keeps its blocks, so a quiet period or a deadline elapses only when a test fires it. The rows are file URLs.
+`Tests/system/AppOpening/Mac/` holds `OpenBurstCoalescerTests`, 14 tests, and `OpenRequestCoordinatorTests`, 21. The coalescer's cover the burst's shape, deliberate opens, a burst that straddles launch, the launch order, and the argument scan. The coordinator's cover ordering, supersession, `invalidate`, the straggler deadline, holds, a first append that stays an append, and a request in parts. Each scheduler is injected and keeps its blocks, so a quiet period or a deadline elapses only when a test fires it. The rows are file URLs.
 
 Vibe keeps its open funnel: what each way of opening calls, its link resolving and holds, the close that invalidates the coordinator, and its launch sequence.

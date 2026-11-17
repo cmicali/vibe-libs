@@ -13,6 +13,8 @@ static const NSTimeInterval kStragglerDeadline = 10.0;
 @property NSUInteger openGeneration;
 @property NSUInteger sequence;
 @property BOOL append;
+// A part has delivered, so everything after it appends.
+@property BOOL delivered;
 @property (copy) OpenRequestDelivery delivery;
 @end
 
@@ -21,6 +23,9 @@ static const NSTimeInterval kStragglerDeadline = 10.0;
 
 @interface OpenRequestResult : NSObject
 @property (strong) OpenRequestToken *token;
+// Parts not yet delivered, oldest first.
+@property (strong) NSMutableArray<NSArray *> *parts;
+@property BOOL finished;
 @property (copy) NSArray *rows;
 @property NSUInteger folderCount;
 @end
@@ -96,23 +101,60 @@ static const NSTimeInterval kStragglerDeadline = 10.0;
     return token && token.openGeneration == _openGeneration;
 }
 
+// nil once the request finished, was superseded, or was given up on.
+- (OpenRequestResult *)openResultForRequest:(OpenRequestToken *)token {
+    if (![self isRequestCurrent:token] || token.sequence < _nextDeliverySequence) {
+        return nil;
+    }
+    OpenRequestResult *result = _completed[@(token.sequence)];
+    if (!result) {
+        result = [OpenRequestResult new];
+        result.token = token;
+        result.parts = [NSMutableArray array];
+        _completed[@(token.sequence)] = result;
+    }
+    return result.finished ? nil : result;
+}
+
+- (void)deliverPartOfRequest:(OpenRequestToken *)token rows:(NSArray *)rows {
+    NSAssert(NSThread.isMainThread, @"OpenRequestCoordinator is main-thread only");
+    if (rows.count == 0) {
+        return;
+    }
+    OpenRequestResult *result = [self openResultForRequest:token];
+    if (!result) {
+        return;
+    }
+    [result.parts addObject:rows];
+    // A head that sends parts is not stalled, so what waits behind it gets a
+    // full deadline from now.
+    if (token.sequence == _nextDeliverySequence) {
+        _armedDeadlineGeneration = 0;
+    }
+    [self deliverReadyResults];
+    [self armStragglerDeadlineIfBuffered];
+}
+
 - (void)finishRequest:(OpenRequestToken *)token
                  rows:(NSArray *)rows
           folderCount:(NSUInteger)folderCount {
     NSAssert(NSThread.isMainThread, @"OpenRequestCoordinator is main-thread only");
-    if (![self isRequestCurrent:token] || token.sequence < _nextDeliverySequence
-            || _completed[@(token.sequence)]) {
+    OpenRequestResult *result = [self openResultForRequest:token];
+    if (!result) {
         return;
     }
-    OpenRequestResult *result = [OpenRequestResult new];
-    result.token = token;
+    result.finished = YES;
     result.rows = rows;
     result.folderCount = folderCount;
-    _completed[@(token.sequence)] = result;
-
     [self deliverReadyResults];
-    // Still buffered: an earlier batch is outstanding.
-    if (_completed.count > 0) {
+    [self armStragglerDeadlineIfBuffered];
+}
+
+// TRAP: a head still sending parts has a result but is not stalled. Arming
+// for it alone would cut a long walk off after the deadline.
+- (void)armStragglerDeadlineIfBuffered {
+    NSUInteger head = _completed[@(_nextDeliverySequence)] ? 1 : 0;
+    if (_completed.count > head) {
         [self armStragglerDeadline];
     }
 }
@@ -131,26 +173,27 @@ static const NSTimeInterval kStragglerDeadline = 10.0;
     // The head gets a full deadline from now for what it opens next. One
     // armed while it was held may be nearly spent, and one that found it held
     // did not re-arm.
-    if (_completed.count > 0 && token.sequence == _nextDeliverySequence) {
+    if (token.sequence == _nextDeliverySequence) {
         _armedDeadlineGeneration = 0;
-        [self armStragglerDeadline];
+        [self armStragglerDeadlineIfBuffered];
     }
 }
 
 - (void)abandonStalledRequests {
     NSAssert(NSThread.isMainThread, @"OpenRequestCoordinator is main-thread only");
-    if (_completed.count == 0 || [_heldSequences containsIndex:_nextDeliverySequence]) {
+    NSUInteger head = _completed[@(_nextDeliverySequence)] ? 1 : 0;
+    if (_completed.count == head || [_heldSequences containsIndex:_nextDeliverySequence]) {
         return;
     }
     // Only the head: the ones behind it may be slow rather than wedged, and a
-    // skipped request's late result is dropped by finishRequest:'s sequence
-    // check. Every insertion drains first, so the head is the missing one.
+    // skipped request's late parts and result are dropped by the sequence
+    // check. The head is missing, or still sending parts. Its rows already
+    // delivered stay.
+    [_completed removeObjectForKey:@(_nextDeliverySequence)];
     _nextDeliverySequence++;
     [self deliverReadyResults];
     // Nothing else re-arms for a gap still buffered.
-    if (_completed.count > 0) {
-        [self armStragglerDeadline];
-    }
+    [self armStragglerDeadlineIfBuffered];
 }
 
 - (void)deliverReadyResults {
@@ -160,9 +203,24 @@ static const NSTimeInterval kStragglerDeadline = 10.0;
         if (!next) {
             break;
         }
+        OpenRequestToken *token = next.token;
+        while (next.parts.count > 0) {
+            NSArray *part = next.parts.firstObject;
+            [next.parts removeObjectAtIndex:0];
+            BOOL append = token.append || token.delivered;
+            token.delivered = YES;
+            token.delivery(part, 0, append);
+            // The delivery may have begun a replacing request.
+            if (![self isRequestCurrent:token]) {
+                return;
+            }
+        }
+        if (!next.finished) {
+            break;
+        }
         [_completed removeObjectForKey:key];
         _nextDeliverySequence++;
-        next.token.delivery(next.rows, next.folderCount, next.token.append);
+        token.delivery(next.rows, next.folderCount, token.append || token.delivered);
     }
 }
 
