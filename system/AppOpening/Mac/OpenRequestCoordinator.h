@@ -43,6 +43,14 @@ typedef void (^OpenRequestDelivery)(NSArray *rows, NSUInteger folderCount, BOOL 
                  rows:(NSArray *)rows
           folderCount:(NSUInteger)folderCount;
 
+// Part of a request's rows, ahead of its finish, so a long walk can play its
+// first entry early. A part delivers in turn, as a finished result does, with
+// a folder count of zero. The request stays at the head until it finishes.
+// Once a part has delivered, the request's later parts and its finish deliver
+// as appends. An empty part delivers nothing. A part after the finish is
+// dropped.
+- (void)deliverPartOfRequest:(OpenRequestToken *)token rows:(NSArray *)rows;
+
 // A held request is never given up on. Its owner is still deciding what it
 // opens, in a wait that is bounded and can be cancelled: a dropped link
 // resolving. Release starts the deadline again for what then buffers behind
@@ -51,7 +59,9 @@ typedef void (^OpenRequestDelivery)(NSArray *rows, NSUInteger folderCount, BOOL 
 - (void)releaseRequest:(OpenRequestToken *)token;
 
 // Gives up on the one request the buffered results wait behind (a walk on a
-// mount that never answers) and delivers what that frees. Only that one, so a
+// mount that never answers) and delivers what that frees. A request still
+// sending parts counts as stalled only while a later result waits behind it,
+// and each part restarts its deadline. Its parts already delivered stay. Only that one, so a
 // merely slow walk behind it still delivers; each stalled request costs one
 // deadline. A held request is not given up on. Armed automatically; exposed
 // for the tests.
