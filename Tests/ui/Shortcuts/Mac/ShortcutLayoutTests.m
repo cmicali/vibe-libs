@@ -56,4 +56,61 @@ static const NSEventModifierFlags kCmd = NSEventModifierFlagCommand;
     XCTAssertEqual(mask, 0u);
 }
 
+- (void)testASpecialKeysEquivalentTurnsBackIntoItsKey {
+    const unsigned short special[] = {
+        kVibeKeyCodeReturn, kVibeKeyCodeTab, kVibeKeyCodeSpace, kVibeKeyCodeDelete, kVibeKeyCodeEscape,
+        kVibeKeyCodeLeftArrow, kVibeKeyCodeRightArrow, kVibeKeyCodeDownArrow, kVibeKeyCodeUpArrow,
+        kVibeKeyCodeKeypadClear, 115, 119, 116, 121, // Home, End, Page Up, Page Down
+        122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90, // F1 … F20
+    };
+    const NSEventModifierFlags layers[] = {
+        0, kCmd, kCmd | NSEventModifierFlagShift, NSEventModifierFlagControl | NSEventModifierFlagOption,
+    };
+    for (size_t i = 0; i < sizeof(special) / sizeof(special[0]); i++) {
+        for (size_t j = 0; j < sizeof(layers) / sizeof(layers[0]); j++) {
+            VibeShortcut shortcut = VibeShortcutMake(special[i], layers[j]);
+            NSEventModifierFlags mask = 0;
+            NSString *equivalent = VibeShortcutKeyEquivalent(shortcut, &mask);
+            XCTAssertNotNil(equivalent, @"key %u", special[i]);
+            XCTAssertEqual(VibeShortcutForKeyEquivalent(equivalent, mask), shortcut, @"key %u", special[i]);
+        }
+    }
+    // No key the layout names spells a special key.
+    for (unsigned short keyCode = 0; keyCode < 128; keyCode++) {
+        NSEventModifierFlags mask = 0;
+        NSString *equivalent = VibeShortcutKeyEquivalent(VibeShortcutMake(keyCode, kCmd), &mask);
+        VibeShortcut back = equivalent ? VibeShortcutForKeyEquivalent(equivalent, mask) : kVibeShortcutNone;
+        if (back != kVibeShortcutNone && !VibeShortcutIsCharacter(back)) {
+            XCTAssertEqual(back, VibeShortcutMake(keyCode, kCmd), @"key %u", keyCode);
+        }
+    }
+}
+
+- (void)testAMenuItemsEquivalentTurnsBackIntoAShortcut {
+    XCTAssertEqual(VibeShortcutForKeyEquivalent(@"", kCmd), kVibeShortcutNone);
+    XCTAssertEqual(VibeShortcutForKeyEquivalent(@"o", kCmd), VibeShortcutMakeCharacter('o', kCmd));
+    XCTAssertEqual(VibeShortcutForKeyEquivalent(@"O", kCmd),
+                   VibeShortcutMakeCharacter('o', kCmd | NSEventModifierFlagShift), @"a capital carries Shift");
+    XCTAssertEqual(VibeShortcutForKeyEquivalent(@"+", kCmd), VibeShortcutMakeCharacter('+', kCmd));
+    unichar delete = NSDeleteCharacter;
+    XCTAssertEqual(VibeShortcutForKeyEquivalent([NSString stringWithCharacters:&delete length:1], kCmd),
+                   VibeShortcutMake(kVibeKeyCodeDelete, kCmd));
+    XCTAssertEqual(VibeShortcutForKeyEquivalent(@"o", kCmd | NSEventModifierFlagCapsLock),
+                   VibeShortcutMakeCharacter('o', kCmd), @"only the four modifiers count");
+}
+
+- (void)testAKeyAndTheCharacterItTypesSpellTheSameInAMenu {
+    XCTAssertNil(VibeShortcutMenuSpelling(kVibeShortcutNone));
+    XCTAssertNil(VibeShortcutMenuSpelling(VibeShortcutMake(200, kCmd)));
+    unichar character = VibeShortcutCharacterForKeyCode(0, kCmd);
+    XCTAssertEqualObjects(VibeShortcutMenuSpelling(VibeShortcutMake(0, kCmd)),
+                          VibeShortcutMenuSpelling(VibeShortcutMakeCharacter(character, kCmd)));
+    XCTAssertEqualObjects(VibeShortcutMenuSpelling(VibeShortcutMake(0, kCmd | NSEventModifierFlagShift)),
+                          VibeShortcutMenuSpelling(VibeShortcutMakeCharacter(character, kCmd | NSEventModifierFlagShift)));
+    XCTAssertNotEqualObjects(VibeShortcutMenuSpelling(VibeShortcutMake(0, kCmd)),
+                             VibeShortcutMenuSpelling(VibeShortcutMake(0, kCmd | NSEventModifierFlagShift)));
+    XCTAssertEqualObjects(VibeShortcutMenuSpelling(VibeShortcutMake(kVibeKeyCodeKeypadEnter, 0)),
+                          VibeShortcutMenuSpelling(VibeShortcutMake(kVibeKeyCodeReturn, 0)), @"Enter is Return");
+}
+
 @end

@@ -29,19 +29,18 @@ void VibeShortcutForgetLayout(void) {
     [sLayoutCharacters removeAllObjects];
 }
 
-// The keys a layout does not name: key equivalent, then the label drawn for
-// it. Space's label is the app's, so it is read per call.
-static NSArray<NSString *> *SpecialKey(unsigned short keyCode) {
-    if (keyCode == 49) {
-        return @[@" ", sSpaceName];
-    }
+// The keys a layout does not name, by key code: key equivalent, then the
+// label drawn for it. Space's label is the app's, so SpecialKey reads it per
+// call.
+static NSDictionary<NSNumber *, NSArray<NSString *> *> *SpecialKeys(void) {
     static NSDictionary<NSNumber *, NSArray<NSString *> *> *special;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSString *(^fn)(unichar) = ^NSString *(unichar c) { return [NSString stringWithCharacters:&c length:1]; };
         NSMutableDictionary *keys = [@{
             @(kVibeKeyCodeReturn): @[@"\r", @"↩"],
-            @48:  @[@"\t", @"⇥"],
+            @(kVibeKeyCodeTab):    @[@"\t", @"⇥"],
+            @(kVibeKeyCodeSpace):  @[@" ", @""],
             // NSBackspaceCharacter draws as ⌫; a real press delivers
             // NSDeleteCharacter, which the monitor matches by key code.
             @(kVibeKeyCodeDelete): @[fn(NSBackspaceCharacter), @"⌫"],
@@ -65,7 +64,33 @@ static NSArray<NSString *> *SpecialKey(unsigned short keyCode) {
         }
         special = keys;
     });
-    return special[@(keyCode)];
+    return special;
+}
+
+static NSArray<NSString *> *_Nullable SpecialKey(unsigned short keyCode) {
+    if (keyCode == kVibeKeyCodeSpace) {
+        return @[@" ", sSpaceName];
+    }
+    return SpecialKeys()[@(keyCode)];
+}
+
+// The special key whose equivalent is character, kVibeShortcutKeyMask for
+// none.
+static unsigned short SpecialKeyCode(unichar character) {
+    static NSDictionary<NSString *, NSNumber *> *codes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableDictionary<NSString *, NSNumber *> *reverse = [NSMutableDictionary dictionary];
+        [SpecialKeys() enumerateKeysAndObjectsUsingBlock:^(NSNumber *keyCode, NSArray<NSString *> *key, BOOL *stop) {
+            reverse[key[0]] = keyCode;
+        }];
+        // A menu may spell Delete as the character a press delivers.
+        unichar delete = NSDeleteCharacter;
+        reverse[[NSString stringWithCharacters:&delete length:1]] = @(kVibeKeyCodeDelete);
+        codes = reverse;
+    });
+    NSNumber *keyCode = codes[[NSString stringWithCharacters:&character length:1]];
+    return keyCode ? keyCode.unsignedShortValue : kVibeShortcutKeyMask;
 }
 
 // Built from the ASCII-capable layout so a Greek or Cyrillic user's menus show
@@ -197,4 +222,27 @@ NSString *_Nullable VibeShortcutKeyEquivalent(VibeShortcut shortcut, NSEventModi
     }
     *mask = modifiers;
     return equivalent;
+}
+
+VibeShortcut VibeShortcutForKeyEquivalent(NSString *keyEquivalent, NSEventModifierFlags mask) {
+    if (keyEquivalent.length != 1) {
+        return kVibeShortcutNone;
+    }
+    unichar character = [keyEquivalent characterAtIndex:0];
+    unsigned short keyCode = SpecialKeyCode(character);
+    if (keyCode != kVibeShortcutKeyMask) {
+        return VibeShortcutMake(keyCode, mask);
+    }
+    // A capital is its letter with Shift, per the NSMenuItem contract.
+    NSString *lower = keyEquivalent.lowercaseString;
+    if (lower.length == 1 && ![lower isEqualToString:keyEquivalent]) {
+        return VibeShortcutMakeCharacter([lower characterAtIndex:0], mask | NSEventModifierFlagShift);
+    }
+    return VibeShortcutMakeCharacter(character, mask);
+}
+
+NSString *_Nullable VibeShortcutMenuSpelling(VibeShortcut shortcut) {
+    NSEventModifierFlags mask = 0;
+    NSString *equivalent = VibeShortcutKeyEquivalent(VibeShortcutCanonical(shortcut), &mask);
+    return equivalent ? [NSString stringWithFormat:@"%lx %@", (unsigned long)mask, equivalent] : nil;
 }

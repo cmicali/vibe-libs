@@ -8,19 +8,30 @@ Remappable shortcuts for a mac app. It depends on `ui/SettingsWindow`, whose pan
 
 - **A key-code shortcut names the physical key**, so a bare default stays put under AZERTY or Greek. Recording always yields one.
 - **A character shortcut follows the letter**, as every Mac app's Command shortcuts do. It is only ever a default, and never stored (`VibeShortcutIsStorable`).
-- Keypad Enter is Return and Forward Delete is Delete (`VibeShortcutCanonicalKeyCode`). A binding of either answers both.
+- Keypad Enter is Return and Forward Delete is Delete (`VibeShortcutCanonicalKeyCode`, or `VibeShortcutCanonical` for a whole shortcut). A binding of either answers both.
 
 **The command table is the app's.** It is an array of `@[identifier, @(default)]` pairs, in the order a hand-edited duplicate resolves. Every function that takes `commands` takes that table. The first command wins, in the menu bar as in a key monitor. So an app adds a new default last. An override stored on its key before the default existed then keeps the key.
 
 **The overrides are sparse over the defaults.** `VibeShortcutStoredValue` answers nil at a command's default. `VibeShortcutOverridesByAssigning` gives a command a shortcut, takes it from the command that held it, and names that one, so a recording wins rather than being refused.
 
-**Some keys are reserved and never assignable** (`VibeShortcutIsReserved`): the fixed system shortcuts, matched by character, the arrows with any modifier, Escape, and every keypad key but Enter. An override stored before its key was reserved stays stored and does nothing. A key monitor passes the press on, and `VibeShortcutForMenuItem` gives the item no equivalent.
+**Some keys are reserved and never assignable.** The default rule (`VibeShortcutIsReserved`) reserves the fixed system shortcuts, matched by character, the arrows with any modifier, Escape, and every keypad key but Enter. An override stored before its key was reserved stays stored and does nothing. A key monitor passes the press on, and `VibeShortcutForMenuItem` gives the item no equivalent.
+
+## An app's own rules
+
+**An app with other rules passes a `VibeShortcutRules`** to the `UnderRules` variant of each table helper: `VibeShortcutOwnerUnderRules`, `VibeShortcutForMenuItemUnderRules`, `VibeShortcutCommandForPressUnderRules`, and `VibeShortcutOverridesByAssigningUnderRules`. Each plain helper passes `kVibeShortcutDefaultRules`, so its behavior is unchanged. The rules hold function pointers, not blocks, so the header stays usable from C++.
+
+- **`isReserved` replaces the default reserved rule.** It takes the canonical key code, the key's character, and the four modifiers. NULL keeps `VibeShortcutIsReserved`. An app whose defaults are ⌘ and an arrow frees those, and calls the default rule for the rest. `VibeShortcutIsReservedUnderRules` asks the rules' rule.
+- **`overridesOutrankOrder` gives a key two commands hold to the one with a stored override**, then to table order. So a default added in a later version never takes a key the user gave away. A recording then clears the key from every other command that holds it, since a later holder would otherwise surface.
+- **`spelling` makes two shortcuts one key when a menu spells them the same**, so a character default ⌘+ and a recorded ⇧⌘= collide. NULL compares encodings alone. `VibeShortcutMenuSpelling` in `ShortcutLayout` is the layout's spelling, so `ShortcutRules.h` stays free of the layout. With a spelling, a recording that spells a command's own default stores nothing.
 
 `ShortcutRules.h` is header-only and Carbon-free, so tests of an app's command table compile it with no layout. The caller looks up a key's character under the layout and passes it in.
 
 ## The layout
 
 `ShortcutLayout` reads the current ASCII-capable layout with TIS and `UCKeyTranslate`, once per modifier layer, on main. It answers the character a key types (`VibeShortcutCharacterForKeyCode`), the key that types a character (`VibeShortcutKeyCodeForCharacter`), the key's name (`VibeShortcutKeyLabel`), the display string (`VibeShortcutDisplayString`), and the key equivalent a menu item takes (`VibeShortcutKeyEquivalent`).
+
+- **`VibeShortcutForKeyEquivalent` turns a menu item's key equivalent and mask back into a shortcut**, None for an empty one. A special key's equivalent gives its key-code shortcut, from the same table `VibeShortcutKeyEquivalent` reads. A capital gives its lowercase character with Shift added, per the `NSMenuItem` contract. Any other character gives a character shortcut. So an app can read the defaults off a menu it built.
+- **`VibeShortcutMenuSpelling` is a shortcut's equivalent and mask as one string**, nil for None or a key no layout names. It is the `spelling` an app passes in its rules.
 
 - **An app pushes four names once, before the first label** (`VibeShortcutSetKeyNames`): the space bar's, the keypad's form, a key no layout names, and an unassigned shortcut's. Until then they are empty. The arrows, Return, Tab, Delete, Escape, the paging keys, and the F keys are named by glyph or by number.
 - **An app calls `VibeShortcutForgetLayout` on `kTISNotifySelectedKeyboardInputSourceChanged`**, before it redraws a shortcut. The piece keeps no observer of its own, so the app's redraw cannot run before the forget.
@@ -47,4 +58,4 @@ The pane's fifteen strings are properties, each set before the view loads.
 
 ## Tests
 
-`Tests/ui/Shortcuts/Mac/` holds the encoding's tests over a table of their own, the layout's, and the pane's. They run on macOS. The layout tests ask the runner's layout what a key types rather than naming a letter, so any ASCII-capable layout passes. The pane's tests host it in a window that is never shown. A local monitor sees only events `NSApp` sends, so they create `NSApp` and send it the key events a press would. Creating a window needs a window server session, which a logged-in Mac and CI's macOS runners have.
+`Tests/ui/Shortcuts/Mac/` holds the encoding's tests over a table of their own, an app's own rules over a second table, the layout's, and the pane's. They run on macOS. The layout tests ask the runner's layout what a key types rather than naming a letter, so any ASCII-capable layout passes. The pane's tests host it in a window that is never shown. A local monitor sees only events `NSApp` sends, so they create `NSApp` and send it the key events a press would. Creating a window needs a window server session, which a logged-in Mac and CI's macOS runners have.
