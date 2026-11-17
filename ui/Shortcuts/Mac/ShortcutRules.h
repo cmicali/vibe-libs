@@ -162,22 +162,19 @@ static inline BOOL VibeShortcutIsReserved(unsigned short keyCode, unichar charac
     return NO;
 }
 
+// An app's own reserved rule, in place of VibeShortcutIsReserved. The key
+// code arrives canonical and the modifiers masked to the four flags.
+typedef BOOL (*VibeShortcutReservedRule)(unsigned short keyCode, unichar character, NSEventModifierFlags modifiers);
+// The key a menu would draw for a shortcut, nil for none. Two spellings may
+// match only when the modifiers differ by Shift alone, since a menu folds
+// Shift into the equivalent and nothing else; other pairs are never asked.
+typedef NSString *_Nullable (*VibeShortcutSpellingRule)(VibeShortcut shortcut);
 // An app's own rules for the table helpers below. The plain helpers take
 // kVibeShortcutDefaultRules.
-//
-// isReserved replaces VibeShortcutIsReserved, with its arguments; NULL keeps
-// it. overridesOutrankOrder gives a key two commands hold to one with a
-// stored override before table order, so a default added later never takes
-// a key the user gave away. spelling names the key a menu would draw for a
-// shortcut, nil for none, so two shortcuts it spells alike are one key, as a
-// character default ⌘+ and a recorded ⇧⌘= are. NULL compares encodings
-// alone. ShortcutLayout's VibeShortcutMenuSpelling is the layout's.
-typedef BOOL (*VibeShortcutReservedRule)(unsigned short keyCode, unichar character, NSEventModifierFlags modifiers);
-typedef NSString *_Nullable (*VibeShortcutSpellingRule)(VibeShortcut shortcut);
 typedef struct {
-    VibeShortcutReservedRule _Nullable isReserved;
-    BOOL overridesOutrankOrder;
-    VibeShortcutSpellingRule _Nullable spelling;
+    VibeShortcutReservedRule _Nullable isReserved;  // NULL: VibeShortcutIsReserved
+    BOOL overridesOutrankOrder;                     // a stored override beats table order
+    VibeShortcutSpellingRule _Nullable spelling;    // NULL: same key only by encoding
 } VibeShortcutRules;
 
 static const VibeShortcutRules kVibeShortcutDefaultRules = {NULL, NO, NULL};
@@ -192,14 +189,15 @@ static inline BOOL VibeShortcutIsReservedUnderRules(VibeShortcutRules rules, uns
 // What a recording comes to: stored, or refused before anything is stored.
 typedef NS_ENUM(NSInteger, VibeShortcutAssignment) {
     VibeShortcutAssignmentStored,
-    VibeShortcutAssignmentReserved,   // VibeShortcutIsReserved
+    VibeShortcutAssignmentReserved,   // the rules' reserved rule
     VibeShortcutAssignmentUnusable,   // a key no layout names, so no menu could draw it
 };
 
 // The command a key performs, or a recorded one would collide with, nil for
 // none: a key-code shortcut matched by physical key, a character default by
 // character (the key's lowercase character, 0 when unknown), each with the
-// exact modifier set, or by the rules' spelling. The rules' order resolves a
+// exact modifier set, or by the rules' spelling. A character shortcut passed
+// in matches by its own character alone. The rules' order resolves a
 // duplicate.
 static inline NSString *_Nullable VibeShortcutOwnerUnderRules(NSArray<NSArray *> *commands, VibeShortcut shortcut,
         unichar character, NSDictionary *_Nullable overrides, NSString *_Nullable excluding,
@@ -207,44 +205,49 @@ static inline NSString *_Nullable VibeShortcutOwnerUnderRules(NSArray<NSArray *>
     if (shortcut == kVibeShortcutNone) {
         return nil;
     }
-    unsigned short keyCode = VibeShortcutCanonicalKeyCode(VibeShortcutKey(shortcut));
     NSEventModifierFlags modifiers = VibeShortcutModifiers(shortcut);
+    unsigned short keyCode = kVibeShortcutKeyMask;
+    if (VibeShortcutIsCharacter(shortcut)) {
+        character = VibeShortcutKey(shortcut);
+    } else {
+        keyCode = VibeShortcutCanonicalKeyCode(VibeShortcutKey(shortcut));
+    }
     NSString *spelled = nil;
     if (rules.spelling) {
         // A character default no key types spells as its character.
-        spelled = rules.spelling(VibeShortcutMake(keyCode, modifiers));
+        spelled = keyCode != kVibeShortcutKeyMask ? rules.spelling(VibeShortcutMake(keyCode, modifiers)) : nil;
         if (!spelled && character != 0) {
             spelled = rules.spelling(VibeShortcutMakeCharacter(character, modifiers));
         }
     }
-    for (int pass = rules.overridesOutrankOrder ? 0 : 1; pass < 2; pass++) {
-        for (NSArray *entry in commands) {
-            NSString *identifier = entry[0];
-            if (excluding && [identifier isEqualToString:excluding]) {
-                continue;
-            }
-            id stored = overrides[identifier];
-            BOOL overridden = VibeShortcutIsStorable(stored);
-            // Pass 0 takes the overridden commands alone, pass 1 the rest.
-            if (pass == 0 ? !overridden : rules.overridesOutrankOrder && overridden) {
-                continue;
-            }
-            VibeShortcut owned = overridden ? [stored unsignedIntegerValue] : [entry[1] unsignedIntegerValue];
-            if (owned == kVibeShortcutNone) {
-                continue;
-            }
-            BOOL same = VibeShortcutModifiers(owned) == modifiers
-                    && (VibeShortcutIsCharacter(owned) ? character != 0 && VibeShortcutKey(owned) == character
-                                                       : VibeShortcutKey(owned) == keyCode);
-            if (!same && spelled) {
-                same = [rules.spelling(owned) isEqualToString:spelled];
-            }
-            if (same) {
-                return identifier;
-            }
+    NSString *firstAtDefault = nil;
+    for (NSArray *entry in commands) {
+        NSString *identifier = entry[0];
+        if (excluding && [identifier isEqualToString:excluding]) {
+            continue;
         }
+        id stored = overrides[identifier];
+        BOOL overridden = VibeShortcutIsStorable(stored);
+        VibeShortcut owned = overridden ? [stored unsignedIntegerValue] : [entry[1] unsignedIntegerValue];
+        if (owned == kVibeShortcutNone) {
+            continue;
+        }
+        NSEventModifierFlags ownedModifiers = VibeShortcutModifiers(owned);
+        BOOL same = ownedModifiers == modifiers
+                && (VibeShortcutIsCharacter(owned) ? character != 0 && VibeShortcutKey(owned) == character
+                                                   : VibeShortcutKey(owned) == keyCode);
+        if (!same && spelled && ((ownedModifiers ^ modifiers) & ~NSEventModifierFlagShift) == 0) {
+            same = [rules.spelling(owned) isEqualToString:spelled];
+        }
+        if (!same) {
+            continue;
+        }
+        if (!rules.overridesOutrankOrder || overridden) {
+            return identifier;
+        }
+        firstAtDefault = firstAtDefault ?: identifier;
     }
-    return nil;
+    return firstAtDefault;
 }
 
 // Under the default rules: a hand-edited duplicate resolves in table order.
@@ -320,7 +323,8 @@ static inline NSNumber *_Nullable VibeShortcutStoredValue(NSArray<NSArray *> *co
 // The overrides after giving identifier shortcut (None clears it). A command
 // that held the shortcut loses it and is named in *loser; the recording
 // wins rather than being refused. The caller has already refused a reserved
-// shortcut. An identifier that is not in the table changes nothing.
+// shortcut. An identifier that is not in the table changes nothing. A
+// recording is a key-code shortcut or None, never a character shortcut.
 // When overrides outrank table order, every other command that holds the
 // shortcut loses it, since a later holder would otherwise surface; *loser
 // names the one that carried it. With a spelling, a recording a menu spells

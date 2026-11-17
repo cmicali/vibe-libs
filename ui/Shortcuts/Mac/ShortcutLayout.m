@@ -30,8 +30,8 @@ void VibeShortcutForgetLayout(void) {
 }
 
 // The keys a layout does not name, by key code: key equivalent, then the
-// label drawn for it. Space's label is the app's, so SpecialKey reads it per
-// call.
+// label drawn for it. Space's label is the app's, so SpecialKey swaps it in
+// per call.
 static NSDictionary<NSNumber *, NSArray<NSString *> *> *SpecialKeys(void) {
     static NSDictionary<NSNumber *, NSArray<NSString *> *> *special;
     static dispatch_once_t once;
@@ -68,10 +68,8 @@ static NSDictionary<NSNumber *, NSArray<NSString *> *> *SpecialKeys(void) {
 }
 
 static NSArray<NSString *> *_Nullable SpecialKey(unsigned short keyCode) {
-    if (keyCode == kVibeKeyCodeSpace) {
-        return @[@" ", sSpaceName];
-    }
-    return SpecialKeys()[@(keyCode)];
+    NSArray<NSString *> *key = SpecialKeys()[@(keyCode)];
+    return keyCode == kVibeKeyCodeSpace ? @[key[0], sSpaceName] : key;
 }
 
 // The special key whose equivalent is character, kVibeShortcutKeyMask for
@@ -84,9 +82,16 @@ static unsigned short SpecialKeyCode(unichar character) {
         [SpecialKeys() enumerateKeysAndObjectsUsingBlock:^(NSNumber *keyCode, NSArray<NSString *> *key, BOOL *stop) {
             reverse[key[0]] = keyCode;
         }];
-        // A menu may spell Delete as the character a press delivers.
-        unichar delete = NSDeleteCharacter;
-        reverse[[NSString stringWithCharacters:&delete length:1]] = @(kVibeKeyCodeDelete);
+        // A menu may spell a key as a press delivers it, and Enter and
+        // Forward Delete fold as VibeShortcutCanonicalKeyCode folds them.
+        const unichar folds[][2] = {
+            {NSDeleteCharacter, kVibeKeyCodeDelete},
+            {NSDeleteFunctionKey, kVibeKeyCodeDelete},
+            {NSEnterCharacter, kVibeKeyCodeReturn},
+        };
+        for (size_t i = 0; i < sizeof(folds) / sizeof(folds[0]); i++) {
+            reverse[[NSString stringWithCharacters:&folds[i][0] length:1]] = @(folds[i][1]);
+        }
         codes = reverse;
     });
     NSNumber *keyCode = codes[[NSString stringWithCharacters:&character length:1]];
@@ -197,8 +202,9 @@ NSString *_Nullable VibeShortcutKeyEquivalent(VibeShortcut shortcut, NSEventModi
     }
     unsigned short key = VibeShortcutKey(shortcut);
     NSEventModifierFlags modifiers = VibeShortcutModifiers(shortcut);
+    NSArray<NSString *> *special = VibeShortcutIsCharacter(shortcut) ? nil : SpecialKey(key);
     NSString *equivalent = VibeShortcutIsCharacter(shortcut) ? [NSString stringWithCharacters:&key length:1]
-            : SpecialKey(key)[0] ?: LayoutCharacter(key, modifiers);
+            : special[0] ?: LayoutCharacter(key, modifiers);
     if (!equivalent) {
         return nil;
     }
@@ -212,7 +218,7 @@ NSString *_Nullable VibeShortcutKeyEquivalent(VibeShortcut shortcut, NSEventModi
         if (![equivalent.uppercaseString isEqualToString:equivalent.lowercaseString]) {
             shifted = equivalent.uppercaseString;
         }
-        else if (!VibeShortcutIsCharacter(shortcut) && !SpecialKey(key)) {
+        else if (!VibeShortcutIsCharacter(shortcut) && !special) {
             shifted = LayoutCharacters(shiftKey >> 8)[@(key)];
         }
         if (shifted && ![shifted isEqualToString:equivalent]) {

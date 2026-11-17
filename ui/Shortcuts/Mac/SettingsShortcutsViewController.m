@@ -263,7 +263,7 @@ static const CGFloat kShortcutColumnWidth = 120;
         [self refreshControls];
         return;
     }
-    VibeShortcut shortcut = VibeShortcutMake(VibeShortcutCanonicalKeyCode(event.keyCode), modifiers);
+    VibeShortcut shortcut = VibeShortcutCanonical(VibeShortcutMake(event.keyCode, modifiers));
     __block NSString *loser = nil;
     __block VibeShortcutAssignment assignment;
     [self undoablyWriteShortcuts:^{

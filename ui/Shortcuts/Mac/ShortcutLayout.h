@@ -44,14 +44,15 @@ NSString *VibeShortcutDisplayString(VibeShortcut shortcut);
 NSString *_Nullable VibeShortcutKeyEquivalent(VibeShortcut shortcut, NSEventModifierFlags *mask);
 
 // The shortcut a menu item's key equivalent and modifier mask spell, None for
-// an empty one. A special key's equivalent gives its key-code shortcut, a
+// an empty or multi-character one. A special key's equivalent gives its key-code shortcut, a
 // capital its lowercase character with Shift added, per the NSMenuItem
 // contract, and any other character a character shortcut.
 VibeShortcut VibeShortcutForKeyEquivalent(NSString *keyEquivalent, NSEventModifierFlags mask);
 
 // The key equivalent and mask a menu draws for shortcut, as one string, nil
 // for None or a key the layout cannot name. Two shortcuts with one spelling
-// are one press. It is the layout's VibeShortcutRules spelling.
+// are one press. It is the layout's VibeShortcutRules spelling, and folds only
+// Shift into the equivalent.
 NSString *_Nullable VibeShortcutMenuSpelling(VibeShortcut shortcut);
 
 NS_ASSUME_NONNULL_END

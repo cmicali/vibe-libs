@@ -20,7 +20,7 @@ static const NSEventModifierFlags kOption = NSEventModifierFlagOption;
 // by key code, Command defaults by character, and one command with none.
 static NSArray<NSArray *> *Table(void) {
     return @[
-        @[@"play",      @(VibeShortcutMake(49, 0))],   // Space
+        @[@"play",      @(VibeShortcutMake(kVibeKeyCodeSpace, 0))],   // Space
         @[@"select",    @(VibeShortcutMake(kVibeKeyCodeReturn, 0))],
         @[@"next",      @(VibeShortcutMake(45, 0))],   // N
         @[@"shuffle",   @(VibeShortcutMakeCharacter('s', kCmd | kOption))],
@@ -55,7 +55,7 @@ static VibeShortcut MenuItemForKey(NSString *identifier, VibeShortcut shortcut, 
 - (void)testBareKeysMatchByPhysicalKeyWithTheirExactModifiers {
     XCTAssertEqualObjects(CommandForKey(0, 0, nil), @"skip");
     XCTAssertEqualObjects(CommandForKey(12, 0, nil), @"low_kill");
-    XCTAssertEqualObjects(CommandForKey(49, 0, nil), @"play");
+    XCTAssertEqualObjects(CommandForKey(kVibeKeyCodeSpace, 0, nil), @"play");
     // Shift, or any modifier, is a different shortcut.
     XCTAssertNil(CommandForKey(0, kShift, nil));
     // Caps Lock and the function flag are not part of a shortcut.
@@ -206,6 +206,14 @@ static VibeShortcut MenuItemForKey(NSString *identifier, VibeShortcut shortcut, 
     XCTAssertNil(VibeShortcutOwner(Table(), VibeShortcutMake(31, kCmd), 0, nil, nil));
 }
 
+- (void)testACharacterShortcutPassedInMatchesByItsCharacterAlone {
+    // F12's key code is the code of 'o', so a key-code read would give pin.
+    NSDictionary *overrides = @{@"pin": @(VibeShortcutMake(111, kCmd))};
+    XCTAssertEqualObjects(VibeShortcutOwner(Table(), VibeShortcutMakeCharacter('o', kCmd), 0, overrides, nil), @"open");
+    XCTAssertEqualObjects(VibeShortcutOwner(Table(), VibeShortcutMake(111, kCmd), 0, overrides, nil), @"pin");
+    XCTAssertNil(VibeShortcutOwner(Table(), VibeShortcutMakeCharacter('k', kCmd), 0, overrides, nil));
+}
+
 - (void)testOnlyAKeyCodeWithModifiersOrNoneIsStorable {
     XCTAssertTrue(VibeShortcutIsStorable(@(kVibeShortcutNone)));
     XCTAssertTrue(VibeShortcutIsStorable(@(VibeShortcutMake(40, kCmd | kShift | kOption | NSEventModifierFlagControl))));
@@ -247,11 +255,11 @@ static VibeShortcut MenuItemForKey(NSString *identifier, VibeShortcut shortcut, 
 }
 
 - (void)testADuplicateResolvesToTheFirstCommandInTableOrder {
-    NSDictionary *stored = @{@"pitch": @(VibeShortcutMake(49, 0))}; // Space, as play's default
-    XCTAssertEqualObjects(CommandForKey(49, 0, stored), @"play");
+    NSDictionary *stored = @{@"pitch": @(VibeShortcutMake(kVibeKeyCodeSpace, 0))}; // Space, as play's default
+    XCTAssertEqualObjects(CommandForKey(kVibeKeyCodeSpace, 0, stored), @"play");
     // The menu bar agrees: only play's item carries Space.
-    XCTAssertEqual(MenuItemForKey(@"play", VibeShortcutMake(49, 0), ' ', stored), VibeShortcutMake(49, 0));
-    XCTAssertEqual(MenuItemForKey(@"pitch", VibeShortcutMake(49, 0), ' ', stored), kVibeShortcutNone);
+    XCTAssertEqual(MenuItemForKey(@"play", VibeShortcutMake(kVibeKeyCodeSpace, 0), ' ', stored), VibeShortcutMake(kVibeKeyCodeSpace, 0));
+    XCTAssertEqual(MenuItemForKey(@"pitch", VibeShortcutMake(kVibeKeyCodeSpace, 0), ' ', stored), kVibeShortcutNone);
 }
 
 - (void)testCanonicalFoldsAKeyCodeAndLeavesTheRest {
