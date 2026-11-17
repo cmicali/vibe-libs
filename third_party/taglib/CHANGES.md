@@ -27,6 +27,7 @@ On 2026-10-03, `5341fe88` replaced the files with 2.3.2's and re-applied the sam
 | 2025-06-08 | `toolkit/tstring.cpp` | `#include <utf8.h>` became `#include "utf8-cpp.checked.h"`, the renamed UTF8-CPP header beside it. Upstream finds `<utf8.h>` in a submodule, which this copy does not carry (taglib-pod `7358764`). The same edit was first made to TagLib 1.12 on 2021-08-22 (taglib-pod `d14a312`). |
 | 2026-10-03 | the three files above | The update to 2.3.2 re-applied all three edits unchanged (`5341fe88`). |
 | 2026-11-11 | the three files above | Each gained a one-line comment above its license header that points to this record. |
+| 2026-11-17 | `riff/wav/infotag.cpp` | Upstream `f9efbc7` (TagLib #1454), not yet released. An INFO chunk header cut short by the tag's end no longer makes a field. Its size check wrapped below zero, so up to 7 trailing bytes read as an empty field. |
 
 ## Files added around TagLib
 
