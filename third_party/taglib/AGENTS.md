@@ -25,7 +25,7 @@ Its files include each other by name. So the template searches every directory t
 
 ## Updating
 
-Re-copy the same subset, re-apply the four edits and the comments that name the record, and let the linker report anything new. Then give `CHANGES.md` the new version and a dated line for the update. 2.3 added the MP4 chapter and STEM files, which `MP4::File` now references. Re-count the files that carry both license notices, below. Then run this repo's `make test`, whose Tags tests detect each format through it. Then run Vibe's `make test-audio`, whose tag tests and fuzz family read every fixture through it.
+Re-copy the same subset, re-apply the four edits and the comments that name the record, and re-apply any cherry-pick `CHANGES.md` lists that the release does not carry, and let the linker report anything new. Then give `CHANGES.md` the new version and a dated line for the update. 2.3 added the MP4 chapter and STEM files, which `MP4::File` now references. Re-count the files that carry both license notices, below. Then run this repo's `make test`, whose Tags tests detect each format through it. Then run Vibe's `make test-audio`, whose tag tests and fuzz family read every fixture through it.
 
 ## License
 

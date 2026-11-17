@@ -36,7 +36,7 @@ License text: <https://www.mozilla.org/MPL/1.1/>
 MPL 1.1 §3.6 requires the license text to accompany the distribution. The full
 text is vendored at `third_party/taglib/LICENSE.MPL`.
 
-vibe-libs modifies three of TagLib's files. MPL 1.1 §3.3 asks for a record of
+vibe-libs modifies eleven of TagLib's files, with three edits of its own and seven upstream fixes that no release carries yet. MPL 1.1 §3.3 asks for a record of
 the changes and their dates. It is `third_party/taglib/CHANGES.md`, and each
 modified file names it at its top.
 

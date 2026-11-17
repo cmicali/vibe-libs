@@ -7,6 +7,7 @@ This is the dated record of every change made to the TagLib files vendored here.
 - **Version:** TagLib 2.3.2, as `toolkit/taglib.h` says.
 - **Source:** the `taglib/` directory of tag `v2.3.2` of <https://github.com/taglib/taglib>, commit `deadc2990767dfbda0701e0ab35fdeea653db08f`.
 - **Subset:** only the files `AGENTS.md` lists. Every other upstream file is left out, unchanged.
+- **Cherry-picks:** seven later upstream commits, which no release carried on 2026-11-17. Each is a dated row below that names its commit. A release that carries them replaces them.
 
 On 2026-11-11, every vendored file was compared byte for byte with that tag. Each of TagLib's own files matches, except the three listed below. The files added around TagLib, also listed below, have no upstream copy in that directory.
 
