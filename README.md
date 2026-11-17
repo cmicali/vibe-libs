@@ -11,14 +11,14 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | Piece | What it holds |
 | --- | --- |
 | `core/Common` | Logging, diagnostics, path and file helpers, file identity, the disk key, and work lanes. |
-| `core/Graphics` | Image, color, and font helpers, and the typography slots. |
+| `core/Graphics` | Image, color, and font helpers, the typography slots, and the Dock tile. |
 | `files/FileLoading` | Local, iCloud, and network-share files, read even while they download, and a fake cloud for tests. |
 | `files/DiskCache` | A bounded disk cache. |
 | `files/HTTP` | Ranged HTTP transfers. |
 | `files/RemoteFiles` | A local placeholder for a file on a server, fetched by range. |
 | `files/ShareLinks` | The rules for opening a web link, share-link rewrites, iCloud Drive's lookup, and a fake web server. |
 | `files/SandboxAccess` | A sandboxed mac app's folder grants, kept as security-scoped bookmarks, with the panel that asks for one. macOS only. |
-| `audio/AudioTypes` | The playable-item protocol, the CUE window math, the musical key, format names, and playable extensions. |
+| `audio/AudioTypes` | The playable-item protocol, the CUE window math, the musical key and its color, format names, and playable extensions. |
 | `audio/DSP` | Varispeed, fades, and the resampler. |
 | `audio/Analysis` | Tempo and key detection. |
 | `audio/OutputDevices` | The mac's output devices and the iOS audio session. |

@@ -1,6 +1,6 @@
 # core/Graphics
 
-Images, colors, and type for an app on either platform. It depends on nothing. It holds the platform aliases, the bounded image decode, the hex and blend colors, the dominant color, the OKLCH clamp, the dark-mode helpers, the blur, and the typography table. It came from Vibe.
+Images, colors, and type for an app on either platform. It depends on nothing. It holds the platform aliases, the bounded image decode, the hex and blend colors, the dominant color, the OKLCH clamp, the dark-mode helpers, the blur, the typography table, and the Dock tile. It came from Vibe.
 
 ## Shared
 
@@ -19,6 +19,12 @@ Images, colors, and type for an app on either platform. It depends on nothing. I
 - **`NSColor+OKLCH`** clamps a color's lightness and chroma in OKLCH, because HSB brightness is blind to hue. Out of gamut, chroma gives way, never hue or lightness.
 - **`NSImage+Util`**: `symbolNamed:pointSize:weight:palette:accessibilityDescription:` is the one way to build an SF Symbol with palette colors. The palette is applied over the sized configuration, since a symbol image holds only one. `availableSymbolName:fallback:` answers the factory symbol for a name this macOS lacks. `imageWithSize:drawnBy:` draws into a fresh sRGB bitmap. It also resizes, crops to a square, and forwards `dominantColor`.
 - **`Fonts`** is the typography table. Text is Helvetica Neue, and `fontForNumbers:` has monospaced digits, so changing values do not jitter. Its slots are a face-and-size table keyed by an integer the app chooses. `Fonts` reads no setting. The app pushes each slot before its first read. An empty or uninstalled face falls back to the built-in font, so a slot never returns nil. A named numeric face gains monospaced digits. Vibe's five slots and its theme push stay in Vibe.
+- **`NSDockTile+Util`** is the Dock tile and the app icon behind it. The category is main thread only.
+  - `VibeMacStyleIconFromImage` composes a picture onto the system's icon grid: aspect-fit into the content square, 824 of 1,024 points, clipped to the 185-point corner radius, with a rim light along the edge. The Dock draws a tile's content view edge to edge, so a picture with less margin reads larger than its neighbors. It draws into a bitmap at once, so it runs off main, on an image no other thread draws. A picture that is not square fits whole, so an app that wants it filled crops it first (`squareCroppedImage`).
+  - `setDockIcon:shaped:` composes artwork onto the grid off main, and a later call or a reset wins over a slower composition. Unshaped, it installs the picture as it is, at once. An app that composes its own picture passes NO.
+  - `setAppIcon:shaped:` composes a custom icon synchronously and assigns `NSApp.applicationIconImage`, which the Dock, the app switcher, and the About surfaces read. nil restores the bundle's icon.
+  - `resetToAppIcon` puts the application's icon back in the tile. It reads the icon live, so a custom icon shows through.
+  - **The file's `TRAP:`s are the authority.** One view is installed for good and only its image swaps, since detaching and installing a view again leaks a 256KB Dock tile context per transition. Assigning `applicationIconImage` replaces the tile's content view, so every install attaches ours again. Each custom-icon-then-reset round trip of `applicationIconImage` also leaks one context inside AppKit's setter, so `setAppIcon:shaped:` assigns only on a change. The application's icon is nil until launch ends, and the default image scaling never enlarges.
 
 ## iOS/
 
@@ -28,4 +34,4 @@ Images, colors, and type for an app on either platform. It depends on nothing. I
 
 ## Tests
 
-`Tests/core/Graphics/Mac/` holds the hex color tests and the image tests: the crop, the resize, the lower band's darkness, and the dominant color. They run on macOS. The iOS target builds the shared files and the iOS half. Vibe's tests of its artwork, themes, and waveform colors exercise the rest through Vibe's own classes, so they stay in Vibe. The minimal consumer round-trips a color with alpha through its hex form.
+`Tests/core/Graphics/Mac/` holds the hex color tests, the image tests, and the icon grid's: the crop, the resize, the lower band's darkness, the dominant color, and the composed icon's margin, corners, rim light, and fit. The Dock tile itself needs a running app, so an app's own checks cover it. They run on macOS. The iOS target builds the shared files and the iOS half. Vibe's tests of its artwork, themes, and waveform colors exercise the rest through Vibe's own classes, so they stay in Vibe. The minimal consumer round-trips a color with alpha through its hex form.

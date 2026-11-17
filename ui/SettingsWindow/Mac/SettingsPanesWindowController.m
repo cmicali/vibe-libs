@@ -217,6 +217,17 @@ static const CGFloat kSettingsSidebarWidth = 200;
                          backTitle:(NSString *)backTitle forwardTitle:(NSString *)forwardTitle
                          undoTitle:(NSString *)undoTitle redoTitle:(NSString *)redoTitle
                  searchPlaceholder:(NSString *)searchPlaceholder noResultsText:(NSString *)noResultsText {
+    return [self initWithPaneGroups:paneGroups initialPaneIdentifier:nil
+                          backTitle:backTitle forwardTitle:forwardTitle
+                          undoTitle:undoTitle redoTitle:redoTitle
+                  searchPlaceholder:searchPlaceholder noResultsText:noResultsText];
+}
+
+- (instancetype)initWithPaneGroups:(NSArray<NSArray<NSTabViewItem *> *> *)paneGroups
+             initialPaneIdentifier:(NSString *)initialPaneIdentifier
+                         backTitle:(NSString *)backTitle forwardTitle:(NSString *)forwardTitle
+                         undoTitle:(NSString *)undoTitle redoTitle:(NSString *)redoTitle
+                 searchPlaceholder:(NSString *)searchPlaceholder noResultsText:(NSString *)noResultsText {
     SettingsTabViewController *tabs = [[SettingsTabViewController alloc] init];
     tabs.tabStyle = NSTabViewControllerTabStyleUnspecified;
     // The default crossfade composites two panes' section headers and flashes.
@@ -232,6 +243,14 @@ static const CGFloat kSettingsSidebarWidth = 200;
             [tabs addTabViewItem:item];
         }
     }
+    // Before the window and the history exist, so the window opens on the
+    // pane and the first location recorded is its own.
+    [tabs.tabViewItems enumerateObjectsUsingBlock:^(NSTabViewItem *item, NSUInteger index, BOOL *stop) {
+        if (initialPaneIdentifier && [item.identifier isEqual:initialPaneIdentifier]) {
+            tabs.selectedTabViewItemIndex = (NSInteger)index;
+            *stop = YES;
+        }
+    }];
 
     [SettingsPaneViewController settleSharedSizeForPanes:tabs.childViewControllers];
 
@@ -256,7 +275,7 @@ static const CGFloat kSettingsSidebarWidth = 200;
     contentItem.titlebarSeparatorStyle = NSTitlebarSeparatorStyleNone;
     [split addSplitViewItem:contentItem];
     // The initial selection ran before the split controller existed.
-    split.title = tabs.tabViewItems.firstObject.viewController.title;
+    split.title = tabs.tabViewItems[(NSUInteger)tabs.selectedTabViewItemIndex].viewController.title;
 
     // Short of the titlebar; the tab controller's grow-to-floor pass on first
     // appearance corrects it.
@@ -501,6 +520,14 @@ static SettingsPaneViewController *PaneOfItem(NSTabViewItem *item) {
 - (NSArray<NSString *> *)searchSettingsFor:(NSString *)query {
     _sidebar.searchField.stringValue = query;
     [_sidebar searchChanged:nil];
+    return [_sidebar visiblePaneIdentifiers];
+}
+
+- (NSString *)searchText {
+    return _sidebar.searchField.stringValue;
+}
+
+- (NSArray<NSString *> *)visiblePaneIdentifiers {
     return [_sidebar visiblePaneIdentifiers];
 }
 

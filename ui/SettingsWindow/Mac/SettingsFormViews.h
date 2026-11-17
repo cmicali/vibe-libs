@@ -31,6 +31,9 @@ NS_ASSUME_NONNULL_BEGIN
 // Where a form row's title starts within its card.
 static const CGFloat kSettingsRowInset = 16;
 
+// How far each indent level moves a row's title and caption in.
+static const CGFloat kSettingsRowIndent = 20;
+
 @interface SettingsRowView : NSView
 
 // Use these rather than .enabled: a row whose controls are all disabled dims
@@ -89,10 +92,17 @@ static const CGFloat kSettingsRowInset = 16;
 
 // An empty caption hides the label and recenters the title. Answers whether
 // the row's height changed; the caller remeasures the pane only then.
+// A caption never widens its pane. It wraps in the room between the title's
+// leading edge and the controls, which the row follows on each layout.
 - (BOOL)setCaption:(nullable NSString *)caption;
 // What the row does, then on its own line why it is unavailable or how it
 // settled; a nil detail leaves the description alone.
 - (BOOL)setCaption:(NSString *)caption detail:(nullable NSString *)detail;
+
+// A setting under another: the title sits in by kSettingsRowIndent per
+// level, and the caption stays under it, whether it shows now or later.
+// 0 by default. A row with no title has nothing to move.
+@property (nonatomic) NSInteger indentLevel;
 
 // Set by the section on every row but its first, so a hidden row takes its
 // separator with it.

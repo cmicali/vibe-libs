@@ -32,6 +32,15 @@ NS_ASSUME_NONNULL_BEGIN
                          undoTitle:(NSString *)undoTitle redoTitle:(NSString *)redoTitle
                  searchPlaceholder:(NSString *)searchPlaceholder noResultsText:(NSString *)noResultsText;
 
+// The same, opening on the pane with this identifier. The history starts
+// there, so Back starts disabled. nil, or an identifier no pane has, opens
+// the first pane.
+- (instancetype)initWithPaneGroups:(NSArray<NSArray<NSTabViewItem *> *> *)paneGroups
+             initialPaneIdentifier:(nullable NSString *)initialPaneIdentifier
+                         backTitle:(NSString *)backTitle forwardTitle:(NSString *)forwardTitle
+                         undoTitle:(NSString *)undoTitle redoTitle:(NSString *)redoTitle
+                 searchPlaceholder:(NSString *)searchPlaceholder noResultsText:(NSString *)noResultsText;
+
 - (nullable NSTabViewItem *)tabItemWithIdentifier:(NSString *)identifier;
 @property (readonly, nonatomic, nullable) NSTabViewItem *selectedTabItem;
 
@@ -70,6 +79,11 @@ NS_ASSUME_NONNULL_BEGIN
 // Types query into the sidebar's search field, as a user would; answers the
 // identifiers of the panes left in the sidebar.
 - (NSArray<NSString *> *)searchSettingsFor:(NSString *)query;
+
+// What the sidebar shows now, for a debug walker: the search field's text,
+// and the identifiers of the panes its rows show, in order.
+@property (readonly, nonatomic) NSString *searchText;
+@property (readonly, nonatomic) NSArray<NSString *> *visiblePaneIdentifiers;
 
 @end
 

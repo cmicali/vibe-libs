@@ -1,6 +1,6 @@
 //
 //  NSDockTile+Util.m
-//  Vibe
+//  vibe-libs
 //
 
 #import "NSDockTile+Util.h"
@@ -10,7 +10,7 @@
 // only, so unlocked.
 static NSUInteger VibeDockIconGeneration = 0;
 
-static const CGFloat kVibeDockIconCanvasSize = 512;
+const CGFloat kVibeDockIconCanvasSize = 512;
 
 // TRAP: setting the tile's contentView to nil and installing a view again
 // leaks a dock-tile context per transition. Keep one view installed and swap
@@ -60,7 +60,7 @@ static NSImageView *VibeInstalledDockIconView(void) {
 // The system icon grid: content spans 824 of 1,024 points with a 185-point
 // corner radius. The Dock draws a contentView edge to edge, so anything with
 // less margin reads larger than its neighbors. nil when there is no context.
-static NSImage* CreateMacStyleIconFromImage(NSImage *sourceImage, CGFloat canvasSize) {
+NSImage *_Nullable VibeMacStyleIconFromImage(NSImage *sourceImage, CGFloat canvasSize) {
 
     CGFloat size = canvasSize * (824.0 / 1024.0);
     CGFloat margin = (canvasSize - size) / 2;
@@ -144,11 +144,11 @@ static NSImage* CreateMacStyleIconFromImage(NSImage *sourceImage, CGFloat canvas
     NSImage *imageCopy = [image copy];
     // Keep image composition off the track-start UI path.
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-        NSImage *customIcon = CreateMacStyleIconFromImage(imageCopy, size);
+        NSImage *customIcon = VibeMacStyleIconFromImage(imageCopy, size);
         if (!customIcon) {
             return;
         }
-        run_on_main_thread({
+        dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != VibeDockIconGeneration) {
                 return;
             }
@@ -164,7 +164,7 @@ static NSImage* CreateMacStyleIconFromImage(NSImage *sourceImage, CGFloat canvas
     // Memoized on the source instance: every theme apply re-requests this.
     static NSImage *composedFrom = nil, *composed = nil, *assigned = nil;
     if (image && shaped && image != composedFrom) {
-        composed = CreateMacStyleIconFromImage(image, kVibeDockIconCanvasSize);
+        composed = VibeMacStyleIconFromImage(image, kVibeDockIconCanvasSize);
         composedFrom = image;
     }
     NSImage *icon = !image ? nil : shaped ? composed : image;
