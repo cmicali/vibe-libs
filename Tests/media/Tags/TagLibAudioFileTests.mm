@@ -5,7 +5,7 @@
 //  TagLibAudioFile's detection over the real TagLib: the extension's parser
 //  first, then the content sniff, and FLAC in Ogg refused. The tests write
 //  their own files, with AVFoundation's encoders and an MP3's frames. They
-//  carry no tags, since detection never reads one.
+//  carry no tags, since detection never reads one, except the INFO tests'.
 //
 
 #import <XCTest/XCTest.h>
@@ -139,6 +139,98 @@ static VibeAudioFileFormat Detected(NSURL *url) {
         XCTAssertTrue([bytes writeToURL:url atomically:YES]);
         XCTAssertNil(Detected(url), @"%@", name);
     }
+}
+
+// The MPEG, AIFF, and WAV parsers take another format's bytes as valid, so
+// the extension's parser alone would read a misnamed file with no tags and
+// no audio properties (TagLib #1490).
+- (void)testAnMPEGOrRIFFExtensionChecksTheHeaderFirst {
+    NSDictionary<NSString *, VibeAudioFileFormat> *cases = @{
+            @"flac-as.mp3": VibeAudioFileFormatFLAC,
+            @"m4a-as.mp3": VibeAudioFileFormatMP4,
+            @"wav-as.mp3": VibeAudioFileFormatWAV,
+            @"aiff-as.wav": VibeAudioFileFormatAIFF,
+            @"flac-as.wav": VibeAudioFileFormatFLAC,
+            @"mp3-as.wav": VibeAudioFileFormatMP3,
+            @"wav-as.aif": VibeAudioFileFormatWAV,
+            @"m4a-as.aif": VibeAudioFileFormatMP4,
+    };
+    NSDictionary<NSString *, NSString *> *sources = @{
+            @"flac-as.mp3": @"flac", @"m4a-as.mp3": @"m4a", @"wav-as.mp3": @"wav", @"aiff-as.wav": @"aif",
+            @"flac-as.wav": @"flac", @"mp3-as.wav": @"mp3", @"wav-as.aif": @"wav", @"m4a-as.aif": @"m4a",
+    };
+    for (NSString *name in cases) {
+        NSURL *url = [self rename:[self write:sources[name]] to:name];
+        XCTAssertEqualObjects(Detected(url), cases[name], @"%@", name);
+    }
+}
+
+// A WAVE whose format is MPEG audio (0x0055) stays MPEG when named .mp3, as
+// FileRef keeps it.
+- (void)testAWAVEOfMPEGAudioNamedMP3StaysMPEG {
+    NSData *frames = [NSData dataWithContentsOfURL:[self write:@"mp3"]];
+    NSMutableData *bytes = [NSMutableData data];
+    uint32_t riffSize = CFSwapInt32HostToLittle((uint32_t)(4 + 8 + 16 + 8 + frames.length));
+    uint32_t fmtSize = CFSwapInt32HostToLittle(16);
+    uint32_t dataSize = CFSwapInt32HostToLittle((uint32_t)frames.length);
+    [bytes appendBytes:"RIFF" length:4];
+    [bytes appendBytes:&riffSize length:4];
+    [bytes appendBytes:"WAVEfmt " length:8];
+    [bytes appendBytes:&fmtSize length:4];
+    [bytes appendBytes:"\x55\x00\x02\x00\x44\xAC\x00\x00\x00\xE2\x04\x00\x01\x00\x00\x00" length:16];
+    [bytes appendBytes:"data" length:4];
+    [bytes appendBytes:&dataSize length:4];
+    [bytes appendData:frames];
+    NSURL *url = [_dir URLByAppendingPathComponent:@"mpeg-wave.mp3"];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    XCTAssertEqualObjects(Detected(url), VibeAudioFileFormatMP3);
+}
+
+#pragma mark - INFO text
+
+// A WAV of silence whose one LIST INFO chunk holds `title` as its INAM.
+// Written by hand: TagLib reads only a file's first INFO list.
+- (NSURL *)writeWAVTitled:(NSData *)title {
+    NSMutableData *name = [title mutableCopy];
+    [name increaseLengthBy:1 + (title.length + 1) % 2];
+    uint32_t nameSize = CFSwapInt32HostToLittle((uint32_t)title.length + 1);
+    uint32_t listSize = CFSwapInt32HostToLittle((uint32_t)(4 + 8 + name.length));
+    uint32_t fmtSize = CFSwapInt32HostToLittle(16);
+    uint32_t dataSize = CFSwapInt32HostToLittle(4410 * 4);
+    uint32_t riffSize = CFSwapInt32HostToLittle((uint32_t)(4 + 8 + 16 + 8 + 4 + 8 + name.length + 8 + 4410 * 4));
+    NSMutableData *bytes = [NSMutableData data];
+    [bytes appendBytes:"RIFF" length:4];
+    [bytes appendBytes:&riffSize length:4];
+    [bytes appendBytes:"WAVEfmt " length:8];
+    [bytes appendBytes:&fmtSize length:4];
+    [bytes appendBytes:"\x01\x00\x02\x00\x44\xAC\x00\x00\x10\xB1\x02\x00\x04\x00\x10\x00" length:16];
+    [bytes appendBytes:"LIST" length:4];
+    [bytes appendBytes:&listSize length:4];
+    [bytes appendBytes:"INFOINAM" length:8];
+    [bytes appendBytes:&nameSize length:4];
+    [bytes appendData:name];
+    [bytes appendBytes:"data" length:4];
+    [bytes appendBytes:&dataSize length:4];
+    [bytes increaseLengthBy:4410 * 4];
+    NSURL *url = [_dir URLByAppendingPathComponent:[NSUUID.UUID.UUIDString stringByAppendingPathExtension:@"wav"]];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    return url;
+}
+
+static NSString *Title(NSURL *url) {
+    TagLibAudioFile file(url.fileSystemRepresentation);
+    return file.tag() ? @(file.tag()->title().toCString(true)) : nil;
+}
+
+// INFO text declares no charset. TagLib 2.3.2 decodes it as UTF-8 and
+// answers "" for anything else, so Windows tools' Latin-1 read as nothing.
+- (void)testINFOTextReadsAsUTF8OrElseLatin1 {
+    XCTAssertEqualObjects(Title([self writeWAVTitled:[NSData dataWithBytes:"Caf\xE9 Cr\xE8me" length:10]]),
+                          @"Café Crème");
+    XCTAssertEqualObjects(Title([self writeWAVTitled:[@"Café" dataUsingEncoding:NSUTF8StringEncoding]]),
+                          @"Café");
+    XCTAssertEqualObjects(Title([self writeWAVTitled:[@"Plain" dataUsingEncoding:NSUTF8StringEncoding]]),
+                          @"Plain");
 }
 
 @end
