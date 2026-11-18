@@ -245,12 +245,15 @@ static const CGFloat kSettingsSidebarWidth = 200;
     }
     // Before the window and the history exist, so the window opens on the
     // pane and the first location recorded is its own.
-    [tabs.tabViewItems enumerateObjectsUsingBlock:^(NSTabViewItem *item, NSUInteger index, BOOL *stop) {
-        if (initialPaneIdentifier && [item.identifier isEqual:initialPaneIdentifier]) {
+    if (initialPaneIdentifier) {
+        NSUInteger index = [tabs.tabViewItems indexOfObjectPassingTest:
+                ^BOOL(NSTabViewItem *item, NSUInteger i, BOOL *stop) {
+            return [item.identifier isEqual:initialPaneIdentifier];
+        }];
+        if (index != NSNotFound) {
             tabs.selectedTabViewItemIndex = (NSInteger)index;
-            *stop = YES;
         }
-    }];
+    }
 
     [SettingsPaneViewController settleSharedSizeForPanes:tabs.childViewControllers];
 
@@ -520,7 +523,7 @@ static SettingsPaneViewController *PaneOfItem(NSTabViewItem *item) {
 - (NSArray<NSString *> *)searchSettingsFor:(NSString *)query {
     _sidebar.searchField.stringValue = query;
     [_sidebar searchChanged:nil];
-    return [_sidebar visiblePaneIdentifiers];
+    return self.visiblePaneIdentifiers;
 }
 
 - (NSString *)searchText {

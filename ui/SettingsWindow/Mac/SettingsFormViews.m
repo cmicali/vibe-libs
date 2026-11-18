@@ -4,6 +4,7 @@
 //
 
 #import "SettingsFormViews.h"
+#import "SettingsPaneViewController.h"
 #import "NSView+DarkMode.h"
 #import "NSString+FormLabel.h"
 #import "PlatformColor.h"
@@ -12,9 +13,9 @@ static const CGFloat kRowPaddingV = 8;
 static const CGFloat kRowMinHeight = 40;
 static const CGFloat kRowTitleControlGap = 8;
 static const CGFloat kCardCornerRadius = 10;
-// A card in a pane of the design width, kSettingsPaneWidth less its padding.
-// A caption wraps at what this leaves it until its row first lays out.
-static const CGFloat kRowDesignWidth = 440;
+// A card in a pane of the design width. A caption wraps at what this leaves
+// it until its row first lays out.
+static const CGFloat kRowDesignWidth = kSettingsPaneWidth - 2 * kPanePadding;
 
 // Legacy, not overlay: a list clipped at rowCount rows must show that there
 // are more without a scroll to reveal the bar. It still hides while every row
@@ -147,6 +148,8 @@ static SettingsFillView *Hairline(NSView *in) {
     NSLayoutConstraint *_titleLeadingConstraint;
     NSArray<NSLayoutConstraint *> *_captionConstraints;
     BOOL _laidOut;
+    // The caption's own compression resistance, as AppKit made the label.
+    NSLayoutPriority _captionResistance;
 }
 
 // AppKit owns a control's internal subviews, so the walk stops at a control.
@@ -242,7 +245,11 @@ static CGFloat SettingsCaptionHeight(NSTextField *label, NSString *text, CGFloat
         captionLabel.hidden = YES;
         [self addSubview:captionLabel];
         _captionLabel = captionLabel;
-        [self applyCaptionWrapping];
+        _captionResistance = [captionLabel contentCompressionResistancePriorityForOrientation:
+                NSLayoutConstraintOrientationHorizontal];
+        if (_wrapsCaption) {
+            [self applyCaptionWrapping];
+        }
         _captionConstraints = @[
             [_titleLabel.topAnchor constraintEqualToAnchor:self.topAnchor constant:kRowPaddingV],
             [captionLabel.topAnchor constraintEqualToAnchor:_titleLabel.bottomAnchor constant:2],
@@ -283,14 +290,14 @@ static CGFloat SettingsCaptionHeight(NSTextField *label, NSString *text, CGFloat
 // TRAP: a wrapping caption resists compression below the fitting priority,
 // or its unwrapped text widens the shared pane size, and every pane with it.
 // It wraps at preferredMaxLayoutWidth instead, which layout keeps at the room
-// the row gives it. Unwrapped, it keeps AppKit's defaults: one line, which
-// the pane widens to fit.
+// the row gives it. Unwrapped, it is the label as AppKit made it: one line,
+// which the pane widens to fit.
 - (void)applyCaptionWrapping {
     if (!_captionLabel) {
         return;
     }
     [_captionLabel setContentCompressionResistancePriority:_wrapsCaption
-            ? NSLayoutPriorityFittingSizeCompression - 1 : NSLayoutPriorityDefaultHigh
+            ? NSLayoutPriorityFittingSizeCompression - 1 : _captionResistance
                                             forOrientation:NSLayoutConstraintOrientationHorizontal];
     if (_wrapsCaption) {
         [self updateCaptionWrappingWidth];

@@ -14,10 +14,9 @@ typedef NSColor KeyColor;
 typedef UIColor KeyColor;
 #endif
 
-static const double kCamelotHueOfNumberOne = 1.0 / 3.0;
-
-double VibeCamelotHue(NSInteger number) {
-    return fmod(kCamelotHueOfNumberOne + (double)(number - 1) / 12.0, 1.0);
+// 1 is green, a third of a turn, and each number is a twelfth on.
+static CGFloat CamelotHue(NSInteger number) {
+    return (CGFloat)fmod(1.0 / 3.0 + (double)(number - 1) / 12.0, 1.0);
 }
 
 static KeyColor *CamelotColor(CGFloat hue, BOOL dark) {
@@ -33,7 +32,7 @@ KeyColor *_Nullable VibeMusicalKeyCamelotColor(VibeMusicalKey key) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         for (NSInteger i = 1; i <= 12; i++) {
-            CGFloat hue = (CGFloat)VibeCamelotHue(i);
+            CGFloat hue = CamelotHue(i);
 #if TARGET_OS_OSX
             palette[i] = [NSColor colorWithName:nil dynamicProvider:^NSColor *(NSAppearance *appearance) {
                 NSAppearanceName match = [appearance bestMatchFromAppearancesWithNames:

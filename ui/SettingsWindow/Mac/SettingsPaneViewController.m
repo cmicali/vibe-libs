@@ -430,7 +430,8 @@ static void CollectRows(NSView *view, NSMutableArray<SettingsRowView *> *rows);
 
 // The design-width pane's row content, so the first shared-floor height is
 // the design one.
-static const CGFloat kWrappingLabelInitialWidth = 408;
+static const CGFloat kWrappingLabelInitialWidth =
+        kSettingsPaneWidth - 2 * kPanePadding - 2 * kSettingsRowInset;
 
 - (NSTextField *)wrappingLabelWithString:(NSString *)text {
     NSTextField *label = [NSTextField wrappingLabelWithString:text];

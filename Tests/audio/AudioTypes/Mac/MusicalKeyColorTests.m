@@ -33,18 +33,24 @@
     }
 }
 
-// 1 is green, and each number is a twelfth of the hue circle on.
+// 1 is green, and each number is a twelfth of the hue circle on. Around the
+// wheel from 1B, each key a fifth up is the next number.
 - (void)testNumberOneIsGreenAndTheHuesStepByATwelfth {
-    XCTAssertEqualWithAccuracy(VibeCamelotHue(1), 1.0 / 3.0, 1e-9);
-    for (NSInteger number = 2; number <= 12; number++) {
-        double step = fmod(VibeCamelotHue(number) - VibeCamelotHue(number - 1) + 1.0, 1.0);
-        XCTAssertEqualWithAccuracy(step, 1.0 / 12.0, 1e-9, @"number %ld", (long)number);
+    CGFloat previous = 0;
+    for (NSInteger number = 1; number <= 12; number++) {
+        VibeMusicalKey key = VibeMusicalKeyMake((11 + 7 * (number - 1)) % 12, NO);
+        XCTAssertEqual(VibeMusicalKeyCamelotNumber(key), number);
+        NSColor *color = [self color:VibeMusicalKeyCamelotColor(key) in:NSAppearanceNameAqua];
+        if (number == 1) {
+            XCTAssertEqualWithAccuracy(color.hueComponent, 1.0 / 3.0, 0.01);
+            XCTAssertGreaterThan(color.greenComponent, color.redComponent);
+            XCTAssertGreaterThan(color.greenComponent, color.blueComponent);
+        } else {
+            XCTAssertEqualWithAccuracy(fmod(color.hueComponent - previous + 1.0, 1.0), 1.0 / 12.0, 0.01,
+                                       @"number %ld", (long)number);
+        }
+        previous = color.hueComponent;
     }
-    // B major is 1B.
-    NSColor *green = [self color:VibeMusicalKeyCamelotColor(VibeMusicalKeyMake(11, NO)) in:NSAppearanceNameAqua];
-    XCTAssertEqualWithAccuracy(green.hueComponent, 1.0 / 3.0, 0.01);
-    XCTAssertGreaterThan(green.greenComponent, green.redComponent);
-    XCTAssertGreaterThan(green.greenComponent, green.blueComponent);
 }
 
 // A relative major and minor share a wheel number, and so a color.

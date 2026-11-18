@@ -26,8 +26,4 @@ FOUNDATION_EXPORT NSColor *_Nullable VibeMusicalKeyCamelotColor(VibeMusicalKey k
 FOUNDATION_EXPORT UIColor *_Nullable VibeMusicalKeyCamelotColor(VibeMusicalKey key);
 #endif
 
-// The hue of a wheel number, 1 to 12, in turns: 1 is green, a third, and each
-// number is a twelfth on.
-FOUNDATION_EXPORT double VibeCamelotHue(NSInteger number);
-
 NS_ASSUME_NONNULL_END

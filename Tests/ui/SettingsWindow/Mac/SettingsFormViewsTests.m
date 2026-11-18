@@ -10,6 +10,7 @@
 #import "DrawnViewTestSupport.h"
 #import "DrawnControls.h"
 #import "SettingsFormViews.h"
+#import "SettingsPaneViewController.h"
 
 @interface SettingsFormViewsTests : XCTestCase
 @end
@@ -146,6 +147,22 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
     return NSMinX([view.superview convertRect:view.frame toView:row]);
 }
 
+// The room a row leaves its caption: from the title's leading edge to the
+// gap before the control.
+- (CGFloat)captionRoomOf:(SettingsRowView *)row before:(NSView *)control {
+    return [self minXOf:control inRow:row] - 8 - NSMinX([self placed:row.titleLabel]);
+}
+
+// The room in a card of the design width, before the row lays out.
+- (CGFloat)designRoomBefore:(NSView *)control indent:(NSInteger)level {
+    return kSettingsPaneWidth - 2 * kPanePadding - 2 * kSettingsRowInset - level * kSettingsRowIndent - 8
+            - control.fittingSize.width;
+}
+
+- (CGFloat)oneLineHeightOf:(NSTextField *)label {
+    return [label.cell cellSizeForBounds:NSMakeRect(0, 0, 10000, 10000)].height;
+}
+
 // Where Auto Layout places a label: its alignment rect, two points inside
 // its frame.
 - (NSRect)placed:(NSTextField *)label {
@@ -192,7 +209,7 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
     SettingsRowView *row = [SettingsRowView rowWithTitle:@"Volume" caption:kLongCaption control:toggle];
     row.wrapsCaption = YES;
     XCTAssertEqualWithAccuracy(row.captionLabel.preferredMaxLayoutWidth,
-                               440 - 16 - 16 - 8 - toggle.fittingSize.width, 0.5);
+                               [self designRoomBefore:toggle indent:0], 0.5);
 }
 
 - (void)testACaptionWrapsInTheRoomItsRowGivesIt {
@@ -202,11 +219,11 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
     NSLayoutConstraint *width = nil;
     SettingsSectionView *section = [self sectionWithRow:row width:440 constraint:&width];
     NSTextField *caption = row.captionLabel;
-    CGFloat room = [self minXOf:toggle inRow:row] - 8 - NSMinX([self placed:row.titleLabel]);
+    CGFloat room = [self captionRoomOf:row before:toggle];
     XCTAssertEqualWithAccuracy(NSWidth(row.frame), 440, 0.5);
     XCTAssertEqualWithAccuracy(caption.preferredMaxLayoutWidth, room, 0.5);
     XCTAssertLessThanOrEqual(NSMaxX([self placed:caption]), [self minXOf:toggle inRow:row] - 8 + 0.5);
-    CGFloat oneLine = [caption.cell cellSizeForBounds:NSMakeRect(0, 0, 10000, 10000)].height;
+    CGFloat oneLine = [self oneLineHeightOf:caption];
     CGFloat wrapped = NSHeight(caption.frame);
     XCTAssertGreaterThan(wrapped, oneLine * 1.5);
     XCTAssertGreaterThanOrEqual(NSHeight(row.frame), wrapped + NSHeight(row.titleLabel.frame));
@@ -215,7 +232,7 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
     width.constant = 900;
     [section layoutSubtreeIfNeeded];
     XCTAssertEqualWithAccuracy(caption.preferredMaxLayoutWidth,
-                               [self minXOf:toggle inRow:row] - 8 - NSMinX([self placed:row.titleLabel]), 0.5);
+                               [self captionRoomOf:row before:toggle], 0.5);
     XCTAssertGreaterThan(caption.preferredMaxLayoutWidth, room + 400);
     XCTAssertLessThan(NSHeight(caption.frame), wrapped);
 }
@@ -230,7 +247,7 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
     [section layoutSubtreeIfNeeded];
     XCTAssertEqualWithAccuracy(NSWidth(row.frame), 440, 0.5);
     XCTAssertEqualWithAccuracy(row.captionLabel.preferredMaxLayoutWidth,
-                               [self minXOf:toggle inRow:row] - 8 - NSMinX([self placed:row.titleLabel]), 0.5);
+                               [self captionRoomOf:row before:toggle], 0.5);
     XCTAssertGreaterThan(NSHeight(row.frame), bare + 20);
 
     // A caption of the same line count leaves the height alone; a short one
@@ -244,7 +261,7 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
                                                  control:[[VibeSwitch alloc] init]];
     [self sectionWithRow:row width:440 constraint:NULL];
     NSTextField *caption = row.captionLabel;
-    CGFloat oneLine = [caption.cell cellSizeForBounds:NSMakeRect(0, 0, 10000, 10000)].height;
+    CGFloat oneLine = [self oneLineHeightOf:caption];
     XCTAssertEqualWithAccuracy(NSHeight(caption.frame), oneLine, 0.5);
 }
 
@@ -279,11 +296,11 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
     row.indentLevel = 1;
     [row setCaption:kLongCaption];
     XCTAssertEqualWithAccuracy(row.captionLabel.preferredMaxLayoutWidth,
-                               440 - 16 - kSettingsRowIndent - 16 - 8 - toggle.fittingSize.width, 0.5);
+                               [self designRoomBefore:toggle indent:1], 0.5);
     [self sectionWithRow:row width:440 constraint:NULL];
     XCTAssertEqualWithAccuracy(NSMinX([self placed:row.titleLabel]), NSMinX([self placed:row.captionLabel]), 0.5);
     XCTAssertEqualWithAccuracy(row.captionLabel.preferredMaxLayoutWidth,
-                               [self minXOf:toggle inRow:row] - 8 - NSMinX([self placed:row.titleLabel]), 0.5);
+                               [self captionRoomOf:row before:toggle], 0.5);
     XCTAssertLessThanOrEqual(NSMaxX([self placed:row.captionLabel]), [self minXOf:toggle inRow:row] - 8 + 0.5);
 }
 

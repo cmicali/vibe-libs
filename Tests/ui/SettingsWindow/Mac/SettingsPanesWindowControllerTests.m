@@ -57,20 +57,28 @@
 }
 
 - (SettingsPanesWindowController *)controllerOpeningOn:(NSString *)identifier {
-    NSTabViewItem *general = [SettingsPanesWindowController
-            paneItemWithViewController:[self paneWithRowTitle:@"Dark mode" control:[[VibeSwitch alloc] init]]
-                            identifier:@"general" label:@"General" symbolName:@"gearshape"];
-    NSTabViewItem *sound = [SettingsPanesWindowController
-            paneItemWithViewController:[self paneWithRowTitle:@"Volume" control:[[VibeDetentSlider alloc] init]]
-                            identifier:@"sound" label:@"Sound" symbolName:@"speaker.wave.2"];
+    return [self controllerWithGeneral:[self paneWithRowTitle:@"Dark mode" control:[[VibeSwitch alloc] init]]
+                                 sound:[self paneWithRowTitle:@"Volume" control:[[VibeDetentSlider alloc] init]]
+                             openingOn:identifier];
+}
+
+// The two panes, each in a group of its own.
+- (SettingsPanesWindowController *)controllerWithGeneral:(SettingsPaneViewController *)general
+                                                   sound:(SettingsPaneViewController *)sound
+                                               openingOn:(NSString *)identifier {
+    NSTabViewItem *generalItem = [SettingsPanesWindowController
+            paneItemWithViewController:general identifier:@"general" label:@"General" symbolName:@"gearshape"];
+    NSTabViewItem *soundItem = [SettingsPanesWindowController
+            paneItemWithViewController:sound identifier:@"sound" label:@"Sound" symbolName:@"speaker.wave.2"];
     if (!identifier) {
+        // The init that names no pane.
         return [[SettingsPanesWindowController alloc]
-                initWithPaneGroups:@[@[general], @[sound]]
+                initWithPaneGroups:@[@[generalItem], @[soundItem]]
                          backTitle:@"Back" forwardTitle:@"Forward" undoTitle:@"Undo" redoTitle:@"Redo"
                  searchPlaceholder:@"Search" noResultsText:@"No Results"];
     }
     return [[SettingsPanesWindowController alloc]
-            initWithPaneGroups:@[@[general], @[sound]] initialPaneIdentifier:identifier
+            initWithPaneGroups:@[@[generalItem], @[soundItem]] initialPaneIdentifier:identifier
                      backTitle:@"Back" forwardTitle:@"Forward" undoTitle:@"Undo" redoTitle:@"Redo"
              searchPlaceholder:@"Search" noResultsText:@"No Results"];
 }
@@ -200,13 +208,7 @@
             @"pushes the controls and every pane out with it.";
     SettingsTestPane *sound = [self paneWithRowTitle:@"Volume" control:[[VibeSwitch alloc] init]];
     [_controller.window close];
-    _controller = [[SettingsPanesWindowController alloc]
-            initWithPaneGroups:@[@[[SettingsPanesWindowController paneItemWithViewController:general
-                    identifier:@"general" label:@"General" symbolName:@"gearshape"],
-                                   [SettingsPanesWindowController paneItemWithViewController:sound
-                    identifier:@"sound" label:@"Sound" symbolName:@"speaker.wave.2"]]]
-                     backTitle:@"Back" forwardTitle:@"Forward" undoTitle:@"Undo" redoTitle:@"Redo"
-             searchPlaceholder:@"Search" noResultsText:@"No Results"];
+    _controller = [self controllerWithGeneral:general sound:sound openingOn:nil];
     XCTAssertGreaterThan(sound.sharedPaneSize.width, kSettingsPaneWidth + 200);
     XCTAssertEqual(general.sharedPaneSize.width, sound.sharedPaneSize.width);
 }
@@ -223,13 +225,7 @@
     SettingsTestPane *sound = [self paneWithRowTitle:@"Volume" control:[[VibeSwitch alloc] init]];
     sound.wrapsRowCaptions = YES;
     [_controller.window close];
-    _controller = [[SettingsPanesWindowController alloc]
-            initWithPaneGroups:@[@[[SettingsPanesWindowController paneItemWithViewController:general
-                    identifier:@"general" label:@"General" symbolName:@"gearshape"],
-                                   [SettingsPanesWindowController paneItemWithViewController:sound
-                    identifier:@"sound" label:@"Sound" symbolName:@"speaker.wave.2"]]]
-                     backTitle:@"Back" forwardTitle:@"Forward" undoTitle:@"Undo" redoTitle:@"Redo"
-             searchPlaceholder:@"Search" noResultsText:@"No Results"];
+    _controller = [self controllerWithGeneral:general sound:sound openingOn:nil];
     XCTAssertEqualWithAccuracy(general.sharedPaneSize.width, kSettingsPaneWidth, 0.5);
     XCTAssertEqualWithAccuracy(sound.sharedPaneSize.width, kSettingsPaneWidth, 0.5);
     XCTAssertEqualWithAccuracy(_controller.window.contentView.frame.size.width,

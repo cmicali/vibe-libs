@@ -49,7 +49,7 @@ static const CGFloat kSettingsCardRevealInset = 12;
 
 // YES wraps every row's caption (SettingsRowView.wrapsCaption), so no caption
 // widens the shared pane size. Set it before loadPaneWithSections:, which
-// applies it to each row. NO by default: a caption keeps one line, and every
+// applies it to each row it is given. A row made later sets its own. NO by default: a caption keeps one line, and every
 // pane widens to fit the longest.
 @property (nonatomic) BOOL wrapsRowCaptions;
 

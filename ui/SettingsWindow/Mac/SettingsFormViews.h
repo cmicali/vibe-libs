@@ -100,7 +100,9 @@ static const CGFloat kSettingsRowIndent = 20;
 // YES wraps the caption in the room between the title's leading edge and the
 // controls, which the row follows on each layout, so a long caption never
 // widens its pane. NO, the default, keeps the caption on one line, and the
-// pane widens to fit it. It holds for a caption set later too.
+// pane widens to fit it. It holds for a caption set later too. A pane's
+// wrapsRowCaptions sets it on the rows the pane loads with, so a row made
+// after that sets its own.
 @property (nonatomic) BOOL wrapsCaption;
 
 // A setting under another: the title sits in by kSettingsRowIndent per
