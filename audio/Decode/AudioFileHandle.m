@@ -635,6 +635,98 @@ static float VibeOpusOutputGain(AudioFileID parser) {
     return [self openedWithError:error];
 }
 
+// One MP4 atom's header at `at`: its type, the offset of its body, and its
+// end. NO when it cannot be read, or when it ends before its header or after
+// `end`, its parent's end. A size of 0 runs to `end`. The type is set once
+// the header is read, even when the atom does not fit.
+static BOOL VibeMP4Atom(void *context, uint64_t at, uint64_t end, uint8_t type[4], uint64_t *body,
+                        uint64_t *atomEnd) {
+    uint8_t header[16];
+    UInt32 got = 0;
+    if (at + 8 > end || VibeHandleRead(context, (SInt64)at, 8, header, &got) != noErr || got != 8) {
+        return NO;
+    }
+    memcpy(type, header + 4, 4);
+    uint64_t size = OSReadBigInt32(header, 0);
+    *body = at + 8;
+    if (size == 1) {
+        if (at + 16 > end || VibeHandleRead(context, (SInt64)at + 8, 8, header + 8, &got) != noErr || got != 8) {
+            return NO;
+        }
+        size = OSReadBigInt64(header, 8);
+        *body = at + 16;
+    }
+    else if (size == 0) {
+        size = end - at;
+    }
+    *atomEnd = at + size;
+    return size >= *body - at && size <= end - at;
+}
+
+typedef NS_ENUM(int, VibeMP4Walk) {
+    VibeMP4WalkContainers, // moov, udta, and meta, on the way to the item list
+    VibeMP4WalkItems,      // the item list's items
+    VibeMP4WalkItemAtoms,  // an item's data, mean, and name atoms
+};
+
+// Whether the atoms in [at, end) fit it, and the ones on the way to the
+// iTunes item list fit theirs, down to each item's own atoms. Nesting deeper
+// than any real file's ends the walk as unreadable.
+static BOOL VibeMP4ChildrenInside(void *context, uint64_t at, uint64_t end, VibeMP4Walk walk, int depth) {
+    if (depth > 8) {
+        return NO;
+    }
+    while (at < end) {
+        uint8_t type[4] = {0};
+        uint64_t body = 0, atomEnd = 0;
+        if (!VibeMP4Atom(context, at, end, type, &body, &atomEnd)) {
+            // A file cut short keeps its tags, unless the cut is in moov.
+            return depth == 0 && memcmp(type, "moov", 4) != 0;
+        }
+        VibeMP4Walk inner = VibeMP4WalkContainers;
+        BOOL descend = NO;
+        if (walk == VibeMP4WalkItems) {
+            inner = VibeMP4WalkItemAtoms;
+            descend = YES;
+        }
+        else if (walk == VibeMP4WalkContainers) {
+            if (memcmp(type, "ilst", 4) == 0) {
+                inner = VibeMP4WalkItems;
+                descend = YES;
+            }
+            else if (memcmp(type, "moov", 4) == 0 || memcmp(type, "udta", 4) == 0) {
+                descend = YES;
+            }
+            else if (memcmp(type, "meta", 4) == 0) {
+                descend = YES;
+                // ISO's meta is a full box, with 4 bytes of version and
+                // flags. QuickTime's has none, and its first child is its hdlr.
+                uint8_t peek[8];
+                UInt32 got = 0;
+                if (body + 8 <= atomEnd && VibeHandleRead(context, (SInt64)body, 8, peek, &got) == noErr && got == 8
+                        && memcmp(peek + 4, "hdlr", 4) != 0) {
+                    body += 4;
+                }
+            }
+        }
+        if (descend && !VibeMP4ChildrenInside(context, body, atomEnd, inner, depth + 1)) {
+            return NO;
+        }
+        at = atomEnd;
+    }
+    return YES;
+}
+
+// TRAP: CoreAudio's MP4 metadata reader (MP4BoxParser_iTunesMeta) sizes each
+// item's copy from the item's declared size, not the file's. An item claiming
+// 1.38 GB past the end of a 1.6 KB M4A made the info dictionary read allocate
+// and touch 4.3 GB (macOS 27). So an MP4's info dictionary is readable only
+// when every atom on the way to the item list, each item, and each item's own
+// atoms sit inside their parents. Found by Tests/Fuzz's tags-m4a.
+static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
+    return VibeMP4ChildrenInside(context, 0, fileSize, VibeMP4WalkContainers, 0);
+}
+
 // TRAP: CoreAudio's CAF info parser (parseInfoStringsChunk) loops over the
 // info chunk's entry count without checking it against the chunk. A forged
 // count of 0xF90000EE never returns, and afinfo hangs the same way. It held a
@@ -645,6 +737,10 @@ static float VibeOpusOutputGain(AudioFileID parser) {
 // declares size -1 and stops the walk, so an info chunk after it is dropped.
 // Asked, not walked at open: a playback open never waits for those bytes.
 - (BOOL)infoDictionaryReadable {
+    if (_container == kAudioFileM4AType || _container == kAudioFileMPEG4Type || _container == kAudioFileM4BType
+            || _container == kAudioFile3GPType || _container == kAudioFile3GP2Type) {
+        return VibeMP4ItemsInside((__bridge void *)self, (uint64_t)MAX(0, _size));
+    }
     if (_container != kAudioFileCAFType) {
         return YES;
     }
