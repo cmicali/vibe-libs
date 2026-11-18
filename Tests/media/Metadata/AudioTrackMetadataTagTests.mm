@@ -141,10 +141,10 @@ static NSData *ToneMD5(void) {
 - (void)assertFields:(NSIndexSet *)tagged of:(AudioTrackMetadata *)metadata fixture:(VibeTagFixture)fixture
                label:(NSString *)label {
     BOOL counts = VibeTagFixtureHasCounts(fixture);
-    for (NSInteger index = 0; index < VibeTagFieldCount; index++) {
-        VibeTagField field = (VibeTagField)index;
+    for (NSInteger index = 0; index < VibeTagFixtureFieldCount; index++) {
+        VibeTagFixtureField field = (VibeTagFixtureField)index;
         BOOL on = [tagged containsIndex:(NSUInteger)field];
-        NSString *name = [NSString stringWithFormat:@"%@: %@", label, VibeTagFieldName(field)];
+        NSString *name = [NSString stringWithFormat:@"%@: %@", label, VibeTagFixtureFieldName(field)];
         void (^text)(NSString *, NSString *) = ^(NSString *value, NSString *expected) {
             XCTAssertEqualObjects(value, on ? expected : nil, @"%@", name);
         };
@@ -157,46 +157,46 @@ static NSData *ToneMD5(void) {
                 XCTAssertNil(value, @"%@", name);
             }
         };
-        if (VibeTagFieldIsExtra(field)) {
+        if (VibeTagFixtureFieldIsExtra(field)) {
             text([metadata extraTag:@(VibeTagExtraName(field))], VibeTagExtraValue(field, fixture));
-            if (field == VibeTagFieldOriginalDate) {
+            if (field == VibeTagFixtureFieldOriginalDate) {
                 XCTAssertEqual(metadata.originalYear, on ? kVibeTagOriginalYear : 0, @"%@", name);
             }
             continue;
         }
         switch (field) {
-            case VibeTagFieldAlbum: text(metadata.album, kVibeTagAlbum); break;
-            case VibeTagFieldAlbumArtist: text(metadata.albumArtist, kVibeTagAlbumArtist); break;
-            case VibeTagFieldGenre: text(metadata.genre, kVibeTagGenre); break;
-            case VibeTagFieldComposer: text(metadata.composer, kVibeTagComposer); break;
-            case VibeTagFieldYear: XCTAssertEqual(metadata.year, on ? kVibeTagYear : 0, @"%@", name); break;
-            case VibeTagFieldTrack:
+            case VibeTagFixtureFieldAlbum: text(metadata.album, kVibeTagAlbum); break;
+            case VibeTagFixtureFieldAlbumArtist: text(metadata.albumArtist, kVibeTagAlbumArtist); break;
+            case VibeTagFixtureFieldGenre: text(metadata.genre, kVibeTagGenre); break;
+            case VibeTagFixtureFieldComposer: text(metadata.composer, kVibeTagComposer); break;
+            case VibeTagFixtureFieldYear: XCTAssertEqual(metadata.year, on ? kVibeTagYear : 0, @"%@", name); break;
+            case VibeTagFixtureFieldTrack:
                 XCTAssertEqual(metadata.trackNumber, on ? 3 : 0, @"%@", name);
                 XCTAssertEqual(metadata.trackCount, on && counts ? 12 : 0, @"%@", name);
                 break;
-            case VibeTagFieldDisc:
+            case VibeTagFixtureFieldDisc:
                 XCTAssertEqual(metadata.discNumber, on ? 1 : 0, @"%@", name);
                 XCTAssertEqual(metadata.discCount, on ? 2 : 0, @"%@", name);
                 break;
-            case VibeTagFieldCompilation: XCTAssertEqual(metadata.isCompilation, on, @"%@", name); break;
-            case VibeTagFieldReleaseID: text(metadata.musicBrainzReleaseID, kVibeTagReleaseID); break;
-            case VibeTagFieldRecordingID: text(metadata.musicBrainzRecordingID, kVibeTagRecordingID); break;
-            case VibeTagFieldISRC: text(metadata.isrc, kVibeTagISRC); break;
-            case VibeTagFieldReplayGainTrackGain: number(metadata.replayGainTrackGain, -6.54); break;
-            case VibeTagFieldReplayGainTrackPeak: number(metadata.replayGainTrackPeak, 0.988547); break;
-            case VibeTagFieldReplayGainAlbumGain: number(metadata.replayGainAlbumGain, 1.25); break;
-            case VibeTagFieldReplayGainAlbumPeak: number(metadata.replayGainAlbumPeak, 1); break;
-            case VibeTagFieldR128TrackGain: number(metadata.r128TrackGain, -1234 / 256.0); break;
-            case VibeTagFieldR128AlbumGain: number(metadata.r128AlbumGain, -2); break;
-            case VibeTagFieldSoundCheck: number(metadata.soundCheckGain, kVibeTagSoundCheckGain); break;
-            case VibeTagFieldComment: text(metadata.comment, kVibeTagComment); break;
-            case VibeTagFieldGrouping: text(metadata.grouping, kVibeTagGrouping); break;
-            case VibeTagFieldLabel: text(metadata.label, kVibeTagLabel); break;
-            case VibeTagFieldCount: break;
-            case VibeTagFieldCatalogNumber: case VibeTagFieldConductor: case VibeTagFieldRemixer:
-            case VibeTagFieldLyricist: case VibeTagFieldMood: case VibeTagFieldLanguage: case VibeTagFieldCopyright:
-            case VibeTagFieldOriginalDate: case VibeTagFieldTitleSort: case VibeTagFieldArtistSort:
-            case VibeTagFieldAlbumSort: case VibeTagFieldAlbumArtistSort: break; // above
+            case VibeTagFixtureFieldCompilation: XCTAssertEqual(metadata.isCompilation, on, @"%@", name); break;
+            case VibeTagFixtureFieldReleaseID: text(metadata.musicBrainzReleaseID, kVibeTagReleaseID); break;
+            case VibeTagFixtureFieldRecordingID: text(metadata.musicBrainzRecordingID, kVibeTagRecordingID); break;
+            case VibeTagFixtureFieldISRC: text(metadata.isrc, kVibeTagISRC); break;
+            case VibeTagFixtureFieldReplayGainTrackGain: number(metadata.replayGainTrackGain, -6.54); break;
+            case VibeTagFixtureFieldReplayGainTrackPeak: number(metadata.replayGainTrackPeak, 0.988547); break;
+            case VibeTagFixtureFieldReplayGainAlbumGain: number(metadata.replayGainAlbumGain, 1.25); break;
+            case VibeTagFixtureFieldReplayGainAlbumPeak: number(metadata.replayGainAlbumPeak, 1); break;
+            case VibeTagFixtureFieldR128TrackGain: number(metadata.r128TrackGain, -1234 / 256.0); break;
+            case VibeTagFixtureFieldR128AlbumGain: number(metadata.r128AlbumGain, -2); break;
+            case VibeTagFixtureFieldSoundCheck: number(metadata.soundCheckGain, kVibeTagSoundCheckGain); break;
+            case VibeTagFixtureFieldComment: text(metadata.comment, kVibeTagComment); break;
+            case VibeTagFixtureFieldGrouping: text(metadata.grouping, kVibeTagGrouping); break;
+            case VibeTagFixtureFieldLabel: text(metadata.label, kVibeTagLabel); break;
+            case VibeTagFixtureFieldCount: break;
+            case VibeTagFixtureFieldCatalogNumber: case VibeTagFixtureFieldConductor: case VibeTagFixtureFieldRemixer:
+            case VibeTagFixtureFieldLyricist: case VibeTagFixtureFieldMood: case VibeTagFixtureFieldLanguage: case VibeTagFixtureFieldCopyright:
+            case VibeTagFixtureFieldOriginalDate: case VibeTagFixtureFieldTitleSort: case VibeTagFixtureFieldArtistSort:
+            case VibeTagFixtureFieldAlbumSort: case VibeTagFixtureFieldAlbumArtistSort: break; // above
         }
     }
 }
@@ -204,8 +204,8 @@ static NSData *ToneMD5(void) {
 // The fields `fixture` carries.
 static NSIndexSet *CarriedFields(VibeTagFixture fixture) {
     NSMutableIndexSet *fields = [NSMutableIndexSet indexSet];
-    for (NSInteger field = 0; field < VibeTagFieldCount; field++) {
-        if (VibeTagFixtureCarries(fixture, (VibeTagField)field)) [fields addIndex:(NSUInteger)field];
+    for (NSInteger field = 0; field < VibeTagFixtureFieldCount; field++) {
+        if (VibeTagFixtureCarries(fixture, (VibeTagFixtureField)field)) [fields addIndex:(NSUInteger)field];
     }
     return fields;
 }
@@ -478,14 +478,14 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
 // The field alone, in each format that carries it, so no other field's tag
 // can answer for it. Ogg's formats need the render fixtures. Without them
 // only FLAC's Xiph comment is read here.
-- (void)assertFieldAlone:(VibeTagField)field {
+- (void)assertFieldAlone:(VibeTagFixtureField)field {
     NSUInteger formats = 0;
     for (NSInteger index = 0; index < VibeTagFixtureCount; index++) {
         VibeTagFixture fixture = (VibeTagFixture)index;
         if (!VibeTagFixtureCarries(fixture, field)) {
             continue;
         }
-        NSString *label = [NSString stringWithFormat:@"%@ alone in %@", VibeTagFieldName(field),
+        NSString *label = [NSString stringWithFormat:@"%@ alone in %@", VibeTagFixtureFieldName(field),
                                                      VibeTagFixtureName(fixture)];
         NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, field);
         if (!url) {
@@ -500,42 +500,42 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
                      label:[label stringByAppendingString:@" archived"]];
         formats++;
     }
-    XCTAssertGreaterThan(formats, 0u, @"%@", VibeTagFieldName(field));
+    XCTAssertGreaterThan(formats, 0u, @"%@", VibeTagFixtureFieldName(field));
 }
 
-- (void)testAlbum { [self assertFieldAlone:VibeTagFieldAlbum]; }
-- (void)testAlbumArtist { [self assertFieldAlone:VibeTagFieldAlbumArtist]; }
-- (void)testGenre { [self assertFieldAlone:VibeTagFieldGenre]; }
-- (void)testComposer { [self assertFieldAlone:VibeTagFieldComposer]; }
-- (void)testYear { [self assertFieldAlone:VibeTagFieldYear]; }
-- (void)testTrackNumberAndCount { [self assertFieldAlone:VibeTagFieldTrack]; }
-- (void)testDiscNumberAndCount { [self assertFieldAlone:VibeTagFieldDisc]; }
-- (void)testCompilation { [self assertFieldAlone:VibeTagFieldCompilation]; }
-- (void)testMusicBrainzReleaseID { [self assertFieldAlone:VibeTagFieldReleaseID]; }
-- (void)testMusicBrainzRecordingID { [self assertFieldAlone:VibeTagFieldRecordingID]; }
-- (void)testISRC { [self assertFieldAlone:VibeTagFieldISRC]; }
-- (void)testReplayGainTrackGain { [self assertFieldAlone:VibeTagFieldReplayGainTrackGain]; }
-- (void)testReplayGainTrackPeak { [self assertFieldAlone:VibeTagFieldReplayGainTrackPeak]; }
-- (void)testReplayGainAlbumGain { [self assertFieldAlone:VibeTagFieldReplayGainAlbumGain]; }
-- (void)testReplayGainAlbumPeak { [self assertFieldAlone:VibeTagFieldReplayGainAlbumPeak]; }
-- (void)testR128TrackGain { [self assertFieldAlone:VibeTagFieldR128TrackGain]; }
-- (void)testR128AlbumGain { [self assertFieldAlone:VibeTagFieldR128AlbumGain]; }
-- (void)testSoundCheck { [self assertFieldAlone:VibeTagFieldSoundCheck]; }
-- (void)testComment { [self assertFieldAlone:VibeTagFieldComment]; }
-- (void)testGrouping { [self assertFieldAlone:VibeTagFieldGrouping]; }
-- (void)testLabel { [self assertFieldAlone:VibeTagFieldLabel]; }
-- (void)testCatalogNumber { [self assertFieldAlone:VibeTagFieldCatalogNumber]; }
-- (void)testConductor { [self assertFieldAlone:VibeTagFieldConductor]; }
-- (void)testRemixer { [self assertFieldAlone:VibeTagFieldRemixer]; }
-- (void)testLyricist { [self assertFieldAlone:VibeTagFieldLyricist]; }
-- (void)testMood { [self assertFieldAlone:VibeTagFieldMood]; }
-- (void)testLanguage { [self assertFieldAlone:VibeTagFieldLanguage]; }
-- (void)testCopyright { [self assertFieldAlone:VibeTagFieldCopyright]; }
-- (void)testOriginalDate { [self assertFieldAlone:VibeTagFieldOriginalDate]; }
-- (void)testTitleSort { [self assertFieldAlone:VibeTagFieldTitleSort]; }
-- (void)testArtistSort { [self assertFieldAlone:VibeTagFieldArtistSort]; }
-- (void)testAlbumSort { [self assertFieldAlone:VibeTagFieldAlbumSort]; }
-- (void)testAlbumArtistSort { [self assertFieldAlone:VibeTagFieldAlbumArtistSort]; }
+- (void)testAlbum { [self assertFieldAlone:VibeTagFixtureFieldAlbum]; }
+- (void)testAlbumArtist { [self assertFieldAlone:VibeTagFixtureFieldAlbumArtist]; }
+- (void)testGenre { [self assertFieldAlone:VibeTagFixtureFieldGenre]; }
+- (void)testComposer { [self assertFieldAlone:VibeTagFixtureFieldComposer]; }
+- (void)testYear { [self assertFieldAlone:VibeTagFixtureFieldYear]; }
+- (void)testTrackNumberAndCount { [self assertFieldAlone:VibeTagFixtureFieldTrack]; }
+- (void)testDiscNumberAndCount { [self assertFieldAlone:VibeTagFixtureFieldDisc]; }
+- (void)testCompilation { [self assertFieldAlone:VibeTagFixtureFieldCompilation]; }
+- (void)testMusicBrainzReleaseID { [self assertFieldAlone:VibeTagFixtureFieldReleaseID]; }
+- (void)testMusicBrainzRecordingID { [self assertFieldAlone:VibeTagFixtureFieldRecordingID]; }
+- (void)testISRC { [self assertFieldAlone:VibeTagFixtureFieldISRC]; }
+- (void)testReplayGainTrackGain { [self assertFieldAlone:VibeTagFixtureFieldReplayGainTrackGain]; }
+- (void)testReplayGainTrackPeak { [self assertFieldAlone:VibeTagFixtureFieldReplayGainTrackPeak]; }
+- (void)testReplayGainAlbumGain { [self assertFieldAlone:VibeTagFixtureFieldReplayGainAlbumGain]; }
+- (void)testReplayGainAlbumPeak { [self assertFieldAlone:VibeTagFixtureFieldReplayGainAlbumPeak]; }
+- (void)testR128TrackGain { [self assertFieldAlone:VibeTagFixtureFieldR128TrackGain]; }
+- (void)testR128AlbumGain { [self assertFieldAlone:VibeTagFixtureFieldR128AlbumGain]; }
+- (void)testSoundCheck { [self assertFieldAlone:VibeTagFixtureFieldSoundCheck]; }
+- (void)testComment { [self assertFieldAlone:VibeTagFixtureFieldComment]; }
+- (void)testGrouping { [self assertFieldAlone:VibeTagFixtureFieldGrouping]; }
+- (void)testLabel { [self assertFieldAlone:VibeTagFixtureFieldLabel]; }
+- (void)testCatalogNumber { [self assertFieldAlone:VibeTagFixtureFieldCatalogNumber]; }
+- (void)testConductor { [self assertFieldAlone:VibeTagFixtureFieldConductor]; }
+- (void)testRemixer { [self assertFieldAlone:VibeTagFixtureFieldRemixer]; }
+- (void)testLyricist { [self assertFieldAlone:VibeTagFixtureFieldLyricist]; }
+- (void)testMood { [self assertFieldAlone:VibeTagFixtureFieldMood]; }
+- (void)testLanguage { [self assertFieldAlone:VibeTagFixtureFieldLanguage]; }
+- (void)testCopyright { [self assertFieldAlone:VibeTagFixtureFieldCopyright]; }
+- (void)testOriginalDate { [self assertFieldAlone:VibeTagFixtureFieldOriginalDate]; }
+- (void)testTitleSort { [self assertFieldAlone:VibeTagFixtureFieldTitleSort]; }
+- (void)testArtistSort { [self assertFieldAlone:VibeTagFixtureFieldArtistSort]; }
+- (void)testAlbumSort { [self assertFieldAlone:VibeTagFixtureFieldAlbumSort]; }
+- (void)testAlbumArtistSort { [self assertFieldAlone:VibeTagFixtureFieldAlbumArtistSort]; }
 
 // A file tagged with its title alone reads no comment, grouping, or label.
 - (void)testAFileWithNoneOfTheFieldsReadsNone {
@@ -580,7 +580,7 @@ static void Retag(NSURL *url, VibeTagFixture fixture, NSDictionary<NSString *, N
                              @(VibeTagFixtureAIFF)]) {
         VibeTagFixture fixture = (VibeTagFixture)each.integerValue;
         NSString *name = VibeTagFixtureName(fixture);
-        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFieldAlbum);
+        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFixtureFieldAlbum);
         XCTAssertNotNil(url, @"%@", name);
         Retag(url, fixture, @{@"WORK": @"Old Grouping"});
         XCTAssertEqualObjects(Parse(url, NULL).grouping, @"Old Grouping", @"%@: TIT1 alone", name);
@@ -591,7 +591,7 @@ static void Retag(NSURL *url, VibeTagFixture fixture, NSDictionary<NSString *, N
     }
     for (NSNumber *each in @[@(VibeTagFixtureM4A), @(VibeTagFixtureFLAC), @(VibeTagFixtureVorbis)]) {
         VibeTagFixture fixture = (VibeTagFixture)each.integerValue;
-        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFieldAlbum);
+        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFixtureFieldAlbum);
         if (!url) {
             XCTAssertEqual(fixture, VibeTagFixtureVorbis);
             continue;
@@ -607,7 +607,7 @@ static void Retag(NSURL *url, VibeTagFixture fixture, NSDictionary<NSString *, N
     for (NSNumber *each in @[@(VibeTagFixtureFLAC), @(VibeTagFixtureVorbis), @(VibeTagFixtureOpus)]) {
         VibeTagFixture fixture = (VibeTagFixture)each.integerValue;
         NSString *name = VibeTagFixtureName(fixture);
-        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFieldAlbum);
+        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFixtureFieldAlbum);
         if (!url) {
             XCTAssertNotEqual(fixture, VibeTagFixtureFLAC);
             continue;
@@ -632,21 +632,21 @@ static void Retag(NSURL *url, VibeTagFixture fixture, NSDictionary<NSString *, N
     for (NSNumber *each in @[@(VibeTagFixtureMP3ID3v24), @(VibeTagFixtureFLAC), @(VibeTagFixtureVorbis)]) {
         VibeTagFixture fixture = (VibeTagFixture)each.integerValue;
         NSString *name = VibeTagFixtureName(fixture);
-        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFieldAlbum);
+        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFixtureFieldAlbum);
         if (!url) {
             XCTAssertEqual(fixture, VibeTagFixtureVorbis);
             continue;
         }
         Retag(url, fixture, @{@"ORIGINALYEAR": @"1968"});
         AudioTrackMetadata *metadata = Parse(url, NULL);
-        XCTAssertEqualObjects([metadata extraTag:VibeMetadataTagOriginalDate], @"1968", @"%@", name);
+        XCTAssertEqualObjects([metadata extraTag:VibeTagFieldOriginalDate], @"1968", @"%@", name);
         XCTAssertEqual(metadata.originalYear, 1968, @"%@", name);
         Retag(url, fixture, @{@"ORIGINALYEAR": @"1968", @"ORIGINALDATE": kVibeTagOriginalDate});
-        XCTAssertEqualObjects([Parse(url, NULL) extraTag:VibeMetadataTagOriginalDate], kVibeTagOriginalDate, @"%@", name);
+        XCTAssertEqualObjects([Parse(url, NULL) extraTag:VibeTagFieldOriginalDate], kVibeTagOriginalDate, @"%@", name);
         Retag(url, fixture, @{@"CONDUCTOR": @"   ", @"MOOD": @"Mellow"});
         metadata = Parse(url, NULL);
-        XCTAssertNil([metadata extraTag:VibeMetadataTagConductor], @"%@", name);
-        XCTAssertEqualObjects(metadata.extraTags, @{VibeMetadataTagMood: @"Mellow"}, @"%@", name);
+        XCTAssertNil([metadata extraTag:VibeTagFieldConductor], @"%@", name);
+        XCTAssertEqualObjects(metadata.extraTags, @{VibeTagFieldMood: @"Mellow"}, @"%@", name);
     }
 }
 

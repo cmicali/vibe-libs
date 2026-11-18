@@ -29,34 +29,22 @@
 NSNotificationName const AudioTrackMetadataThumbnailDidLoadNotification =
         @"AudioTrackMetadataThumbnailDidLoadNotification";
 
-VibeMetadataTagName const VibeMetadataTagCatalogNumber = @"CATALOGNUMBER";
-VibeMetadataTagName const VibeMetadataTagConductor = @"CONDUCTOR";
-VibeMetadataTagName const VibeMetadataTagRemixer = @"REMIXER";
-VibeMetadataTagName const VibeMetadataTagLyricist = @"LYRICIST";
-VibeMetadataTagName const VibeMetadataTagMood = @"MOOD";
-VibeMetadataTagName const VibeMetadataTagLanguage = @"LANGUAGE";
-VibeMetadataTagName const VibeMetadataTagCopyright = @"COPYRIGHT";
-VibeMetadataTagName const VibeMetadataTagOriginalDate = @"ORIGINALDATE";
-VibeMetadataTagName const VibeMetadataTagTitleSort = @"TITLESORT";
-VibeMetadataTagName const VibeMetadataTagArtistSort = @"ARTISTSORT";
-VibeMetadataTagName const VibeMetadataTagAlbumSort = @"ALBUMSORT";
-VibeMetadataTagName const VibeMetadataTagAlbumArtistSort = @"ALBUMARTISTSORT";
 
-NSArray<VibeMetadataTagName> *VibeMetadataExtraTagNames(void) {
-    static NSArray<VibeMetadataTagName> *names;
+NSArray<VibeTagField> *VibeMetadataExtraTagNames(void) {
+    static NSArray<VibeTagField> *names;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        names = @[VibeMetadataTagCatalogNumber, VibeMetadataTagConductor, VibeMetadataTagRemixer,
-                  VibeMetadataTagLyricist, VibeMetadataTagMood, VibeMetadataTagLanguage, VibeMetadataTagCopyright,
-                  VibeMetadataTagOriginalDate, VibeMetadataTagTitleSort, VibeMetadataTagArtistSort,
-                  VibeMetadataTagAlbumSort, VibeMetadataTagAlbumArtistSort];
+        names = @[VibeTagFieldCatalogNumber, VibeTagFieldConductor, VibeTagFieldRemixer,
+                  VibeTagFieldLyricist, VibeTagFieldMood, VibeTagFieldLanguage, VibeTagFieldCopyright,
+                  VibeTagFieldOriginalDate, VibeTagFieldTitleSort, VibeTagFieldArtistSort,
+                  VibeTagFieldAlbumSort, VibeTagFieldAlbumArtistSort];
     });
     return names;
 }
 
 // The names as a set, for the archive's check.
-static NSSet<VibeMetadataTagName> *ExtraTagNameSet(void) {
-    static NSSet<VibeMetadataTagName> *names;
+static NSSet<VibeTagField> *ExtraTagNameSet(void) {
+    static NSSet<VibeTagField> *names;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         names = [NSSet setWithArray:VibeMetadataExtraTagNames()];
@@ -91,7 +79,7 @@ static NSSet<VibeMetadataTagName> *ExtraTagNameSet(void) {
 @property (copy, nullable, readwrite) NSString *musicBrainzReleaseID;
 @property (copy, nullable, readwrite) NSString *musicBrainzRecordingID;
 @property (copy, nullable, readwrite) NSString *isrc;
-@property (copy, nullable, readwrite) NSDictionary<VibeMetadataTagName, NSString *> *extraTags;
+@property (copy, nullable, readwrite) NSDictionary<VibeTagField, NSString *> *extraTags;
 @property (copy, nullable, readwrite) NSData *audioMD5;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackGain;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackPeak;
@@ -219,12 +207,12 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
 
 #endif
 
-- (NSString *)extraTag:(VibeMetadataTagName)name {
+- (NSString *)extraTag:(VibeTagField)name {
     return self.extraTags[name];
 }
 
 - (NSInteger)originalYear {
-    return LeadingYear([self extraTag:VibeMetadataTagOriginalDate]);
+    return LeadingYear([self extraTag:VibeTagFieldOriginalDate]);
 }
 
 - (VibeImage *)cachedArt {
@@ -412,7 +400,7 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
 // entry, which misses. The parse files no empty dictionary.
 // TRAP: not DecodedObject. A secure unarchiver refuses a collection whose
 // classes the read does not name, though it takes a lone string or number.
-static NSDictionary<VibeMetadataTagName, NSString *> *_Nullable DecodedExtraTags(NSCoder *coder, BOOL *wrong) {
+static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCoder *coder, BOOL *wrong) {
     static NSSet<Class> *classes;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -430,7 +418,7 @@ static NSDictionary<VibeMetadataTagName, NSString *> *_Nullable DecodedExtraTags
         *wrong = YES;
         return nil;
     }
-    NSSet<VibeMetadataTagName> *names = ExtraTagNameSet();
+    NSSet<VibeTagField> *names = ExtraTagNameSet();
     for (id name in tags) {
         id text = tags[name];
         if (![names containsObject:name] || ![text isKindOfClass:NSString.class] || [text length] == 0) {
@@ -647,7 +635,7 @@ static NSDictionary<VibeMetadataTagName, NSString *> *_Nullable DecodedExtraTags
         // normalizes each format's tempo tag to "BPM", and its keys are
         // case-insensitive.
         const TagLib::PropertyMap properties = file->properties();
-        TagLib::StringList bpmValues = properties.value("BPM");
+        TagLib::StringList bpmValues = properties.value(VibeTagFieldBPM.UTF8String);
         if (!bpmValues.isEmpty()) {
             float tagBPM = [NSString stringWithStdString:bpmValues.front().to8Bit(true)].floatValue;
             if (isfinite(tagBPM) && tagBPM > 0 && tagBPM < 1000) {
@@ -659,7 +647,7 @@ static NSDictionary<VibeMetadataTagName, NSString *> *_Nullable DecodedExtraTags
         // no mapping, so its iTunes freeform atom arrives as "initialkey",
         // which the same lookup finds. An unparseable value stays None, so
         // analysis fills in.
-        TagLib::StringList keyValues = properties.value("INITIALKEY");
+        TagLib::StringList keyValues = properties.value(VibeTagFieldInitialKey.UTF8String);
         if (!keyValues.isEmpty()) {
             self.key = VibeMusicalKeyFromString(
                     [NSString stringWithStdString:keyValues.front().to8Bit(true)]);
@@ -684,22 +672,22 @@ static NSDictionary<VibeMetadataTagName, NSString *> *_Nullable DecodedExtraTags
 // under one key (this piece's AGENTS.md, The tag fields). Sound Check is an
 // ID3v2 comment's, or an MP4 freeform atom's.
 - (void)readFieldsFromProperties:(const TagLib::PropertyMap &)properties carriesID3v2:(BOOL)carriesID3v2 {
-    self.album = PropertyText(properties, "ALBUM");
-    self.albumArtist = PropertyText(properties, "ALBUMARTIST");
-    self.genre = PropertyText(properties, "GENRE");
-    self.composer = PropertyText(properties, "COMPOSER");
-    self.year = LeadingYear(PropertyText(properties, "DATE"));
+    self.album = PropertyText(properties, VibeTagFieldAlbum.UTF8String);
+    self.albumArtist = PropertyText(properties, VibeTagFieldAlbumArtist.UTF8String);
+    self.genre = PropertyText(properties, VibeTagFieldGenre.UTF8String);
+    self.composer = PropertyText(properties, VibeTagFieldComposer.UTF8String);
+    self.year = LeadingYear(PropertyText(properties, VibeTagFieldDate.UTF8String));
     NSInteger number = 0, count = 0;
-    ReadNumberAndCount(properties, "TRACKNUMBER", {"TRACKTOTAL", "TOTALTRACKS"}, &number, &count);
+    ReadNumberAndCount(properties, VibeTagFieldTrackNumber.UTF8String, {VibeTagFieldTrackTotal.UTF8String, "TOTALTRACKS"}, &number, &count);
     self.trackNumber = number;
     self.trackCount = count;
-    ReadNumberAndCount(properties, "DISCNUMBER", {"DISCTOTAL", "TOTALDISCS"}, &number, &count);
+    ReadNumberAndCount(properties, VibeTagFieldDiscNumber.UTF8String, {VibeTagFieldDiscTotal.UTF8String, "TOTALDISCS"}, &number, &count);
     self.discNumber = number;
     self.discCount = count;
-    self.compilation = LeadingCount(PropertyText(properties, "COMPILATION")) > 0;
+    self.compilation = LeadingCount(PropertyText(properties, VibeTagFieldCompilation.UTF8String)) > 0;
     self.musicBrainzReleaseID = PropertyText(properties, "MUSICBRAINZ_ALBUMID");
     self.musicBrainzRecordingID = PropertyText(properties, "MUSICBRAINZ_TRACKID");
-    self.isrc = PropertyText(properties, "ISRC");
+    self.isrc = PropertyText(properties, VibeTagFieldISRC.UTF8String);
     self.replayGainTrackGain = LeadingDecimal(PropertyText(properties, "REPLAYGAIN_TRACK_GAIN"));
     self.replayGainTrackPeak = LeadingDecimal(PropertyText(properties, "REPLAYGAIN_TRACK_PEAK"));
     self.replayGainAlbumGain = LeadingDecimal(PropertyText(properties, "REPLAYGAIN_ALBUM_GAIN"));
@@ -710,25 +698,25 @@ static NSDictionary<VibeMetadataTagName, NSString *> *_Nullable DecodedExtraTags
                                          ?: PropertyText(properties, "ITUNNORM"));
     // An ID3v2 comment with a description, such as iTunNORM, has a key of
     // its own, so only the plain comment reads here.
-    self.comment = PropertyText(properties, "COMMENT") ?: PropertyText(properties, "DESCRIPTION");
+    self.comment = PropertyText(properties, VibeTagFieldComment.UTF8String) ?: PropertyText(properties, "DESCRIPTION");
     // ID3v2's GRP1 arrives as GROUPING. TIT1 arrives as WORK. TIT1 was the
     // grouping until iTunes 12.5 moved it to GRP1, and many taggers still
     // write it there, so an ID3v2 file without GRP1 takes it. MP4's and a
     // Xiph comment's WORK is the work, never the grouping.
-    self.grouping = PropertyText(properties, "GROUPING")
+    self.grouping = PropertyText(properties, VibeTagFieldGrouping.UTF8String)
             ?: (carriesID3v2 ? PropertyText(properties, "WORK") : nil);
     // ID3v2's TPUB, RIFF INFO's IPUB, and MP4's LABEL atom arrive as LABEL.
     // A Xiph comment may name it ORGANIZATION, as the Vorbis spec does, or
     // PUBLISHER.
-    self.label = PropertyText(properties, "LABEL") ?: PropertyText(properties, "ORGANIZATION")
+    self.label = PropertyText(properties, VibeTagFieldLabel.UTF8String) ?: PropertyText(properties, "ORGANIZATION")
             ?: PropertyText(properties, "PUBLISHER");
     // Each extra tag under its own name. ID3v2.3's TORY arrives as
     // ORIGINALDATE, as v2.4's TDOR does. A Xiph comment or a TXXX frame may
     // name it ORIGINALYEAR.
-    NSMutableDictionary<VibeMetadataTagName, NSString *> *extras = nil;
-    for (VibeMetadataTagName name in VibeMetadataExtraTagNames()) {
+    NSMutableDictionary<VibeTagField, NSString *> *extras = nil;
+    for (VibeTagField name in VibeMetadataExtraTagNames()) {
         NSString *text = PropertyText(properties, name.UTF8String);
-        if (!text && name == VibeMetadataTagOriginalDate) {
+        if (!text && name == VibeTagFieldOriginalDate) {
             text = PropertyText(properties, "ORIGINALYEAR");
         }
         if (text) {

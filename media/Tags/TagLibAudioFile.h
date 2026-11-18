@@ -27,13 +27,19 @@ typedef NSData *_Nullable (^VibeTagByteRangeRead)(NSURL *url, uint64_t offset, u
 // library. Same order: extension, isValid(), then magic bytes. Without
 // readProperties no audio properties are parsed, which the art read never
 // uses; no format's validity depends on them. With rangeRead, the file's
-// rangeLength bytes are read through it instead of from disk.
+// rangeLength bytes are read through it instead of from disk. With writable,
+// the file opens for writing through a VibeCheckedFileStream, or read-only
+// when it cannot (VibeTagWriter.h).
 class TagLibAudioFile {
 public:
     explicit TagLibAudioFile(const char *path, bool readProperties = true,
-                             VibeTagByteRangeRead _Nullable rangeRead = nil, uint64_t rangeLength = 0);
+                             VibeTagByteRangeRead _Nullable rangeRead = nil, uint64_t rangeLength = 0,
+                             bool writable = false);
 
     bool isNull() const { return _file == nullptr; }
+    bool streamIsOpen() const { return _stream->isOpen(); }
+    bool streamIsReadOnly() const { return _stream->readOnly(); }
+    TagLib::IOStream *stream() const { return _stream.get(); }
     TagLib::File *_Nullable file() const { return _file.get(); }
     TagLib::Tag *_Nullable tag() const { return _file ? _file->tag() : nullptr; }
 
@@ -47,6 +53,20 @@ private:
 
     std::unique_ptr<TagLib::IOStream> _stream; // declared first: must outlive _file
     std::unique_ptr<TagLib::File> _file;
+};
+
+// While one lives on this thread, a RIFF INFO value a parse reads renders
+// back as the bytes it was read from, Latin-1 or UTF-8. A new value renders
+// as UTF-8. Made before the parse, by the writer.
+class VibeInfoEncodingScope {
+public:
+    VibeInfoEncodingScope();
+    ~VibeInfoEncodingScope();
+    VibeInfoEncodingScope(const VibeInfoEncodingScope &) = delete;
+    VibeInfoEncodingScope &operator=(const VibeInfoEncodingScope &) = delete;
+
+private:
+    void *_previous;
 };
 
 // The kind of the file's audio (AudioFileFormat.h).

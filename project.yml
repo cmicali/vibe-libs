@@ -476,12 +476,14 @@ targets:
       excludedPlatform: Mac
 
   # media/Tags, tested on macOS. The tests write their own files through
-  # AVFoundation. They are Objective-C++, whose framework imports link
-  # nothing on their own, so the bundle links AVFoundation.
+  # AVFoundation, Decode's writer, and the fixtures in Tests/Support, which
+  # the tag tests share with Metadata's. Decode is listed first, as an app
+  # lists it before Tags. They are Objective-C++, whose framework imports
+  # link nothing on their own, so the bundle links what the fixtures use.
   TagsTests:
     type: bundle.unit-test
     platform: macOS
-    templates: [VibeLibsTags]
+    templates: [VibeLibsDecode, VibeLibsTags]
     templateAttributes:
       excludedPlatform: iOS
     sources:
@@ -489,9 +491,13 @@ targets:
         excludes: ["**/*.md"]
     dependencies:
       - sdk: AVFoundation.framework
+      - sdk: CoreGraphics.framework
+      - sdk: ImageIO.framework
+      - sdk: UniformTypeIdentifiers.framework
     settings:
       base:
         GENERATE_INFOPLIST_FILE: YES
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support"]
 
   # media/Tags built for iOS, so an AppKit leak fails here.
   Tags-iOS:

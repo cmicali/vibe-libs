@@ -112,7 +112,7 @@ vibe-libs/
 │                        Mac/ binding to a device and bit-perfect output; iOS/ route
 │                        recovery
 ├── media/
-│   ├── Tags ●           TagLib fields and embedded art bytes
+│   ├── Tags ●           TagLib fields and embedded art bytes, read and written in place
 │   ├── Metadata ●       the tag record, the CoreAudio fallback, the cache, the background
 │   │                    scan, embedded art and thumbnails, and covers beside the files
 │   ├── PlayQueue ●      play order, shuffle, repeat, and what follows a track's end, over
@@ -663,6 +663,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | Any mac app's opens, when it needs them | AppOpening | move | 6 | the coalescer's and the coordinator's tests, and the minimal consumer's split open | 8b1418e (#48) |
 | A server source | HTTP, RemoteFiles, and ShareLinks | move | 6 | Vibe's transfer, store, and link tests, moved here | 2f62ff4 (#46) |
 | Its debug channel's standard verbs and client | DebugVerbs, and the client in DebugChannel | move | 6 | the piece's and the client's tests, and the consumer's standard verbs | 49c8aa4 (#87) |
+| Full app: tag editing | Tags' in-place write of fields and the front cover, and the field names in `VibeTagFields.h` | behavior | 6 | `VibeTagWriterTests`, and Decode's `AudioFileHandleReplaceTests` for the swap | |
 
 Nothing else is scheduled for the other app. The shell pieces are scheduled for a third app, on the shell track. Portable rewrites wait until a consumer needs them.
 

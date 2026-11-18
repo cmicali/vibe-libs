@@ -232,6 +232,13 @@ static inline NSURL *VibeWriteFixture(NSURL *url, AVAudioPCMBuffer *buffer, NSEr
     return url;
 }
 
+// Every frame a handle reads from its cursor to the end, in chunks. NO, with
+// the failure, when a read fails.
+static inline BOOL VibeReadToEnd(AudioFileHandle *handle, NSMutableData *capture, NSError **error);
+
+// A whole file's decode, interleaved float32, or nil when it fails.
+static inline NSData *VibeDecodeFile(NSURL *url);
+
 // Appends whole interleaved frames; shares no production DSP, so a capture stays independent.
 static inline void VibeAppendPCM(NSMutableData *capture, AVAudioPCMBuffer *buffer) {
     NSUInteger channels = buffer.format.channelCount;
@@ -245,4 +252,19 @@ static inline void VibeAppendPCM(NSMutableData *capture, AVAudioPCMBuffer *buffe
     for (NSUInteger frame = 0; frame < buffer.frameLength; frame++)
         for (NSUInteger channel = 0; channel < channels; channel++)
             out[frame * channels + channel] = buffer.floatChannelData[channel][frame];
+}
+
+static inline BOOL VibeReadToEnd(AudioFileHandle *handle, NSMutableData *capture, NSError **error) {
+    AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:handle.processingFormat frameCapacity:4096];
+    while (YES) {
+        if (![handle readIntoBuffer:buffer error:error]) return NO;
+        if (buffer.frameLength == 0) return YES;
+        VibeAppendPCM(capture, buffer);
+    }
+}
+
+static inline NSData *VibeDecodeFile(NSURL *url) {
+    AudioFileHandle *handle = [[AudioFileHandle alloc] initForReading:url error:NULL];
+    NSMutableData *capture = [NSMutableData data];
+    return handle && VibeReadToEnd(handle, capture, NULL) ? capture : nil;
 }

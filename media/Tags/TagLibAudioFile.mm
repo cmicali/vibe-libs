@@ -5,6 +5,7 @@
 
 #import "TagLibAudioFile.h"
 #import "VibeMacros.h"
+#include "VibeCheckedFileStream.h"
 
 #include <algorithm>
 #include <map>
@@ -12,6 +13,7 @@
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <vector>
 #include <tfilestream.h>
 #include <mpegfile.h>
 #include <mpegproperties.h>
@@ -155,13 +157,35 @@ private:
 // as UTF-8 and answers an empty string for any other bytes, so Latin-1 or
 // Windows-1252 text from Windows tools reads as "". This reads UTF-8 when the
 // bytes are valid UTF-8, and Latin-1, the RIFF default, otherwise.
+// The bytes each INFO value was read from, while a VibeInfoEncodingScope
+// lives on this thread.
+struct VibeInfoOriginals {
+    std::vector<std::pair<TagLib::String, TagLib::ByteVector>> values;
+};
+thread_local VibeInfoOriginals *tVibeInfoOriginals = nullptr;
+
 class VibeInfoStringHandler : public TagLib::RIFF::Info::StringHandler {
 public:
     TagLib::String parse(const TagLib::ByteVector &data) const override {
-        if (utf8::is_valid(data.begin(), data.end())) {
-            return TagLib::String(data, TagLib::String::UTF8);
+        TagLib::String text = utf8::is_valid(data.begin(), data.end()) ? TagLib::String(data, TagLib::String::UTF8)
+                                                                      : TagLib::String(data, TagLib::String::Latin1);
+        if (tVibeInfoOriginals) {
+            TagLib::ByteVector bytes = data;
+            while (!bytes.isEmpty() && bytes[bytes.size() - 1] == '\0') bytes.resize(bytes.size() - 1);
+            tVibeInfoOriginals->values.emplace_back(text, bytes);
         }
-        return TagLib::String(data, TagLib::String::Latin1);
+        return text;
+    }
+
+    // A value read in this scope renders as the bytes it came from, so a
+    // Latin-1 value stays Latin-1. Any other renders as UTF-8, as TagLib's.
+    TagLib::ByteVector render(const TagLib::String &text) const override {
+        if (tVibeInfoOriginals) {
+            for (const auto &[original, bytes] : tVibeInfoOriginals->values) {
+                if (original == text) return bytes;
+            }
+        }
+        return text.data(TagLib::String::UTF8);
     }
 };
 
@@ -174,12 +198,28 @@ static void VibeInstallInfoStringHandler() {
     });
 }
 
+} // namespace
+
+VibeInfoEncodingScope::VibeInfoEncodingScope() : _previous(tVibeInfoOriginals) {
+    tVibeInfoOriginals = new VibeInfoOriginals();
+}
+
+VibeInfoEncodingScope::~VibeInfoEncodingScope() {
+    delete tVibeInfoOriginals;
+    tVibeInfoOriginals = static_cast<VibeInfoOriginals *>(_previous);
+}
+
+namespace {
+
 // The stream a parse reads: the file, or its bytes through the caller's reader.
 static std::unique_ptr<TagLib::IOStream> VibeOpenTagStream(const char *path, VibeTagByteRangeRead rangeRead,
-                                                           uint64_t rangeLength) {
+                                                           uint64_t rangeLength, bool writable) {
     if (rangeRead) {
         NSURL *url = [NSURL fileURLWithPath:@(path) isDirectory:NO];
         return std::make_unique<VibeRangedStream>(url, rangeRead, (TagLib::offset_t)rangeLength);
+    }
+    if (writable) {
+        return std::make_unique<VibeCheckedFileStream>(path);
     }
     return std::make_unique<TagLib::FileStream>(path, true);
 }
@@ -196,8 +236,8 @@ void VibeInstallTagLibDebugListener(void) {
 #endif
 
 TagLibAudioFile::TagLibAudioFile(const char *path, bool readProperties, VibeTagByteRangeRead rangeRead,
-                                 uint64_t rangeLength)
-    : _stream(VibeOpenTagStream(path, rangeRead, rangeLength)) {
+                                 uint64_t rangeLength, bool writable)
+    : _stream(VibeOpenTagStream(path, rangeRead, rangeLength, writable)) {
     VibeInstallInfoStringHandler();
     if (!_stream->isOpen()) {
         return;

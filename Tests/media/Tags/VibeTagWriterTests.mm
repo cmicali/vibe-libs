@@ -1,0 +1,754 @@
+//
+//  VibeTagWriterTests.mm
+//  vibe-libs
+//
+//  VibeTagWriter's in-place write over the real TagLib, in every format it
+//  writes: each field and the cover round trip, a write leaves what it does
+//  not name and the audio's digest, and every refusal and failure leaves
+//  the file's bytes. The files come from Tests/Support's fixtures, and the
+//  Ogg pages from OggFixtures.h, since no Apple encoder writes Ogg.
+//
+
+#import <XCTest/XCTest.h>
+#import <AVFoundation/AVFoundation.h>
+#include <signal.h>
+#include <sys/resource.h>
+#include <sys/stat.h>
+
+#import "AudioTrackMetadataTagFixtures.h"
+#import "OggFixtures.h"
+#import "TagLibAudioFile.h"
+#import "VibeTagWriter.h"
+
+#include <privateframe.h>
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdocumentation-html"
+#include <textidentificationframe.h>
+#pragma clang diagnostic pop
+#include <xiphcomment.h>
+
+@interface VibeTagWriterTests : XCTestCase
+@end
+
+#pragma mark - Reading back
+
+static NSData *VibeNS(const TagLib::ByteVector &bytes) {
+    return [NSData dataWithBytes:bytes.data() length:bytes.size()];
+}
+
+// Every picture in the file, in its order, as TagLib's complex properties
+// list them.
+static NSArray<NSData *> *VibePictures(NSURL *url) {
+    NSMutableArray<NSData *> *pictures = [NSMutableArray array];
+    TagLibAudioFile ref(url.fileSystemRepresentation, false);
+    if (ref.isNull()) return pictures;
+    for (const auto &picture : ref.file()->complexProperties("PICTURE")) {
+        [pictures addObject:VibeNS(picture.value("data").toByteVector())];
+    }
+    return pictures;
+}
+
+static NSData *VibeFrontCover(NSURL *url) {
+    TagLibAudioFile ref(url.fileSystemRepresentation, false);
+    return ref.isNull() ? nil : albumArtDataFromTagLibFile(ref.file());
+}
+
+static NSData *VibeDigest(NSURL *url) {
+    NSError *error = nil;
+    NSData *digest = VibeTagLibAudioDigest(url.path, &error);
+    if (!digest) NSLog(@"%@: %@", url.lastPathComponent, error);
+    return digest;
+}
+
+// A real image's bytes, so the cover check's signatures hold.
+static NSData *VibeJPEG(CGFloat shade) { return VibeImageOfColor(8, shade, 0.2, 0.3, YES); }
+static NSData *VibePNG(CGFloat shade) { return VibeImageOfColor(8, 0.3, shade, 0.2, NO); }
+
+#pragma mark - The fields
+
+// A value for every edited field, as each format reads it back.
+static VibeTagFieldValues *VibeEveryField(void) {
+    NSMutableDictionary<VibeTagField, NSArray<NSString *> *> *fields = [NSMutableDictionary dictionary];
+    for (VibeTagField field in VibeTagFieldsEdited()) {
+        fields[field] = @[[NSString stringWithFormat:@"Value of %@ é", field.lowercaseString]];
+    }
+    fields[VibeTagFieldDate] = @[@"2001-02-03"];
+    fields[VibeTagFieldOriginalDate] = @[@"1999"];
+    fields[VibeTagFieldTrackNumber] = @[@"3"];
+    fields[VibeTagFieldTrackTotal] = @[@"12"];
+    fields[VibeTagFieldDiscNumber] = @[@"1"];
+    fields[VibeTagFieldDiscTotal] = @[@"2"];
+    fields[VibeTagFieldCompilation] = @[@"1"];
+    fields[VibeTagFieldBPM] = @[@"128"];
+    fields[VibeTagFieldLanguage] = @[@"eng"];
+    fields[VibeTagFieldISRC] = @[@"USRC17607839"];
+    return fields;
+}
+
+@implementation VibeTagWriterTests {
+    NSURL *_dir;
+}
+
+- (void)setUp {
+    [super setUp];
+    _dir = VibeTagFixtureDirectory();
+}
+
+- (void)tearDown {
+    for (NSString *name in [NSFileManager.defaultManager enumeratorAtPath:_dir.path]) {
+        chmod([_dir URLByAppendingPathComponent:name].fileSystemRepresentation, 0644);
+    }
+    [NSFileManager.defaultManager removeItemAtURL:_dir error:NULL];
+    [super tearDown];
+}
+
+// Every format the writer writes. id3v23.mp3's tag is ID3v2.3, holding one
+// frame so it keeps its version. plain.mp3 has no tag.
+- (NSArray<NSString *> *)formats {
+    return @[@"plain.mp3", @"id3v23.mp3", @"audio.m4a", @"audio.flac", @"audio.ogg", @"audio.opus", @"audio.wav",
+             @"audio.aif"];
+}
+
+- (NSURL *)write:(NSString *)name {
+    NSURL *url = [_dir URLByAppendingPathComponent:name];
+    NSString *extension = name.pathExtension;
+    NSError *error = nil;
+    if ([extension isEqualToString:@"mp3"]) {
+        XCTAssertTrue([VibeMP3WithInfoFrame(38, NO) writeToURL:url atomically:YES]);
+        if ([name hasPrefix:@"id3v23"]) {
+            TagLib::MPEG::File file(url.fileSystemRepresentation);
+            TagLib::PropertyMap properties;
+            properties.insert("ENCODEDBY", TagLib::StringList("vibe"));
+            file.ID3v2Tag(true)->setProperties(properties);
+            XCTAssertTrue(file.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone, TagLib::ID3v2::v3));
+        }
+    }
+    else if ([extension isEqualToString:@"ogg"] || [extension isEqualToString:@"opus"]) {
+        XCTAssertTrue([VibeOggTagFile([extension isEqualToString:@"opus"]) writeToURL:url atomically:YES]);
+    }
+    else if ([extension isEqualToString:@"m4a"] || [extension isEqualToString:@"flac"]) {
+        XCTAssertNotNil(VibeTagFixtureEncode(url, [extension isEqualToString:@"m4a"] ? kAudioFormatMPEG4AAC
+                                                                                     : kAudioFormatFLAC));
+    }
+    else {
+        XCTAssertNotNil(VibeWriteFixture(url, VibeToneBuffer(22050, 44100, 2, AVAudioPCMFormatInt16), &error),
+                        @"%@: %@", name, error);
+    }
+    return url;
+}
+
+- (VibeTagFieldValues *)read:(NSURL *)url {
+    NSError *error = nil;
+    VibeTagFieldValues *fields = VibeTagLibReadFields(url.path, &error);
+    XCTAssertNotNil(fields, @"%@: %@", url.lastPathComponent, error);
+    return fields;
+}
+
+- (void)assertWrite:(NSURL *)url fields:(VibeTagFieldValues *)fields {
+    NSError *error = nil;
+    XCTAssertTrue(VibeTagLibWriteFields(url.path, fields, &error), @"%@: %@", url.lastPathComponent, error);
+}
+
+// A write that fails with `code` and leaves every byte.
+- (void)assertFailure:(NSURL *)url code:(VibeTagWriteError)code write:(BOOL (^)(NSError **error))write {
+    NSData *before = [NSData dataWithContentsOfURL:url];
+    NSError *error = nil;
+    XCTAssertFalse(write(&error), @"%@", url.lastPathComponent);
+    XCTAssertEqualObjects(error.domain, VibeTagWriteErrorDomain, @"%@", url.lastPathComponent);
+    XCTAssertEqual(error.code, code, @"%@: %@", url.lastPathComponent, error);
+    XCTAssertEqualObjects([NSData dataWithContentsOfURL:url], before, @"%@", url.lastPathComponent);
+}
+
+- (void)assertFailure:(NSURL *)url code:(VibeTagWriteError)code fields:(VibeTagFieldValues *)fields {
+    [self assertFailure:url code:code write:^BOOL(NSError **error) {
+        return VibeTagLibWriteFields(url.path, fields, error);
+    }];
+}
+
+#pragma mark - Round trips
+
+- (void)testEveryFieldRoundTripsInEveryFormat {
+    VibeTagFieldValues *fields = VibeEveryField();
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        NSData *audio = VibeDigest(url);
+        XCTAssertNotNil(audio, @"%@", name);
+        [self assertWrite:url fields:fields];
+        VibeTagFieldValues *read = [self read:url];
+        for (VibeTagField field in fields) {
+            XCTAssertEqualObjects(read[field], fields[field], @"%@ %@", name, field);
+        }
+        XCTAssertEqualObjects(VibeDigest(url), audio, @"%@", name);
+    }
+}
+
+// A file's ID3v2 tag keeps its version. One with none gets 2.4.
+- (void)testAnMP3KeepsItsID3v2Version {
+    for (NSString *name in @[@"plain.mp3", @"id3v23.mp3"]) {
+        NSURL *url = [self write:name];
+        [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"Title"], VibeTagFieldMood: @[@"Calm"]}];
+        const uint8_t *bytes = (const uint8_t *)[NSData dataWithContentsOfURL:url].bytes;
+        XCTAssertEqual(bytes[3], [name hasPrefix:@"id3v23"] ? 3 : 4, @"%@", name);
+        XCTAssertEqualObjects([self read:url][VibeTagFieldMood], @[@"Calm"], @"%@", name);
+    }
+}
+
+- (void)testSeveralValuesRoundTripInEveryFormat {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        [self assertWrite:url fields:@{VibeTagFieldArtist: @[@"One", @"Two", @"Three"]}];
+        XCTAssertEqualObjects([self read:url][VibeTagFieldArtist], (@[@"One", @"Two", @"Three"]), @"%@", name);
+    }
+}
+
+- (void)testTheCoverRoundTripsInEveryFormat {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        NSData *audio = VibeDigest(url);
+        NSError *error = nil;
+        XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, VibeJPEG(0.1), @"image/jpeg", &error), @"%@: %@", name, error);
+        XCTAssertEqualObjects(VibeFrontCover(url), VibeJPEG(0.1), @"%@", name);
+        XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, VibePNG(0.2), @"image/png", &error), @"%@: %@", name, error);
+        XCTAssertEqualObjects(VibeFrontCover(url), VibePNG(0.2), @"%@", name);
+        XCTAssertEqualObjects(VibePictures(url), @[VibePNG(0.2)], @"%@ replaced, not added", name);
+        XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, nil, nil, &error), @"%@: %@", name, error);
+        NSData *art = nil;
+        XCTAssertTrue(VibeTagLibReadEmbeddedArt(url.path, nil, 0, &art), @"%@", name);
+        XCTAssertNil(art, @"%@", name);
+        XCTAssertEqualObjects(VibeDigest(url), audio, @"%@", name);
+    }
+}
+
+#pragma mark - What a write leaves
+
+// A custom field and a back cover beside whatever the file holds, written
+// with TagLib itself, and an MP3's private frame.
+- (void)addOthersTo:(NSURL *)url {
+    TagLibAudioFile ref(url.fileSystemRepresentation, false, nil, 0, true);
+    TagLib::File *file = ref.file();
+    auto id3 = [](TagLib::ID3v2::Tag *tag) {
+        tag->addFrame(new TagLib::ID3v2::UserTextIdentificationFrame("VIBE_CUSTOM", TagLib::StringList("kept"),
+                                                                     TagLib::String::UTF8));
+        VibeAddAPIC(tag, VibePNG(0.9), TagLib::ID3v2::AttachedPictureFrame::BackCover);
+    };
+    if (auto mpeg = dynamic_cast<TagLib::MPEG::File *>(file)) {
+        const bool v3 = mpeg->hasID3v2Tag() && mpeg->ID3v2Tag()->header()->majorVersion() == 3;
+        id3(mpeg->ID3v2Tag(true));
+        auto priv = new TagLib::ID3v2::PrivateFrame();
+        priv->setOwner("org.example.vibe");
+        priv->setData(TagLib::ByteVector("opaque", 6));
+        mpeg->ID3v2Tag()->addFrame(priv);
+        XCTAssertTrue(mpeg->save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone,
+                                 v3 ? TagLib::ID3v2::v3 : TagLib::ID3v2::v4));
+    }
+    else if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
+        id3(wav->ID3v2Tag());
+        XCTAssertTrue(wav->save(TagLib::RIFF::WAV::File::ID3v2, TagLib::File::StripNone));
+    }
+    else if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
+        id3(aiff->tag());
+        XCTAssertTrue(aiff->save());
+    }
+    else if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
+        flac->xiphComment(true)->addField("VIBE_CUSTOM", "kept");
+        flac->addPicture(VibeFLACPicture(VibePNG(0.9), TagLib::FLAC::Picture::BackCover));
+        XCTAssertTrue(flac->save());
+    }
+    else if (auto xiph = dynamic_cast<TagLib::Ogg::XiphComment *>(file->tag())) {
+        xiph->addField("VIBE_CUSTOM", "kept");
+        xiph->addPicture(VibeFLACPicture(VibePNG(0.9), TagLib::FLAC::Picture::BackCover));
+        XCTAssertTrue(file->save());
+    }
+    else if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
+        mp4->tag()->setItem("----:com.apple.iTunes:VIBE_CUSTOM", TagLib::StringList("kept"));
+        TagLib::MP4::CoverArtList list = mp4->tag()->item("covr").toCoverArtList();
+        list.append(TagLib::MP4::CoverArt(TagLib::MP4::CoverArt::PNG, VibeTagBytes(VibePNG(0.9))));
+        mp4->tag()->setItem("covr", TagLib::MP4::Item(list));
+        XCTAssertTrue(mp4->save());
+    }
+}
+
+// A file with every field, a custom field, a front and a back cover. A write
+// of the title and a removal of the composer change those alone.
+- (void)testOneFieldLeavesEverythingElse {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        XCTAssertTrue(VibeTagLibWriteTags(url.path, VibeEveryField(), YES, VibeJPEG(0.3), @"image/jpeg", NULL), @"%@", name);
+        [self addOthersTo:url];
+        VibeTagFieldValues *before = [self read:url];
+        XCTAssertEqualObjects(before[@"VIBE_CUSTOM"], @[@"kept"], @"%@", name);
+        NSArray<NSData *> *pictures = VibePictures(url);
+        XCTAssertEqual(pictures.count, 2u, @"%@", name);
+        NSData *audio = VibeDigest(url);
+        NSData *md5 = nil;
+        {
+            TagLibAudioFile ref(url.fileSystemRepresentation);
+            md5 = audioMD5FromTagLibFile(ref.file());
+        }
+
+        [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"New Title"], VibeTagFieldComposer: @[]}];
+
+        NSMutableDictionary *expected = [before mutableCopy];
+        expected[VibeTagFieldTitle] = @[@"New Title"];
+        [expected removeObjectForKey:VibeTagFieldComposer];
+        XCTAssertEqualObjects([self read:url], expected, @"%@", name);
+        XCTAssertEqualObjects(VibePictures(url), pictures, @"%@", name);
+        XCTAssertEqualObjects(VibeDigest(url), audio, @"%@", name);
+        TagLibAudioFile ref(url.fileSystemRepresentation);
+        XCTAssertEqualObjects(audioMD5FromTagLibFile(ref.file()), md5, @"%@", name);
+        if (auto mpeg = dynamic_cast<TagLib::MPEG::File *>(ref.file())) {
+            XCTAssertEqual(mpeg->ID3v2Tag()->frameList("PRIV").size(), 1u, @"%@", name);
+        }
+    }
+}
+
+// Removing the front cover leaves the back cover, which the read then answers.
+- (void)testRemovingTheCoverLeavesOtherPictures {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, VibeJPEG(0.5), @"image/jpeg", NULL), @"%@", name);
+        [self addOthersTo:url];
+        XCTAssertEqualObjects(VibeFrontCover(url), VibeJPEG(0.5), @"%@", name);
+        XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, nil, nil, NULL), @"%@", name);
+        XCTAssertEqualObjects(VibePictures(url), @[VibePNG(0.9)], @"%@", name);
+        XCTAssertEqualObjects(VibeFrontCover(url), VibePNG(0.9), @"%@", name);
+    }
+}
+
+// An empty string removes, as an empty list does.
+- (void)testAnEmptyValueRemovesInEveryFormat {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"Title"], VibeTagFieldGenre: @[@"Jazz"]}];
+        [self assertWrite:url fields:@{VibeTagFieldTitle: @[@""], VibeTagFieldGenre: @[@"", @""]}];
+        VibeTagFieldValues *read = [self read:url];
+        XCTAssertNil(read[VibeTagFieldTitle], @"%@", name);
+        XCTAssertNil(read[VibeTagFieldGenre], @"%@", name);
+    }
+}
+
+#pragma mark - Numbers and their other spellings
+
+// A total alone keeps the number, and a number alone the total.
+- (void)testANumberAndItsTotalKeepTheHalfNotNamed {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        [self assertWrite:url fields:@{VibeTagFieldTrackNumber: @[@"3"], VibeTagFieldDiscNumber: @[@"1"],
+                                       VibeTagFieldDiscTotal: @[@"2"]}];
+        [self assertWrite:url fields:@{VibeTagFieldTrackTotal: @[@"12"], VibeTagFieldDiscTotal: @[]}];
+        [self assertWrite:url fields:@{VibeTagFieldTrackNumber: @[@"4"]}];
+        VibeTagFieldValues *read = [self read:url];
+        XCTAssertEqualObjects(read[VibeTagFieldTrackNumber], @[@"4"], @"%@", name);
+        XCTAssertEqualObjects(read[VibeTagFieldTrackTotal], @[@"12"], @"%@", name);
+        XCTAssertEqualObjects(read[VibeTagFieldDiscNumber], @[@"1"], @"%@", name);
+        XCTAssertNil(read[VibeTagFieldDiscTotal], @"%@", name);
+    }
+}
+
+// Stale totals under other spellings, and a field's fallback spellings, go
+// with a write of the field, so a removal sticks for media/Metadata's read.
+- (void)testOtherSpellingsAreClearedInEveryFormat {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        {
+            TagLibAudioFile ref(url.fileSystemRepresentation, false, nil, 0, true);
+            TagLib::File *file = ref.file();
+            TagLib::PropertyMap stale;
+            stale.insert("TRACKNUMBER", TagLib::StringList("3"));
+            stale.insert("TRACKTOTAL", TagLib::StringList("9"));
+            stale.insert("TOTALTRACKS", TagLib::StringList("8"));
+            for (const char *key : {"DESCRIPTION", "ORGANIZATION", "PUBLISHER", "ORIGINALYEAR"}) {
+                stale.insert(key, TagLib::StringList("stale"));
+            }
+            if (auto mpeg = dynamic_cast<TagLib::MPEG::File *>(file)) {
+                const bool v3 = mpeg->hasID3v2Tag() && mpeg->ID3v2Tag()->header()->majorVersion() == 3;
+                mpeg->ID3v2Tag(true)->setProperties(stale);
+                XCTAssertTrue(mpeg->save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone,
+                                         v3 ? TagLib::ID3v2::v3 : TagLib::ID3v2::v4));
+            }
+            else if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
+                flac->xiphComment(true)->setProperties(stale);
+                XCTAssertTrue(flac->save());
+            }
+            else if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
+                wav->ID3v2Tag()->setProperties(stale);
+                XCTAssertTrue(wav->save(TagLib::RIFF::WAV::File::ID3v2, TagLib::File::StripNone));
+            }
+            else {
+                file->tag()->setProperties(stale);
+                XCTAssertTrue(file->save());
+            }
+        }
+        XCTAssertEqualObjects([self read:url][VibeTagFieldTrackTotal], @[@"9"], @"%@ reads the stale total", name);
+        [self assertWrite:url fields:@{VibeTagFieldTrackTotal: @[], VibeTagFieldComment: @[], VibeTagFieldLabel: @[],
+                                       VibeTagFieldOriginalDate: @[]}];
+        TagLibAudioFile ref(url.fileSystemRepresentation, false);
+        const TagLib::PropertyMap properties = ref.file()->properties();
+        for (const char *key : {"TRACKTOTAL", "TOTALTRACKS", "DESCRIPTION", "ORGANIZATION", "PUBLISHER",
+                                "ORIGINALYEAR"}) {
+            XCTAssertFalse(properties.contains(key), @"%@ %s", name, key);
+        }
+        XCTAssertEqual(properties.value("TRACKNUMBER"), TagLib::StringList("3"), @"%@", name);
+        XCTAssertNil([self read:url][VibeTagFieldTrackTotal], @"%@", name);
+    }
+}
+
+// An MP3 with ID3v2 and ID3v1: ID3v1 takes the number alone and the year.
+- (void)testID3v1TakesTheNumberAndTheYear {
+    NSURL *url = [_dir URLByAppendingPathComponent:@"both.mp3"];
+    XCTAssertTrue([VibeMP3WithInfoFrame(38, YES) writeToURL:url atomically:YES]);
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"Title"], VibeTagFieldTrackNumber: @[@"3"],
+                                   VibeTagFieldTrackTotal: @[@"12"], VibeTagFieldDate: @[@"2001-02-03"]}];
+    TagLib::MPEG::File file(url.fileSystemRepresentation);
+    XCTAssertTrue(file.hasID3v1Tag());
+    XCTAssertEqual(file.ID3v1Tag()->track(), 3u);
+    XCTAssertEqual(file.ID3v1Tag()->year(), 2001u);
+    XCTAssertEqual(file.ID3v1Tag()->title(), TagLib::String("Title"));
+    XCTAssertEqual(file.ID3v2Tag()->properties().value("TRACKNUMBER"), TagLib::StringList("3/12"));
+    XCTAssertEqual(file.ID3v2Tag()->properties().value("DATE"), TagLib::StringList("2001-02-03"));
+}
+
+// MP4's numbers are whole numbers from 0 to 65535.
+- (void)testMP4RefusesANumberItCannotHold {
+    NSURL *url = [self write:@"audio.m4a"];
+    for (NSDictionary *fields in @[@{VibeTagFieldTrackNumber: @[@"A1"]}, @{VibeTagFieldTrackNumber: @[@"70000"]},
+                                   @{VibeTagFieldTrackTotal: @[@"x"]}, @{VibeTagFieldDiscNumber: @[@"1/B"]},
+                                   @{VibeTagFieldBPM: @[@"128.5"]}, @{VibeTagFieldCompilation: @[@"yes"]},
+                                   @{VibeTagFieldBPM: @[@"120", @"121"]}]) {
+        [self assertFailure:url code:VibeTagWriteErrorUnsupportedValue fields:fields];
+    }
+}
+
+#pragma mark - ID3v2
+
+// ID3v2.3 holds a year as the original date, and a date to the minute.
+- (void)testID3v23RefusesADateItCannotHold {
+    NSURL *url = [self write:@"id3v23.mp3"];
+    [self assertFailure:url code:VibeTagWriteErrorUnsupportedValue
+                 fields:@{VibeTagFieldOriginalDate: @[@"1999-05-01"]}];
+    [self assertFailure:url code:VibeTagWriteErrorUnsupportedValue fields:@{VibeTagFieldDate: @[@"2001-02"]}];
+}
+
+- (NSURL *)mp3WithTag:(NSData *)tag name:(NSString *)name {
+    NSURL *url = [_dir URLByAppendingPathComponent:name];
+    NSMutableData *bytes = [tag mutableCopy];
+    [bytes appendData:VibeMP3WithInfoFrame(38, NO)];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    return url;
+}
+
+// A Latin-1 text frame's body.
+static NSData *VibeText(const char *text) {
+    NSMutableData *body = [NSMutableData dataWithLength:1];
+    [body appendBytes:text length:strlen(text)];
+    return body;
+}
+
+// TRAP: TagLib's ID3v2.3 render keeps one genre with no ID3v1 number, so a
+// title edit would lose the other.
+- (void)testID3v23WithTwoNamedGenresRefuses {
+    NSData *genres = [NSData dataWithBytes:"\0Deep House\0Tech House" length:22];
+    NSMutableData *frames = [VibeID3v2Frame("TIT2", 3, 6, 0, VibeText("Title")) mutableCopy];
+    [frames appendData:VibeID3v2Frame("TCON", 3, (uint32_t)genres.length, 0, genres)];
+    NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, frames) name:@"genres.mp3"];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]));
+    [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"New"]}];
+    // A write of the genre itself, to one, goes through.
+    [self assertWrite:url fields:@{VibeTagFieldGenre: @[@"Deep House"]}];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], @[@"Deep House"]);
+}
+
+// mp3gain's RVAD, and the other frames TagLib's parse marks to discard,
+// would go at any save. TagLib's own save drops it, as the copy shows, so
+// the writer refuses.
+- (void)testID3v23FramesTagLibDropsRefuse {
+    NSData *rvad = [NSData dataWithBytes:"\x03\x10\x00\x10\x00\x10\x00\x00\x00\x00" length:10];
+    NSMutableData *frames = [VibeID3v2Frame("TIT2", 3, 6, 0, VibeText("Title")) mutableCopy];
+    [frames appendData:VibeID3v2Frame("RVAD", 3, (uint32_t)rvad.length, 0, rvad)];
+    NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, frames) name:@"rvad.mp3"];
+    NSURL *copy = [_dir URLByAppendingPathComponent:@"rvad-taglib.mp3"];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:url toURL:copy error:NULL]);
+    {
+        TagLib::MPEG::File file(copy.fileSystemRepresentation);
+        file.ID3v2Tag()->setTitle("New");
+        XCTAssertTrue(file.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone, TagLib::ID3v2::v3));
+    }
+    NSData *saved = [NSData dataWithContentsOfURL:copy];
+    XCTAssertEqual([saved rangeOfData:[@"RVAD" dataUsingEncoding:NSASCIIStringEncoding] options:0
+                                range:NSMakeRange(0, saved.length)].location, (NSUInteger)NSNotFound);
+    [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"New"]}];
+}
+
+// TRAP: with no zlib, a compressed frame would be written back as a plain
+// one holding compressed bytes. Compressed and encrypted frames refuse, the
+// cover too.
+- (void)testACompressedOrEncryptedFrameRefuses {
+    NSData *body = [NSData dataWithBytes:"\x00\x00\x00\x10" "compressed bytes" length:20];
+    for (NSNumber *flag in @[@0x80, @0x40]) {
+        NSMutableData *frames = [VibeID3v2Frame("TIT2", 3, 6, 0, VibeText("Title")) mutableCopy];
+        [frames appendData:VibeID3v2Frame("APIC", 3, (uint32_t)body.length, flag.unsignedCharValue, body)];
+        NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, frames)
+                                 name:[NSString stringWithFormat:@"flag-%@.mp3", flag]];
+        [self assertFailure:url code:VibeTagWriteErrorUnsupportedFrame fields:@{VibeTagFieldTitle: @[@"New"]}];
+        [self assertFailure:url code:VibeTagWriteErrorUnsupportedFrame write:^BOOL(NSError **error) {
+            return VibeTagLibWriteFrontCover(url.path, nil, nil, error);
+        }];
+    }
+}
+
+// media/Metadata reads TIT1 as the grouping when GRP1 is absent.
+- (void)testRemovingTheGroupingRemovesTheTIT1ItShowed {
+    NSMutableData *frames = [VibeID3v2Frame("TIT1", 4, 6, 0, VibeText("Group")) mutableCopy];
+    NSURL *url = [self mp3WithTag:VibeID3v2Tag(4, 0, frames) name:@"tit1.mp3"];
+    [self assertWrite:url fields:@{VibeTagFieldGrouping: @[]}];
+    XCTAssertNil([self read:url][@"WORK"]);
+    [frames appendData:VibeID3v2Frame("GRP1", 4, 6, 0, VibeText("Other"))];
+    NSURL *both = [self mp3WithTag:VibeID3v2Tag(4, 0, frames) name:@"both.mp3"];
+    [self assertFailure:both code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldGrouping: @[]}];
+}
+
+// TagLib reads the first tag that is not empty. A new ID3v2 tag starts with
+// what the file read before, so an INFO-only WAV or an ID3v1-only MP3 keeps
+// its other fields, and its old tag takes the edit too.
+- (void)testANewID3v2TagKeepsTheOldTagsFields {
+    NSURL *wav = [self write:@"info.wav"];
+    {
+        TagLib::RIFF::WAV::File file(wav.fileSystemRepresentation);
+        file.InfoTag()->setArtist("Info Artist");
+        file.InfoTag()->setTitle("Info Title");
+        XCTAssertTrue(file.save(TagLib::RIFF::WAV::File::Info, TagLib::File::StripNone));
+    }
+    NSURL *mp3 = [self write:@"id3v1.mp3"];
+    {
+        TagLib::MPEG::File file(mp3.fileSystemRepresentation);
+        file.ID3v1Tag(true)->setArtist("V1 Artist");
+        file.ID3v1Tag(true)->setTitle("V1 Title");
+        XCTAssertTrue(file.save(TagLib::MPEG::File::ID3v1, TagLib::File::StripNone));
+    }
+    for (NSURL *url in @[wav, mp3]) {
+        NSString *artist = [self read:url][VibeTagFieldArtist].firstObject;
+        XCTAssertNotNil(artist);
+        [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"New Title"]}];
+        VibeTagFieldValues *read = [self read:url];
+        XCTAssertEqualObjects(read[VibeTagFieldTitle], @[@"New Title"], @"%@", url.lastPathComponent);
+        XCTAssertEqualObjects(read[VibeTagFieldArtist], @[artist], @"%@", url.lastPathComponent);
+    }
+    TagLib::RIFF::WAV::File file(wav.fileSystemRepresentation);
+    XCTAssertTrue(file.hasID3v2Tag());
+    XCTAssertEqual(file.InfoTag()->title(), TagLib::String("New Title"));
+    TagLib::MPEG::File mpeg(mp3.fileSystemRepresentation);
+    XCTAssertTrue(mpeg.hasID3v2Tag());
+    XCTAssertEqual(mpeg.ID3v1Tag()->title(), TagLib::String("New Title"));
+}
+
+#pragma mark - WAV's INFO
+
+// The bytes of the file's LIST INFO chunk, header and all, or nil.
+static NSData *VibeInfoChunk(NSURL *url) {
+    NSData *data = [NSData dataWithContentsOfURL:url];
+    const uint8_t *b = (const uint8_t *)data.bytes;
+    for (NSUInteger at = 12; at + 12 <= data.length;) {
+        uint32_t size;
+        memcpy(&size, b + at + 4, 4);
+        if (memcmp(b + at, "LIST", 4) == 0 && memcmp(b + at + 8, "INFO", 4) == 0) {
+            return [data subdataWithRange:NSMakeRange(at, MIN(data.length - at, 8 + (NSUInteger)size))];
+        }
+        at += 8 + size + (size & 1);
+    }
+    return nil;
+}
+
+static NSString *const kVibeLatin1Artist = @"Café Artist";
+
+// A WAV with an INFO chunk of Latin-1 text, as Windows tools write it.
+- (NSURL *)latin1InfoWAV {
+    NSURL *url = [self write:@"latin1.wav"];
+    NSMutableData *info = [NSMutableData dataWithBytes:"INFO" length:4];
+    for (NSArray<NSString *> *field in @[@[@"IART", kVibeLatin1Artist], @[@"INAM", @"Old"]]) {
+        NSData *text = [field[1] dataUsingEncoding:NSISOLatin1StringEncoding];
+        const uint32_t size = (uint32_t)text.length + 1;
+        [info appendData:[field[0] dataUsingEncoding:NSASCIIStringEncoding]];
+        [info appendBytes:&size length:4];
+        [info appendData:text];
+        [info increaseLengthBy:1 + (size & 1)];
+    }
+    NSMutableData *file = [NSMutableData dataWithContentsOfURL:url];
+    const uint32_t size = (uint32_t)info.length;
+    [file appendBytes:"LIST" length:4];
+    [file appendBytes:&size length:4];
+    [file appendData:info];
+    const uint32_t riff = (uint32_t)file.length - 8;
+    [file replaceBytesInRange:NSMakeRange(4, 4) withBytes:&riff];
+    XCTAssertTrue([file writeToURL:url atomically:YES]);
+    return url;
+}
+
+// TRAP: TagLib renders INFO text as UTF-8. An INFO chunk is rewritten only
+// when the edit changes it, and its untouched values keep their bytes.
+- (void)testINFOKeepsItsBytes {
+    NSURL *url = [self latin1InfoWAV];
+    NSData *info = VibeInfoChunk(url);
+    XCTAssertNotNil(info);
+    XCTAssertEqualObjects([self read:url][VibeTagFieldArtist], @[kVibeLatin1Artist]);
+    XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, VibeJPEG(0.4), @"image/jpeg", NULL));
+    XCTAssertEqualObjects(VibeInfoChunk(url), info, @"a cover write leaves INFO");
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"New"]}];
+    NSData *rewritten = VibeInfoChunk(url);
+    NSData *latin1 = [kVibeLatin1Artist dataUsingEncoding:NSISOLatin1StringEncoding];
+    XCTAssertNotEqual([rewritten rangeOfData:latin1 options:0 range:NSMakeRange(0, rewritten.length)].location,
+                      (NSUInteger)NSNotFound, @"the artist stays Latin-1");
+    XCTAssertNotEqual([rewritten rangeOfData:[NSData dataWithBytes:"INAM\x04\0\0\0New" length:11] options:0
+                                       range:NSMakeRange(0, rewritten.length)].location,
+                      (NSUInteger)NSNotFound, @"the title is the edit");
+}
+
+#pragma mark - The cover
+
+- (void)testACoverMustBeWhatItsTypeSays {
+    NSURL *url = [self write:@"audio.flac"];
+    NSMutableData *big = [NSMutableData dataWithLength:16000001];
+    memcpy(big.mutableBytes, "\xFF\xD8\xFF", 3);
+    for (NSArray *cover in @[@[VibePNG(0.1), @"image/jpeg"], @[VibeJPEG(0.1), @"image/png"], @[big, @"image/jpeg"],
+                             @[[NSData data], @"image/png"], @[VibeJPEG(0.1), @"image/gif"]]) {
+        [self assertFailure:url code:VibeTagWriteErrorInvalidImage write:^BOOL(NSError **error) {
+            return VibeTagLibWriteFrontCover(url.path, cover[0], cover[1], error);
+        }];
+    }
+}
+
+#pragma mark - Refusals of a file's own shape
+
+// TRAP: FLAC's save renders its ID3v2 tag as 2.4 and copies its fields into
+// the Vorbis comment, so a FLAC with ID3 tags refuses.
+- (void)testAFLACWithID3TagsRefuses {
+    NSURL *flac = [self write:@"audio.flac"];
+    NSMutableData *bytes = [VibeID3v2Tag(3, 0, VibeID3v2Frame("TIT2", 3, 6, 0, VibeText("Title"))) mutableCopy];
+    [bytes appendData:[NSData dataWithContentsOfURL:flac]];
+    NSURL *url = [_dir URLByAppendingPathComponent:@"id3.flac"];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[]}];
+}
+
+// TRAP: TagLib's MP4 save rewrites ilst from what it parsed, so an item it
+// could not parse refuses.
+- (void)testAnMP4ItemTagLibCannotParseRefuses {
+    NSURL *url = [self write:@"audio.m4a"];
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"Title"], VibeTagFieldArtist: @[@"Artist"]}];
+    NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:url];
+    const NSRange name = [bytes rangeOfData:[NSData dataWithBytes:"\xA9nam" length:4] options:0
+                                      range:NSMakeRange(0, bytes.length)];
+    XCTAssertNotEqual(name.location, (NSUInteger)NSNotFound);
+    // The title's data atom renamed, so TagLib no longer parses the item.
+    [bytes replaceBytesInRange:NSMakeRange(name.location + 8, 4) withBytes:"dat0"];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    XCTAssertNil([self read:url][VibeTagFieldTitle]);
+    [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldArtist: @[@"New"]}];
+}
+
+#pragma mark - The digest
+
+// The digest changes with an audio byte, and not with a tag write that
+// grows the tag and moves the audio.
+- (void)testTheDigestFollowsTheAudioInEveryFormat {
+    NSString *title = [@"" stringByPaddingToLength:5000 withString:@"x" startingAtIndex:0];
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        NSData *digest = VibeDigest(url);
+        XCTAssertNotNil(digest, @"%@", name);
+        [self assertWrite:url fields:@{VibeTagFieldTitle: @[title]}];
+        XCTAssertEqualObjects(VibeDigest(url), digest, @"%@: a tag that grows", name);
+        NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:url];
+        // The audio's own chunk where the tag's may follow it.
+        NSDictionary<NSString *, NSString *> *chunks = @{@"m4a": @"mdat", @"wav": @"data", @"aif": @"SSND"};
+        NSString *chunk = chunks[name.pathExtension];
+        NSUInteger at = bytes.length - 1;
+        if (chunk) {
+            at = [bytes rangeOfData:[chunk dataUsingEncoding:NSASCIIStringEncoding] options:0
+                              range:NSMakeRange(0, bytes.length)].location + 100;
+        }
+        ((uint8_t *)bytes.mutableBytes)[at] ^= 0x01;
+        XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+        XCTAssertNotEqualObjects(VibeDigest(url), digest, @"%@: an audio byte", name);
+    }
+}
+
+#pragma mark - Failures
+
+// A write past the file size limit fails, where TagLib's own stream answers
+// success: the cover grows the tag, the file's tail must move, and the
+// first write past the limit fails.
+- (void)testAFailedWriteFails {
+    NSURL *url = [self write:@"plain.mp3"];
+    NSNumber *size = nil;
+    [url getResourceValue:&size forKey:NSURLFileSizeKey error:NULL];
+    NSMutableData *cover = [VibeJPEG(0.6) mutableCopy];
+    [cover increaseLengthBy:200000];
+    struct rlimit before;
+    getrlimit(RLIMIT_FSIZE, &before);
+    void (*handler)(int) = signal(SIGXFSZ, SIG_IGN);
+    struct rlimit limit = before;
+    limit.rlim_cur = size.unsignedLongLongValue + 1000;
+    setrlimit(RLIMIT_FSIZE, &limit);
+    NSError *error = nil;
+    const BOOL wrote = VibeTagLibWriteFrontCover(url.path, cover, @"image/jpeg", &error);
+    setrlimit(RLIMIT_FSIZE, &before);
+    signal(SIGXFSZ, handler);
+    XCTAssertFalse(wrote);
+    XCTAssertEqual(error.code, VibeTagWriteErrorSaveFailed, @"%@", error);
+}
+
+- (void)testAReadOnlyFileFailsAndKeepsItsBytes {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        XCTAssertEqual(chmod(url.fileSystemRepresentation, 0444), 0);
+        [self assertFailure:url code:VibeTagWriteErrorReadOnly fields:@{VibeTagFieldTitle: @[@"Title"]}];
+    }
+}
+
+- (void)testAMissingFileFailsToOpen {
+    NSURL *url = [_dir URLByAppendingPathComponent:@"missing.flac"];
+    NSError *error = nil;
+    XCTAssertFalse(VibeTagLibWriteFields(url.path, @{VibeTagFieldTitle: @[@"Title"]}, &error));
+    XCTAssertEqual(error.code, VibeTagWriteErrorOpenFailed);
+}
+
+// A metadata block, an atom, or a page that runs past the file, and bytes no
+// parser takes: no parser takes the file, and its bytes stay.
+- (void)testADamagedFileFailsAndKeepsItsBytes {
+    NSURL *flac = [self write:@"damaged.flac"];
+    NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:flac];
+    uint8_t *b = (uint8_t *)bytes.mutableBytes;
+    b[4] &= 0x80;
+    b[5] = 0xFF; b[6] = 0xFF; b[7] = 0xFF;
+    [bytes writeToURL:flac atomically:YES];
+
+    NSURL *m4a = [self write:@"damaged.m4a"];
+    NSURL *cut = [_dir URLByAppendingPathComponent:@"cut.m4a"];
+    [[[NSData dataWithContentsOfURL:m4a] subdataWithRange:NSMakeRange(0, 40)] writeToURL:cut atomically:YES];
+
+    NSURL *ogg = [_dir URLByAppendingPathComponent:@"damaged.opus"];
+    NSMutableData *opus = [VibeOggTagFile(YES) mutableCopy];
+    memcpy((uint8_t *)opus.mutableBytes + 28, "OpusJunk", 8);
+    [opus writeToURL:ogg atomically:YES];
+
+    NSURL *text = [_dir URLByAppendingPathComponent:@"text.mp3"];
+    [[@"not audio at all" dataUsingEncoding:NSUTF8StringEncoding] writeToURL:text atomically:YES];
+
+    for (NSURL *url in @[flac, cut, ogg, text]) {
+        [self assertFailure:url code:VibeTagWriteErrorNoParser fields:@{VibeTagFieldTitle: @[@"Title"]}];
+    }
+}
+
+// Only the fields this API edits: TagLib's other keys would add duplicate
+// frames, or write a picture as text.
+- (void)testOnlyTheEditedFieldsAreTaken {
+    NSURL *url = [self write:@"audio.flac"];
+    for (NSString *key in @[@"", @"LYRICS", @"URL", @"MUSICBRAINZ_TRACKID", @"METADATA_BLOCK_PICTURE", @"PICTURE",
+                            @"VIBE_CUSTOM", @"A=B"]) {
+        [self assertFailure:url code:VibeTagWriteErrorInvalidField fields:@{key: @[@"x"]}];
+    }
+    [self assertWrite:url fields:@{@"title": @[@"Lower case names the field"]}];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldTitle], @[@"Lower case names the field"]);
+}
+
+@end

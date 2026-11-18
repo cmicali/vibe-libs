@@ -1,8 +1,8 @@
 # media/Tags
 
-TagLib's fields and embedded art bytes. It depends on `third_party/taglib`, on `audio/AudioTypes` for the format names, and on `core/Common` for the log macros. It holds `TagLibAudioFile`, the TagLib wrapper, in Objective-C++. It came from Vibe. It reads no app's settings, strings, or types.
+TagLib's fields and embedded art bytes, read and written. It depends on `third_party/taglib`, on `audio/AudioTypes` for the format names, and on `core/Common` for the log macros. It holds `TagLibAudioFile`, the TagLib wrapper, in Objective-C++, and `VibeTagWriter`, the in-place write of a file's fields and cover (Writing, below). `NSString+CPPStrings`, which `media/Metadata` shares, turns TagLib's UTF-8 into a string with its embedded NULs kept. It came from Vibe. It reads no app's settings, strings, or types.
 
-`media/Metadata`'s parse is its one user. It reads the title, the artist, the audio properties, and every tag field from the wrapper's `TagLib::File` (`media/Metadata/AGENTS.md`, The tag fields). What it does with them, the cache, the scan, and the artwork, is `media/Metadata/AGENTS.md`.
+`media/Metadata`'s parse is its one reader. It reads the title, the artist, the audio properties, and every tag field from the wrapper's `TagLib::File` (`media/Metadata/AGENTS.md`, The tag fields). What it does with them, the cache, the scan, and the artwork, is `media/Metadata/AGENTS.md`.
 
 ## How an app uses it
 
@@ -38,8 +38,66 @@ Without `readProperties`, no audio properties are parsed. The art read never use
 
 `VibeInstallTagLibDebugListener` routes TagLib's debug output to the log as warnings. TagLib's own listener writes to `std::cerr` unsynchronized, so two workers race on the stream. It is defined only where `NDEBUG` is not, since there `TagLib::debug()` is a no-op. An app calls it once, under the same condition.
 
+## Writing
+
+**`VibeTagWriter.h` writes a file's tag fields and front cover in place.** `VibeTagLibWriteFields` sets or removes fields by TagLib's property-map name. `VibeTagLibWriteFrontCover` sets the front cover from JPEG or PNG bytes, or removes it. `VibeTagLibWriteTags` does both in one save. `VibeTagLibReadFields` reads the fields back by the names they were written with. `VibeTagLibAudioDigest` answers a digest of the audio alone. The header is plain Objective-C, so Swift and a `.m` call it. **A write blocks**, as a read does, so call it off main.
+
+**`VibeTagFields.h` names the fields the writer takes**, and only those. `media/Metadata`'s parse reads every field by the same constants, and files its rarer ones under them, so a write and a read spell each field alike. Another name, such as `LYRICS`, `URL`, or `PICTURE`, fails with `InvalidField`, since TagLib's frame for it would be added again at each write. A field's values are a list. An empty list, or one of empty strings, removes it.
+
+**Only the fields named change.** For ID3v2, MP4, and a Xiph comment, the writer removes the frames, atoms, or comments that hold each named field, then adds the new ones. Other fields, unknown frames and atoms, other pictures, and the audio stay as TagLib found them. APE, ID3v1, and INFO have no editor of their own, so the writer sets each one's whole property map with the edit applied. Those tags hold only what their maps name. It saves such a tag only when the edit changed it. TagLib reuses an ID3v2 tag's padding when the new tag fits.
+
+**A field's other spellings go with it, so a removal sticks.** `media/Metadata`'s parse falls back to them. A write of `COMMENT` also clears `DESCRIPTION`. A write of `LABEL` clears `ORGANIZATION` and `PUBLISHER`, and a write of `ORIGINALDATE` clears `ORIGINALYEAR`. A write of a number or its total clears `TOTALTRACKS` or `TOTALDISCS`, and in the formats that fold the total into the number, a separate `TRACKTOTAL` or `DISCTOTAL`. That covers ID3v2's `TXXX` frames, MP4's freeform atoms, and APE items. **TRAP: the parse reads ID3v2's `TIT1`, which TagLib calls the work, as the grouping when `GRP1` is absent.** So a removed grouping also removes a `TIT1` the reader showed. When both frames are present, the removal is refused, since it would leave `TIT1` showing as the grouping.
+
+**The write is in place and not atomic, so an app writes a copy and checks it.** It clones the file beside itself, writes the clone, reads it back with `VibeTagLibReadFields`, and compares `VibeTagLibAudioDigest` of the clone with the original's. Then it swaps the clone in. A tag read-back cannot see a truncated tail, and the digest can. `AudioFileHandleReplaceTests`, in `audio/Decode`'s tests, shows that a handle open on the original reads the original to its end after either swap, `rename(2)` or `RENAME_SWAP`, in every decoder's open.
+
+**The digest reads the file's bytes without TagLib.** It covers an MP3's frames between its tags, a FLAC's STREAMINFO and frames, a WAV's `fmt ` and `data` chunks, and an AIFF's `COMM` and `SSND` chunks. For an MP4 it covers each sound track's `stsd` and its samples, where the sample table's chunk offsets put them, so a chunk offset TagLib rewrote wrongly changes it. For Ogg it covers the identification and setup headers, then each audio page's flags, granule, and body, but not its number or CRC, which TagLib's repagination changes. It maps the file and reads it once.
+
+**A write goes through `VibeCheckedFileStream`, not TagLib's `FileStream`.** **TRAP: TagLib's `FileStream` ignores what `fwrite` answers, and loses the last flush's error in its destructor.** The MPEG, WAV, AIFF, and FLAC saves then return true once they start. So on a full disk a cover that grows the tag shifts the file, its tail is never written, and the save answers true. The checked stream writes with `pwrite` and records the first failed read, write, or truncate. It writes nothing after one. When a tag grows, it moves the tail from the end down, so the first write is the one past the end, and a full disk fails before any byte moves. After the save, it checks the file's size against the size its writes imply and flushes with `F_FULLFSYNC`. It falls back to `fsync` where `F_FULLFSYNC` is unsupported. Any failure answers `SaveFailed`. YES means every write, the size check, and the flush succeeded.
+
+**A failure is an `NSError` in `VibeTagWriteErrorDomain`, and no C++ exception leaves the call.** The arguments are checked before the file opens. Then the file must open for writing, and a parser must take it. Every refusal below is decided before the first write, so NO leaves the file's bytes unchanged, except with `SaveFailed` or `TagLibThrew`. **TRAP: TagLib's MPEG parser takes any bytes as valid**, so the writer also refuses a file with no MPEG frame. Without it, a text file named `.mp3` gained a tag.
+
+### What each format writes
+
+| Format | Fields | Cover |
+| --- | --- | --- |
+| MP3 | ID3v2. An existing APE or ID3v1 tag takes the edit too, when it changes | `APIC` of type front cover |
+| FLAC | the Vorbis comment block. A FLAC with ID3 tags is refused | a `PICTURE` block of type front cover |
+| Ogg Vorbis and Opus | the Vorbis comment packet | `METADATA_BLOCK_PICTURE` of type front cover |
+| MP4 and M4A | the `ilst` atoms. A field TagLib has no atom for is a `----:com.apple.iTunes:` atom | the first `covr` entry |
+| WAV | the `ID3 ` chunk. An existing `LIST` `INFO` chunk takes the edit too, when it changes | `APIC` in the `ID3 ` chunk |
+| AIFF | the `ID3 ` chunk | `APIC` in the `ID3 ` chunk |
+
+**An ID3v2 tag keeps its version.** A 2.3 tag is written as 2.3, and 2.4 as 2.4. A file with no ID3v2 tag gets 2.4, and so does a 2.2 tag, which TagLib cannot write.
+
+Every format holds every field in `VibeTagFields.h`, with these limits:
+
+- **ID3v2.3 holds a date as a year, a day, or a minute, and the original date as a year.** It holds `YYYY`, `YYYY-MM-DD`, or `YYYY-MM-DDTHH:MM` in `TYER`, `TDAT`, and `TIME`, and the original year in `TORY`. Any other value fails with `UnsupportedValue`, since TagLib would cut it short.
+- **TRAP: TagLib drops `TMOO` when it renders ID3v2.3.** So the writer puts a 2.3 tag's mood in `TXXX:MOOD`, as Picard does, and it reads back as `MOOD`.
+- **MP4 holds the track and disc numbers and totals, the tempo, and the compilation flag as whole numbers from 0 to 65535.** The compilation flag is 0 or 1. Any other value, or more than one, fails with `UnsupportedValue`.
+- **TRAP: ID3v2, MP4, APE, and INFO hold a total inside its number, as "3/12".** The writer folds `TRACKTOTAL` and `DISCTOTAL` into the number, keeping the half not named. A total with no number writes 0 as the number. ID3v1 takes the number alone, and the date's first four digits as its year. A Xiph comment keeps the total in a field of its own, unless its number already holds "3/12". `VibeTagLibReadFields` splits "3/12" in every format.
+- **Several values are kept** by ID3v2, 2.3 included, a Xiph comment, MP4's text atoms, and APE. ID3v1 and INFO keep the first.
+- **MP4's pictures have no type.** The first `covr` entry is the cover, as the art read answers. Setting it replaces that entry, and removing it leaves the rest. In the other formats, the cover is every picture of type front cover, and other types stay. A file whose cover is typed "other" keeps it, and the read answers it once no front cover is left.
+- **A cover is 1 to 16,000,000 bytes, and its first bytes must be what its MIME type says.** That is a JPEG's `FF D8 FF`, or a PNG's signature. Any other cover fails with `InvalidImage`. **TRAP: FLAC's save drops a block of 16 MiB or more and still succeeds.** So the cap keeps a picture under it, and a Vorbis comment that would pass it is refused.
+- **MP4's `GENRE` covers `©gen` and `gnre`**, the ID3v1 genre number, so a write replaces both.
+
+**What the writer refuses rather than lose:**
+
+- **A compressed or encrypted ID3v2 frame fails with `UnsupportedFrame`.** **TRAP: zlib is not built in**, so TagLib parses such a frame as unknown and writes it back as a plain frame holding compressed bytes. A compressed `APIC` could be neither replaced nor removed.
+- **A frame TagLib would drop fails with `WouldLoseData`.** TagLib's parse marks these to be discarded at any save of the tag, the writer's or anyone's: ID3v2.3's `EQUA`, `RVAD`, `TIME`, `TRDA`, `TSIZ`, and `TDAT`, and ID3v2.2's `CRM`, `EQU`, `LNK`, `RVA`, `TIM`, `TSI`, and `TDA`. A `TDAT` or `TIME` it merged into the date is no loss, since the date holds it. Its ID3v2.3 render also drops ID3v2.4's `ASPI`, `EQU2`, `RVA2`, `SEEK`, `SIGN`, `TDRL`, `TDTG`, `TMOO`, `TPRO`, and `TSST`, so a 2.3 tag holding one refuses. A title edit of a 2.3 file with mp3gain's `RVAD` is refused. TagLib's own save drops the frame, which `testID3v23FramesTagLibDropsRefuse` shows.
+- **TRAP: TagLib's ID3v2.3 render keeps every genre with an ID3v1 number, but only the first without one.** So a 2.3 tag of "Deep House" and "Tech House" refuses any write that keeps both.
+- **TRAP: TagLib's MP4 save rewrites `ilst` from the items it parsed.** An item it could not parse, or a second item of one name, would be lost. The writer reads the file's `ilst` children itself (`VibeMP4ItemNames.h`), and refuses unless each is a parsed item.
+- **TRAP: FLAC's save renders its ID3v2 tag as 2.4, and copies the ID3 tags' fields into a missing Vorbis comment**, so a removal would not stick. A FLAC with an ID3v2 or ID3v1 tag is refused.
+
+**TRAP: TagLib reads the first tag that is not empty.** A new ID3v2 tag holding one field would hide every field of an MP3's ID3v1 or APE tag, or of a WAV's INFO chunk. So an ID3v2 tag the writer creates, or finds empty, first takes the fields the file reads today.
+
+**TRAP: TagLib renders INFO text as UTF-8, though INFO is often Latin-1.** While a write runs, a `VibeInfoEncodingScope` on its thread makes the wrapper's string handler render each INFO value in the bytes it was read from. A new value renders as UTF-8. A cover-only write leaves the INFO chunk's bytes alone.
+
+**TRAP: TagLib's WAV save rewrites a `bext` or `iXML` chunk at the file's end**, its bytes unchanged.
+
 ## Tests
 
 `Tests/media/Tags/` holds the tests of the detection: the extension's parser first, then the content sniff, with an ID3v2 tag before a FLAC, and FLAC in Ogg refused. They write their own untagged files with AVFoundation and an MP3's frames. Misnamed files check the header before the extension's parser. A WAV written by hand checks how INFO text decodes. The tests of the parse over the wrapper are `media/Metadata`'s: each format's tags and facts, the art, the range read through a placeholder's backend, and the fuzz family. The minimal consumer tags a WAV with TagLib, reads its title back through the wrapper, and reads its picture's bytes through a byte-range reader.
+
+`VibeTagWriterTests` writes each format's file from `Tests/Support`'s fixtures, with Ogg pages from `OggFixtures.h`, since no Apple encoder writes Ogg. Every field, several values, and the cover round trip in every format. A one-field write leaves every other field, a custom field, an MP3's private frame, a back cover, the audio's digest, and a FLAC's audio MD5. Each refusal and failure leaves the file's bytes: a read-only file, a damaged file, a bad argument or cover, a write past the file size limit, and every case in the refusal list above. The digest follows an audio byte and ignores a growing tag. An INFO chunk keeps its Latin-1 bytes.
 
 `Tests/Fuzz/` also fuzzes this piece by coverage, under sanitizers, through its `tags-*` targets ([Tests/Fuzz/AGENTS.md](../../Tests/Fuzz/AGENTS.md)).
