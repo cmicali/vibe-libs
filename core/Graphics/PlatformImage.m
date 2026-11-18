@@ -25,6 +25,8 @@ const CGFloat kVibeArchivedDisplayArtDimension = 640.0;
 const CGFloat kVibeArchivedDisplayArtDimension = 1024.0;
 #endif
 
+const CGFloat kVibeLargestArtSide = 16384.0;
+
 CGSize VibeEncodedImagePixelSize(NSData *data) {
     CGImageSourceRef source = data ? CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL) : NULL;
     if (!source) {
@@ -48,11 +50,9 @@ static void VibeFreeScaledBitmap(void *userData, void *bitmap) {
 // cover (the component benchmarks' metadata.*). NULL leaves the image to that
 // path: one that needs no downscale, carries an EXIF orientation, cannot be
 // subsampled, or vImage refuses.
-static CGImageRef _Nullable VibeCreateDownscaledImage(CGImageSourceRef source, CGFloat maxPixelSize) CF_RETURNS_RETAINED {
-    NSDictionary *properties = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL));
+static CGImageRef _Nullable VibeCreateDownscaledImage(CGImageSourceRef source, NSDictionary *properties, double longest,
+                                                      CGFloat maxPixelSize) CF_RETURNS_RETAINED {
     NSNumber *orientation = properties[(id)kCGImagePropertyOrientation];
-    double longest = MAX([properties[(id)kCGImagePropertyPixelWidth] doubleValue],
-                         [properties[(id)kCGImagePropertyPixelHeight] doubleValue]);
     if (longest <= maxPixelSize || (orientation && orientation.intValue != 1)) {
         return NULL;
     }
@@ -120,7 +120,19 @@ VibeImage *VibeDecodedImageWithData(NSData *data, CGFloat maxPixelSize) {
     if (!source) {
         return nil;
     }
-    CGImageRef cgImage = VibeCreateDownscaledImage(source, maxPixelSize);
+    NSDictionary *properties = CFBridgingRelease(CGImageSourceCopyPropertiesAtIndex(source, 0, NULL));
+    double longest = MAX([properties[(id)kCGImagePropertyPixelWidth] doubleValue],
+                         [properties[(id)kCGImagePropertyPixelHeight] doubleValue]);
+    // TRAP: ImageIO's HEIC decode takes time in step with the image's width,
+    // whatever the size asked for: 0.95 s at 131,072 px. A 758-byte HEIC
+    // claiming 327,696 by 16 took 5 s a decode (macOS 27). No cover comes
+    // near this side, and art at it decodes in a quarter second. Found by
+    // Tests/Fuzz's art.
+    if (longest > kVibeLargestArtSide) {
+        CFRelease(source);
+        return nil;
+    }
+    CGImageRef cgImage = VibeCreateDownscaledImage(source, properties, longest, maxPixelSize);
     if (!cgImage) {
         NSDictionary *options = @{
                 (id)kCGImageSourceCreateThumbnailFromImageAlways: @YES,
