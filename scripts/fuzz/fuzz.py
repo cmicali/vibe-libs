@@ -6,6 +6,8 @@
   fuzz.py run    [targets]   each built target for --seconds, one at a time
   fuzz.py replay [targets]   Xcode's clang, each target over its seeds and
                              regressions once
+  fuzz.py triage [targets]   each saved artifact replayed once, with whether
+                             it still fails and its peak memory
 
 Every build is under Address Sanitizer and Undefined Behavior Sanitizer. A
 target compiles its pieces' sources, search paths, and flags as their
@@ -252,9 +254,35 @@ def replay(names, jobs, since):
         sys.exit(f"fuzz: replay failed for {', '.join(failed)}")
 
 
+def peak(command):
+    """A command's exit status and its peak resident memory in MB."""
+    with open(os.devnull, "w") as null:
+        process = subprocess.Popen(command, stdout=null, stderr=null, env=ENV)
+        _, status, usage = os.wait4(process.pid, 0)
+    return os.waitstatus_to_exitcode(status), usage.ru_maxrss / 2**20
+
+
+# An oom- artifact is a finding only when its replay holds this much: the
+# malloc limit also stops an allocation Apple's code makes and never touches.
+OOM_MB = 1024
+
+
+def triage(names, jobs):
+    named = [n for n in names if os.path.isdir(os.path.join(OUT, "crashes", n))]
+    binaries = build(named, False, jobs) if named else {}
+    for name in named:
+        folder = os.path.join(OUT, "crashes", name)
+        for artifact in sorted(os.listdir(folder)):
+            status, megabytes = peak([binaries[name], os.path.join(folder, artifact)])
+            verdict = "fails" if status else "passes"
+            if artifact.startswith("oom-"):
+                verdict = "holds memory" if megabytes >= OOM_MB else "no growth"
+            print(f"{name} {artifact}: {verdict}, {megabytes:.0f} MB", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["build", "run", "replay", "list"])
+    parser.add_argument("command", choices=["build", "run", "replay", "triage", "list"])
     parser.add_argument("targets", nargs="*")
     parser.add_argument("--seconds", type=int, default=600)
     parser.add_argument("--jobs", type=int, default=4)
@@ -270,6 +298,8 @@ def main():
         build(names, True, args.jobs)
     elif args.command == "run":
         run(names, args.seconds, args.jobs)
+    elif args.command == "triage":
+        triage(names, args.jobs)
     else:
         replay(names, args.jobs, args.since)
 
