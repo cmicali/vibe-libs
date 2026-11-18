@@ -192,6 +192,8 @@ The cover fallback, in `Artwork/FolderArt/`. `FolderArtResolver` is discovery an
 
 **The resolver reads no setting and no grant.** The app answers both through `setEnabledProvider:accessProvider:` (the plan's cut 4). Until it does, folder art is off and any directory may be read. An app installs both at launch, from its own setting and its folder grants.
 
+**An app may guard each decode of a cover.** Every decode of a cover's bytes, the row's thumbnail and the display size alike, runs inside the handler `setDecodeHandler:` sets, on the caller's queue, which is never main. The handler calls `decode` at most once, before it returns. A handler that never calls it skips the cover, and the folder counts as having none, as for bytes that don't decode. An app guards a cover that crashes the image decoder this way, as it guards a file's own art.
+
 **TRAP: the resolver caches the app's enabled answer.** Only init, `setEnabledProvider:accessProvider:`, `folderArtSettingDidChange` and the test-only `invalidate` refresh the cached value. So an app calls `folderArtSettingDidChange` after every write of its setting. A write the app does not route there is never observed.
 
 ## Tests
@@ -207,3 +209,5 @@ The cover fallback, in `Artwork/FolderArt/`. `FolderArtResolver` is discovery an
 **A bounded wait is a hang guard or a gate.** A wait for what must happen uses `VIBE_TEST_HANG_TIMEOUT`. A gate the test releases itself uses `VIBE_TEST_GATE_TIMEOUT`. A negative check uses `kVibeTestNegativeWindow` (`Tests/Support`). The bundle defines both bounds. Run the fuzz with a raised count under `-enableAddressSanitizer YES -enableUndefinedBehaviorSanitizer YES` after a change to the parse.
 
 The minimal consumer roots a metadata cache of its own, tags a WAV with a title, an album, and a picture through TagLib, and loads it through the cache with a holder of its own, at once after init. It reads the title, the album, and the picture's bytes back, groups the album, and waits for the row thumbnail. A second cache over the same root then loads a fresh row with `loadCachedMetadata:`, and the hit gives the same title and album.
+
+`Tests/Fuzz/` also fuzzes this piece by coverage, under sanitizers, through its `tags-*` targets ([Tests/Fuzz/AGENTS.md](../../Tests/Fuzz/AGENTS.md)).

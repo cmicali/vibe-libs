@@ -1,0 +1,19 @@
+REM GENRE Test
+REM DATE 2026
+PERFORMER "Seed Artist"
+TITLE "Seed Album"
+FILE "Seed Album.flac" WAVE
+  TRACK 01 AUDIO
+    TITLE "One"
+    PERFORMER "Seed Artist"
+    INDEX 01 00:00:00
+  TRACK 02 AUDIO
+    TITLE "Two"
+    INDEX 00 03:58:70
+    INDEX 01 04:00:00
+  TRACK 03 AUDIO
+    TITLE "Three"
+    INDEX 01 08:12:33
+FILE "Bonus.wav" WAVE
+  TRACK 04 AUDIO
+    INDEX 01 00:00:00

@@ -41,3 +41,5 @@ Without `readProperties`, no audio properties are parsed. The art read never use
 ## Tests
 
 `Tests/media/Tags/` holds the tests of the detection: the extension's parser first, then the content sniff, with an ID3v2 tag before a FLAC, and FLAC in Ogg refused. They write their own untagged files with AVFoundation and an MP3's frames. Misnamed files check the header before the extension's parser. A WAV written by hand checks how INFO text decodes. The tests of the parse over the wrapper are `media/Metadata`'s: each format's tags and facts, the art, the range read through a placeholder's backend, and the fuzz family. The minimal consumer tags a WAV with TagLib, reads its title back through the wrapper, and reads its picture's bytes through a byte-range reader.
+
+`Tests/Fuzz/` also fuzzes this piece by coverage, under sanitizers, through its `tags-*` targets ([Tests/Fuzz/AGENTS.md](../../Tests/Fuzz/AGENTS.md)).
