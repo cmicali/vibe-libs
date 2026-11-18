@@ -42,9 +42,9 @@
 @end
 
 @interface AudioTrackMetadataCache ()
-// Set on the cache's queue, read per track from the loader's workers, under
-// _storesLock. An atomic property's lock is libobjc's own, which Thread
-// Sanitizer can't see, so it took each read of a store for a race.
+// Set on the cache's queue, read per track from the loader's workers. Its
+// accessors take _storesLock, not an atomic property's lock, which is
+// libobjc's own, and which Thread Sanitizer can't see.
 @property (nonatomic, strong, nullable) VibeMetadataStores *stores;
 @property (nonatomic, readonly) AudioLoadingConfiguration *loadingConfiguration;
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration;
@@ -126,7 +126,6 @@
         _currentLoader = nil;
         _parseCoordinator = [[MetadataParseCoordinator alloc] init];
         _rootPath = [rootPath copy];
-        _storesLock = OS_UNFAIR_LOCK_INIT;
         _cacheQueue = dispatch_queue_create("vibe-libs.metadata.cache",
                 dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
         // Off main: constructing on main boosts PINCache's init-time disk scan
