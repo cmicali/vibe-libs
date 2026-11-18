@@ -9,6 +9,7 @@
 #endif
 
 #import <fcntl.h>
+#import <stdio.h> // Vibe: renamex_np
 #import <pthread.h>
 #import <sys/stat.h>
 #import <sys/xattr.h>
@@ -1775,6 +1776,30 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     if (outFileURL) {
         *outFileURL = fileURL;
     }
+}
+
+// Vibe: an entry moves to another key as one rename of its file. RENAME_EXCL
+// refuses a destination that exists in the same call, so an entry already
+// under toKey is never replaced. The byte count does not change.
+- (BOOL)moveObjectForKey:(NSString *)key toKey:(NSString *)toKey
+{
+    if (!key || !toKey || [key isEqualToString:toKey])
+        return NO;
+    NSURL *fromURL = [self encodedFileURLForKey:key];
+    NSURL *toURL = [self encodedFileURLForKey:toKey];
+    if (!fromURL || !toURL)
+        return NO;
+
+    [self lockForCounting];
+        BOOL moved = renamex_np(fromURL.fileSystemRepresentation, toURL.fileSystemRepresentation, RENAME_EXCL) == 0;
+        if (moved) {
+            PINDiskCacheMetadata *record = _metadata[key];
+            [_metadata removeObjectForKey:key];
+            if (record)
+                _metadata[toKey] = record;
+        }
+    [self unlock];
+    return moved;
 }
 
 - (void)removeObjectForKey:(NSString *)key

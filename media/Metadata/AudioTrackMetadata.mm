@@ -29,28 +29,37 @@
 NSNotificationName const AudioTrackMetadataThumbnailDidLoadNotification =
         @"AudioTrackMetadataThumbnailDidLoadNotification";
 
-// The rarer tags, by TagLib's property name, in the order the parse reads
-// them. The one home of these names here: media/Tags' VibeTagField
-// constants take their place once that header is on main.
-static NSString *const kCatalogNumber = @"CATALOGNUMBER";
-static NSString *const kConductor = @"CONDUCTOR";
-static NSString *const kRemixer = @"REMIXER";
-static NSString *const kLyricist = @"LYRICIST";
-static NSString *const kMood = @"MOOD";
-static NSString *const kLanguage = @"LANGUAGE";
-static NSString *const kCopyright = @"COPYRIGHT";
-static NSString *const kOriginalDate = @"ORIGINALDATE";
-static NSString *const kTitleSort = @"TITLESORT";
-static NSString *const kArtistSort = @"ARTISTSORT";
-static NSString *const kAlbumSort = @"ALBUMSORT";
-static NSString *const kAlbumArtistSort = @"ALBUMARTISTSORT";
+VibeMetadataTagName const VibeMetadataTagCatalogNumber = @"CATALOGNUMBER";
+VibeMetadataTagName const VibeMetadataTagConductor = @"CONDUCTOR";
+VibeMetadataTagName const VibeMetadataTagRemixer = @"REMIXER";
+VibeMetadataTagName const VibeMetadataTagLyricist = @"LYRICIST";
+VibeMetadataTagName const VibeMetadataTagMood = @"MOOD";
+VibeMetadataTagName const VibeMetadataTagLanguage = @"LANGUAGE";
+VibeMetadataTagName const VibeMetadataTagCopyright = @"COPYRIGHT";
+VibeMetadataTagName const VibeMetadataTagOriginalDate = @"ORIGINALDATE";
+VibeMetadataTagName const VibeMetadataTagTitleSort = @"TITLESORT";
+VibeMetadataTagName const VibeMetadataTagArtistSort = @"ARTISTSORT";
+VibeMetadataTagName const VibeMetadataTagAlbumSort = @"ALBUMSORT";
+VibeMetadataTagName const VibeMetadataTagAlbumArtistSort = @"ALBUMARTISTSORT";
 
-static NSArray<NSString *> *ExtraTagNames(void) {
-    static NSArray<NSString *> *names;
+NSArray<VibeMetadataTagName> *VibeMetadataExtraTagNames(void) {
+    static NSArray<VibeMetadataTagName> *names;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        names = @[kCatalogNumber, kConductor, kRemixer, kLyricist, kMood, kLanguage, kCopyright, kOriginalDate,
-                  kTitleSort, kArtistSort, kAlbumSort, kAlbumArtistSort];
+        names = @[VibeMetadataTagCatalogNumber, VibeMetadataTagConductor, VibeMetadataTagRemixer,
+                  VibeMetadataTagLyricist, VibeMetadataTagMood, VibeMetadataTagLanguage, VibeMetadataTagCopyright,
+                  VibeMetadataTagOriginalDate, VibeMetadataTagTitleSort, VibeMetadataTagArtistSort,
+                  VibeMetadataTagAlbumSort, VibeMetadataTagAlbumArtistSort];
+    });
+    return names;
+}
+
+// The names as a set, for the archive's check.
+static NSSet<VibeMetadataTagName> *ExtraTagNameSet(void) {
+    static NSSet<VibeMetadataTagName> *names;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        names = [NSSet setWithArray:VibeMetadataExtraTagNames()];
     });
     return names;
 }
@@ -82,7 +91,7 @@ static NSArray<NSString *> *ExtraTagNames(void) {
 @property (copy, nullable, readwrite) NSString *musicBrainzReleaseID;
 @property (copy, nullable, readwrite) NSString *musicBrainzRecordingID;
 @property (copy, nullable, readwrite) NSString *isrc;
-@property (copy, nullable, readwrite) NSDictionary<NSString *, NSString *> *extraTags;
+@property (copy, nullable, readwrite) NSDictionary<VibeMetadataTagName, NSString *> *extraTags;
 @property (copy, nullable, readwrite) NSData *audioMD5;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackGain;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackPeak;
@@ -152,6 +161,12 @@ static NSInteger LeadingCount(NSString *_Nullable text) {
     return text && [[NSScanner scannerWithString:text] scanInteger:&value] && value > 0 ? value : 0;
 }
 
+// The year a date starts with, as in "1999-04-01", or 0 when it has none.
+static NSInteger LeadingYear(NSString *_Nullable text) {
+    NSInteger year = LeadingCount(text);
+    return year <= 9999 ? year : 0;
+}
+
 // A number and its count, from "3/12", or from a count tag of its own.
 static void ReadNumberAndCount(const TagLib::PropertyMap &properties, const char *key,
                                std::initializer_list<const char *> countKeys, NSInteger *number, NSInteger *count) {
@@ -204,24 +219,12 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
 
 #endif
 
-// The rarer tags share one dictionary. Each is rare, so a dozen properties
-// would cost every record a dozen pointers for nothing.
-- (NSString *)catalogNumber { return self.extraTags[kCatalogNumber]; }
-- (NSString *)conductor { return self.extraTags[kConductor]; }
-- (NSString *)remixer { return self.extraTags[kRemixer]; }
-- (NSString *)lyricist { return self.extraTags[kLyricist]; }
-- (NSString *)mood { return self.extraTags[kMood]; }
-- (NSString *)language { return self.extraTags[kLanguage]; }
-- (NSString *)copyright { return self.extraTags[kCopyright]; }
-- (NSString *)originalDate { return self.extraTags[kOriginalDate]; }
-- (NSString *)titleSort { return self.extraTags[kTitleSort]; }
-- (NSString *)artistSort { return self.extraTags[kArtistSort]; }
-- (NSString *)albumSort { return self.extraTags[kAlbumSort]; }
-- (NSString *)albumArtistSort { return self.extraTags[kAlbumArtistSort]; }
+- (NSString *)extraTag:(VibeMetadataTagName)name {
+    return self.extraTags[name];
+}
 
 - (NSInteger)originalYear {
-    NSInteger year = LeadingCount(self.originalDate);
-    return year <= 9999 ? year : 0;
+    return LeadingYear([self extraTag:VibeMetadataTagOriginalDate]);
 }
 
 - (VibeImage *)cachedArt {
@@ -406,28 +409,34 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
 }
 
 // The extra tags, each a known name with text. Anything else is a wrong
-// entry, which misses.
-static NSDictionary<NSString *, NSString *> *_Nullable DecodedExtraTags(NSCoder *coder, BOOL *wrong) {
-    // The classes are named, so a secure unarchiver takes the dictionary too.
-    id value = [coder decodeObjectOfClasses:[NSSet setWithObjects:NSDictionary.class, NSString.class, nil]
-                                     forKey:@"extraTags"];
-    if (value && ![value isKindOfClass:NSDictionary.class]) {
+// entry, which misses. The parse files no empty dictionary.
+// TRAP: not DecodedObject. A secure unarchiver refuses a collection whose
+// classes the read does not name, though it takes a lone string or number.
+static NSDictionary<VibeMetadataTagName, NSString *> *_Nullable DecodedExtraTags(NSCoder *coder, BOOL *wrong) {
+    static NSSet<Class> *classes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        classes = [NSSet setWithObjects:NSDictionary.class, NSString.class, nil];
+    });
+    id tags = [coder decodeObjectOfClasses:classes forKey:@"extraTags"];
+    if (!tags) {
+        return nil;
+    }
+    if (![tags isKindOfClass:NSDictionary.class]) {
         *wrong = YES;
         return nil;
     }
-    NSDictionary *tags = value;
-    NSSet<NSString *> *names = [NSSet setWithArray:ExtraTagNames()];
-    __block BOOL valid = tags.count > 0 || !tags;
-    [tags enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *stop) {
-        if (![key isKindOfClass:NSString.class] || ![names containsObject:key]
-                || ![value isKindOfClass:NSString.class] || [value length] == 0) {
-            valid = NO;
-            *stop = YES;
-        }
-    }];
-    if (!valid) {
+    if ([tags count] == 0) {
         *wrong = YES;
         return nil;
+    }
+    NSSet<VibeMetadataTagName> *names = ExtraTagNameSet();
+    for (id name in tags) {
+        id text = tags[name];
+        if (![names containsObject:name] || ![text isKindOfClass:NSString.class] || [text length] == 0) {
+            *wrong = YES;
+            return nil;
+        }
     }
     return tags;
 }
@@ -679,8 +688,7 @@ static NSDictionary<NSString *, NSString *> *_Nullable DecodedExtraTags(NSCoder 
     self.albumArtist = PropertyText(properties, "ALBUMARTIST");
     self.genre = PropertyText(properties, "GENRE");
     self.composer = PropertyText(properties, "COMPOSER");
-    NSInteger year = LeadingCount(PropertyText(properties, "DATE"));
-    self.year = year <= 9999 ? year : 0;
+    self.year = LeadingYear(PropertyText(properties, "DATE"));
     NSInteger number = 0, count = 0;
     ReadNumberAndCount(properties, "TRACKNUMBER", {"TRACKTOTAL", "TOTALTRACKS"}, &number, &count);
     self.trackNumber = number;
@@ -717,10 +725,10 @@ static NSDictionary<NSString *, NSString *> *_Nullable DecodedExtraTags(NSCoder 
     // Each extra tag under its own name. ID3v2.3's TORY arrives as
     // ORIGINALDATE, as v2.4's TDOR does. A Xiph comment or a TXXX frame may
     // name it ORIGINALYEAR.
-    NSMutableDictionary<NSString *, NSString *> *extras = nil;
-    for (NSString *name in ExtraTagNames()) {
+    NSMutableDictionary<VibeMetadataTagName, NSString *> *extras = nil;
+    for (VibeMetadataTagName name in VibeMetadataExtraTagNames()) {
         NSString *text = PropertyText(properties, name.UTF8String);
-        if (!text && name == kOriginalDate) {
+        if (!text && name == VibeMetadataTagOriginalDate) {
             text = PropertyText(properties, "ORIGINALYEAR");
         }
         if (text) {

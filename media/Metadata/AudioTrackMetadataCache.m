@@ -15,7 +15,6 @@
 #import "AudioTrackMetadata.h"
 #import "MetadataParseCoordinator.h"
 #import "AudioTrackMetadataCache+Debug.h"
-#import "NSURL+Hash.h"
 
 // The three stores, built together and published at once, so a reader sees
 // all of them or none. Each has its own budget, so art never pushes tags
@@ -205,22 +204,11 @@
     });
 }
 
-// One entry's move to a key with none, then the old one's removal.
-static void MoveEntry(PINCache *store, NSString *oldKey, NSString *newKey) {
-    id entry = [store.diskCache objectForKey:oldKey];
-    if (entry && ![store.diskCache containsObjectForKey:newKey]) {
-        [store.diskCache setObject:entry forKey:newKey];
-    }
-    [store.diskCache removeObjectForKey:oldKey];
-}
-
 - (void)moveEntriesOfRetaggedFileFromKey:(NSString *)oldKey
                                    toKey:(NSString *)newKey
                               artChanged:(BOOL)artChanged
                               completion:(dispatch_block_t)completion {
     NSParameterAssert(oldKey && newKey);
-    // Before the move, so no lookup after this call files under the old key.
-    [NSURL invalidateMemoizedCacheKeys];
     oldKey = [oldKey copy];
     newKey = [newKey copy];
     // On the queue that invalidates, so an invalidation and a move never
@@ -228,14 +216,20 @@ static void MoveEntry(PINCache *store, NSString *oldKey, NSString *newKey) {
     // files under a key no stat gives again.
     dispatch_async(_cacheQueue, ^{
         VibeMetadataStores *stores = [self storesOnQueue];
+        if ([oldKey isEqualToString:newKey]) {
+            // TRAP: the key names the new tags as well as the old, so a parse
+            // begun before the write would file the old ones under it for
+            // good. The bump keeps every parse in flight from filing.
+            atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
+        }
         [stores.tags.diskCache removeObjectForKey:oldKey];
-        BOOL sameKey = [oldKey isEqualToString:newKey];
         for (PINCache *art in @[stores.thumbnails, stores.displayArt]) {
-            if (artChanged) {
-                [art.diskCache removeObjectForKey:oldKey];
-            }
-            else if (!sameKey) {
-                MoveEntry(art, oldKey, newKey);
+            if (artChanged || ![art.diskCache moveObjectForKey:oldKey toKey:newKey]) {
+                // Refused: the keys are equal, the new key holds an entry, or
+                // there is none. Equal keys keep unchanged art.
+                if (artChanged || ![oldKey isEqualToString:newKey]) {
+                    [art.diskCache removeObjectForKey:oldKey];
+                }
             }
         }
         if (completion) {

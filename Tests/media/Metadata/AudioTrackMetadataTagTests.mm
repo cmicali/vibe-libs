@@ -157,6 +157,13 @@ static NSData *ToneMD5(void) {
                 XCTAssertNil(value, @"%@", name);
             }
         };
+        if (VibeTagFieldIsExtra(field)) {
+            text([metadata extraTag:@(VibeTagExtraName(field))], VibeTagExtraValue(field, fixture));
+            if (field == VibeTagFieldOriginalDate) {
+                XCTAssertEqual(metadata.originalYear, on ? kVibeTagOriginalYear : 0, @"%@", name);
+            }
+            continue;
+        }
         switch (field) {
             case VibeTagFieldAlbum: text(metadata.album, kVibeTagAlbum); break;
             case VibeTagFieldAlbumArtist: text(metadata.albumArtist, kVibeTagAlbumArtist); break;
@@ -185,22 +192,11 @@ static NSData *ToneMD5(void) {
             case VibeTagFieldComment: text(metadata.comment, kVibeTagComment); break;
             case VibeTagFieldGrouping: text(metadata.grouping, kVibeTagGrouping); break;
             case VibeTagFieldLabel: text(metadata.label, kVibeTagLabel); break;
-            case VibeTagFieldCatalogNumber: text(metadata.catalogNumber, kVibeTagCatalogNumber); break;
-            case VibeTagFieldConductor: text(metadata.conductor, kVibeTagConductor); break;
-            case VibeTagFieldRemixer: text(metadata.remixer, kVibeTagRemixer); break;
-            case VibeTagFieldLyricist: text(metadata.lyricist, kVibeTagLyricist); break;
-            case VibeTagFieldMood: text(metadata.mood, kVibeTagMood); break;
-            case VibeTagFieldLanguage: text(metadata.language, kVibeTagLanguage); break;
-            case VibeTagFieldCopyright: text(metadata.copyright, kVibeTagCopyright); break;
-            case VibeTagFieldOriginalDate:
-                text(metadata.originalDate, VibeTagOriginalDate(fixture));
-                XCTAssertEqual(metadata.originalYear, on ? kVibeTagOriginalYear : 0, @"%@", name);
-                break;
-            case VibeTagFieldTitleSort: text(metadata.titleSort, kVibeTagTitleSort); break;
-            case VibeTagFieldArtistSort: text(metadata.artistSort, kVibeTagArtistSort); break;
-            case VibeTagFieldAlbumSort: text(metadata.albumSort, kVibeTagAlbumSort); break;
-            case VibeTagFieldAlbumArtistSort: text(metadata.albumArtistSort, kVibeTagAlbumArtistSort); break;
             case VibeTagFieldCount: break;
+            case VibeTagFieldCatalogNumber: case VibeTagFieldConductor: case VibeTagFieldRemixer:
+            case VibeTagFieldLyricist: case VibeTagFieldMood: case VibeTagFieldLanguage: case VibeTagFieldCopyright:
+            case VibeTagFieldOriginalDate: case VibeTagFieldTitleSort: case VibeTagFieldArtistSort:
+            case VibeTagFieldAlbumSort: case VibeTagFieldAlbumArtistSort: break; // above
         }
     }
 }
@@ -643,14 +639,14 @@ static void Retag(NSURL *url, VibeTagFixture fixture, NSDictionary<NSString *, N
         }
         Retag(url, fixture, @{@"ORIGINALYEAR": @"1968"});
         AudioTrackMetadata *metadata = Parse(url, NULL);
-        XCTAssertEqualObjects(metadata.originalDate, @"1968", @"%@", name);
+        XCTAssertEqualObjects([metadata extraTag:VibeMetadataTagOriginalDate], @"1968", @"%@", name);
         XCTAssertEqual(metadata.originalYear, 1968, @"%@", name);
         Retag(url, fixture, @{@"ORIGINALYEAR": @"1968", @"ORIGINALDATE": kVibeTagOriginalDate});
-        XCTAssertEqualObjects(Parse(url, NULL).originalDate, kVibeTagOriginalDate, @"%@", name);
-        Retag(url, fixture, @{@"CONDUCTOR": @"   ", @"MOOD": kVibeTagMood});
+        XCTAssertEqualObjects([Parse(url, NULL) extraTag:VibeMetadataTagOriginalDate], kVibeTagOriginalDate, @"%@", name);
+        Retag(url, fixture, @{@"CONDUCTOR": @"   ", @"MOOD": @"Mellow"});
         metadata = Parse(url, NULL);
-        XCTAssertNil(metadata.conductor, @"%@", name);
-        XCTAssertEqualObjects(metadata.extraTags, @{@"MOOD": kVibeTagMood}, @"%@", name);
+        XCTAssertNil([metadata extraTag:VibeMetadataTagConductor], @"%@", name);
+        XCTAssertEqualObjects(metadata.extraTags, @{VibeMetadataTagMood: @"Mellow"}, @"%@", name);
     }
 }
 

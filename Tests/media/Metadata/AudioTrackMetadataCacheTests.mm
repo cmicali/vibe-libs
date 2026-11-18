@@ -16,6 +16,8 @@
 #import "PlatformImage.h"
 #import "MetadataLoaderTestFakes.h"
 #import "NSURL+Hash.h"
+#import "VibeTestFileDates.h"
+#import "AudioTrackMetadataCache+Debug.h"
 #import "PINCache+VibeAudioCache.h"
 #import "VibeTestNegativeWindow.h"
 
@@ -126,6 +128,7 @@
         [current addObject:[@"com.pinterest.PINDiskCache." stringByAppendingString:name]];
     }
     NSArray<NSString *> *old = @[@"com.pinterest.PINDiskCache.Audio Track Metadata v8",
+                                 @"com.pinterest.PINDiskCache.Audio Track Metadata v10",
                                  @"com.pinterest.PINDiskCache.Audio Track Thumbnails v0",
                                  @"com.pinterest.PINDiskCache.Audio Track Display Art"];
     for (NSString *store in [current arrayByAddingObjectsFromArray:old]) {
@@ -140,6 +143,18 @@
     NSArray<NSString *> *left = [NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:nil];
     XCTAssertEqualObjects([left sortedArrayUsingSelector:@selector(compare:)],
                           [current sortedArrayUsingSelector:@selector(compare:)]);
+
+    // An entry of the store before the extra tags is never read: the file
+    // parses again, and its new tags are read.
+    NSURL *url = VibeWriteTagFixture(_dir, VibeTagFixtureFLAC, nil, NULL);
+    PINCache *v10 = [self store:@"Audio Track Metadata v10" under:root];
+    [v10.diskCache setObject:[AudioTrackMetadata metadataWithURL:url displayArtData:NULL] forKey:url.cacheKey];
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    XCTAssertEqual([self read:url through:cache policy:VibeMetadataReadPolicyCacheOnly].outcome,
+                   VibeMetadataReadOutcomeCacheMiss);
+    VibeMetadataReadResult *read = [self read:url through:cache policy:VibeMetadataReadPolicyLocal];
+    XCTAssertFalse(read.fromCache);
+    XCTAssertEqualObjects([read.metadata extraTag:VibeMetadataTagCatalogNumber], @"CAT-0042");
 }
 
 #pragma mark - The art's stores
@@ -274,38 +289,6 @@
     XCTAssertEqual(files, 0u);
 }
 
-#pragma mark - The version bump
-
-// An entry filed by the store before the extra tags is never read: the bump
-// opens a store of a new name, so the file parses again, and the old store
-// is removed with the other versions.
-- (void)testTheVersionBumpDiscardsOldEntries {
-    NSURL *url = VibeWriteTagFixture(_dir, VibeTagFixtureFLAC, nil, NULL);
-    XCTAssertNotNil(url);
-    NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
-    NSString *oldName = @"Audio Track Metadata v10";
-    XCTAssertNotEqualObjects(AudioTrackMetadataCache.cacheName, oldName);
-    AudioTrackMetadata *parsed = [AudioTrackMetadata metadataWithURL:url displayArtData:NULL];
-    PINCache *oldStore = [self store:oldName under:root];
-    [oldStore.diskCache setObject:parsed forKey:url.cacheKey];
-    XCTAssertNotNil([oldStore.diskCache objectForKey:url.cacheKey]);
-
-    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
-    XCTAssertEqual([self read:url through:cache policy:VibeMetadataReadPolicyCacheOnly].outcome,
-                   VibeMetadataReadOutcomeCacheMiss, @"the old store's entry is not read");
-    VibeMetadataReadResult *read = [self read:url through:cache policy:VibeMetadataReadPolicyLocal];
-    XCTAssertFalse(read.fromCache);
-    XCTAssertEqualObjects(read.metadata.catalogNumber, kVibeTagCatalogNumber);
-
-    XCTestExpectation *removed = [self expectationWithDescription:@"removed"];
-    [PINCache removeOtherAudioCacheVersionsKeeping:AudioTrackMetadataCache.cacheNames rootPath:root completion:^{
-        [removed fulfill];
-    }];
-    [self waitForExpectations:@[removed] timeout:VIBE_TEST_HANG_TIMEOUT];
-    NSString *oldPath = [root stringByAppendingPathComponent:[@"com.pinterest.PINDiskCache." stringByAppendingString:oldName]];
-    XCTAssertFalse([NSFileManager.defaultManager fileExistsAtPath:oldPath]);
-}
-
 #pragma mark - A tag-only rewrite
 
 // A tag edit's safe write: a retagged copy, a later modified date, and a
@@ -324,9 +307,7 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
         file.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripOthers, TagLib::ID3v2::v4,
                   TagLib::File::DoNotDuplicate);
     }
-    NSDate *modified = [[NSFileManager.defaultManager attributesOfItemAtPath:url.path error:NULL] fileModificationDate];
-    [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [modified dateByAddingTimeInterval:2]}
-                                   ofItemAtPath:copy.path error:NULL];
+    VibePushFileDateForward(copy, 2);
     rename(copy.fileSystemRepresentation, url.fileSystemRepresentation);
 }
 
@@ -340,16 +321,14 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
 }
 
 // After a rewrite, the tags under the old key are gone and the art follows
-// the file to its new key. A held item's memo is retired. The next read
-// parses the new tags, and a read after it hits them.
+// the file to its new key. The next read parses the new tags, and a read
+// after it hits them.
 - (void)testAnEntryAfterARewriteAnswersTheNewTags {
     NSURL *url = [self fileWithArt];
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
     NSString *oldKey = [self read:url through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
     XCTAssertNotNil(oldKey);
-    VibeLoaderTestTrack *held = [VibeLoaderTestTrack withURL:url];
-    XCTAssertEqualObjects(held.cacheKey, oldKey);
     NSData *rendition = (NSData *)[[self store:AudioTrackMetadataCache.displayArtCacheName under:root].diskCache
             objectForKey:oldKey];
     XCTAssertNotNil(rendition);
@@ -357,9 +336,7 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     SafeRetitle(url, @"Edited Title", nil);
     NSString *newKey = url.cacheKey;
     XCTAssertNotEqualObjects(newKey, oldKey);
-    XCTAssertEqualObjects(held.cacheKey, oldKey, @"the memo hides the rewrite until it is retired");
     [self moveIn:cache from:oldKey to:newKey artChanged:NO];
-    XCTAssertEqualObjects(held.cacheKey, newKey, @"the move retires every memo");
 
     PINCache *tags = [self store:AudioTrackMetadataCache.cacheName under:root];
     PINCache *thumbnails = [self store:AudioTrackMetadataCache.thumbnailCacheName under:root];
@@ -404,8 +381,7 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     XCTAssertEqualObjects([displayArt.diskCache objectForKey:newKey], blue, @"the parse files the new art");
 }
 
-// A move of a key with no entries does nothing, and an entry the new key
-// already holds is kept.
+// A move of a key with no entries does nothing to the new key's.
 - (void)testAMoveOfAnAbsentEntryDoesNothing {
     NSURL *url = [self fileWithArt];
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
@@ -415,6 +391,73 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     VibeMetadataReadResult *hit = [self read:url through:cache policy:VibeMetadataReadPolicyCacheOnly];
     XCTAssertTrue(hit.fromCache, @"the entry under the new key is kept");
     XCTAssertEqualObjects(hit.metadata.title, kVibeTagTitle);
+}
+
+// Different art under both keys: the move keeps the new key's, and the old
+// key's goes.
+- (void)testAMoveOntoAnEntryKeepsTheNewKeysEntry {
+    NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    [self read:[self fileWithArt] through:cache policy:VibeMetadataReadPolicyCacheOnly];
+    NSArray<NSString *> *names = @[AudioTrackMetadataCache.thumbnailCacheName,
+                                   AudioTrackMetadataCache.displayArtCacheName];
+    for (NSString *name in names) {
+        PINCache *store = [self store:name under:root];
+        [store.diskCache setObject:[@"old" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"1-1-old"];
+        [store.diskCache setObject:[@"new" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"2-2-new"];
+    }
+    [self moveIn:cache from:@"1-1-old" to:@"2-2-new" artChanged:NO];
+    for (NSString *name in names) {
+        PINCache *store = [self store:name under:root];
+        XCTAssertNil([store.diskCache objectForKey:@"1-1-old"], @"%@", name);
+        XCTAssertEqualObjects([store.diskCache objectForKey:@"2-2-new"],
+                              [@"new" dataUsingEncoding:NSUTF8StringEncoding], @"%@", name);
+    }
+}
+
+// A writer that kept the size and the date leaves the key as it was. A
+// parse begun before the move, held past it, then files nothing under the
+// key, so the next read parses the new tags.
+- (void)testEqualKeysKeepAParseInFlightFromFiling {
+    NSURL *url = [self fileWithArt];
+    NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    AudioTrackMetadata *oldTags = [AudioTrackMetadata metadataWithURL:url displayArtData:NULL];
+    dispatch_semaphore_t entered = dispatch_semaphore_create(0);
+    dispatch_semaphore_t gate = dispatch_semaphore_create(0);
+    __block NSUInteger parses = 0;
+    [cache debugSetReadingFileParser:^AudioTrackMetadata *(NSURL *parsed) {
+        if (++parses > 1) {
+            return [AudioTrackMetadata metadataWithURL:parsed displayArtData:NULL];
+        }
+        dispatch_semaphore_signal(entered);
+        dispatch_semaphore_wait(gate, dispatch_time(DISPATCH_TIME_NOW,
+                                                    (int64_t)(VIBE_TEST_GATE_TIMEOUT * NSEC_PER_SEC)));
+        return oldTags;
+    }];
+    NSString *key = url.cacheKey;
+    XCTestExpectation *done = [self expectationWithDescription:@"read"];
+    __block VibeMetadataReadResult *held = nil;
+    dispatch_queue_t queue = dispatch_queue_create("vibe-libs.tests.metadata-cache.held", DISPATCH_QUEUE_SERIAL);
+    [cache readMetadataOfURLs:@[url] policy:VibeMetadataReadPolicyLocal deliveryQueue:queue
+                       result:^(VibeMetadataReadResult *result) {
+                           held = result;
+                       }
+                   completion:^{
+                       [done fulfill];
+                   }];
+    XCTAssertEqual(dispatch_semaphore_wait(entered, dispatch_time(DISPATCH_TIME_NOW,
+            (int64_t)(VIBE_TEST_HANG_TIMEOUT * NSEC_PER_SEC))), 0);
+    [self moveIn:cache from:key to:key artChanged:NO];
+    dispatch_semaphore_signal(gate);
+    [self waitForExpectations:@[done] timeout:VIBE_TEST_HANG_TIMEOUT];
+    XCTAssertEqual(held.outcome, VibeMetadataReadOutcomeRead);
+
+    XCTAssertNil([[self store:AudioTrackMetadataCache.cacheName under:root].diskCache objectForKey:key],
+                 @"the held parse filed nothing");
+    VibeMetadataReadResult *again = [self read:url through:cache policy:VibeMetadataReadPolicyLocal];
+    XCTAssertFalse(again.fromCache);
+    XCTAssertEqual(parses, 2u);
 }
 
 @end

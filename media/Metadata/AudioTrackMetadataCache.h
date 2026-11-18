@@ -82,11 +82,15 @@ NS_ASSUME_NONNULL_BEGIN
 // write does. oldKey is the file's cacheKey (NSURL+Hash) from before the
 // write, and newKey from after it. Drops the tags filed under oldKey, so the
 // next read parses the new tags. Moves the row thumbnail and the rendition to
-// newKey, or drops them when artChanged. An entry newKey already holds is
-// kept, since only a parse of the new version files one. An absent entry is
-// no work. First retires every memoized cacheKey, so an item's next lookup
-// stats the file. Safe while loads run. Any thread. completion runs on the
-// cache's internal queue.
+// newKey, each as one rename of its file, or drops them when artChanged. An
+// entry newKey already holds is kept, and the old one goes. An absent entry
+// is no work. Equal keys, from a writer that kept the size and the date, also
+// keep a parse in flight from filing the old tags under them. Calls run in
+// the order made, on the cache's internal queue, and completion runs there.
+// TRAP: this retires no memoized key. The app calls NSURL
+// invalidateMemoizedCacheKeys once per batch, from the last completion,
+// after every cache's moves, so a held row's next lookup stats the file.
+// Safe while loads run. Any thread.
 - (void)moveEntriesOfRetaggedFileFromKey:(NSString *)oldKey
                                    toKey:(NSString *)newKey
                               artChanged:(BOOL)artChanged

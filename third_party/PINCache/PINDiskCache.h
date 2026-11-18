@@ -599,6 +599,17 @@ PIN_SUBCLASSING_RESTRICTED
 - (void)setObject:(nullable id <NSCoding>)object forKey:(NSString *)key withAgeLimit:(NSTimeInterval)ageLimit;
 
 /**
+ Vibe: moves the entry under key to toKey, as one rename(2) of its file under the cache's lock. Its bytes,
+ dates and size go with it, so nothing is decoded or written again. This method blocks the calling thread.
+
+ @param key The key the entry is under.
+ @param toKey The key to move it to.
+ @result NO, with both keys left as they were, when key holds no entry, toKey already holds one, or the
+         keys are equal.
+ */
+- (BOOL)moveObjectForKey:(NSString *)key toKey:(NSString *)toKey;
+
+/**
  Removes objects from the cache, largest first, until the cache is equal to or smaller than the
  specified byteCount. This method blocks the calling thread until the cache has been trimmed.
  

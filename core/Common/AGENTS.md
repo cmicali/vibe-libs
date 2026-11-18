@@ -46,7 +46,7 @@ It holds the macros (`VibeMacros.h`), the work tally, the stall sampler, path sp
 
 **`NSURL+Hash`'s `cacheKey` names one version of a file.** It is `<size>-<mtime_us>-<sha1(resolved path)>`, from one stat and no content read. It resolves symlinks first, so a link and its target share one key. It returns nil, never a degenerate key, when the stat fails. The caller must then skip caching. Hashing no content keeps it cheap, but it misses a rewrite that keeps size and mtime, and it misses a move. **TRAP: the microseconds round as Foundation's `NSDate` rounds**, reference-date seconds before the nanoseconds. Direct 1970 arithmetic lands 1 µs off on about 6% of real files, and every persisted key would change.
 
-- **`cacheKeyGeneration`** stamps a memoized key. A memo stamped below the current generation is stale. `invalidateMemoizedCacheKeys` bumps it when a download installs a version other than its placeholder's, and when an app moves a cache's entries after a tag-only rewrite (`media/Metadata` and `waveform/WaveformLoading`).
+- **`cacheKeyGeneration`** stamps a memoized key. A memo stamped below the current generation is stale. `invalidateMemoizedCacheKeys` bumps it when a download installs a version other than its placeholder's, and an app calls it once per batch of tag-only rewrites, after its cache moves land (`media/Metadata` and `waveform/WaveformLoading`).
 - **`pathKey`** is a key from the spelling alone. It is relative to the app's home for a file inside it, so it survives the data container's move. It never stats.
 - **`NSData (Hash)`'s `sha1Hex`** is the one spelling of the hex SHA-1. It sits under the URL's name because the key and an app's content-addressed names share it.
 

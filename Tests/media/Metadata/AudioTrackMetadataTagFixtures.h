@@ -140,23 +140,33 @@ static const double kVibeTagSoundCheckGain = -3.0102999566398120;
 static NSString *const kVibeTagComment = @"Tagged Comment";
 static NSString *const kVibeTagGrouping = @"Tagged Grouping";
 static NSString *const kVibeTagLabel = @"Tagged Label";
-static NSString *const kVibeTagCatalogNumber = @"CAT-0042";
-static NSString *const kVibeTagConductor = @"Tagged Conductor";
-static NSString *const kVibeTagRemixer = @"Tagged Remixer";
-static NSString *const kVibeTagLyricist = @"Tagged Lyricist";
-static NSString *const kVibeTagMood = @"Mellow";
-static NSString *const kVibeTagLanguage = @"eng";
-static NSString *const kVibeTagCopyright = @"2024 Tagged Copyright";
 static NSString *const kVibeTagOriginalDate = @"1972-05-01";
 static const NSInteger kVibeTagOriginalYear = 1972;
-static NSString *const kVibeTagTitleSort = @"Title, Tagged";
-static NSString *const kVibeTagArtistSort = @"Artist, Tagged";
-static NSString *const kVibeTagAlbumSort = @"Album, Tagged";
-static NSString *const kVibeTagAlbumArtistSort = @"Album Artist, Tagged";
 
+static inline BOOL VibeTagFieldIsExtra(VibeTagField field) {
+    return field >= VibeTagFieldCatalogNumber && field <= VibeTagFieldAlbumArtistSort;
+}
+
+// An extra tag's property name, as the parse files it and TagLib's writer
+// takes it.
+static inline const char *VibeTagExtraName(VibeTagField field) {
+    static const char *const names[] = {
+            "CATALOGNUMBER", "CONDUCTOR", "REMIXER", "LYRICIST", "MOOD", "LANGUAGE", "COPYRIGHT",
+            "ORIGINALDATE", "TITLESORT", "ARTISTSORT", "ALBUMSORT", "ALBUMARTISTSORT"};
+    return names[field - VibeTagFieldCatalogNumber];
+}
+
+// An extra tag's value as written, and as read back from `fixture`.
 // ID3v2.3 holds the original date as TORY, its year alone.
-static inline NSString *VibeTagOriginalDate(VibeTagFixture fixture) {
-    return fixture == VibeTagFixtureMP3ID3v23 ? @"1972" : kVibeTagOriginalDate;
+static inline NSString *VibeTagExtraValue(VibeTagField field, VibeTagFixture fixture) {
+    static NSString *const values[] = {
+            @"CAT-0042", @"Tagged Conductor", @"Tagged Remixer", @"Tagged Lyricist", @"Mellow", @"eng",
+            @"2024 Tagged Copyright", kVibeTagOriginalDate, @"Title, Tagged", @"Artist, Tagged",
+            @"Album, Tagged", @"Album Artist, Tagged"};
+    if (field == VibeTagFieldOriginalDate && fixture == VibeTagFixtureMP3ID3v23) {
+        return @"1972";
+    }
+    return values[field - VibeTagFieldCatalogNumber];
 }
 
 static inline NSString *VibeTagFieldName(VibeTagField field) {
@@ -224,6 +234,10 @@ static inline void VibeAddTagField(TagLib::PropertyMap &properties, VibeTagFixtu
     auto set = [&properties](const char *key, NSString *value) {
         properties[key] = TagLib::StringList(VibeTagString(value));
     };
+    if (VibeTagFieldIsExtra(field)) {
+        set(VibeTagExtraName(field), VibeTagExtraValue(field, VibeTagFixtureFLAC));
+        return;
+    }
     BOOL xiph = VibeTagFixtureIsXiph(fixture);
     BOOL counts = VibeTagFixtureHasCounts(fixture);
     switch (field) {
@@ -255,19 +269,11 @@ static inline void VibeAddTagField(TagLib::PropertyMap &properties, VibeTagFixtu
         case VibeTagFieldComment: set("COMMENT", kVibeTagComment); break;
         case VibeTagFieldGrouping: set("GROUPING", kVibeTagGrouping); break;
         case VibeTagFieldLabel: set("LABEL", kVibeTagLabel); break;
-        case VibeTagFieldCatalogNumber: set("CATALOGNUMBER", kVibeTagCatalogNumber); break;
-        case VibeTagFieldConductor: set("CONDUCTOR", kVibeTagConductor); break;
-        case VibeTagFieldRemixer: set("REMIXER", kVibeTagRemixer); break;
-        case VibeTagFieldLyricist: set("LYRICIST", kVibeTagLyricist); break;
-        case VibeTagFieldMood: set("MOOD", kVibeTagMood); break;
-        case VibeTagFieldLanguage: set("LANGUAGE", kVibeTagLanguage); break;
-        case VibeTagFieldCopyright: set("COPYRIGHT", kVibeTagCopyright); break;
-        case VibeTagFieldOriginalDate: set("ORIGINALDATE", kVibeTagOriginalDate); break;
-        case VibeTagFieldTitleSort: set("TITLESORT", kVibeTagTitleSort); break;
-        case VibeTagFieldArtistSort: set("ARTISTSORT", kVibeTagArtistSort); break;
-        case VibeTagFieldAlbumSort: set("ALBUMSORT", kVibeTagAlbumSort); break;
-        case VibeTagFieldAlbumArtistSort: set("ALBUMARTISTSORT", kVibeTagAlbumArtistSort); break;
         case VibeTagFieldSoundCheck: case VibeTagFieldCount: break;
+        case VibeTagFieldCatalogNumber: case VibeTagFieldConductor: case VibeTagFieldRemixer:
+        case VibeTagFieldLyricist: case VibeTagFieldMood: case VibeTagFieldLanguage: case VibeTagFieldCopyright:
+        case VibeTagFieldOriginalDate: case VibeTagFieldTitleSort: case VibeTagFieldArtistSort:
+        case VibeTagFieldAlbumSort: case VibeTagFieldAlbumArtistSort: break; // above
     }
 }
 
