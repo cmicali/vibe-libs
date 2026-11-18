@@ -861,7 +861,7 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
 // The extension's parser refuses the file, so the content sniff decides.
 - (void)testAWrongExtensionFallsBackToTheContent {
     NSDictionary<NSString *, VibeAudioFileFormat> *cases = @{
-            @"m4a-as.flac": VibeAudioFileFormatMP4,
+            @"m4a-as.flac": VibeAudioFileFormatAAC,
             @"wav-as.m4a": VibeAudioFileFormatWAV,
             @"wav-as.flac": VibeAudioFileFormatWAV,
             @"aiff-as.m4a": VibeAudioFileFormatAIFF,
@@ -884,7 +884,7 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
 - (void)testNoExtensionSniffsTheContent {
     NSDictionary<NSNumber *, VibeAudioFileFormat> *cases = @{
             @(VibeTagFixtureFLAC): VibeAudioFileFormatFLAC, @(VibeTagFixtureMP3ID3v24): VibeAudioFileFormatMP3,
-            @(VibeTagFixtureM4A): VibeAudioFileFormatMP4, @(VibeTagFixtureWAVID3): VibeAudioFileFormatWAV,
+            @(VibeTagFixtureM4A): VibeAudioFileFormatAAC, @(VibeTagFixtureWAVID3): VibeAudioFileFormatWAV,
             @(VibeTagFixtureAIFF): VibeAudioFileFormatAIFF,
     };
     for (NSNumber *fixture in cases) {
