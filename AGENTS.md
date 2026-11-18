@@ -15,8 +15,10 @@ The Xcode project is generated from `project.yml` by XcodeGen and is not checked
 | `make check-pieces` | The piece rules below, the dependency map in the plan, each target's excluded platform, no `#if DEBUG` in a header, the other app's name nowhere, no merge conflict marker, no doc line over 1,500 characters, `VibeUpdater.m` as the one source of `system/Updates` that reaches Sparkle, and the piece count this file and the README give. Then it breaks each rule in a copy of the repo and fails unless the check catches it. Then it tests the message filter a move runs. Last, with `SINCE`, it fails a change to a TagLib file that leaves `third_party/taglib/CHANGES.md` alone. |
 | `make consumer` | A minimal app outside this repo's project includes `vibe-libs.yml` as an app would, builds with no prefix header and no headermap, and runs. |
 | `make test-strings` | The strings tools' self-test, over a tiny app of their own. |
+| `make test-asan` | `make test`'s bundles under Address Sanitizer and Undefined Behavior Sanitizer, in a DerivedData of their own. Every report lands in `build/sanitizers/asan/`, `scripts/checks/sanitizer-report.py` prints each once, and any report fails the run. |
+| `make test-tsan` | The same under Thread Sanitizer, in `build/sanitizers/tsan/`. A known benign race inside Apple's frameworks goes in `scripts/checks/tsan.supp`, with its reason. Every other report is fixed. |
 
-CI runs all five on every pull request. There, `make test` and `make build-ios` take `SINCE=HEAD^1`, so they build only the targets the pull request's changes reach, as `scripts/checks/targets.py` finds them. A change outside every target, such as to a spec, the Makefile, or a script, reaches them all. Every push to main runs them in full.
+CI runs the first five on every pull request. The sanitized runs are slower, and run by hand before a release, and after a change to threading or to code that touches memory by hand. There, `make test` and `make build-ios` take `SINCE=HEAD^1`, so they build only the targets the pull request's changes reach, as `scripts/checks/targets.py` finds them. A change outside every target, such as to a spec, the Makefile, or a script, reaches them all. Every push to main runs them in full.
 
 ## What this repo is for
 

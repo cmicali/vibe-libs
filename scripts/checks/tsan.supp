@@ -1,0 +1,3 @@
+# Thread Sanitizer's suppressions for make test-tsan.
+# Only a known benign race inside Apple's frameworks belongs here, each with
+# its reason. A race in this repo's code is fixed, never suppressed.

@@ -4,7 +4,7 @@
 PROJECT := vibe-libs.xcodeproj
 DERIVED := build/DerivedData
 
-.PHONY: help project test build-ios consumer check-pieces test-strings clean
+.PHONY: help project test test-asan test-tsan sanitized build-ios consumer check-pieces test-strings clean
 
 # Every target, with the first sentence of its comment.
 help:
@@ -27,6 +27,29 @@ test: project
 	xcodebuild test -project $(PROJECT) -scheme vibe-libs-test -destination 'platform=macOS' \
 		-derivedDataPath $(DERIVED) -resultBundlePath build/TestResults.xcresult -quiet; \
 	python3 -I scripts/checks/test-summary.py build/TestResults.xcresult
+
+# Runs make test's bundles under Address Sanitizer and Undefined Behavior Sanitizer.
+test-asan:
+	$(MAKE) --no-print-directory sanitized SAN=asan SAN_ARGS='-enableAddressSanitizer YES -enableUndefinedBehaviorSanitizer YES'
+
+# Runs make test's bundles under Thread Sanitizer.
+test-tsan:
+	$(MAKE) --no-print-directory sanitized SAN=tsan SAN_ARGS='-enableThreadSanitizer YES'
+
+# test-asan's and test-tsan's run. Each sanitizer writes every report to a
+# file of its own in build/sanitizers/$(SAN)/, from every test process, and
+# the run fails on any report. Its build has a DerivedData of its own.
+SAN_DIR = $(CURDIR)/build/sanitizers/$(SAN)
+SAN_OPTIONS = log_path=$(SAN_DIR)/report:print_stacktrace=1
+sanitized: project
+	@test -n "$(SAN)" || { echo "make test-asan or make test-tsan"; exit 2; }
+	mkdir -p "$(SAN_DIR)" && find "$(SAN_DIR)" -name 'report.*' -delete && rm -rf "$(SAN_DIR)/TestResults.xcresult"
+	TEST_RUNNER_ASAN_OPTIONS='$(SAN_OPTIONS)' TEST_RUNNER_UBSAN_OPTIONS='$(SAN_OPTIONS)' \
+		TEST_RUNNER_TSAN_OPTIONS='$(SAN_OPTIONS):suppressions=$(CURDIR)/scripts/checks/tsan.supp' \
+		xcodebuild test -project $(PROJECT) -scheme vibe-libs-test -destination 'platform=macOS' \
+		-derivedDataPath build/DerivedData-$(SAN) -resultBundlePath "$(SAN_DIR)/TestResults.xcresult" -quiet $(SAN_ARGS); \
+	status=$$?; python3 -I scripts/checks/test-summary.py "$(SAN_DIR)/TestResults.xcresult"; \
+	python3 -I scripts/checks/sanitizer-report.py "$(SAN_DIR)" && test $$status -eq 0
 
 # Builds every piece for the iOS simulator, so an AppKit leak fails here.
 build-ios: project
