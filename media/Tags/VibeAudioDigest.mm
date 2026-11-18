@@ -510,8 +510,14 @@ BOOL VibeTagLibAudioMatches(NSString *pathA, NSString *pathB, NSError *__autorel
         at += take;
         inA += take;
         inB += take;
-        if (inA == spanA.length) i++, inA = 0;
-        if (inB == spanB.length) j++, inB = 0;
+        if (inA == spanA.length) {
+            i++;
+            inA = 0;
+        }
+        if (inB == spanB.length) {
+            j++;
+            inB = 0;
+        }
     }
     return YES;
 }
