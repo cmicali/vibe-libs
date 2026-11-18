@@ -66,6 +66,8 @@ FOUNDATION_EXPORT BOOL WaveformEventuallyCached(AudioWaveformCache *cache, id<Vi
 @property (nonatomic) NSMutableArray<id<VibePlayableItem>> *completedTracks;
 @property (nonatomic) NSMutableArray<id<VibePlayableItem>> *resultTracks;
 @property (nonatomic) NSMutableArray<NSDictionary *> *results;
+// Each delivery's entry key, beside its results.
+@property (nonatomic) NSMutableArray<NSString *> *entryKeys;
 @property (nonatomic) NSUInteger failures;
 @end
 

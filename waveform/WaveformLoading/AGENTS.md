@@ -121,6 +121,8 @@ Up to `kMaxDetachedWaveformLoads` (2) detached decodes run behind the active one
 
 `audioWaveform:didLoadData:forTrack:`, `audioWaveformCache:didFailToLoadForTrack:` and `audioWaveformCache:didLoadResults:forTrack:` all carry it, because a delivery can land after the item changed. A receiver matches `sourceKey`, not the URL, since rows of one file share it. A detached decode's waveform reaches no one, but its results are still delivered with its own item. Failure is delivered only while the loader is current, and is made terminal first so a same-window request starts fresh.
 
+Results can also carry the version of the file they hold. A delegate that implements `audioWaveformCache:didLoadResults:forTrack:entryKey:` gets the entry key the results were read or decoded under, in place of the plain delivery. A decode sets it only once its end found the key unchanged, and a hit has the key it was filed under. `CodableAudioWaveform.entryKey` carries it to the delivery, in memory only. A receiver that stores results beside a file's own version compares the two, since the file may change again before its write.
+
 The cache captures the item when the load starts (`_currentLoadTrack`). **The reattach path must set it too**, or a resumed decode delivers under the item it was detached from.
 
 ## The seams

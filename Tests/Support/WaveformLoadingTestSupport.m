@@ -170,6 +170,7 @@ BOOL WaveformEventuallyCached(AudioWaveformCache *cache, id<VibePlayableItem> tr
         _completedTracks = [NSMutableArray array];
         _resultTracks = [NSMutableArray array];
         _results = [NSMutableArray array];
+        _entryKeys = [NSMutableArray array];
     }
     return self;
 }
@@ -184,9 +185,11 @@ BOOL WaveformEventuallyCached(AudioWaveformCache *cache, id<VibePlayableItem> tr
 }
 - (void)audioWaveformCache:(AudioWaveformCache *)cache
             didLoadResults:(NSDictionary<NSString *, id> *)results
-                  forTrack:(id<VibePlayableItem>)track {
+                  forTrack:(id<VibePlayableItem>)track
+                  entryKey:(NSString *)entryKey {
     [_resultTracks addObject:track];
     [_results addObject:results];
+    [_entryKeys addObject:entryKey];
 }
 @end
 

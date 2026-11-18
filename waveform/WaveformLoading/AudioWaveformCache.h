@@ -152,6 +152,17 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
             didLoadResults:(NSDictionary<NSString *, id> *)results
                   forTrack:(id<VibePlayableItem>)track;
 
+// The same delivery, with the entry key the results were read or decoded
+// under (VibeWaveformEntryKey: the file's cacheKey, then the window). It
+// names the version of the file the results hold, which a decode checked at
+// its end. A receiver that keeps results beside the file's own version
+// compares the two. A delegate that implements it gets it instead of the
+// one above.
+- (void)audioWaveformCache:(AudioWaveformCache *)cache
+            didLoadResults:(NSDictionary<NSString *, id> *)results
+                  forTrack:(id<VibePlayableItem>)track
+                  entryKey:(NSString *)entryKey;
+
 @end
 
 NS_ASSUME_NONNULL_END

@@ -352,6 +352,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         [store.diskCache removeObjectForKey:cacheKey];
         cachedWaveform = nil;
     }
+    cachedWaveform.entryKey = cacheKey;
     // An entry decoded without the bands, or without a result for an
     // observer this request lists, is a miss for it, and that decode replaces
     // it with one that has them. Every other request takes it, so no entry is
@@ -609,6 +610,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
             settled(NO);
             return;
         }
+        waveform.entryKey = cacheKey;
         // Delivered before persisting, so UI delivery never queues behind
         // PINDiskCache. The waveform is valid whatever the persist below
         // decides.
@@ -681,8 +683,15 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 }
 
 - (void)deliverResults:(CodableAudioWaveform *)waveform forTrack:(id<VibePlayableItem>)track {
-    if (waveform.results.count &&
-        [self.delegate respondsToSelector:@selector(audioWaveformCache:didLoadResults:forTrack:)]) {
+    if (!waveform.results.count) {
+        return;
+    }
+    if (waveform.entryKey &&
+        [self.delegate respondsToSelector:@selector(audioWaveformCache:didLoadResults:forTrack:entryKey:)]) {
+        [self.delegate audioWaveformCache:self didLoadResults:waveform.results forTrack:track
+                                 entryKey:(NSString *)waveform.entryKey];
+    }
+    else if ([self.delegate respondsToSelector:@selector(audioWaveformCache:didLoadResults:forTrack:)]) {
         [self.delegate audioWaveformCache:self didLoadResults:waveform.results forTrack:track];
     }
 }
