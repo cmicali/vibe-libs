@@ -166,6 +166,9 @@ static NSData *ToneMD5(void) {
             case VibeTagFieldR128TrackGain: number(metadata.r128TrackGain, -1234 / 256.0); break;
             case VibeTagFieldR128AlbumGain: number(metadata.r128AlbumGain, -2); break;
             case VibeTagFieldSoundCheck: number(metadata.soundCheckGain, kVibeTagSoundCheckGain); break;
+            case VibeTagFieldComment: text(metadata.comment, kVibeTagComment); break;
+            case VibeTagFieldGrouping: text(metadata.grouping, kVibeTagGrouping); break;
+            case VibeTagFieldLabel: text(metadata.label, kVibeTagLabel); break;
             case VibeTagFieldCount: break;
         }
     }
@@ -182,6 +185,17 @@ static NSIndexSet *CarriedFields(VibeTagFixture fixture) {
 
 static BOOL IsFLAC(VibeTagFixture fixture) {
     return fixture == VibeTagFixtureFLAC || fixture == VibeTagFixtureFLACCueSheet;
+}
+
+// Every lossless fixture is 16-bit. A lossy codec has no depth.
+static NSInteger FixtureBitDepth(VibeTagFixture fixture) {
+    switch (fixture) {
+        case VibeTagFixtureFLAC: case VibeTagFixtureFLACCueSheet: case VibeTagFixtureWAVID3:
+        case VibeTagFixtureWAVInfo: case VibeTagFixtureAIFF: case VibeTagFixtureCAF: case VibeTagFixtureW64:
+            return 16;
+        default:
+            return 0;
+    }
 }
 
 - (void)assertFixture:(VibeTagFixture)fixture fileType:(VibeAudioFileFormat)fileType rate:(int)rate
@@ -225,6 +239,9 @@ static BOOL IsFLAC(VibeTagFixture fixture) {
     XCTAssertEqualObjects(metadata.audioMD5, md5, @"%@", name);
     XCTAssertEqualObjects(restored.audioMD5, md5, @"%@ archived", name);
     XCTAssertEqualObjects(((AudioTrackMetadata *)[metadata copy]).audioMD5, md5, @"%@ copied", name);
+    XCTAssertEqual(metadata.bitDepth, FixtureBitDepth(fixture), @"%@", name);
+    XCTAssertEqual(restored.bitDepth, FixtureBitDepth(fixture), @"%@ archived", name);
+    XCTAssertEqual(((AudioTrackMetadata *)[metadata copy]).bitDepth, FixtureBitDepth(fixture), @"%@ copied", name);
 
     NSData *extracted = nil;
     VibeEmbeddedArtExtractionResult result = Extract(url, &extracted);
@@ -405,6 +422,144 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
 - (void)testR128TrackGain { [self assertFieldAlone:VibeTagFieldR128TrackGain]; }
 - (void)testR128AlbumGain { [self assertFieldAlone:VibeTagFieldR128AlbumGain]; }
 - (void)testSoundCheck { [self assertFieldAlone:VibeTagFieldSoundCheck]; }
+- (void)testComment { [self assertFieldAlone:VibeTagFieldComment]; }
+- (void)testGrouping { [self assertFieldAlone:VibeTagFieldGrouping]; }
+- (void)testLabel { [self assertFieldAlone:VibeTagFieldLabel]; }
+
+// A file tagged with its title alone reads no comment, grouping, or label.
+- (void)testAFileWithNoneOfTheFieldsReadsNone {
+    for (NSNumber *each in @[@(VibeTagFixtureMP3ID3v24), @(VibeTagFixtureM4A), @(VibeTagFixtureFLAC),
+                             @(VibeTagFixtureVorbis), @(VibeTagFixtureOpus)]) {
+        VibeTagFixture fixture = (VibeTagFixture)each.integerValue;
+        NSString *name = VibeTagFixtureName(fixture);
+        NSURL *url = [_dir URLByAppendingPathComponent:name];
+        if (!VibeWriteTagFixtureAudio(url, fixture)) {
+            XCTAssertTrue(fixture == VibeTagFixtureVorbis || fixture == VibeTagFixtureOpus, @"%@", name);
+            continue;
+        }
+        TagLib::PropertyMap properties;
+        properties["TITLE"] = TagLib::StringList(VibeTagString(kVibeTagTitle));
+        XCTAssertTrue(VibeSaveTagFixtureTags(url, fixture, properties, nil, NO), @"%@", name);
+        AudioTrackMetadata *metadata = Parse(url, NULL);
+        XCTAssertTrue(metadata.parsedOK, @"%@", name);
+        XCTAssertEqualObjects(metadata.title, kVibeTagTitle, @"%@", name);
+        for (AudioTrackMetadata *read in @[metadata, CacheRoundTrip(metadata)]) {
+            XCTAssertNil(read.comment, @"%@", name);
+            XCTAssertNil(read.grouping, @"%@", name);
+            XCTAssertNil(read.label, @"%@", name);
+            XCTAssertEqual(read.bitDepth, FixtureBitDepth(fixture), @"%@", name);
+        }
+    }
+}
+
+// Writes `properties` over the fixture's own tags, through TagLib.
+static void Retag(NSURL *url, VibeTagFixture fixture, NSDictionary<NSString *, NSString *> *properties) {
+    TagLib::PropertyMap map;
+    for (NSString *key in properties) {
+        map[key.UTF8String] = TagLib::StringList(VibeTagString(properties[key]));
+    }
+    VibeSaveTagFixtureTags(url, fixture, map, nil, NO);
+}
+
+// ID3v2's TIT1 is the grouping when GRP1 is absent, as before iTunes 12.5.
+// GRP1 wins. MP4's and a Xiph comment's WORK is the work, never the grouping.
+- (void)testTheGroupingsOtherKeys {
+    for (NSNumber *each in @[@(VibeTagFixtureMP3ID3v23), @(VibeTagFixtureMP3ID3v24), @(VibeTagFixtureWAVID3),
+                             @(VibeTagFixtureAIFF)]) {
+        VibeTagFixture fixture = (VibeTagFixture)each.integerValue;
+        NSString *name = VibeTagFixtureName(fixture);
+        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFieldAlbum);
+        XCTAssertNotNil(url, @"%@", name);
+        Retag(url, fixture, @{@"WORK": @"Old Grouping"});
+        XCTAssertEqualObjects(Parse(url, NULL).grouping, @"Old Grouping", @"%@: TIT1 alone", name);
+        Retag(url, fixture, @{@"WORK": @"Old Grouping", @"GROUPING": kVibeTagGrouping});
+        AudioTrackMetadata *metadata = Parse(url, NULL);
+        XCTAssertEqualObjects(metadata.grouping, kVibeTagGrouping, @"%@: GRP1 wins", name);
+        XCTAssertEqualObjects(CacheRoundTrip(metadata).grouping, kVibeTagGrouping, @"%@ archived", name);
+    }
+    for (NSNumber *each in @[@(VibeTagFixtureM4A), @(VibeTagFixtureFLAC), @(VibeTagFixtureVorbis)]) {
+        VibeTagFixture fixture = (VibeTagFixture)each.integerValue;
+        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFieldAlbum);
+        if (!url) {
+            XCTAssertEqual(fixture, VibeTagFixtureVorbis);
+            continue;
+        }
+        Retag(url, fixture, @{@"WORK": @"A Work"});
+        XCTAssertNil(Parse(url, NULL).grouping, @"%@", VibeTagFixtureName(fixture));
+    }
+}
+
+// A Xiph comment may hold the comment as DESCRIPTION, and the label as
+// ORGANIZATION or PUBLISHER. COMMENT and LABEL win.
+- (void)testTheCommentsAndTheLabelsOtherKeys {
+    for (NSNumber *each in @[@(VibeTagFixtureFLAC), @(VibeTagFixtureVorbis), @(VibeTagFixtureOpus)]) {
+        VibeTagFixture fixture = (VibeTagFixture)each.integerValue;
+        NSString *name = VibeTagFixtureName(fixture);
+        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFieldAlbum);
+        if (!url) {
+            XCTAssertNotEqual(fixture, VibeTagFixtureFLAC);
+            continue;
+        }
+        Retag(url, fixture, @{@"DESCRIPTION": @"Described", @"ORGANIZATION": @"Organization"});
+        AudioTrackMetadata *metadata = Parse(url, NULL);
+        XCTAssertEqualObjects(metadata.comment, @"Described", @"%@", name);
+        XCTAssertEqualObjects(metadata.label, @"Organization", @"%@", name);
+        Retag(url, fixture, @{@"PUBLISHER": @"Publisher"});
+        XCTAssertEqualObjects(Parse(url, NULL).label, @"Publisher", @"%@", name);
+        Retag(url, fixture, @{@"COMMENT": kVibeTagComment, @"DESCRIPTION": @"Described",
+                              @"LABEL": kVibeTagLabel, @"ORGANIZATION": @"Organization", @"PUBLISHER": @"Publisher"});
+        metadata = Parse(url, NULL);
+        XCTAssertEqualObjects(metadata.comment, kVibeTagComment, @"%@", name);
+        XCTAssertEqualObjects(metadata.label, kVibeTagLabel, @"%@", name);
+    }
+}
+
+#pragma mark - Bit depth
+
+// Writes `buffer` as audio of `codec` at `depth` bits, in the container the
+// extension names, with Apple's encoder.
+static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
+    NSError *error = nil;
+    @autoreleasepool {
+        AVAudioFile *file = [[AVAudioFile alloc] initForWriting:url
+                                                       settings:@{AVFormatIDKey: @(codec), AVSampleRateKey: @44100,
+                                                                  AVNumberOfChannelsKey: @2,
+                                                                  AVEncoderBitDepthHintKey: @(depth)}
+                                                   commonFormat:AVAudioPCMFormatFloat32
+                                                    interleaved:YES error:&error];
+        if (![file writeFromBuffer:VibeToneBuffer(22050, 44100, 2, AVAudioPCMFormatFloat32) error:&error]) {
+            return nil;
+        }
+    }
+    return url;
+}
+
+// Deeper streams than the fixtures': 24-bit FLAC and ALAC, float WAV, and
+// ALAC in CAF, which CoreAudio's facts read.
+- (void)testTheBitDepthOfDeeperStreams {
+    NSError *error = nil;
+    AVAudioPCMBuffer *floats = VibeToneBuffer(22050, 44100, 2, AVAudioPCMFormatFloat32);
+    NSDictionary<NSString *, NSArray *> *cases = @{
+            @"deep.flac": @[VibeWriteFixture([_dir URLByAppendingPathComponent:@"deep.flac"], floats, &error) ?: NSNull.null,
+                            @24, VibeAudioFileFormatFLAC],
+            @"float.wav": @[VibeWriteFixture([_dir URLByAppendingPathComponent:@"float.wav"], floats, &error) ?: NSNull.null,
+                            @32, VibeAudioFileFormatWAV],
+            @"deep.m4a": @[EncodeLossless([_dir URLByAppendingPathComponent:@"deep.m4a"], kAudioFormatAppleLossless, 24)
+                                   ?: NSNull.null, @24, VibeAudioFileFormatALAC],
+            @"alac.caf": @[EncodeLossless([_dir URLByAppendingPathComponent:@"alac.caf"], kAudioFormatAppleLossless, 24)
+                                   ?: NSNull.null, @24, VibeAudioFileFormatALAC],
+    };
+    for (NSString *name in cases) {
+        NSURL *url = cases[name][0];
+        XCTAssertTrue([url isKindOfClass:NSURL.class], @"%@: %@", name, error);
+        if (![url isKindOfClass:NSURL.class]) continue;
+        AudioTrackMetadata *metadata = Parse(url, NULL);
+        XCTAssertTrue(metadata.parsedOK, @"%@", name);
+        XCTAssertEqualObjects(metadata.fileType, cases[name][2], @"%@", name);
+        XCTAssertEqual(metadata.bitDepth, [cases[name][1] integerValue], @"%@", name);
+        XCTAssertEqual(CacheRoundTrip(metadata).bitDepth, [cases[name][1] integerValue], @"%@ archived", name);
+    }
+}
 
 // STREAMINFO's MD5 is the decoded audio's. An encoder that computed none
 // writes zeros, which read as no MD5.

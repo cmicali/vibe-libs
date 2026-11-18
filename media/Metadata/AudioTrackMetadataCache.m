@@ -81,7 +81,8 @@
     // one parse of each file.
     // v9 moved the thumbnail out of the entry, into its own store, so art
     // never pushes tags out of their budget.
-    return @"Audio Track Metadata v9";
+    // v10 added the comment, the grouping, the label, and the bit depth.
+    return @"Audio Track Metadata v10";
 }
 
 + (NSString *)thumbnailCacheName {

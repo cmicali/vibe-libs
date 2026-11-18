@@ -46,6 +46,9 @@ typedef void (^VibeEmbeddedArtReadHandler)(NSURL *url, dispatch_block_t read);
 // FLAC, ALAC, AIFF, WAV, W64 or CAF. A lossless bitrate is implied by the
 // rate and depth, so the codec line leaves it out.
 @property (readonly, getter=isLossless) BOOL lossless;
+// Bits per sample: FLAC, ALAC, PCM or float WAV, AIFF, and PCM or ALAC in
+// CAF or W64. 0 for a lossy codec, such as MP3, AAC, Vorbis, or Opus.
+@property (assign, readonly) NSInteger bitDepth;
 
 // The tagged tempo (ID3 TBPM, MP4 tmpo, Vorbis/FLAC BPM); 0 when untagged.
 @property (assign, readonly) float bpm;
@@ -67,6 +70,12 @@ typedef void (^VibeEmbeddedArtReadHandler)(NSURL *url, dispatch_block_t read);
 @property (assign, readonly) NSInteger discNumber;
 @property (assign, readonly) NSInteger discCount;
 @property (readonly, getter=isCompilation) BOOL compilation;
+
+// The track's comment, its grouping, and its record label or publisher, as
+// tagged. nil when untagged.
+@property (copy, nullable, readonly) NSString *comment;
+@property (copy, nullable, readonly) NSString *grouping;
+@property (copy, nullable, readonly) NSString *label;
 
 // The identifiers a file may carry: MusicBrainz's release and recording, and
 // the recording's ISRC. nil when untagged.

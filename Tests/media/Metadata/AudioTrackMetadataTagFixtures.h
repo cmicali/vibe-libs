@@ -104,6 +104,9 @@ typedef NS_ENUM(NSInteger, VibeTagField) {
     VibeTagFieldR128TrackGain,
     VibeTagFieldR128AlbumGain,
     VibeTagFieldSoundCheck,
+    VibeTagFieldComment,
+    VibeTagFieldGrouping,
+    VibeTagFieldLabel,
     VibeTagFieldCount,
 };
 
@@ -121,27 +124,33 @@ static NSString *const kVibeTagISRC = @"USRC17607839";
 static NSString *const kVibeTagSoundCheck =
         @" 000003E8 000007D0 00002710 00004E20 00024CA8 00024CA8 00007FFF 00007FFF 00024CA8 00024CA8";
 static const double kVibeTagSoundCheckGain = -3.0102999566398120;
+// ID3v1 holds 28 bytes of comment.
+static NSString *const kVibeTagComment = @"Tagged Comment";
+static NSString *const kVibeTagGrouping = @"Tagged Grouping";
+static NSString *const kVibeTagLabel = @"Tagged Label";
 
 static inline NSString *VibeTagFieldName(VibeTagField field) {
     static NSString *const names[VibeTagFieldCount] = {
             @"album", @"album artist", @"genre", @"composer", @"year", @"track", @"disc", @"compilation",
             @"release ID", @"recording ID", @"ISRC", @"ReplayGain track gain", @"ReplayGain track peak",
             @"ReplayGain album gain", @"ReplayGain album peak", @"R128 track gain", @"R128 album gain",
-            @"Sound Check"};
+            @"Sound Check", @"comment", @"grouping", @"label"};
     return names[field];
 }
 
-// What each format's tag carries. ID3v1 has an album, a year, a genre, and a
-// track number. RIFF INFO adds a composer and an ISRC. R128 gains are read
-// from any Xiph comment, though Opus is the format that defines them.
+// What each format's tag carries. ID3v1 has an album, a year, a genre, a
+// track number, and a comment. RIFF INFO adds a composer, an ISRC, and a
+// label. R128 gains are read from any Xiph comment, though Opus is the format
+// that defines them.
 static inline BOOL VibeTagFixtureCarries(VibeTagFixture fixture, VibeTagField field) {
     switch (fixture) {
         case VibeTagFixtureMP3ID3v1:
             return field == VibeTagFieldAlbum || field == VibeTagFieldYear || field == VibeTagFieldGenre
-                    || field == VibeTagFieldTrack;
+                    || field == VibeTagFieldTrack || field == VibeTagFieldComment;
         case VibeTagFixtureWAVInfo:
             return field == VibeTagFieldAlbum || field == VibeTagFieldYear || field == VibeTagFieldGenre
-                    || field == VibeTagFieldTrack || field == VibeTagFieldComposer || field == VibeTagFieldISRC;
+                    || field == VibeTagFieldTrack || field == VibeTagFieldComposer || field == VibeTagFieldISRC
+                    || field == VibeTagFieldComment || field == VibeTagFieldLabel;
         case VibeTagFixtureCAF: case VibeTagFixtureW64: case VibeTagFixtureCount:
             return NO;
         default:
@@ -205,6 +214,9 @@ static inline void VibeAddTagField(TagLib::PropertyMap &properties, VibeTagFixtu
         // Q7.8: -1234/256 and -512/256 dB.
         case VibeTagFieldR128TrackGain: set("R128_TRACK_GAIN", @"-1234"); break;
         case VibeTagFieldR128AlbumGain: set("R128_ALBUM_GAIN", @"-512"); break;
+        case VibeTagFieldComment: set("COMMENT", kVibeTagComment); break;
+        case VibeTagFieldGrouping: set("GROUPING", kVibeTagGrouping); break;
+        case VibeTagFieldLabel: set("LABEL", kVibeTagLabel); break;
         case VibeTagFieldSoundCheck: case VibeTagFieldCount: break;
     }
 }
@@ -296,7 +308,8 @@ static inline NSArray<NSArray<NSString *> *> *VibeAPEItems(const TagLib::Propert
                                                     @"ALBUMARTIST": @"Album Artist", @"DATE": @"Year",
                                                     @"TRACKNUMBER": @"Track", @"DISCNUMBER": @"Disc",
                                                     @"GENRE": @"Genre", @"COMPOSER": @"Composer",
-                                                    @"COMPILATION": @"Compilation"};
+                                                    @"COMPILATION": @"Compilation", @"COMMENT": @"Comment",
+                                                    @"GROUPING": @"Grouping", @"LABEL": @"Label"};
     NSMutableArray<NSArray<NSString *> *> *items = [NSMutableArray array];
     for (const auto &[key, values] : properties) {
         NSString *name = @(key.toCString(true));
