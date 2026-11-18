@@ -7,7 +7,7 @@
 //  write cut short by a full disk reports success. This one writes with
 //  pwrite, records the first failed read, write, or truncate, and stops
 //  writing after it. finish() then checks the file's size against the one
-//  the writes imply and flushes it to the disk. C++.
+//  the writes imply and flushes it. C++.
 //
 
 #pragma once
@@ -40,10 +40,13 @@ public:
     const std::string &failure() const { return _failure; }
     // Whether any write reached the file, so a failure may have changed it.
     bool wrote() const { return _wrote; }
-    // After the last write: checks the size, flushes to the disk with
-    // F_FULLFSYNC, and closes. false with failure() set when any step, or
-    // any write before it, failed.
-    bool finish();
+    // How finish() flushes. Full is F_FULLFSYNC, Barrier is F_BARRIERFSYNC.
+    // A volume that refuses Barrier gets Full, and one that refuses Full
+    // gets fsync.
+    enum class Sync { Full, Barrier };
+    // After the last write: checks the size, flushes, and closes. false
+    // with failure() set when any step, or any write before it, failed.
+    bool finish(Sync sync = Sync::Full);
 
 private:
     bool fail(const char *operation);

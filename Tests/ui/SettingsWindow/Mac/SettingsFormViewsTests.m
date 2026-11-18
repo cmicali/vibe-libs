@@ -328,4 +328,14 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
     XCTAssertTrue(VibeColorsClose(VibePixel(VibeRenderLayer(fill.layer), NO, 10, 10), NSColor.blackColor, 0.01));
 }
 
+// The pane search's match, which a pane that filters its own rows calls.
+- (void)testTextMatchesIgnoresCaseDiacriticsAndWidth {
+    XCTAssertTrue(SettingsTextMatches(@"Output Device", @"device"));
+    XCTAssertTrue(SettingsTextMatches(@"Café Mode", @"cafe"));
+    XCTAssertTrue(SettingsTextMatches(@"ＡＢＣ", @"abc"));
+    XCTAssertFalse(SettingsTextMatches(@"Volume", @"gain"));
+    XCTAssertFalse(SettingsTextMatches(@"", @"a"));
+    XCTAssertFalse(SettingsTextMatches(nil, @"a"));
+}
+
 @end

@@ -5,6 +5,7 @@
 //  The audio's digest, read from the file's bytes without TagLib, so it can
 //  check TagLib's write (VibeTagWriter.h). Each format's walk takes the
 //  bytes a tag write must never change, with the facts that decode them.
+//  The digest hashes those bytes, and the match compares two files' in turn.
 //
 
 #import "VibeTagWriter.h"
@@ -35,10 +36,19 @@ struct Bytes {
     uint64_t le64(uint64_t at) const { return (uint64_t)le32(at) | (uint64_t)le32(at + 4) << 32; }
 };
 
-class Digest {
+// Where a format's walk sends the audio's bytes, in order.
+class Sink {
+public:
+    virtual ~Sink() = default;
+    virtual void add(const void *bytes, uint64_t length) = 0;
+    void add(const char *text) { add(text, strlen(text)); }
+    void add64(uint64_t value) { add(&value, sizeof value); }
+};
+
+class Digest : public Sink {
 public:
     Digest() { CC_SHA256_Init(&_context); }
-    void add(const void *bytes, uint64_t length) {
+    void add(const void *bytes, uint64_t length) override {
         while (length > 0) {
             const CC_LONG take = (CC_LONG)std::min<uint64_t>(length, 1u << 30);
             CC_SHA256_Update(&_context, bytes, take);
@@ -46,8 +56,7 @@ public:
             length -= take;
         }
     }
-    void add(const char *text) { add(text, strlen(text)); }
-    void add64(uint64_t value) { add(&value, sizeof value); }
+    using Sink::add;
     NSData *finish() {
         uint8_t out[CC_SHA256_DIGEST_LENGTH];
         CC_SHA256_Final(out, &_context);
@@ -93,7 +102,7 @@ uint64_t TrimTrailingTags(const Bytes &f, uint64_t start, uint64_t end) {
     return end;
 }
 
-bool DigestMPEG(const Bytes &f, Digest &d) {
+bool DigestMPEG(const Bytes &f, Sink &d) {
     const uint64_t start = SkipID3v2(f, 0);
     const uint64_t end = TrimTrailingTags(f, start, f.n);
     if (start >= end || !f.has(start, 2) || f.b[start] != 0xFF || (f.b[start + 1] & 0xE0) != 0xE0) return false;
@@ -102,7 +111,7 @@ bool DigestMPEG(const Bytes &f, Digest &d) {
     return true;
 }
 
-bool DigestFLAC(const Bytes &f, Digest &d) {
+bool DigestFLAC(const Bytes &f, Sink &d) {
     uint64_t at = SkipID3v2(f, 0);
     if (!f.is(at, "fLaC")) return false;
     at += 4;
@@ -125,7 +134,7 @@ bool DigestFLAC(const Bytes &f, Digest &d) {
     return streamInfo;
 }
 
-bool DigestRIFF(const Bytes &f, Digest &d) {
+bool DigestRIFF(const Bytes &f, Sink &d) {
     const bool rf64 = f.is(0, "RF64") || f.is(0, "BW64");
     uint64_t dataSize64 = 0;
     bool format = false, data = false;
@@ -152,7 +161,7 @@ bool DigestRIFF(const Bytes &f, Digest &d) {
     return format && data;
 }
 
-bool DigestAIFF(const Bytes &f, Digest &d) {
+bool DigestAIFF(const Bytes &f, Sink &d) {
     bool common = false, sound = false;
     d.add("AIFF");
     for (uint64_t at = 12; f.has(at, 8);) {
@@ -216,7 +225,7 @@ std::vector<Atom> FindAtoms(const Bytes &f, uint64_t from, uint64_t to, const ch
 
 // A sound track's samples, chunk by chunk, where its sample table says
 // they lie. So a rewritten chunk offset that misses its bytes changes it.
-bool DigestTrack(const Bytes &f, const Atom &trak, Digest &d) {
+bool DigestTrack(const Bytes &f, const Atom &trak, Sink &d) {
     const Atom mdia = FindAtom(f, trak.body, trak.end, "mdia");
     const Atom hdlr = mdia.found ? FindAtom(f, mdia.body, mdia.end, "hdlr") : Atom();
     if (!hdlr.found || hdlr.end - hdlr.body < 12 || memcmp(f.b + hdlr.body + 8, "soun", 4) != 0) return false;
@@ -263,7 +272,7 @@ bool DigestTrack(const Bytes &f, const Atom &trak, Digest &d) {
     return sample == samples;
 }
 
-bool DigestMP4(const Bytes &f, Digest &d) {
+bool DigestMP4(const Bytes &f, Sink &d) {
     const Atom moov = FindAtom(f, 0, f.n, "moov");
     if (!moov.found) return false;
     d.add("MP4");
@@ -279,7 +288,7 @@ bool DigestMP4(const Bytes &f, Digest &d) {
 // The identification packet, Vorbis's setup packet, and every page after
 // the headers with its flags, granule, and body. A page's number and CRC
 // change when TagLib repaginates the comment, so they are left out.
-bool DigestOgg(const Bytes &f, Digest &d) {
+bool DigestOgg(const Bytes &f, Sink &d) {
     std::vector<std::vector<uint8_t>> headers;
     std::vector<uint8_t> packet;
     size_t headerCount = 0;  // known once the first packet is
@@ -372,34 +381,137 @@ bool VibeMP4ItemNames(const uint8_t *bytes, uint64_t length, std::vector<std::st
     return true;
 }
 
-NSData *VibeTagLibAudioDigest(NSString *path, NSError *__autoreleasing *error) {
+namespace {
+
+// The audio's bytes as a list of spans: runs of the mapped file, and the
+// small values the walk adds itself, kept in `owned`. Adjacent runs merge,
+// so an MP3, FLAC, WAV, or AIFF is a handful of spans.
+class Recorder : public Sink {
+public:
+    Recorder(const Bytes &f) : _f(f) {}
+    void add(const void *bytes, uint64_t length) override {
+        if (length == 0) return;
+        const uint8_t *p = (const uint8_t *)bytes;
+        total += length;
+        const bool mapped = p >= _f.b && length <= _f.n && (uint64_t)(p - _f.b) <= _f.n - length;
+        uint64_t at;
+        if (mapped) {
+            at = (uint64_t)(p - _f.b);
+        }
+        else {
+            at = owned.size();
+            owned.insert(owned.end(), p, p + length);
+        }
+        if (!spans.empty() && spans.back().owned == !mapped && spans.back().at + spans.back().length == at) {
+            spans.back().length += length;
+        }
+        else {
+            spans.push_back({at, length, !mapped});
+        }
+    }
+    using Sink::add;
+
+    struct Span {
+        uint64_t at, length;
+        bool owned;
+    };
+    const uint8_t *bytes(const Span &span) const { return span.owned ? owned.data() + span.at : _f.b + span.at; }
+
+    std::vector<Span> spans;
+    std::vector<uint8_t> owned;
+    uint64_t total = 0;
+
+private:
+    const Bytes &_f;
+};
+
+NSData *MapFile(NSString *path, NSError *__autoreleasing *error) {
     NSError *readError = nil;
     NSData *data = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:&readError];
-    if (!data) {
-        if (error) {
-            *error = [NSError errorWithDomain:VibeTagWriteErrorDomain code:VibeTagWriteErrorOpenFailed
-                                     userInfo:@{NSLocalizedDescriptionKey: @"The file could not be read",
-                                                NSFilePathErrorKey: path, NSUnderlyingErrorKey: readError}];
-        }
-        return nil;
+    if (!data && error) {
+        *error = [NSError errorWithDomain:VibeTagWriteErrorDomain code:VibeTagWriteErrorOpenFailed
+                                 userInfo:@{NSLocalizedDescriptionKey: @"The file could not be read",
+                                            NSFilePathErrorKey: path, NSUnderlyingErrorKey: readError}];
     }
+    return data;
+}
+
+// Sends the file's audio to the sink, as its format's walk finds it.
+bool WalkAudio(const Bytes &f, Sink &sink) {
+    const uint64_t afterID3 = SkipID3v2(f, 0);
+    if (f.is(afterID3, "fLaC")) return DigestFLAC(f, sink);
+    if (f.is(0, "OggS")) return DigestOgg(f, sink);
+    if ((f.is(0, "RIFF") || f.is(0, "RF64") || f.is(0, "BW64")) && f.is(8, "WAVE")) return DigestRIFF(f, sink);
+    if (f.is(0, "FORM") && (f.is(8, "AIFF") || f.is(8, "AIFC"))) return DigestAIFF(f, sink);
+    if (f.is(4, "ftyp")) return DigestMP4(f, sink);
+    return DigestMPEG(f, sink);
+}
+
+BOOL NotFound(NSString *path, NSError *__autoreleasing *error) {
+    if (error) {
+        *error = [NSError errorWithDomain:VibeTagWriteErrorDomain code:VibeTagWriteErrorNoParser
+                                 userInfo:@{NSLocalizedDescriptionKey: @"The file's audio could not be found",
+                                            NSFilePathErrorKey: path}];
+    }
+    return NO;
+}
+
+BOOL Differs(NSString *pathA, NSString *pathB, uint64_t at, NSError *__autoreleasing *error) {
+    if (error) {
+        NSString *reason = [NSString stringWithFormat:@"The audio differs from byte %llu of its stream",
+                                                      (unsigned long long)at];
+        *error = [NSError errorWithDomain:VibeTagWriteErrorDomain code:VibeTagWriteErrorAudioDiffers
+                                 userInfo:@{NSLocalizedDescriptionKey: reason, NSFilePathErrorKey: pathB,
+                                            @"VibeOtherFilePath": pathA}];
+    }
+    return NO;
+}
+
+} // namespace
+
+NSData *VibeTagLibAudioDigest(NSString *path, NSError *__autoreleasing *error) {
+    NSData *data = MapFile(path, error);
+    if (!data) return nil;
     const Bytes f{(const uint8_t *)data.bytes, data.length};
     Digest digest;
-    bool found = false;
-    const uint64_t afterID3 = SkipID3v2(f, 0);
-    if (f.is(afterID3, "fLaC")) found = DigestFLAC(f, digest);
-    else if (f.is(0, "OggS")) found = DigestOgg(f, digest);
-    else if ((f.is(0, "RIFF") || f.is(0, "RF64") || f.is(0, "BW64")) && f.is(8, "WAVE")) found = DigestRIFF(f, digest);
-    else if (f.is(0, "FORM") && (f.is(8, "AIFF") || f.is(8, "AIFC"))) found = DigestAIFF(f, digest);
-    else if (f.is(4, "ftyp")) found = DigestMP4(f, digest);
-    else found = DigestMPEG(f, digest);
-    if (!found) {
-        if (error) {
-            *error = [NSError errorWithDomain:VibeTagWriteErrorDomain code:VibeTagWriteErrorNoParser
-                                     userInfo:@{NSLocalizedDescriptionKey: @"The file's audio could not be found",
-                                                NSFilePathErrorKey: path}];
-        }
+    if (!WalkAudio(f, digest)) {
+        NotFound(path, error);
         return nil;
     }
     return digest.finish();
+}
+
+BOOL VibeTagLibAudioMatches(NSString *pathA, NSString *pathB, NSError *__autoreleasing *error) {
+    NSData *dataA = MapFile(pathA, error);
+    if (!dataA) return NO;
+    NSData *dataB = MapFile(pathB, error);
+    if (!dataB) return NO;
+    const Bytes a{(const uint8_t *)dataA.bytes, dataA.length}, b{(const uint8_t *)dataB.bytes, dataB.length};
+    Recorder spansA(a), spansB(b);
+    if (!WalkAudio(a, spansA)) return NotFound(pathA, error);
+    if (!WalkAudio(b, spansB)) return NotFound(pathB, error);
+    // The digest hashes the same stream, so equal streams are equal digests.
+    // Streams of two lengths differ, so a cut tail costs no read.
+    if (spansA.total != spansB.total) {
+        return Differs(pathA, pathB, std::min(spansA.total, spansB.total), error);
+    }
+    size_t i = 0, j = 0;
+    uint64_t inA = 0, inB = 0, at = 0;
+    while (i < spansA.spans.size() && j < spansB.spans.size()) {
+        const auto &spanA = spansA.spans[i], &spanB = spansB.spans[j];
+        const uint64_t take = std::min(spanA.length - inA, spanB.length - inB);
+        const uint8_t *pa = spansA.bytes(spanA) + inA, *pb = spansB.bytes(spanB) + inB;
+        // memcmp in pieces, so the first difference is found near where it is.
+        for (uint64_t done = 0; done < take;) {
+            const size_t piece = (size_t)std::min<uint64_t>(take - done, 1 << 20);
+            if (memcmp(pa + done, pb + done, piece) != 0) return Differs(pathA, pathB, at + done, error);
+            done += piece;
+        }
+        at += take;
+        inA += take;
+        inB += take;
+        if (inA == spanA.length) i++, inA = 0;
+        if (inB == spanB.length) j++, inB = 0;
+    }
+    return YES;
 }

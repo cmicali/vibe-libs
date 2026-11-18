@@ -11,6 +11,7 @@
 
 #import <XCTest/XCTest.h>
 #import <AVFoundation/AVFoundation.h>
+#include <mach/mach.h>
 #include <signal.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
@@ -64,6 +65,52 @@ static NSData *VibeDigest(NSURL *url) {
 static NSData *VibeJPEG(CGFloat shade) { return VibeImageOfColor(8, shade, 0.2, 0.3, YES); }
 static NSData *VibePNG(CGFloat shade) { return VibeImageOfColor(8, 0.3, shade, 0.2, NO); }
 
+// An image of one MIME type that ImageIO decodes. ImageIO writes no WebP,
+// so WebP is one of two 1x1 files, lossless or lossy.
+static NSData *VibeImageOfType(NSString *mime, int variant) {
+    if ([mime isEqualToString:@"image/webp"]) {
+        static const uint8_t lossless[] = {'R', 'I', 'F', 'F', 0x1A, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', 'L',
+                                           0x0D, 0, 0, 0, 0x2F, 0, 0, 0, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88,
+                                           0xFE, 0x07, 0};
+        static const uint8_t lossy[] = {'R', 'I', 'F', 'F', 0x24, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' ',
+                                        0x18, 0, 0, 0, 0x30, 0x01, 0, 0x9D, 0x01, 0x2A, 0x01, 0, 0x01, 0, 0x02, 0,
+                                        0x34, 0x25, 0xA4, 0, 0x03, 0x70, 0, 0xFE, 0xFB, 0x94, 0, 0};
+        return variant ? [NSData dataWithBytes:lossy length:sizeof lossy]
+                       : [NSData dataWithBytes:lossless length:sizeof lossless];
+    }
+    NSDictionary<NSString *, UTType *> *types = @{@"image/jpeg": UTTypeJPEG, @"image/png": UTTypePNG,
+                                                  @"image/gif": UTTypeGIF, @"image/bmp": UTTypeBMP,
+                                                  @"image/tiff": UTTypeTIFF};
+    const CGFloat shade = 0.1 + 0.4 * variant;
+    CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+    CGContextRef context = CGBitmapContextCreate(NULL, 8, 8, 8, 0, space, (CGBitmapInfo)kCGImageAlphaNoneSkipLast);
+    CGContextSetRGBFillColor(context, shade, 0.2, 0.3, 1);
+    CGContextFillRect(context, CGRectMake(0, 0, 8, 8));
+    CGImageRef image = CGBitmapContextCreateImage(context);
+    NSMutableData *data = [NSMutableData data];
+    CGImageDestinationRef destination = CGImageDestinationCreateWithData(
+            (__bridge CFMutableDataRef)data, (__bridge CFStringRef)types[mime].identifier, 1, NULL);
+    CGImageDestinationAddImage(destination, image, NULL);
+    CGImageDestinationFinalize(destination);
+    CFRelease(destination);
+    CGImageRelease(image);
+    CGContextRelease(context);
+    CGColorSpaceRelease(space);
+    return data;
+}
+
+// The front cover and its type, as an app saves them for an undo.
+static NSArray *VibeSavedCover(NSURL *url) {
+    NSData *data = nil;
+    NSString *mime = nil;
+    NSError *error = nil;
+    if (!VibeTagLibReadFrontCover(url.path, &data, &mime, &error)) {
+        NSLog(@"%@: %@", url.lastPathComponent, error);
+        return nil;
+    }
+    return data ? @[data, mime ?: NSNull.null] : @[];
+}
+
 #pragma mark - The fields
 
 // A value for every edited field, as each format reads it back.
@@ -83,6 +130,61 @@ static VibeTagFieldValues *VibeEveryField(void) {
     fields[VibeTagFieldLanguage] = @[@"eng"];
     fields[VibeTagFieldISRC] = @[@"USRC17607839"];
     return fields;
+}
+
+// The process's footprint, which counts dirty memory and not a mapped
+// file's clean pages.
+static uint64_t VibeFootprint(void) {
+    task_vm_info_data_t info;
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)&info, &count) != KERN_SUCCESS) return 0;
+    return info.phys_footprint;
+}
+
+// A FLAC or WAV of `size` bytes of noise, its audio after `padding` bytes of
+// tag: a FLAC PADDING block, or a WAV junk chunk. The walk reads no frame,
+// so the noise stands in for FLAC frames.
+static void VibeWriteLargeAudio(NSString *path, NSString *kind, uint64_t size, uint32_t padding) {
+    NSMutableData *head = [NSMutableData data];
+    if ([kind isEqualToString:@"flac"]) {
+        [head appendBytes:"fLaC" length:4];
+        uint8_t info[38] = {padding ? (uint8_t)0x00 : (uint8_t)0x80, 0, 0, 34, 0x10, 0, 0x10, 0};
+        info[14] = 0x0A; info[15] = 0xC4; info[16] = 0x42; info[17] = 0xF0;
+        [head appendBytes:info length:sizeof info];
+        if (padding) {
+            const uint32_t length = padding - 4;
+            const uint8_t block[4] = {0x81, (uint8_t)(length >> 16), (uint8_t)(length >> 8), (uint8_t)length};
+            [head appendBytes:block length:4];
+            [head increaseLengthBy:length];
+        }
+    }
+    else {
+        const uint32_t riff = (uint32_t)(4 + 24 + (padding ? 8 + padding : 0) + 8 + size);
+        [head appendBytes:"RIFF" length:4];
+        [head appendBytes:&riff length:4];
+        [head appendBytes:"WAVEfmt " length:8];
+        const uint8_t format[20] = {16, 0, 0, 0, 1, 0, 2, 0, 0x44, 0xAC, 0, 0, 0x10, 0xB1, 0x02, 0, 4, 0, 16, 0};
+        [head appendBytes:format length:sizeof format];
+        if (padding) {
+            [head appendBytes:"JUNK" length:4];
+            [head appendBytes:&padding length:4];
+            [head increaseLengthBy:padding];
+        }
+        const uint32_t data = (uint32_t)size;
+        [head appendBytes:"data" length:4];
+        [head appendBytes:&data length:4];
+    }
+    [NSFileManager.defaultManager createFileAtPath:path contents:head attributes:nil];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    [handle seekToEndOfFile];
+    NSMutableData *block = [NSMutableData dataWithLength:64 << 20];
+    uint32_t seed = 12345;
+    for (uint64_t written = 0; written < size; written += block.length) {
+        uint32_t *words = (uint32_t *)block.mutableBytes;
+        for (NSUInteger i = 0; i < block.length / 4; i++) words[i] = seed = seed * 1664525u + 1013904223u;
+        [handle writeData:block];
+    }
+    [handle closeFile];
 }
 
 @implementation VibeTagWriterTests {
@@ -217,6 +319,120 @@ static VibeTagFieldValues *VibeEveryField(void) {
         XCTAssertNil(art, @"%@", name);
         XCTAssertEqualObjects(VibeDigest(url), audio, @"%@", name);
     }
+}
+
+// Each image type round trips byte for byte in every format that holds it:
+// written, read back with its type, replaced, and put back from what the
+// read saved. MP4 holds no TIFF or WebP, and refuses them.
+- (void)testEveryCoverTypeRoundTripsWhereTheFormatHoldsIt {
+    for (NSString *name in self.formats) {
+        for (NSString *mime in VibeTagCoverMIMETypes()) {
+            NSURL *url = [self write:name];
+            NSData *audio = VibeDigest(url);
+            NSData *image = VibeImageOfType(mime, 0);
+            CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)image, NULL);
+            XCTAssertEqual(source ? CGImageSourceGetCount(source) : 0, (size_t)1, @"%@ decodes", mime);
+            if (source) CFRelease(source);
+            const BOOL mp4 = [name.pathExtension isEqualToString:@"m4a"];
+            if (mp4 && ([mime isEqualToString:@"image/tiff"] || [mime isEqualToString:@"image/webp"])) {
+                [self assertFailure:url code:VibeTagWriteErrorInvalidImage write:^BOOL(NSError **error) {
+                    return VibeTagLibWriteFrontCover(url.path, image, mime, error);
+                }];
+                continue;
+            }
+            NSError *error = nil;
+            XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, image, mime, &error), @"%@ %@: %@", name, mime, error);
+            NSArray *saved = VibeSavedCover(url);
+            XCTAssertEqualObjects(saved, (@[image, mime]), @"%@ %@", name, mime);
+            XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, VibeJPEG(0.7), @"image/jpeg", &error), @"%@", error);
+            XCTAssertEqualObjects(VibeSavedCover(url), (@[VibeJPEG(0.7), @"image/jpeg"]), @"%@ %@", name, mime);
+            XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, saved[0], saved[1], &error), @"%@ %@: %@", name, mime,
+                          error);
+            XCTAssertEqualObjects(VibeSavedCover(url), (@[image, mime]), @"%@ %@ put back", name, mime);
+            XCTAssertEqualObjects(VibePictures(url), @[image], @"%@ %@ replaced, not added", name, mime);
+            XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, VibeImageOfType(mime, 1), mime, &error), @"%@", error);
+            XCTAssertEqualObjects(VibeFrontCover(url), VibeImageOfType(mime, 1), @"%@ %@", name, mime);
+            XCTAssertEqualObjects(VibeDigest(url), audio, @"%@ %@", name, mime);
+        }
+    }
+}
+
+// A file with no front cover reads as none, and an undo removes the one
+// the edit added, leaving a picture of another type.
+- (void)testAnUndoOfAFirstCoverRemovesIt {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        XCTAssertEqualObjects(VibeSavedCover(url), @[], @"%@", name);
+        XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, VibePNG(0.3), @"image/png", NULL), @"%@", name);
+        XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, nil, nil, NULL), @"%@", name);
+        XCTAssertEqualObjects(VibeSavedCover(url), @[], @"%@", name);
+    }
+    NSURL *url = [self write:@"audio.flac"];
+    {
+        TagLib::FLAC::File flac(url.fileSystemRepresentation);
+        flac.addPicture(VibeFLACPicture(VibePNG(0.9), TagLib::FLAC::Picture::BackCover));
+        XCTAssertTrue(flac.save());
+    }
+    XCTAssertEqualObjects(VibeSavedCover(url), @[], @"a back cover is not the front cover");
+}
+
+// The type comes from the bytes when the tag's own is wrong or missing, and
+// from the tag when the bytes name none.
+- (void)testTheCoverReadFindsTheTrueType {
+    NSData *png = VibePNG(0.4), *gif = VibeImageOfType(@"image/gif", 0), *bmp = VibeImageOfType(@"image/bmp", 0);
+    NSData *unknown = [@"not an image" dataUsingEncoding:NSASCIIStringEncoding];
+
+    NSURL *mp3 = [self write:@"plain.mp3"];
+    {
+        TagLib::MPEG::File file(mp3.fileSystemRepresentation);
+        auto frame = new TagLib::ID3v2::AttachedPictureFrame();
+        frame->setMimeType("image/jpeg");
+        frame->setType(TagLib::ID3v2::AttachedPictureFrame::FrontCover);
+        frame->setPicture(VibeTagBytes(png));
+        file.ID3v2Tag(true)->addFrame(frame);
+        XCTAssertTrue(file.save());
+    }
+    XCTAssertEqualObjects(VibeSavedCover(mp3), (@[png, @"image/png"]), @"a PNG typed JPEG");
+
+    NSURL *flac = [self write:@"audio.flac"];
+    {
+        TagLib::FLAC::File file(flac.fileSystemRepresentation);
+        TagLib::FLAC::Picture *picture = VibeFLACPicture(bmp);
+        picture->setMimeType("");
+        file.addPicture(picture);
+        XCTAssertTrue(file.save());
+    }
+    XCTAssertEqualObjects(VibeSavedCover(flac), (@[bmp, @"image/bmp"]), @"a BMP with no type");
+
+    NSURL *m4a = [self write:@"audio.m4a"];
+    {
+        TagLib::MP4::File file(m4a.fileSystemRepresentation);
+        TagLib::MP4::CoverArtList list;
+        list.append(TagLib::MP4::CoverArt(TagLib::MP4::CoverArt::JPEG, VibeTagBytes(gif)));
+        file.tag()->setItem("covr", TagLib::MP4::Item(list));
+        XCTAssertTrue(file.save());
+    }
+    XCTAssertEqualObjects(VibeSavedCover(m4a), (@[gif, @"image/gif"]), @"a GIF typed JPEG");
+
+    NSURL *ogg = [self write:@"audio.ogg"];
+    {
+        TagLib::Ogg::Vorbis::File file(ogg.fileSystemRepresentation);
+        TagLib::FLAC::Picture *picture = VibeFLACPicture(unknown);
+        picture->setMimeType("Image/X-Vibe");
+        file.tag()->addPicture(picture);
+        XCTAssertTrue(file.save());
+    }
+    XCTAssertEqualObjects(VibeSavedCover(ogg), (@[unknown, @"image/x-vibe"]), @"bytes that name no type");
+    [self assertFailure:ogg code:VibeTagWriteErrorInvalidImage write:^BOOL(NSError **error) {
+        return VibeTagLibWriteFrontCover(ogg.path, unknown, @"image/x-vibe", error);
+    }];
+
+    NSURL *text = [_dir URLByAppendingPathComponent:@"text.flac"];
+    [unknown writeToURL:text atomically:YES];
+    NSData *data = nil;
+    NSError *error = nil;
+    XCTAssertFalse(VibeTagLibReadFrontCover(text.path, &data, NULL, &error));
+    XCTAssertEqual(error.code, VibeTagWriteErrorNoParser);
 }
 
 #pragma mark - What a write leaves
@@ -669,6 +885,149 @@ static NSString *const kVibeLatin1Artist = @"Café Artist";
         ((uint8_t *)bytes.mutableBytes)[at] ^= 0x01;
         XCTAssertTrue([bytes writeToURL:url atomically:YES]);
         XCTAssertNotEqualObjects(VibeDigest(url), digest, @"%@: an audio byte", name);
+    }
+}
+
+#pragma mark - The audio match
+
+// The match agrees with the digest on every case the digest's test covers,
+// and on a one-bit change, a cut tail, and two formats.
+- (void)testTheMatchAgreesWithTheDigest {
+    NSString *title = [@"" stringByPaddingToLength:5000 withString:@"x" startingAtIndex:0];
+    NSFileManager *files = NSFileManager.defaultManager;
+    NSURL *flac = nil;
+    for (NSString *name in self.formats) {
+        NSURL *original = [self write:name];
+        if ([name isEqualToString:@"audio.flac"]) flac = original;
+        NSURL *copy = [_dir URLByAppendingPathComponent:[@"copy-" stringByAppendingString:name]];
+        XCTAssertTrue([files copyItemAtURL:original toURL:copy error:NULL]);
+        [self assertWrite:copy fields:@{VibeTagFieldTitle: @[title]}];
+        [self assertMatch:original with:copy name:name];
+
+        NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:copy];
+        NSDictionary<NSString *, NSString *> *chunks = @{@"m4a": @"mdat", @"wav": @"data", @"aif": @"SSND"};
+        NSString *chunk = chunks[name.pathExtension];
+        NSUInteger at = bytes.length - 1;
+        if (chunk) {
+            at = [bytes rangeOfData:[chunk dataUsingEncoding:NSASCIIStringEncoding] options:0
+                              range:NSMakeRange(0, bytes.length)].location + 100;
+        }
+        NSMutableData *flipped = [bytes mutableCopy];
+        ((uint8_t *)flipped.mutableBytes)[at] ^= 0x01;
+        XCTAssertTrue([flipped writeToURL:copy atomically:YES]);
+        [self assertMatch:original with:copy name:[name stringByAppendingString:@" one bit"]];
+
+        NSData *cut = [bytes subdataWithRange:NSMakeRange(0, bytes.length - 300)];
+        XCTAssertTrue([cut writeToURL:copy atomically:YES]);
+        [self assertMatch:original with:copy name:[name stringByAppendingString:@" cut"]];
+    }
+    NSURL *wav = [_dir URLByAppendingPathComponent:@"audio.wav"];
+    [self assertMatch:flac with:wav name:@"two formats"];
+    NSError *error = nil;
+    XCTAssertFalse(VibeTagLibAudioMatches(flac.path, [_dir URLByAppendingPathComponent:@"missing.wav"].path, &error));
+    XCTAssertEqual(error.code, VibeTagWriteErrorOpenFailed);
+}
+
+// The match answers what the digests do: YES for equal digests, AudioDiffers
+// for unequal ones, and the digest's own error when one has none.
+- (void)assertMatch:(NSURL *)a with:(NSURL *)b name:(NSString *)name {
+    NSError *digestError = nil, *matchError = nil;
+    NSData *digestA = VibeTagLibAudioDigest(a.path, NULL), *digestB = VibeTagLibAudioDigest(b.path, &digestError);
+    XCTAssertNotNil(digestA, @"%@", name);
+    const BOOL matches = VibeTagLibAudioMatches(a.path, b.path, &matchError);
+    if (!digestB) {
+        XCTAssertFalse(matches, @"%@", name);
+        XCTAssertEqual(matchError.code, digestError.code, @"%@: %@", name, matchError);
+    }
+    else if ([digestA isEqualToData:digestB]) {
+        XCTAssertTrue(matches, @"%@: %@", name, matchError);
+    }
+    else {
+        XCTAssertFalse(matches, @"%@", name);
+        XCTAssertEqual(matchError.code, VibeTagWriteErrorAudioDiffers, @"%@: %@", name, matchError);
+    }
+    XCTAssertEqual(VibeTagLibAudioMatches(b.path, a.path, NULL), matches, @"%@ both ways", name);
+    if ([name hasSuffix:@"one bit"] || [name hasSuffix:@"cut"]
+            || [name isEqualToString:@"two formats"]) {
+        XCTAssertFalse(matches, @"%@ differs", name);
+    }
+    else {
+        XCTAssertTrue(matches, @"%@ matches", name);
+    }
+}
+
+#pragma mark - The sync
+
+// A write that asks for a barrier writes as the default does.
+- (void)testABarrierWriteRoundTrips {
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        NSData *audio = VibeDigest(url);
+        NSError *error = nil;
+        XCTAssertTrue(VibeTagLibWriteTagsWithSync(url.path, @{VibeTagFieldTitle: @[@"Barrier"]}, YES, VibePNG(0.5),
+                                                  @"image/png", VibeTagWriteSyncBarrier, &error),
+                      @"%@: %@", name, error);
+        XCTAssertEqualObjects([self read:url][VibeTagFieldTitle], @[@"Barrier"], @"%@", name);
+        XCTAssertEqualObjects(VibeFrontCover(url), VibePNG(0.5), @"%@", name);
+        XCTAssertEqualObjects(VibeDigest(url), audio, @"%@", name);
+    }
+}
+
+#pragma mark - Measurements
+
+// Run by hand, with TEST_RUNNER_VIBE_TAG_MEASURE=1: 200 writes each way, and
+// the digest against the match on a large FLAC and WAV. A copy holds the
+// same audio behind a larger tag, so its audio starts elsewhere.
+- (void)testMeasureTheSyncAndTheMatch {
+    if (!NSProcessInfo.processInfo.environment[@"VIBE_TAG_MEASURE"]) {
+        XCTSkip(@"set VIBE_TAG_MEASURE to measure");
+    }
+    NSURL *url = [self write:@"audio.flac"];
+    for (NSNumber *sync in @[@(VibeTagWriteSyncFull), @(VibeTagWriteSyncBarrier), @(VibeTagWriteSyncFull),
+                             @(VibeTagWriteSyncBarrier)]) {
+        const CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+        for (int i = 0; i < 200; i++) {
+            NSString *title = [NSString stringWithFormat:@"Title %d", i];
+            XCTAssertTrue(VibeTagLibWriteTagsWithSync(url.path, @{VibeTagFieldTitle: @[title]}, NO, nil, nil,
+                                                      (VibeTagWriteSync)sync.integerValue, NULL));
+        }
+        NSLog(@"VIBE_MEASURE 200 writes %@: %.3f s", sync.integerValue ? @"barrier" : @"full",
+              CFAbsoluteTimeGetCurrent() - start);
+    }
+    const uint64_t size = 2ull << 30;
+    NSString *root = NSProcessInfo.processInfo.environment[@"VIBE_TAG_MEASURE_DIR"] ?: _dir.path;
+    for (NSString *kind in @[@"flac", @"wav"]) {
+        NSString *a = [root stringByAppendingPathComponent:[@"large-a." stringByAppendingString:kind]];
+        NSString *b = [root stringByAppendingPathComponent:[@"large-b." stringByAppendingString:kind]];
+        VibeWriteLargeAudio(a, kind, size, 0);
+        VibeWriteLargeAudio(b, kind, size, 64 * 1024);
+        for (int pass = 0; pass < 2; pass++) {
+            const uint64_t before = VibeFootprint();
+            CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+            @autoreleasepool {
+                NSData *da = VibeTagLibAudioDigest(a, NULL), *db = VibeTagLibAudioDigest(b, NULL);
+                XCTAssertEqualObjects(da, db);
+            }
+            const CFAbsoluteTime digest = CFAbsoluteTimeGetCurrent() - start;
+            start = CFAbsoluteTimeGetCurrent();
+            uint64_t peak = 0;
+            @autoreleasepool {
+                XCTAssertTrue(VibeTagLibAudioMatches(a, b, NULL));
+                peak = VibeFootprint();
+            }
+            const CFAbsoluteTime match = CFAbsoluteTimeGetCurrent() - start;
+            NSLog(@"VIBE_MEASURE %@ 2 GiB pass %d: two digests %.3f s, match %.3f s, footprint +%.1f MB", kind, pass,
+                  digest, match, ((double)peak - (double)before) / 1e6);
+        }
+        NSFileHandle *handle = [NSFileHandle fileHandleForUpdatingAtPath:b];
+        [handle seekToFileOffset:size + 64 * 1024 - 1000];
+        [handle writeData:[NSData dataWithBytes:"\x5A\xA5" length:2]];
+        [handle closeFile];
+        CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+        XCTAssertFalse(VibeTagLibAudioMatches(a, b, NULL));
+        NSLog(@"VIBE_MEASURE %@ 2 GiB, a byte near the end: match %.3f s", kind, CFAbsoluteTimeGetCurrent() - start);
+        [NSFileManager.defaultManager removeItemAtPath:a error:NULL];
+        [NSFileManager.defaultManager removeItemAtPath:b error:NULL];
     }
 }
 

@@ -198,7 +198,12 @@ void VibeCheckedFileStream::truncate(TagLib::offset_t length) {
     _expectedLength = (off_t)length;
 }
 
-bool VibeCheckedFileStream::finish() {
+namespace {
+// A file system that lacks the call answers one of these.
+bool Refused(int error) { return error == ENOTSUP || error == ENOTTY || error == EINVAL; }
+}
+
+bool VibeCheckedFileStream::finish(Sync sync) {
     if (_fd < 0) {
         if (_failure.empty()) _failure = "the file is not open";
         return false;
@@ -213,14 +218,23 @@ bool VibeCheckedFileStream::finish() {
                     + std::to_string((long long)_expectedLength) + " its writes imply";
         }
     }
-    // F_FULLFSYNC flushes the drive's own cache too. A file system that
-    // lacks it gets fsync.
-    if (_failure.empty() && _wrote && fcntl(_fd, F_FULLFSYNC) != 0) {
-        if (errno != ENOTSUP && errno != ENOTTY && errno != EINVAL) {
-            fail("F_FULLFSYNC");
+    // F_FULLFSYNC flushes the drive's own cache too. F_BARRIERFSYNC orders
+    // these writes before any the device takes after it. A volume that
+    // refuses the barrier gets the full flush, and one that refuses that
+    // gets fsync.
+    if (_failure.empty() && _wrote) {
+        bool done = false;
+        if (sync == Sync::Barrier) {
+            if (fcntl(_fd, F_BARRIERFSYNC) == 0) done = true;
+            else if (!Refused(errno)) {
+                fail("F_BARRIERFSYNC");
+                done = true;
+            }
         }
-        else if (fsync(_fd) != 0) {
-            fail("fsync");
+        if (!done) {
+            if (fcntl(_fd, F_FULLFSYNC) == 0) {}
+            else if (!Refused(errno)) fail("F_FULLFSYNC");
+            else if (fsync(_fd) != 0) fail("fsync");
         }
     }
     const int fd = _fd;
