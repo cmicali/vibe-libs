@@ -60,6 +60,10 @@ static _Atomic uint64_t sCacheKeyGeneration;
 }
 
 - (nullable NSString *)cacheKey {
+    return [self cacheKeyWithStat:NULL];
+}
+
+- (nullable NSString *)cacheKeyWithStat:(struct stat *_Nullable)info {
     // A link and its target share one entry, so retagging the target
     // invalidates it.
     NSString *path = [self.path stringByResolvingSymlinksInPath];
@@ -80,6 +84,9 @@ static _Atomic uint64_t sCacheKeyGeneration;
     NSDate *modified = [NSDate dateWithTimeIntervalSinceReferenceDate:sinceReference];
     long long mtimeUs = (long long)llround(modified.timeIntervalSince1970 * 1e6);
 
+    if (info) {
+        *info = st;
+    }
     NSString *hex = [[path dataUsingEncoding:NSUTF8StringEncoding] sha1Hex];
     return [NSString stringWithFormat:@"%llu-%lld-%@", (unsigned long long)st.st_size, mtimeUs, hex];
 }

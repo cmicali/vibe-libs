@@ -5,6 +5,8 @@
 
 #import <Foundation/Foundation.h>
 
+#include <sys/stat.h>
+
 @interface NSData (Hash)
 
 // Lowercase hex SHA-1: the one spelling cacheKey and the app's own hashed
@@ -24,6 +26,11 @@
 // that preserves size and mtime keeps the key. nil when the stat fails;
 // callers must then skip caching.
 - (nullable NSString *)cacheKey;
+
+// The same key, with the stat it was made from in *info, so a caller can
+// take the file's size and date from the very version the key names. info
+// may be NULL.
+- (nullable NSString *)cacheKeyWithStat:(struct stat *_Nullable)info;
 
 // What a memoized cacheKey is stamped with. A memo stamped below the current
 // generation is stale, so its next read stats the file again. Any thread.

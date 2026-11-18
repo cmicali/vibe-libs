@@ -55,6 +55,12 @@ extern const int kCodableAudioWaveformVersion;
 // that lists it misses and decodes again.
 @property (nonatomic, copy) NSDictionary<NSString *, id> *results;
 
+// The cache's entry key it was read or decoded under, so its results name
+// the version of the file they hold (VibeWaveformEntryKey). Set by
+// AudioWaveformCache, held in memory only, and never archived. nil
+// elsewhere.
+@property (nonatomic, copy) NSString *entryKey;
+
 // Takes ownership.
 - (instancetype)initWithWaveform:(std::unique_ptr<AudioWaveform>)waveform;
 

@@ -113,6 +113,7 @@
     XCTAssertEqual(sink.finishes, 1u);
     XCTAssertEqualObjects(_recorder.results.firstObject, @{@"test.frames": @88200});
     XCTAssertEqual(_recorder.resultTracks.firstObject, track);
+    XCTAssertEqualObjects(_recorder.entryKeys, @[url.cacheKey], @"the version it decoded");
     XCTAssertEqualObjects(_recorder.completedTracks, @[track]);
     XCTAssertEqual(_recorder.failures, 0u);
 }
@@ -135,6 +136,7 @@
     XCTAssertNil([AudioLoadTiming newestJSONForPath:url.path], @"a hit runs no decode");
     XCTAssertEqualObjects(_recorder.results.lastObject, @{@"test.frames": @88200});
     XCTAssertEqual(_recorder.resultTracks.lastObject, again);
+    XCTAssertEqualObjects(_recorder.entryKeys.lastObject, url.cacheKey, @"the version it was filed under");
     XCTAssertEqual(_recorder.completedTracks.lastObject, again);
 }
 
@@ -303,6 +305,7 @@
     XCTAssertEqual(_frames.sinks.firstObject.frames, 88200u, @"the stale decode read the version it opened");
     XCTAssertEqualObjects(_recorder.completedTracks, @[track]);
     XCTAssertEqualObjects(_recorder.results, @[@{@"test.frames": @132300}], @"only the new version's result");
+    XCTAssertEqualObjects(_recorder.entryKeys, @[url.cacheKey], @"named by the new version");
     XCTAssertEqual(_recorder.failures, 0u);
     XCTAssertTrue([self eventuallyCached:[VibeTestTrack withURL:url]]);
     XCTAssertEqual([self filedEntries], 1u, @"the stale decode filed nothing");
