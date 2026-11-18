@@ -330,9 +330,14 @@ VibeAudioFileFormat _Nullable fileTypeForTagLibFile(TagLib::File *file) {
         return VibeAudioFileFormatFLAC;
     }
     if (auto mp4 = dynamic_cast<TagLib::MP4::File*>(file)) {
+        // The codec names the kind, whatever the container, as AudioFile's
+        // read does. MP4 is left for a codec with no kind of its own.
         auto props = mp4->audioProperties();
-        if (props && props->codec() == TagLib::MP4::Properties::ALAC) {
-            return VibeAudioFileFormatALAC;
+        switch (props ? props->codec() : TagLib::MP4::Properties::Unknown) {
+            case TagLib::MP4::Properties::AAC:  return VibeAudioFileFormatAAC;
+            case TagLib::MP4::Properties::ALAC: return VibeAudioFileFormatALAC;
+            case TagLib::MP4::Properties::FLAC: return VibeAudioFileFormatFLAC;
+            default:                            break;
         }
         return VibeAudioFileFormatMP4;
     }
@@ -349,6 +354,11 @@ VibeAudioFileFormat _Nullable fileTypeForTagLibFile(TagLib::File *file) {
         return VibeAudioFileFormatOpus;
     }
     return nil;
+}
+
+bool tagLibFileCarriesID3v2(TagLib::File *file) {
+    return dynamic_cast<TagLib::MPEG::File *>(file) || dynamic_cast<TagLib::RIFF::WAV::File *>(file)
+            || dynamic_cast<TagLib::RIFF::AIFF::File *>(file);
 }
 
 NSData *_Nullable audioMD5FromTagLibFile(TagLib::File *file) {

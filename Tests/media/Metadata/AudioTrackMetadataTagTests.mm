@@ -35,6 +35,21 @@ static NSURL *sFixtureDir;
 static NSDictionary<NSNumber *, NSURL *> *sFixtures;
 static NSData *sArt;
 
+// An entry archived before kindByCodec, as an older store holds one. Only
+// its kind is archived.
+@interface OldKindEntry : NSObject <NSCoding>
+@property (copy) NSString *fileType;
+@end
+
+@implementation OldKindEntry
+- (void)encodeWithCoder:(NSCoder *)coder {
+    [coder encodeObject:self.fileType forKey:@"fileType"];
+}
+- (instancetype)initWithCoder:(NSCoder *)coder {
+    return [super init];
+}
+@end
+
 @implementation AudioTrackMetadataTagTests {
     NSURL *_dir;
 }
@@ -297,9 +312,30 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
     [self assertFixture:VibeTagFixtureMP3APE fileType:VibeAudioFileFormatMP3 rate:44100 duration:kMP3Duration];
 }
 
-// AAC in M4A names its container. The key rides iTunes' freeform atom.
+// An entry that named an MP4's kind by its container misses, so the file
+// is parsed again. Every other older entry stays a hit.
+- (void)testAnOldMP4KindIsACacheMiss {
+    for (VibeAudioFileFormat kind in @[VibeAudioFileFormatMP4, VibeAudioFileFormatMP3]) {
+        OldKindEntry *old = [[OldKindEntry alloc] init];
+        old.fileType = kind;
+        NSKeyedArchiver *archiver = [[NSKeyedArchiver alloc] initRequiringSecureCoding:NO];
+        [archiver setClassName:NSStringFromClass(AudioTrackMetadata.class) forClass:OldKindEntry.class];
+        [archiver encodeObject:old forKey:NSKeyedArchiveRootObjectKey];
+        NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingFromData:archiver.encodedData
+                                                                                    error:NULL];
+        unarchiver.requiresSecureCoding = NO;
+        AudioTrackMetadata *decoded = [unarchiver decodeObjectForKey:NSKeyedArchiveRootObjectKey];
+        if ([kind isEqualToString:VibeAudioFileFormatMP4]) {
+            XCTAssertNil(decoded);
+        } else {
+            XCTAssertEqualObjects(decoded.fileType, kind);
+        }
+    }
+}
+
+// AAC in M4A names its codec. The key rides iTunes' freeform atom.
 - (void)testM4A {
-    [self assertFixture:VibeTagFixtureM4A fileType:VibeAudioFileFormatMP4 rate:44100 duration:0.5];
+    [self assertFixture:VibeTagFixtureM4A fileType:VibeAudioFileFormatAAC rate:44100 duration:0.5];
     XCTAssertGreaterThan(Parse([_dir URLByAppendingPathComponent:@"tagged.m4a"], NULL).bitrate.intValue, 0);
 }
 
@@ -586,8 +622,8 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
     return url;
 }
 
-// Deeper streams than the fixtures': 24-bit FLAC and ALAC, float WAV, and
-// ALAC in CAF, which CoreAudio's facts read.
+// Deeper streams than the fixtures': 24-bit FLAC and ALAC, float WAV, ALAC in
+// CAF, which CoreAudio's facts read, and FLAC in MP4, whose kind is its codec's.
 - (void)testTheBitDepthOfDeeperStreams {
     NSError *error = nil;
     AVAudioPCMBuffer *floats = VibeToneBuffer(22050, 44100, 2, AVAudioPCMFormatFloat32);
@@ -598,6 +634,8 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
                             @32, VibeAudioFileFormatWAV],
             @"deep.m4a": @[EncodeLossless([_dir URLByAppendingPathComponent:@"deep.m4a"], kAudioFormatAppleLossless, 24)
                                    ?: NSNull.null, @24, VibeAudioFileFormatALAC],
+            @"flac.m4a": @[EncodeLossless([_dir URLByAppendingPathComponent:@"flac.m4a"], kAudioFormatFLAC, 24)
+                                   ?: NSNull.null, @24, VibeAudioFileFormatFLAC],
             @"alac.caf": @[EncodeLossless([_dir URLByAppendingPathComponent:@"alac.caf"], kAudioFormatAppleLossless, 24)
                                    ?: NSNull.null, @24, VibeAudioFileFormatALAC],
     };
@@ -859,7 +897,7 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
 // The extension's parser refuses the file, so the content sniff decides.
 - (void)testAWrongExtensionFallsBackToTheContent {
     NSDictionary<NSString *, VibeAudioFileFormat> *cases = @{
-            @"m4a-as.flac": VibeAudioFileFormatMP4,
+            @"m4a-as.flac": VibeAudioFileFormatAAC,
             @"wav-as.m4a": VibeAudioFileFormatWAV,
             @"wav-as.flac": VibeAudioFileFormatWAV,
             @"aiff-as.m4a": VibeAudioFileFormatAIFF,
@@ -882,7 +920,7 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
 - (void)testNoExtensionSniffsTheContent {
     NSDictionary<NSNumber *, VibeAudioFileFormat> *cases = @{
             @(VibeTagFixtureFLAC): VibeAudioFileFormatFLAC, @(VibeTagFixtureMP3ID3v24): VibeAudioFileFormatMP3,
-            @(VibeTagFixtureM4A): VibeAudioFileFormatMP4, @(VibeTagFixtureWAVID3): VibeAudioFileFormatWAV,
+            @(VibeTagFixtureM4A): VibeAudioFileFormatAAC, @(VibeTagFixtureWAVID3): VibeAudioFileFormatWAV,
             @(VibeTagFixtureAIFF): VibeAudioFileFormatAIFF,
     };
     for (NSNumber *fixture in cases) {

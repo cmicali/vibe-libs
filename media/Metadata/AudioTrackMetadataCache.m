@@ -100,6 +100,8 @@
     // v9 moved the thumbnail out of the entry, into its own store, so art
     // never pushes tags out of their budget.
     // v10 added the comment, the grouping, the label, and the bit depth.
+    // An entry that names an MP4's kind MP4 without kindByCodec is a miss of
+    // its own (AudioTrackMetadata's initWithCoder:), so that change kept v10.
     return @"Audio Track Metadata v10";
 }
 

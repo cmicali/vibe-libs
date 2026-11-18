@@ -102,7 +102,7 @@ A loader snapshots `AudioLoadingConfiguration`, so a settings change reaches onl
 
 **The parse reads them from the property map it builds once for the tempo and the key.** TagLib turns each format's frame or atom into one key, and its keys ignore case. So one lookup serves every format. These are the names each format's tag carries:
 
-| Field | ID3v2: MP3, WAV, AIFF | MP4: AAC, ALAC | Xiph comment: FLAC, Vorbis, Opus | APE on MP3 | RIFF INFO | ID3v1 |
+| Field | ID3v2: MP3, WAV, AIFF | MP4: AAC, ALAC, FLAC | Xiph comment: FLAC, Vorbis, Opus | APE on MP3 | RIFF INFO | ID3v1 |
 | --- | --- | --- | --- | --- | --- | --- |
 | album | `TALB` | `©alb` | `ALBUM` | `Album` | `IPRD` | album |
 | album artist | `TPE2` | `aART` | `ALBUMARTIST` | `Album Artist` | | |

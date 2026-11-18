@@ -163,14 +163,6 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
     return @(-10 * log10(MAX(left, right) / 1000.0));
 }
 
-// The formats whose tag is ID3v2: MPEG, WAV, and AIFF. A WAV may carry RIFF
-// INFO instead, which has no WORK key.
-static BOOL FileTypeCarriesID3v2(VibeAudioFileFormat _Nullable fileType) {
-    return [fileType isEqualToString:VibeAudioFileFormatMP3] || [fileType isEqualToString:VibeAudioFileFormatMP2]
-            || [fileType isEqualToString:VibeAudioFileFormatAAC] || [fileType isEqualToString:VibeAudioFileFormatWAV]
-            || [fileType isEqualToString:VibeAudioFileFormatAIFF];
-}
-
 @implementation AudioTrackMetadata
 
 #if !defined(NDEBUG)
@@ -311,6 +303,7 @@ static void EncodePresentCount(NSCoder *coder, NSInteger value, NSString *key) {
     [coder encodeBool:self.artwork.hasEmbeddedArt forKey:@"hasEmbeddedArt"];
     [coder encodeObject:self.artwork.sourceFilePath forKey:@"sourceFilePath"];
     [coder encodeObject:self.fileType forKey:@"fileType"];
+    [coder encodeBool:YES forKey:@"kindByCodec"];
     [coder encodeObject:self.bitrate forKey:@"bitrate"];
     [coder encodeObject:self.sampleRate forKey:@"sampleRate"];
     [coder encodeDouble:self.duration forKey:@"duration"];
@@ -401,7 +394,11 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
         self.r128TrackGain = DecodedObject(coder, @"r128TrackGain", NSNumber.class, &wrong);
         self.r128AlbumGain = DecodedObject(coder, @"r128AlbumGain", NSNumber.class, &wrong);
         self.soundCheckGain = DecodedObject(coder, @"soundCheckGain", NSNumber.class, &wrong);
-        if (wrong) {
+        // An entry from before kindByCodec named an AAC or FLAC stream in an
+        // MP4 by its container. Only those entries miss, so the store keeps
+        // its name, and every other file's entry stays a hit.
+        if (wrong || ([self.fileType isEqualToString:VibeAudioFileFormatMP4]
+                      && ![coder decodeBoolForKey:@"kindByCodec"])) {
             return nil;
         }
         self.year = DecodedCount(coder, @"year");
@@ -582,7 +579,7 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
                     [NSString stringWithStdString:keyValues.front().to8Bit(true)]);
         }
         self.fileType = fileTypeForTagLibFile(file);
-        [self readFieldsFromProperties:properties];
+        [self readFieldsFromProperties:properties carriesID3v2:tagLibFileCarriesID3v2(file)];
         self.audioMD5 = audioMD5FromTagLibFile(file);
         self.bitDepth = bitsPerSampleFromTagLibFile(file);
 
@@ -600,7 +597,7 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
 // The fields from the same map, where each format's frame or atom arrives
 // under one key (this piece's AGENTS.md, The tag fields). Sound Check is an
 // ID3v2 comment's, or an MP4 freeform atom's.
-- (void)readFieldsFromProperties:(const TagLib::PropertyMap &)properties {
+- (void)readFieldsFromProperties:(const TagLib::PropertyMap &)properties carriesID3v2:(BOOL)carriesID3v2 {
     self.album = PropertyText(properties, "ALBUM");
     self.albumArtist = PropertyText(properties, "ALBUMARTIST");
     self.genre = PropertyText(properties, "GENRE");
@@ -634,7 +631,7 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
     // write it there, so an ID3v2 file without GRP1 takes it. MP4's and a
     // Xiph comment's WORK is the work, never the grouping.
     self.grouping = PropertyText(properties, "GROUPING")
-            ?: (FileTypeCarriesID3v2(self.fileType) ? PropertyText(properties, "WORK") : nil);
+            ?: (carriesID3v2 ? PropertyText(properties, "WORK") : nil);
     // ID3v2's TPUB, RIFF INFO's IPUB, and MP4's LABEL atom arrive as LABEL.
     // A Xiph comment may name it ORGANIZATION, as the Vorbis spec does, or
     // PUBLISHER.
