@@ -4,9 +4,11 @@
 //
 
 #import "VibeTagWriter.h"
+#import "NSString+CPPStrings.h"
 #import "TagLibAudioFile.h"
 #import "VibeMacros.h"
 
+#include <algorithm>
 #include <stdexcept>
 #include <aifffile.h>
 #include <apetag.h>
@@ -14,6 +16,7 @@
 #include <commentsframe.h>
 #include <flacfile.h>
 #include <flacpicture.h>
+#include <id3v1genres.h>
 #include <id3v1tag.h>
 #include <id3v2framefactory.h>
 #include <id3v2header.h>
@@ -33,6 +36,9 @@
 #include <wavfile.h>
 #include <xiphcomment.h>
 
+#include "VibeCheckedFileStream.h"
+#include "VibeMP4ItemNames.h"
+
 NSErrorDomain const VibeTagWriteErrorDomain = @"vibe-libs.tags.write";
 
 namespace {
@@ -46,9 +52,48 @@ struct Cover {
     TagLib::String mimeType;
 };
 
-// What a format's edit reports back: a value it cannot hold.
-struct UnsupportedValue : std::runtime_error {
-    using std::runtime_error::runtime_error;
+// A refusal found before the first write, or a failure after it.
+struct Refusal {
+    VibeTagWriteError code;
+    std::string reason;
+};
+
+[[noreturn]] void Refuse(VibeTagWriteError code, const std::string &reason) {
+    throw Refusal{code, reason};
+}
+
+std::string Text(const TagLib::String &string) {
+    return string.to8Bit(true);
+}
+
+// The largest cover: under FLAC's 16 MiB block, with room for its header.
+constexpr NSUInteger kMaxCoverBytes = 16000000;
+// A FLAC metadata block's length is 24 bits.
+constexpr unsigned int kMaxFLACBlockBytes = 0xFFFFFF;
+
+// A number and its total, which ID3v2, MP4, APE, and INFO hold in one frame
+// as "3/12", and a Xiph comment in two. The alias is the total's other
+// spelling, which media/Metadata also reads.
+struct NumberKeys {
+    const char *number;
+    const char *total;
+    const char *alias;
+};
+constexpr NumberKeys kNumberKeys[] = {
+    {"TRACKNUMBER", "TRACKTOTAL", "TOTALTRACKS"},
+    {"DISCNUMBER", "DISCTOTAL", "TOTALDISCS"},
+};
+
+// The other spellings media/Metadata's parse falls back to for a field. A
+// write of the field clears them, so a removal sticks.
+struct Aliases {
+    const char *key;
+    const char *aliases[2];
+};
+constexpr Aliases kAliases[] = {
+    {"COMMENT", {"DESCRIPTION", nullptr}},
+    {"LABEL", {"ORGANIZATION", "PUBLISHER"}},
+    {"ORIGINALDATE", {"ORIGINALYEAR", nullptr}},
 };
 
 BOOL Fail(NSError *__autoreleasing *error, VibeTagWriteError code, NSString *path, NSString *reason) {
@@ -64,74 +109,118 @@ TagLib::String TL(NSString *string) {
     return TagLib::String(string.UTF8String ?: "", TagLib::String::UTF8);
 }
 
+// TRAP: not @(toCString()), which ends at an embedded NUL. This is the read
+// an app checks a write by.
 NSString *NS(const TagLib::String &string) {
-    return @(string.toCString(true)) ?: @"";
+    return [NSString stringWithStdString:string.to8Bit(true)] ?: @"";
+}
+
+TagLib::String First(const TagLib::StringList &values) {
+    return values.isEmpty() ? TagLib::String() : values.front().stripWhiteSpace();
 }
 
 // The number before a slash, and the total after it.
 void SplitPair(const TagLib::StringList &values, TagLib::String *number, TagLib::String *total) {
     *number = TagLib::String();
     *total = TagLib::String();
-    if (values.isEmpty()) return;
-    const TagLib::String &value = values.front();
+    const TagLib::String value = First(values);
     const int slash = value.find("/");
     if (slash < 0) {
-        *number = value.stripWhiteSpace();
+        *number = value;
         return;
     }
     *number = value.substr(0, slash).stripWhiteSpace();
     *total = value.substr(slash + 1).stripWhiteSpace();
 }
 
-// ID3v2, MP4, APE, ID3v1, and INFO hold a total inside the number's "3/12".
-// A total edit folds into the number, keeping the half not named.
-Edits FoldTotals(const Edits &edits, const TagLib::PropertyMap &current) {
-    Edits folded = edits;
-    const std::pair<const char *, const char *> pairs[] = {{"TRACKNUMBER", "TRACKTOTAL"},
-                                                           {"DISCNUMBER", "DISCTOTAL"}};
-    for (const auto &[numberKey, totalKey] : pairs) {
-        const bool numberNamed = edits.contains(numberKey);
-        const bool totalNamed = edits.contains(totalKey);
-        if (!numberNamed && !totalNamed) continue;
-        TagLib::String number, total;
-        SplitPair(current.value(numberKey), &number, &total);
-        if (numberNamed) {
-            TagLib::String givenTotal;
-            SplitPair(edits.value(numberKey), &number, &givenTotal);
-            if (!givenTotal.isEmpty()) total = givenTotal;
-        }
-        if (totalNamed) {
-            const TagLib::StringList values = edits.value(totalKey);
-            total = values.isEmpty() ? TagLib::String() : values.front().stripWhiteSpace();
-        }
-        folded.erase(totalKey);
-        if (number.isEmpty() && total.isEmpty()) {
-            folded[numberKey] = TagLib::StringList();
-        }
-        else {
-            folded[numberKey] = TagLib::StringList(total.isEmpty() ? number
-                                                   : (number.isEmpty() ? TagLib::String("0") : number) + "/" + total);
+// How a tag holds numbers: in one frame, in two fields, or as ID3v1's bare
+// number and year.
+enum class Style { Folded, Xiph, ID3v1 };
+
+// The operations on one tag for the named edits: each key set to its values,
+// or removed when they are empty. A number edit keeps the half not named,
+// and clears the total's other spellings. A field's aliases are cleared.
+Edits Resolve(const Edits &named, const TagLib::PropertyMap &current, Style style, bool id3v2) {
+    Edits ops;
+    for (const auto &[key, values] : named) {
+        bool number = false;
+        for (const NumberKeys &keys : kNumberKeys) number = number || key == keys.number || key == keys.total;
+        if (number) continue;
+        ops[key] = values;
+        for (const Aliases &alias : kAliases) {
+            if (key != alias.key) continue;
+            for (const char *other : alias.aliases) {
+                if (other) ops[other] = TagLib::StringList();
+            }
         }
     }
-    return folded;
+    for (const NumberKeys &keys : kNumberKeys) {
+        if (!named.contains(keys.number) && !named.contains(keys.total)) continue;
+        TagLib::String number, total;
+        SplitPair(current.value(keys.number), &number, &total);
+        const bool slashStyle = First(current.value(keys.number)).find("/") >= 0;
+        if (total.isEmpty()) total = First(current.value(keys.total));
+        if (total.isEmpty()) total = First(current.value(keys.alias));
+        if (named.contains(keys.number)) {
+            TagLib::String givenTotal;
+            SplitPair(named.value(keys.number), &number, &givenTotal);
+            if (!givenTotal.isEmpty()) total = givenTotal;
+        }
+        if (named.contains(keys.total)) total = First(named.value(keys.total));
+        if (style == Style::ID3v1) {
+            ops[keys.number] = number.isEmpty() ? TagLib::StringList() : TagLib::StringList(number);
+            continue;
+        }
+        ops[keys.alias] = TagLib::StringList();
+        if (style == Style::Xiph && !slashStyle) {
+            ops[keys.number] = number.isEmpty() ? TagLib::StringList() : TagLib::StringList(number);
+            ops[keys.total] = total.isEmpty() ? TagLib::StringList() : TagLib::StringList(total);
+            continue;
+        }
+        ops[keys.total] = TagLib::StringList();
+        if (number.isEmpty() && total.isEmpty()) {
+            ops[keys.number] = TagLib::StringList();
+        }
+        else {
+            ops[keys.number] = TagLib::StringList(total.isEmpty() ? number
+                                                  : (number.isEmpty() ? TagLib::String("0") : number) + "/" + total);
+        }
+    }
+    // ID3v1 holds a four-digit year.
+    if (style == Style::ID3v1 && ops.contains("DATE") && !ops["DATE"].isEmpty()) {
+        const TagLib::String date = First(ops["DATE"]);
+        bool digits = date.size() >= 4;
+        for (unsigned int i = 0; digits && i < 4; i++) digits = date[i] >= '0' && date[i] <= '9';
+        ops["DATE"] = digits ? TagLib::StringList(date.substr(0, 4)) : TagLib::StringList();
+    }
+    // TRAP: media/Metadata reads ID3v2's TIT1, TagLib's WORK, as the
+    // grouping when GRP1 is absent. So a removed grouping also removes a TIT1
+    // the reader showed, and is refused when it would leave a TIT1 showing.
+    if (id3v2 && named.contains("GROUPING") && named.value("GROUPING").isEmpty() && current.contains("WORK")) {
+        if (current.contains("GROUPING")) {
+            Refuse(VibeTagWriteErrorWouldLoseData,
+                   "removing the grouping would show the TIT1 work frame as the grouping");
+        }
+        ops["WORK"] = TagLib::StringList();
+    }
+    return ops;
 }
 
-// A tag with no editor of its own: its whole map, with the edits applied.
-// APE, ID3v1, and INFO keep what their maps do not name.
-void ApplyByPropertyMap(TagLib::Tag *tag, const Edits &edits) {
-    TagLib::PropertyMap properties = tag->properties();
-    for (const auto &[key, values] : FoldTotals(edits, properties)) {
+// A tag with no editor of its own: its whole map, with the operations
+// applied. APE, ID3v1, and INFO keep what their maps do not name. Whether
+// the tag changed, so an unchanged one is not rewritten.
+bool ApplyByPropertyMap(TagLib::Tag *tag, const Edits &named, Style style) {
+    const TagLib::PropertyMap before = tag->properties();
+    TagLib::PropertyMap properties = before;
+    for (const auto &[key, values] : Resolve(named, before, style, false)) {
         if (values.isEmpty()) properties.erase(key);
         else properties.replace(key, values);
     }
     tag->setProperties(properties);
+    return tag->properties() != before;
 }
 
 #pragma mark - ID3v2
-
-TagLib::ID3v2::Version ID3v2VersionToKeep(TagLib::ID3v2::Tag *tag) {
-    return tag && tag->header()->majorVersion() == 3 ? TagLib::ID3v2::v3 : TagLib::ID3v2::v4;
-}
 
 // Frame::asProperties is protected, but the text, TXXX, and comment frames
 // that hold every edited field make theirs public. Another frame holds the
@@ -147,10 +236,31 @@ bool FrameHoldsKey(TagLib::ID3v2::Frame *frame, const TagLib::String &key) {
     return TagLib::ID3v2::Frame::frameIDToKey(frame->frameID()) == key;
 }
 
-// Removes each frame that holds the key alone, then adds the key's frame.
-// TIPL and TMCL hold several keys, and none of the edited fields.
-void ApplyID3v2(TagLib::ID3v2::Tag *tag, const Edits &edits, TagLib::ID3v2::Version version) {
-    for (const auto &[key, values] : FoldTotals(edits, tag->properties())) {
+// ID3v2.3's TYER, TDAT, and TIME hold a date to the minute.
+bool V3HoldsDate(const TagLib::String &date) {
+    const unsigned int size = date.size();
+    return size == 4 || size == 10 || size == 16;
+}
+
+void CheckID3v2Values(const Edits &ops, TagLib::ID3v2::Version version) {
+    if (version != TagLib::ID3v2::v3) return;
+    for (const auto &[key, values] : ops) {
+        if (values.isEmpty()) continue;
+        if (key == "DATE" && !V3HoldsDate(First(values))) {
+            Refuse(VibeTagWriteErrorUnsupportedValue,
+                   "ID3v2.3 holds a date as YYYY, YYYY-MM-DD, or YYYY-MM-DDTHH:MM, not " + Text(First(values)));
+        }
+        if (key == "ORIGINALDATE" && First(values).size() != 4) {
+            Refuse(VibeTagWriteErrorUnsupportedValue,
+                   "ID3v2.3 holds the original date's year alone, not " + Text(First(values)));
+        }
+    }
+}
+
+// Removes each frame that holds a key, then adds the key's frame. TIPL and
+// TMCL hold several keys, and none of the edited fields.
+void ApplyID3v2Ops(TagLib::ID3v2::Tag *tag, const Edits &ops, TagLib::ID3v2::Version version) {
+    for (const auto &[key, values] : ops) {
         TagLib::ID3v2::FrameList remove;
         for (TagLib::ID3v2::Frame *frame : tag->frameList()) {
             const TagLib::ByteVector id = frame->frameID();
@@ -186,53 +296,150 @@ void ApplyID3v2Cover(TagLib::ID3v2::Tag *tag, const Cover &cover) {
     tag->addFrame(frame);
 }
 
+std::string FrameName(TagLib::ID3v2::Frame *frame) {
+    const TagLib::ByteVector id = frame->frameID();
+    return std::string(id.data(), id.size());
+}
+
+// TRAP: zlib is not built in, so a compressed frame parses as an
+// UnknownFrame and renders as a plain one holding compressed bytes. An
+// encrypted frame likewise. A tag holding one is refused.
+void CheckID3v2Frames(TagLib::ID3v2::Tag *tag) {
+    for (TagLib::ID3v2::Frame *frame : tag->frameList()) {
+        if (frame->header()->compression() || frame->header()->encryption()) {
+            Refuse(VibeTagWriteErrorUnsupportedFrame,
+                   "the ID3v2 frame " + FrameName(frame) + " is compressed or encrypted");
+        }
+    }
+}
+
+// What the render would drop, refused before it can. TagLib marks a frame
+// its parse cannot keep to be discarded: ID3v2.3's EQUA, RVAD, TIME, TRDA,
+// TSIZ, and TDAT, and ID3v2.2's CRM, EQU, LNK, RVA, TIM, TSI, and TDA. A
+// TDAT or TIME it merged into the date is kept by the date. Its
+// ID3v2.3 render drops ID3v2.4's ASPI, EQU2, RVA2, SEEK, SIGN, TDRL, TDTG,
+// TMOO, TPRO, and TSST. TRAP: its ID3v2.3 render keeps one genre with no
+// ID3v1 number, so two such genres refuse.
+void CheckID3v2Render(TagLib::ID3v2::Tag *tag, TagLib::ID3v2::Version version) {
+    static const char *const kV4Only[] = {"ASPI", "EQU2", "RVA2", "SEEK", "SIGN", "TDRL", "TDTG", "TMOO",
+                                          "TPRO", "TSST"};
+    // TagLib's parse merges ID3v2.3's TDAT and TIME into a TDRC of a year
+    // alone, leaving them marked. Merged, they are no loss.
+    const TagLib::ID3v2::FrameList &dates = tag->frameList("TDRC");
+    const unsigned int date = dates.isEmpty() ? 0 : dates.front()->toString().size();
+    for (TagLib::ID3v2::Frame *frame : tag->frameList()) {
+        const TagLib::ByteVector id = frame->frameID();
+        const bool merged = (id == "TDAT" && date >= 10) || (id == "TIME" && date >= 16);
+        bool dropped = (frame->header()->tagAlterPreservation() && !merged) || id.size() != 4;
+        if (version == TagLib::ID3v2::v3) {
+            for (const char *v4 : kV4Only) dropped = dropped || id == v4;
+        }
+        if (dropped) {
+            Refuse(VibeTagWriteErrorWouldLoseData, "TagLib would drop the ID3v2 frame " + FrameName(frame));
+        }
+        if (version == TagLib::ID3v2::v3 && id == "TCON") {
+            auto genre = dynamic_cast<TagLib::ID3v2::TextIdentificationFrame *>(frame);
+            const TagLib::StringList genres = genre ? genre->fieldList() : TagLib::StringList();
+            int unnumbered = 0;
+            for (const TagLib::String &value : genres) {
+                bool ok = false;
+                const int number = value.toInt(&ok);
+                const bool numbered = (ok && number >= 0 && number <= 255) || value == "RX" || value == "CR";
+                if (!numbered && (genres.size() == 1 || TagLib::ID3v1::genreIndex(value) == 255)) unnumbered++;
+            }
+            if (unnumbered > 1) {
+                Refuse(VibeTagWriteErrorWouldLoseData, "ID3v2.3 keeps only one genre without an ID3v1 number");
+            }
+        }
+    }
+}
+
+TagLib::ID3v2::Version VersionToKeep(TagLib::ID3v2::Tag *tag, bool existed) {
+    return existed && tag->header()->majorVersion() == 3 ? TagLib::ID3v2::v3 : TagLib::ID3v2::v4;
+}
+
+// The ID3v2 edit an MPEG, WAV, or AIFF file shares. TRAP: TagLib reads the
+// first tag that is not empty, so a new or empty ID3v2 tag holding one
+// field would hide every field of an ID3v1, APE, or INFO tag beside it. It
+// first takes the fields the file reads today.
+TagLib::ID3v2::Version ApplyID3v2Edits(TagLib::ID3v2::Tag *tag, bool existed, TagLib::File *file,
+                                       const Edits &named, const Cover &cover) {
+    CheckID3v2Frames(tag);
+    const TagLib::ID3v2::Version version = VersionToKeep(tag, existed);
+    if (!existed || tag->isEmpty()) {
+        const TagLib::PropertyMap current = file->properties();
+        if (!current.isEmpty()) tag->setProperties(current);
+    }
+    const Edits ops = Resolve(named, tag->properties(), Style::Folded, true);
+    CheckID3v2Values(ops, version);
+    ApplyID3v2Ops(tag, ops, version);
+    ApplyID3v2Cover(tag, cover);
+    CheckID3v2Render(tag, version);
+    return version;
+}
+
 #pragma mark - Xiph comments
 
-void ApplyXiph(TagLib::Ogg::XiphComment *tag, const Edits &edits) {
-    for (const auto &[key, values] : edits) {
+void ApplyXiphEdits(TagLib::Ogg::XiphComment *tag, const Edits &named) {
+    for (const auto &[key, values] : Resolve(named, tag->properties(), Style::Xiph, false)) {
         tag->removeFields(key);
-        // The totals' other spellings are the same field.
-        if (key == "TRACKTOTAL") tag->removeFields("TOTALTRACKS");
-        if (key == "DISCTOTAL") tag->removeFields("TOTALDISCS");
         for (const TagLib::String &value : values) tag->addField(key, value, false);
     }
 }
 
-TagLib::FLAC::Picture *NewFLACPicture(const Cover &cover) {
+// A FLAC file's picture blocks and a Xiph comment's pictures share the
+// API: every front cover goes, and the new one is added.
+template <class Owner>
+void ApplyPictureCover(Owner *owner, const Cover &cover) {
+    if (!cover.change) return;
+    for (TagLib::FLAC::Picture *picture : owner->pictureList()) {
+        if (picture->type() == TagLib::FLAC::Picture::FrontCover) owner->removePicture(picture, true);
+    }
+    if (cover.data.isEmpty()) return;
     auto picture = new TagLib::FLAC::Picture();
     picture->setType(TagLib::FLAC::Picture::FrontCover);
     picture->setMimeType(cover.mimeType);
     picture->setData(cover.data);
-    return picture;
-}
-
-void ApplyXiphCover(TagLib::Ogg::XiphComment *tag, const Cover &cover) {
-    if (!cover.change) return;
-    for (TagLib::FLAC::Picture *picture : tag->pictureList()) {
-        if (picture->type() == TagLib::FLAC::Picture::FrontCover) tag->removePicture(picture, true);
-    }
-    if (!cover.data.isEmpty()) tag->addPicture(NewFLACPicture(cover));
-}
-
-void ApplyFLACCover(TagLib::FLAC::File *file, const Cover &cover) {
-    if (!cover.change) return;
-    for (TagLib::FLAC::Picture *picture : file->pictureList()) {
-        if (picture->type() == TagLib::FLAC::Picture::FrontCover) file->removePicture(picture, true);
-    }
-    if (!cover.data.isEmpty()) file->addPicture(NewFLACPicture(cover));
+    owner->addPicture(picture);
 }
 
 #pragma mark - MP4
 
-bool IsWholeNumber(const TagLib::String &value) {
-    bool ok = false;
-    value.stripWhiteSpace().toInt(&ok);
-    return ok;
+// A whole number from 0 to 65535, the range of MP4's numbers.
+bool IsMP4Number(const TagLib::String &value) {
+    if (value.isEmpty() || value.size() > 5) return false;
+    for (unsigned int i = 0; i < value.size(); i++) {
+        if (value[i] < '0' || value[i] > '9') return false;
+    }
+    return value.toInt() <= 65535;
 }
 
-void ApplyMP4(TagLib::MP4::Tag *tag, const Edits &edits) {
+void CheckMP4Value(const TagLib::ByteVector &name, const TagLib::String &key, const TagLib::StringList &values) {
+    const bool pair = name == "trkn" || name == "disk";
+    const bool number = name == "tmpo" || name == "cpil";
+    if (!pair && !number) return;
+    bool ok = values.size() == 1;
+    if (ok && pair) {
+        TagLib::String first, second;
+        SplitPair(values, &first, &second);
+        ok = IsMP4Number(first) && (second.isEmpty() || IsMP4Number(second));
+    }
+    else if (ok) {
+        ok = IsMP4Number(First(values)) && (name != "cpil" || First(values).toInt() <= 1);
+    }
+    if (!ok) {
+        Refuse(VibeTagWriteErrorUnsupportedValue,
+               "MP4 holds " + Text(key) + " as one whole number from 0 to 65535, not " + Text(values.toString(", ")));
+    }
+}
+
+void ApplyMP4Edits(TagLib::MP4::Tag *tag, const Edits &named) {
     TagLib::MP4::ItemFactory *factory = TagLib::MP4::ItemFactory::instance();
-    for (const auto &[key, values] : FoldTotals(edits, tag->properties())) {
+    const Edits ops = Resolve(named, tag->properties(), Style::Folded, false);
+    for (const auto &[key, values] : ops) {
+        if (!values.isEmpty()) CheckMP4Value(factory->itemFromProperty(key, values).first, key, values);
+    }
+    for (const auto &[key, values] : ops) {
         TagLib::StringList remove;
         for (const auto &[name, item] : tag->itemMap()) {
             if (factory->itemToProperty(name.data(TagLib::String::Latin1), item).first.upper() == key) {
@@ -244,10 +451,8 @@ void ApplyMP4(TagLib::MP4::Tag *tag, const Edits &edits) {
         for (const TagLib::String &name : remove) tag->removeItem(name);
         if (values.isEmpty()) continue;
         auto [name, item] = factory->itemFromProperty(key, values);
-        const bool numeric = name == "tmpo" || name == "cpil";
-        if (!item.isValid() || (numeric && !IsWholeNumber(values.front()))) {
-            throw UnsupportedValue(std::string("MP4 cannot hold ") + key.to8Bit(true) + " = "
-                                   + values.front().to8Bit(true));
+        if (!item.isValid()) {
+            Refuse(VibeTagWriteErrorUnsupportedValue, "MP4 cannot hold " + Text(key));
         }
         tag->setItem(TagLib::String(name, TagLib::String::Latin1), item);
     }
@@ -266,92 +471,103 @@ void ApplyMP4Cover(TagLib::MP4::Tag *tag, const Cover &cover) {
     else tag->setItem("covr", TagLib::MP4::Item(list));
 }
 
-#pragma mark - Per file
-
-// The tag the edit writes starts with what the file reads today when it is
-// new. TRAP: TagLib's read takes the first tag that is not empty, so a new
-// ID3v2 tag holding one field would hide every field of an ID3v1, APE, or
-// INFO tag beside it.
-void Seed(TagLib::Tag *written, bool existed, TagLib::File *file) {
-    if (existed && !written->isEmpty()) return;
-    const TagLib::PropertyMap current = file->properties();
-    if (!current.isEmpty()) written->setProperties(current);
+// TRAP: TagLib's MP4 save rewrites ilst from the items it parsed, so an
+// item it could not parse, or a second item of one name, is lost. Each of
+// the file's ilst children must be one of the parsed items.
+void CheckMP4ItemsSurvive(NSString *path, TagLib::MP4::Tag *tag) {
+    NSData *bytes = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:NULL];
+    std::vector<std::string> names;
+    if (!bytes || !VibeMP4ItemNames((const uint8_t *)bytes.bytes, bytes.length, &names)) {
+        Refuse(VibeTagWriteErrorNoParser, "the MP4's item list could not be read");
+    }
+    std::vector<std::string> parsed;
+    for (const auto &[name, item] : tag->itemMap()) {
+        const TagLib::ByteVector key = name.startsWith("----") ? name.data(TagLib::String::UTF8)
+                                                               : name.data(TagLib::String::Latin1);
+        parsed.emplace_back(key.data(), key.size());
+    }
+    for (const std::string &name : names) {
+        const auto found = std::find(parsed.begin(), parsed.end(), name);
+        if (found == parsed.end()) {
+            Refuse(VibeTagWriteErrorWouldLoseData, "TagLib would drop the MP4 item " + name);
+        }
+        parsed.erase(found);
+    }
 }
 
-bool Save(TagLib::File *file, const Edits &edits, const Cover &cover) {
+#pragma mark - Per file
+
+bool SaveFile(NSString *path, TagLib::File *file, const Edits &named, const Cover &cover) {
     if (auto mpeg = dynamic_cast<TagLib::MPEG::File *>(file)) {
         const bool hadID3v2 = mpeg->hasID3v2Tag(), hadAPE = mpeg->hasAPETag(), hadID3v1 = mpeg->hasID3v1Tag();
-        TagLib::ID3v2::Tag *id3 = mpeg->ID3v2Tag(true);
-        const TagLib::ID3v2::Version version = ID3v2VersionToKeep(hadID3v2 ? id3 : nullptr);
-        Seed(id3, hadID3v2, file);
-        ApplyID3v2(id3, edits, version);
-        ApplyID3v2Cover(id3, cover);
+        const TagLib::ID3v2::Version version = ApplyID3v2Edits(mpeg->ID3v2Tag(true), hadID3v2, file, named, cover);
         int tags = TagLib::MPEG::File::ID3v2;
-        if (hadAPE) {
-            ApplyByPropertyMap(mpeg->APETag(), edits);
-            tags |= TagLib::MPEG::File::APE;
-        }
-        if (hadID3v1) {
-            ApplyByPropertyMap(mpeg->ID3v1Tag(), edits);
-            tags |= TagLib::MPEG::File::ID3v1;
-        }
+        if (hadAPE && ApplyByPropertyMap(mpeg->APETag(), named, Style::Folded)) tags |= TagLib::MPEG::File::APE;
+        if (hadID3v1 && ApplyByPropertyMap(mpeg->ID3v1Tag(), named, Style::ID3v1)) tags |= TagLib::MPEG::File::ID3v1;
         return mpeg->save(tags, TagLib::File::StripNone, version, TagLib::File::DoNotDuplicate);
     }
-    if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
-        const bool had = flac->xiphComment() != nullptr;
-        TagLib::Ogg::XiphComment *xiph = flac->xiphComment(true);
-        Seed(xiph, had, file);
-        ApplyXiph(xiph, edits);
-        ApplyFLACCover(flac, cover);
-        return flac->save();
-    }
-    if (auto vorbis = dynamic_cast<TagLib::Ogg::Vorbis::File *>(file)) {
-        ApplyXiph(vorbis->tag(), edits);
-        ApplyXiphCover(vorbis->tag(), cover);
-        return vorbis->save();
-    }
-    if (auto opus = dynamic_cast<TagLib::Ogg::Opus::File *>(file)) {
-        ApplyXiph(opus->tag(), edits);
-        ApplyXiphCover(opus->tag(), cover);
-        return opus->save();
-    }
-    if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
-        ApplyMP4(mp4->tag(), edits);
-        ApplyMP4Cover(mp4->tag(), cover);
-        return mp4->save();
-    }
     if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
-        const bool hadID3v2 = wav->hasID3v2Tag(), hadInfo = wav->hasInfoTag();
-        TagLib::ID3v2::Tag *id3 = wav->ID3v2Tag();
-        const TagLib::ID3v2::Version version = ID3v2VersionToKeep(hadID3v2 ? id3 : nullptr);
-        Seed(id3, hadID3v2, file);
-        ApplyID3v2(id3, edits, version);
-        ApplyID3v2Cover(id3, cover);
+        const bool hadInfo = wav->hasInfoTag();
+        const TagLib::ID3v2::Version version = ApplyID3v2Edits(wav->ID3v2Tag(), wav->hasID3v2Tag(), file, named, cover);
         int tags = TagLib::RIFF::WAV::File::ID3v2;
-        if (hadInfo) {
-            ApplyByPropertyMap(wav->InfoTag(), edits);
-            tags |= TagLib::RIFF::WAV::File::Info;
-        }
+        // TRAP: an INFO chunk is rewritten only when the edit changes it.
+        if (hadInfo && ApplyByPropertyMap(wav->InfoTag(), named, Style::Folded)) tags |= TagLib::RIFF::WAV::File::Info;
         return wav->save(static_cast<TagLib::RIFF::WAV::File::TagTypes>(tags), TagLib::File::StripNone, version);
     }
     if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
-        TagLib::ID3v2::Tag *id3 = aiff->tag();
-        const TagLib::ID3v2::Version version = ID3v2VersionToKeep(aiff->hasID3v2Tag() ? id3 : nullptr);
-        ApplyID3v2(id3, edits, version);
-        ApplyID3v2Cover(id3, cover);
-        return aiff->save(version);
+        return aiff->save(ApplyID3v2Edits(aiff->tag(), aiff->hasID3v2Tag(), file, named, cover));
     }
-    throw UnsupportedValue("no writer for this format");
+    if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
+        // TRAP: FLAC's save renders its ID3v2 tag as 2.4, and copies the ID3
+        // tags' fields into a missing Vorbis comment, so a removal would
+        // not stick. A FLAC with ID3 tags is refused.
+        if (flac->hasID3v2Tag() || flac->hasID3v1Tag()) {
+            Refuse(VibeTagWriteErrorWouldLoseData, "the FLAC carries ID3 tags, which TagLib's save rewrites");
+        }
+        TagLib::Ogg::XiphComment *xiph = flac->xiphComment(true);
+        ApplyXiphEdits(xiph, named);
+        ApplyPictureCover(flac, cover);
+        // TRAP: the save drops a block of 16 MiB or more and still succeeds.
+        if (xiph->render(false).size() >= kMaxFLACBlockBytes) {
+            Refuse(VibeTagWriteErrorWouldLoseData, "the Vorbis comment would pass FLAC's 16 MiB block");
+        }
+        for (TagLib::FLAC::Picture *picture : flac->pictureList()) {
+            if (picture->render().size() >= kMaxFLACBlockBytes) {
+                Refuse(VibeTagWriteErrorWouldLoseData, "a picture would pass FLAC's 16 MiB block");
+            }
+        }
+        return flac->save();
+    }
+    // Vorbis and Opus, both tagged with a Xiph comment.
+    if (auto xiph = dynamic_cast<TagLib::Ogg::XiphComment *>(file->tag())) {
+        ApplyXiphEdits(xiph, named);
+        ApplyPictureCover(xiph, cover);
+        return file->save();
+    }
+    if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
+        CheckMP4ItemsSurvive(path, mp4->tag());
+        ApplyMP4Edits(mp4->tag(), named);
+        ApplyMP4Cover(mp4->tag(), cover);
+        return mp4->save();
+    }
+    Refuse(VibeTagWriteErrorNoParser, "no writer takes this format");
 }
 
-// A property key TagLib can write in every format: printable ASCII, no '='.
-bool IsValidKey(NSString *key) {
-    if (key.length == 0 || [key.uppercaseString isEqualToString:@"PICTURE"]) return false;
-    for (NSUInteger i = 0; i < key.length; i++) {
-        const unichar c = [key characterAtIndex:i];
-        if (c < 0x20 || c > 0x7D || c == '=') return false;
+// The cover's bytes must start as its type says.
+bool MatchesMIMEType(NSData *data, NSString *mime) {
+    if ([mime isEqualToString:@"image/jpeg"]) {
+        return data.length >= 3 && memcmp(data.bytes, "\xFF\xD8\xFF", 3) == 0;
     }
-    return true;
+    return data.length >= 8 && memcmp(data.bytes, "\x89PNG\r\n\x1A\n", 8) == 0;
+}
+
+NSSet<NSString *> *EditedFields(void) {
+    static NSSet<NSString *> *fields;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        fields = [NSSet setWithArray:VibeTagFieldsEdited()];
+    });
+    return fields;
 }
 
 } // namespace
@@ -360,13 +576,16 @@ BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *fields, BOOL change
                          NSString *coverMIMEType, NSError *__autoreleasing *error) {
     Edits edits;
     for (NSString *key in fields) {
-        if (!IsValidKey(key)) {
+        NSString *field = key.uppercaseString;
+        if (![EditedFields() containsObject:field]) {
             return Fail(error, VibeTagWriteErrorInvalidField, path,
-                        [NSString stringWithFormat:@"Invalid tag field name \"%@\"", key]);
+                        [NSString stringWithFormat:@"\"%@\" is not a field the writer edits", key]);
         }
         TagLib::StringList values;
-        for (NSString *value in fields[key]) values.append(TL(value));
-        edits[TL(key.uppercaseString)] = values;
+        for (NSString *value in fields[key]) {
+            if (value.length > 0) values.append(TL(value));
+        }
+        edits[TL(field)] = values;
     }
     Cover cover;
     if (changeCover) {
@@ -374,9 +593,15 @@ BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *fields, BOOL change
         if (coverData) {
             NSString *mime = coverMIMEType.lowercaseString;
             if ([mime isEqualToString:@"image/jpg"]) mime = @"image/jpeg";
-            if (coverData.length == 0 || !([mime isEqualToString:@"image/jpeg"] || [mime isEqualToString:@"image/png"])) {
+            if (!([mime isEqualToString:@"image/jpeg"] || [mime isEqualToString:@"image/png"])) {
                 return Fail(error, VibeTagWriteErrorInvalidImage, path,
-                            [NSString stringWithFormat:@"Cover must be JPEG or PNG bytes, not \"%@\"", coverMIMEType]);
+                            [NSString stringWithFormat:@"A cover must be image/jpeg or image/png, not \"%@\"",
+                                                       coverMIMEType]);
+            }
+            if (coverData.length == 0 || coverData.length > kMaxCoverBytes || !MatchesMIMEType(coverData, mime)) {
+                return Fail(error, VibeTagWriteErrorInvalidImage, path,
+                            [NSString stringWithFormat:@"A cover must be %@ bytes, 1 to %lu of them",
+                                                       mime, (unsigned long)kMaxCoverBytes]);
             }
             cover.data = TagLib::ByteVector((const char *)coverData.bytes, (unsigned int)coverData.length);
             cover.mimeType = TL(mime);
@@ -384,8 +609,10 @@ BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *fields, BOOL change
     }
     // The barrier: no C++ exception leaves this call.
     try {
+        const VibeInfoEncodingScope infoEncoding;
         TagLibAudioFile fileRef(path.fileSystemRepresentation, false, nil, 0, true);
-        if (!fileRef.streamIsOpen()) {
+        auto stream = dynamic_cast<VibeCheckedFileStream *>(fileRef.stream());
+        if (!stream || !fileRef.streamIsOpen()) {
             return Fail(error, VibeTagWriteErrorOpenFailed, path, @"The file could not be opened");
         }
         if (fileRef.streamIsReadOnly()) {
@@ -400,15 +627,19 @@ BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *fields, BOOL change
         if (mpeg && mpeg->firstFrameOffset() < 0) {
             return Fail(error, VibeTagWriteErrorNoParser, path, @"The file holds no MPEG frame");
         }
-        try {
-            if (!Save(fileRef.file(), edits, cover)) {
-                return Fail(error, VibeTagWriteErrorSaveFailed, path, @"TagLib could not save the file");
-            }
+        if (!stream->failure().empty()) {
+            Refuse(VibeTagWriteErrorSaveFailed, "the file could not be read: " + stream->failure());
         }
-        catch (const UnsupportedValue &e) {
-            return Fail(error, VibeTagWriteErrorUnsupportedValue, path, @(e.what()));
+        const bool saved = SaveFile(path, fileRef.file(), edits, cover);
+        const bool finished = stream->finish();
+        if (!saved || !finished) {
+            Refuse(VibeTagWriteErrorSaveFailed,
+                   stream->failure().empty() ? "TagLib could not save the file" : stream->failure());
         }
         return YES;
+    }
+    catch (const Refusal &refusal) {
+        return Fail(error, refusal.code, path, @(refusal.reason.c_str()) ?: @"The write was refused");
     }
     catch (const std::exception &e) {
         return Fail(error, VibeTagWriteErrorTagLibThrew, path, [NSString stringWithFormat:@"TagLib threw: %s", e.what()]);
@@ -434,24 +665,22 @@ VibeTagFieldValues *VibeTagLibReadFields(NSString *path, NSError *__autoreleasin
             return nil;
         }
         const TagLib::PropertyMap properties = fileRef.file()->properties();
-        const bool xiph = dynamic_cast<TagLib::Ogg::XiphComment *>(fileRef.file()->tag()) != nullptr
-                || dynamic_cast<TagLib::FLAC::File *>(fileRef.file()) != nullptr;
         NSMutableDictionary<VibeTagField, NSArray<NSString *> *> *fields = [NSMutableDictionary dictionary];
         for (const auto &[key, values] : properties) {
             NSMutableArray<NSString *> *strings = [NSMutableArray array];
             for (const TagLib::String &value : values) [strings addObject:NS(value)];
             fields[NS(key.upper())] = strings;
         }
-        if (!xiph) {
-            for (NSString *numberKey in @[VibeTagFieldTrackNumber, VibeTagFieldDiscNumber]) {
-                NSString *totalKey = [numberKey isEqualToString:VibeTagFieldTrackNumber] ? VibeTagFieldTrackTotal
-                                                                                        : VibeTagFieldDiscTotal;
-                TagLib::String number, total;
-                SplitPair(properties.value(TL(numberKey)), &number, &total);
-                if (total.isEmpty() || fields[totalKey]) continue;
-                fields[numberKey] = @[NS(number)];
-                fields[totalKey] = @[NS(total)];
-            }
+        for (const NumberKeys &keys : kNumberKeys) {
+            TagLib::String number, total;
+            SplitPair(properties.value(keys.number), &number, &total);
+            if (total.isEmpty()) total = First(properties.value(keys.total));
+            if (total.isEmpty()) total = First(properties.value(keys.alias));
+            [fields removeObjectForKey:@(keys.alias)];
+            [fields removeObjectForKey:@(keys.total)];
+            if (number.isEmpty()) [fields removeObjectForKey:@(keys.number)];
+            else fields[@(keys.number)] = @[NS(number)];
+            if (!total.isEmpty()) fields[@(keys.total)] = @[NS(total)];
         }
         return fields;
     }

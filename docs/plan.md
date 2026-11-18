@@ -112,7 +112,7 @@ vibe-libs/
 │                        Mac/ binding to a device and bit-perfect output; iOS/ route
 │                        recovery
 ├── media/
-│   ├── Tags ●           TagLib fields and embedded art bytes
+│   ├── Tags ●           TagLib fields and embedded art bytes, read and written in place
 │   ├── Metadata ●       the tag record, the CoreAudio fallback, the cache, the background
 │   │                    scan, embedded art and thumbnails, and covers beside the files
 │   ├── PlayQueue ●      play order, shuffle, repeat, and what follows a track's end, over
