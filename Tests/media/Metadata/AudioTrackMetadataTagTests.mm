@@ -14,6 +14,7 @@
 #import <XCTest/XCTest.h>
 
 #import "ArchivedArtShare.h"
+#import "AudioFileHandle.h"
 #import "AudioTrackMetadataInternal.h"
 #import "AudioTrackMetadataTagFixtures.h"
 #import "PlatformImage.h"
@@ -368,6 +369,28 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
     // estimates no duration. That is the mutation's doing, not the guard's.
     XCTAssertEqualObjects(metadata.title, @"tagged", @"the filename stands in");
     XCTAssertNil(metadata.artist);
+}
+
+// Tests/Fuzz's tags-m4a find, kept there: a 1.6 KB M4A that TagLib refuses,
+// whose ©alb item claims 1.38 GB past the file's end. CoreAudio's info
+// dictionary read sized its copy from the claim, and allocated and touched
+// 4.3 GB. The item list is refused before CoreAudio reads it, and the format
+// facts stay.
+- (void)testMP4ItemPastTheFileIsSkipped {
+    NSString *here = [@__FILE__ stringByDeletingLastPathComponent];
+    NSURL *url = [NSURL fileURLWithPath:[here stringByAppendingPathComponent:
+            @"../../Fuzz/Regressions/tags-m4a/item-past-the-end.m4a"]].URLByStandardizingPath;
+    AudioFileHandle *handle = [[AudioFileHandle alloc] initParserForReading:url error:NULL];
+    XCTAssertNotNil(handle, @"CoreAudio opens it");
+    XCTAssertFalse(handle.infoDictionaryReadable);
+    AudioTrackMetadata *metadata = Parse(url, NULL);
+    XCTAssertTrue(metadata.parsedOK);
+    XCTAssertEqualObjects(metadata.title, @"item-past-the-end", @"the filename stands in");
+    XCTAssertNil(metadata.artist);
+
+    NSURL *tagged = [self write:VibeTagFixtureM4A art:nil];
+    XCTAssertTrue([[AudioFileHandle alloc] initParserForReading:tagged error:NULL].infoDictionaryReadable,
+                  @"a well-formed item list is read");
 }
 
 - (void)testW64 {
