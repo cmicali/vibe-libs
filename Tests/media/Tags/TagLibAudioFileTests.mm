@@ -85,7 +85,7 @@ static VibeAudioFileFormat Detected(NSURL *url) {
 // The extension's parser refuses the file, so the content sniff decides.
 - (void)testAWrongExtensionFallsBackToTheContent {
     NSDictionary<NSString *, VibeAudioFileFormat> *cases = @{
-            @"m4a-as.flac": VibeAudioFileFormatMP4,
+            @"m4a-as.flac": VibeAudioFileFormatAAC,
             @"wav-as.m4a": VibeAudioFileFormatWAV,
             @"wav-as.flac": VibeAudioFileFormatWAV,
             @"aiff-as.m4a": VibeAudioFileFormatAIFF,
@@ -104,7 +104,7 @@ static VibeAudioFileFormat Detected(NSURL *url) {
 
 - (void)testNoExtensionSniffsTheContent {
     NSDictionary<NSString *, VibeAudioFileFormat> *cases = @{
-            @"flac": VibeAudioFileFormatFLAC, @"mp3": VibeAudioFileFormatMP3, @"m4a": VibeAudioFileFormatMP4,
+            @"flac": VibeAudioFileFormatFLAC, @"mp3": VibeAudioFileFormatMP3, @"m4a": VibeAudioFileFormatAAC,
             @"wav": VibeAudioFileFormatWAV, @"aif": VibeAudioFileFormatAIFF,
     };
     for (NSString *extension in cases) {
@@ -147,13 +147,13 @@ static VibeAudioFileFormat Detected(NSURL *url) {
 - (void)testAnMPEGOrRIFFExtensionChecksTheHeaderFirst {
     NSDictionary<NSString *, VibeAudioFileFormat> *cases = @{
             @"flac-as.mp3": VibeAudioFileFormatFLAC,
-            @"m4a-as.mp3": VibeAudioFileFormatMP4,
+            @"m4a-as.mp3": VibeAudioFileFormatAAC,
             @"wav-as.mp3": VibeAudioFileFormatWAV,
             @"aiff-as.wav": VibeAudioFileFormatAIFF,
             @"flac-as.wav": VibeAudioFileFormatFLAC,
             @"mp3-as.wav": VibeAudioFileFormatMP3,
             @"wav-as.aif": VibeAudioFileFormatWAV,
-            @"m4a-as.aif": VibeAudioFileFormatMP4,
+            @"m4a-as.aif": VibeAudioFileFormatAAC,
     };
     NSDictionary<NSString *, NSString *> *sources = @{
             @"flac-as.mp3": @"flac", @"m4a-as.mp3": @"m4a", @"wav-as.mp3": @"wav", @"aiff-as.wav": @"aif",

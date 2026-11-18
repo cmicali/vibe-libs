@@ -299,7 +299,7 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
 
 // AAC in M4A names its container. The key rides iTunes' freeform atom.
 - (void)testM4A {
-    [self assertFixture:VibeTagFixtureM4A fileType:VibeAudioFileFormatMP4 rate:44100 duration:0.5];
+    [self assertFixture:VibeTagFixtureM4A fileType:VibeAudioFileFormatAAC rate:44100 duration:0.5];
     XCTAssertGreaterThan(Parse([_dir URLByAppendingPathComponent:@"tagged.m4a"], NULL).bitrate.intValue, 0);
 }
 
@@ -586,8 +586,8 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
     return url;
 }
 
-// Deeper streams than the fixtures': 24-bit FLAC and ALAC, float WAV, and
-// ALAC in CAF, which CoreAudio's facts read.
+// Deeper streams than the fixtures': 24-bit FLAC and ALAC, float WAV, ALAC in
+// CAF, which CoreAudio's facts read, and FLAC in MP4, whose kind is its codec's.
 - (void)testTheBitDepthOfDeeperStreams {
     NSError *error = nil;
     AVAudioPCMBuffer *floats = VibeToneBuffer(22050, 44100, 2, AVAudioPCMFormatFloat32);
@@ -598,6 +598,8 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
                             @32, VibeAudioFileFormatWAV],
             @"deep.m4a": @[EncodeLossless([_dir URLByAppendingPathComponent:@"deep.m4a"], kAudioFormatAppleLossless, 24)
                                    ?: NSNull.null, @24, VibeAudioFileFormatALAC],
+            @"flac.m4a": @[EncodeLossless([_dir URLByAppendingPathComponent:@"flac.m4a"], kAudioFormatFLAC, 24)
+                                   ?: NSNull.null, @24, VibeAudioFileFormatFLAC],
             @"alac.caf": @[EncodeLossless([_dir URLByAppendingPathComponent:@"alac.caf"], kAudioFormatAppleLossless, 24)
                                    ?: NSNull.null, @24, VibeAudioFileFormatALAC],
     };
