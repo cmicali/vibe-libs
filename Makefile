@@ -4,7 +4,7 @@
 PROJECT := vibe-libs.xcodeproj
 DERIVED := build/DerivedData
 
-.PHONY: help project test build-ios consumer check-pieces test-strings fuzz fuzz-replay clean
+.PHONY: help project test build-ios consumer check-pieces test-strings fuzz fuzz-replay fuzz-triage clean
 
 # Every target, with the first sentence of its comment.
 help:
@@ -57,7 +57,7 @@ check-pieces:
 test-strings:
 	Tests/tools/strings/strings-test.sh
 
-# FUZZ_TARGETS limits fuzz and fuzz-replay to some targets; fuzz.py list
+# FUZZ_TARGETS limits the fuzz targets below to some targets; fuzz.py list
 # names them. FUZZ_SECONDS is each target's run (600), and FUZZ_JOBS its
 # workers (4).
 FUZZ_TARGETS ?=
@@ -70,6 +70,10 @@ fuzz:
 # Replays each fuzz target's seeds and regressions once, under Xcode's clang.
 fuzz-replay:
 	python3 -I scripts/fuzz/fuzz.py replay $(FUZZ_TARGETS) $(FUZZ_FLAGS) $(if $(SINCE),--since '$(SINCE)')
+
+# Replays each saved fuzz artifact once, with its peak memory.
+fuzz-triage:
+	python3 -I scripts/fuzz/fuzz.py triage $(FUZZ_TARGETS) $(FUZZ_FLAGS)
 
 # Removes build output and the generated project.
 clean:

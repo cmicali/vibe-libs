@@ -23,6 +23,8 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
@@ -255,29 +257,39 @@ def replay(names, jobs, since):
 
 
 def peak(command):
-    """A command's exit status and its peak resident memory in MB."""
-    with open(os.devnull, "w") as null:
-        process = subprocess.Popen(command, stdout=null, stderr=null, env=ENV)
+    """A command's exit status, its peak resident memory in MB, and its report's first line."""
+    with tempfile.TemporaryFile("w+") as err:
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=err, env=ENV)
+        timer = threading.Timer(TRIAGE_SECONDS, process.kill)
+        timer.start()
         _, status, usage = os.wait4(process.pid, 0)
-    return os.waitstatus_to_exitcode(status), usage.ru_maxrss / 2**20
+        timer.cancel()
+        err.seek(0)
+        lines = [l.strip() for l in err if "ERROR:" in l or "runtime error:" in l]
+    return os.waitstatus_to_exitcode(status), usage.ru_maxrss / 2**20, (lines or [""])[0]
 
 
-# An oom- artifact is a finding only when its replay holds this much: the
+# An oom- artifact holds memory only when its replay reaches this much: the
 # malloc limit also stops an allocation Apple's code makes and never touches.
 OOM_MB = 1024
+# A replay that runs longer is killed, which also bounds what it can hold.
+TRIAGE_SECONDS = 60
 
 
 def triage(names, jobs):
     named = [n for n in names if os.path.isdir(os.path.join(OUT, "crashes", n))]
-    binaries = build(named, False, jobs) if named else {}
+    if not named:
+        print(f"fuzz: no artifacts under {os.path.relpath(os.path.join(OUT, 'crashes'), ROOT)}")
+        return
+    binaries = build(named, False, jobs)
     for name in named:
         folder = os.path.join(OUT, "crashes", name)
-        for artifact in sorted(os.listdir(folder)):
-            status, megabytes = peak([binaries[name], os.path.join(folder, artifact)])
+        for artifact in sorted(f for f in os.listdir(folder) if not f.startswith(".")):
+            status, megabytes, report = peak([binaries[name], os.path.join(folder, artifact)])
             verdict = "fails" if status else "passes"
             if artifact.startswith("oom-"):
-                verdict = "holds memory" if megabytes >= OOM_MB else "no growth"
-            print(f"{name} {artifact}: {verdict}, {megabytes:.0f} MB", flush=True)
+                verdict += ", holds memory" if megabytes >= OOM_MB else ", no growth"
+            print(f"{name} {artifact}: {verdict}, {megabytes:.0f} MB {report}".rstrip(), flush=True)
 
 
 def main():
