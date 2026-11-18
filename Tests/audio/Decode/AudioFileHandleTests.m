@@ -169,6 +169,53 @@ static int VibeDescriptorsOpenOn(NSURL *url) {
     XCTAssertNil([[AudioFileHandle alloc] initForReading:url error:NULL]);
 }
 
+// An ID3v2 tag of `size` zero bytes, then `next`: the start of a second tag.
+static NSData *VibeID3TagThen(NSUInteger size, NSData *next) {
+    const uint8_t header[10] = {'I', 'D', '3', 4, 0, 0, 0, 0, (uint8_t)(size >> 7 & 0x7F), (uint8_t)(size & 0x7F)};
+    NSMutableData *bytes = [NSMutableData dataWithBytes:header length:sizeof header];
+    [bytes increaseLengthBy:size];
+    [bytes appendData:next];
+    return bytes;
+}
+
+// CoreAudio's MPEG reader never returns on a second tag whose header is cut
+// short or has a version of 0xFF, whatever the extension (AudioFileHandle.m).
+- (void)testAnID3TagThatWouldHangCoreAudioIsRefused {
+    NSData *cut = [NSData dataWithBytes:"ID3" length:3];
+    NSData *versionFF = [NSData dataWithBytes:"ID3\xFF\x00\x00\x00\x00\x00\x10" length:10];
+    NSDictionary<NSString *, NSData *> *files = @{
+        @"cut.mp3": VibeID3TagThen(474, cut),
+        @"cut.wav": VibeID3TagThen(474, cut),
+        @"version.mp3": VibeID3TagThen(100, versionFF),
+    };
+    for (NSString *name in files) {
+        NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:name];
+        XCTAssertTrue([files[name] writeToURL:url atomically:YES]);
+        XCTestExpectation *returned = [self expectationWithDescription:name];
+        __block AudioFileHandle *handle = nil;
+        __block NSError *error = nil;
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            handle = [[AudioFileHandle alloc] initParserForReading:url error:&error];
+            [returned fulfill];
+        });
+        [self waitForExpectations:@[returned] timeout:VIBE_TEST_HANG_TIMEOUT];
+        XCTAssertNil(handle, @"%@", name);
+        XCTAssertEqualObjects(error.domain, NSOSStatusErrorDomain, @"%@", name);
+    }
+}
+
+- (void)testAnMP3WithTwoID3TagsStillOpensInCoreAudio {
+    NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:@"two-tags.mp3"];
+    XCTAssertTrue([VibeID3TagThen(16, VibeTaggedMP3WithGap(0)) writeToURL:url atomically:YES]);
+    NSError *error = nil;
+    AudioFileHandle *handle = [[AudioFileHandle alloc] initParserForReading:url error:&error];
+    XCTAssertNotNil(handle, @"%@", error);
+    AudioStreamBasicDescription format = {0};
+    UInt32 size = sizeof format;
+    XCTAssertEqual(AudioFileGetProperty(handle.parser, kAudioFilePropertyDataFormat, &size, &format), noErr);
+    XCTAssertEqual(format.mFormatID, kAudioFormatMPEGLayer3);
+}
+
 // CoreAudio's own open plays this file but sniffing alone refuses it, so the
 // hinted parse comes first.
 - (void)testMP3WithUndeclaredBytesAfterItsTagIsAccepted {
