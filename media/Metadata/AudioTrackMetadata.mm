@@ -29,6 +29,32 @@
 NSNotificationName const AudioTrackMetadataThumbnailDidLoadNotification =
         @"AudioTrackMetadataThumbnailDidLoadNotification";
 
+// The rarer tags, by TagLib's property name, in the order the parse reads
+// them. The one home of these names here: media/Tags' VibeTagField
+// constants take their place once that header is on main.
+static NSString *const kCatalogNumber = @"CATALOGNUMBER";
+static NSString *const kConductor = @"CONDUCTOR";
+static NSString *const kRemixer = @"REMIXER";
+static NSString *const kLyricist = @"LYRICIST";
+static NSString *const kMood = @"MOOD";
+static NSString *const kLanguage = @"LANGUAGE";
+static NSString *const kCopyright = @"COPYRIGHT";
+static NSString *const kOriginalDate = @"ORIGINALDATE";
+static NSString *const kTitleSort = @"TITLESORT";
+static NSString *const kArtistSort = @"ARTISTSORT";
+static NSString *const kAlbumSort = @"ALBUMSORT";
+static NSString *const kAlbumArtistSort = @"ALBUMARTISTSORT";
+
+static NSArray<NSString *> *ExtraTagNames(void) {
+    static NSArray<NSString *> *names;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        names = @[kCatalogNumber, kConductor, kRemixer, kLyricist, kMood, kLanguage, kCopyright, kOriginalDate,
+                  kTitleSort, kArtistSort, kAlbumSort, kAlbumArtistSort];
+    });
+    return names;
+}
+
 // Atomic: built on a worker, read on main.
 @interface AudioTrackMetadata ()
 @property (copy, nullable, readwrite) NSString *title;
@@ -56,6 +82,7 @@ NSNotificationName const AudioTrackMetadataThumbnailDidLoadNotification =
 @property (copy, nullable, readwrite) NSString *musicBrainzReleaseID;
 @property (copy, nullable, readwrite) NSString *musicBrainzRecordingID;
 @property (copy, nullable, readwrite) NSString *isrc;
+@property (copy, nullable, readwrite) NSDictionary<NSString *, NSString *> *extraTags;
 @property (copy, nullable, readwrite) NSData *audioMD5;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackGain;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackPeak;
@@ -177,6 +204,26 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
 
 #endif
 
+// The rarer tags share one dictionary. Each is rare, so a dozen properties
+// would cost every record a dozen pointers for nothing.
+- (NSString *)catalogNumber { return self.extraTags[kCatalogNumber]; }
+- (NSString *)conductor { return self.extraTags[kConductor]; }
+- (NSString *)remixer { return self.extraTags[kRemixer]; }
+- (NSString *)lyricist { return self.extraTags[kLyricist]; }
+- (NSString *)mood { return self.extraTags[kMood]; }
+- (NSString *)language { return self.extraTags[kLanguage]; }
+- (NSString *)copyright { return self.extraTags[kCopyright]; }
+- (NSString *)originalDate { return self.extraTags[kOriginalDate]; }
+- (NSString *)titleSort { return self.extraTags[kTitleSort]; }
+- (NSString *)artistSort { return self.extraTags[kArtistSort]; }
+- (NSString *)albumSort { return self.extraTags[kAlbumSort]; }
+- (NSString *)albumArtistSort { return self.extraTags[kAlbumArtistSort]; }
+
+- (NSInteger)originalYear {
+    NSInteger year = LeadingCount(self.originalDate);
+    return year <= 9999 ? year : 0;
+}
+
 - (VibeImage *)cachedArt {
     return [self.artwork cachedArt];
 }
@@ -272,6 +319,7 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
     copy.musicBrainzReleaseID = self.musicBrainzReleaseID;
     copy.musicBrainzRecordingID = self.musicBrainzRecordingID;
     copy.isrc = self.isrc;
+    copy.extraTags = self.extraTags;
     copy.audioMD5 = self.audioMD5;
     copy.replayGainTrackGain = self.replayGainTrackGain;
     copy.replayGainTrackPeak = self.replayGainTrackPeak;
@@ -329,6 +377,7 @@ static void EncodePresentCount(NSCoder *coder, NSInteger value, NSString *key) {
     EncodePresent(coder, self.musicBrainzReleaseID, @"musicBrainzReleaseID");
     EncodePresent(coder, self.musicBrainzRecordingID, @"musicBrainzRecordingID");
     EncodePresent(coder, self.isrc, @"isrc");
+    EncodePresent(coder, self.extraTags, @"extraTags");
     EncodePresent(coder, self.audioMD5, @"audioMD5");
     EncodePresent(coder, self.replayGainTrackGain, @"replayGainTrackGain");
     EncodePresent(coder, self.replayGainTrackPeak, @"replayGainTrackPeak");
@@ -354,6 +403,33 @@ static id _Nullable DecodedObject(NSCoder *coder, NSString *key, Class kind, BOO
 static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
     NSInteger value = [coder decodeIntegerForKey:key];
     return value > 0 ? value : 0;
+}
+
+// The extra tags, each a known name with text. Anything else is a wrong
+// entry, which misses.
+static NSDictionary<NSString *, NSString *> *_Nullable DecodedExtraTags(NSCoder *coder, BOOL *wrong) {
+    // The classes are named, so a secure unarchiver takes the dictionary too.
+    id value = [coder decodeObjectOfClasses:[NSSet setWithObjects:NSDictionary.class, NSString.class, nil]
+                                     forKey:@"extraTags"];
+    if (value && ![value isKindOfClass:NSDictionary.class]) {
+        *wrong = YES;
+        return nil;
+    }
+    NSDictionary *tags = value;
+    NSSet<NSString *> *names = [NSSet setWithArray:ExtraTagNames()];
+    __block BOOL valid = tags.count > 0 || !tags;
+    [tags enumerateKeysAndObjectsUsingBlock:^(id key, id value, BOOL *stop) {
+        if (![key isKindOfClass:NSString.class] || ![names containsObject:key]
+                || ![value isKindOfClass:NSString.class] || [value length] == 0) {
+            valid = NO;
+            *stop = YES;
+        }
+    }];
+    if (!valid) {
+        *wrong = YES;
+        return nil;
+    }
+    return tags;
 }
 
 + (void)setEmbeddedArtReadHandler:(VibeEmbeddedArtReadHandler)handler {
@@ -386,6 +462,7 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
         self.musicBrainzReleaseID = DecodedObject(coder, @"musicBrainzReleaseID", NSString.class, &wrong);
         self.musicBrainzRecordingID = DecodedObject(coder, @"musicBrainzRecordingID", NSString.class, &wrong);
         self.isrc = DecodedObject(coder, @"isrc", NSString.class, &wrong);
+        self.extraTags = DecodedExtraTags(coder, &wrong);
         self.audioMD5 = DecodedObject(coder, @"audioMD5", NSData.class, &wrong);
         self.replayGainTrackGain = DecodedObject(coder, @"replayGainTrackGain", NSNumber.class, &wrong);
         self.replayGainTrackPeak = DecodedObject(coder, @"replayGainTrackPeak", NSNumber.class, &wrong);
@@ -637,6 +714,21 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
     // PUBLISHER.
     self.label = PropertyText(properties, "LABEL") ?: PropertyText(properties, "ORGANIZATION")
             ?: PropertyText(properties, "PUBLISHER");
+    // Each extra tag under its own name. ID3v2.3's TORY arrives as
+    // ORIGINALDATE, as v2.4's TDOR does. A Xiph comment or a TXXX frame may
+    // name it ORIGINALYEAR.
+    NSMutableDictionary<NSString *, NSString *> *extras = nil;
+    for (NSString *name in ExtraTagNames()) {
+        NSString *text = PropertyText(properties, name.UTF8String);
+        if (!text && name == kOriginalDate) {
+            text = PropertyText(properties, "ORIGINALYEAR");
+        }
+        if (text) {
+            if (!extras) extras = [NSMutableDictionary dictionary];
+            extras[name] = text;
+        }
+    }
+    self.extraTags = extras;
 }
 
 // PCM's bits per channel, or ALAC's source depth from its flags. 0 for a

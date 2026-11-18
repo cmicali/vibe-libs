@@ -13,6 +13,7 @@
 #import "AudioFileMaterializationCoordinator.h"
 #import "PlaceholderFiles.h"
 #import "HelperMacros.h"
+#import "NSURL+Hash.h"
 #import "VibeMacros.h"
 
 #include <atomic>
@@ -108,6 +109,10 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     // could land its write after removeAllObjects and repopulate the emptied cache.
     std::atomic<uint64_t>           _cacheGeneration;
     AudioFileMaterializationCoordinator *_materializationCoordinator;
+    // The moves, in the order asked, apart from _loaderQueue, since a move
+    // reads and writes a whole entry and the store's hop there must stay
+    // short.
+    dispatch_queue_t                _moveQueue;
 }
 
 + (NSString *)cacheName {
@@ -157,6 +162,8 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
                 maximumRunningCount:kMaxDetachedWaveformLoads + 1
                 maximumPendingCount:kMaxPendingWaveformWork
                 pendingGrace:kWaveformAdmissionGraceSeconds];
+        _moveQueue = dispatch_queue_create("vibe-libs.waveformloading.move",
+                dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
         _scanQueue = dispatch_queue_create("vibe-libs.waveformloading.scan",
                 dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
         _scanScheduler = [[AudioWorkScheduler alloc]
@@ -194,6 +201,39 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
             completion();
         }
     });
+}
+
+- (void)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey completion:(dispatch_block_t)completion {
+    NSParameterAssert(oldKey && newKey);
+    // Before the move, so no lookup after this call files under the old key.
+    [NSURL invalidateMemoizedCacheKeys];
+    oldKey = [oldKey copy];
+    newKey = [newKey copy];
+    dispatch_async(_moveQueue, ^{
+        if (![oldKey isEqualToString:newKey]) {
+            [self moveEntryOnQueueFromKey:oldKey toKey:newKey];
+        }
+        if (completion) {
+            completion();
+        }
+    });
+}
+
+// On _moveQueue. The write is checked against the generation as a decode's
+// is, so a move cannot repopulate a store an invalidation emptied.
+- (void)moveEntryOnQueueFromKey:(NSString *)oldKey toKey:(NSString *)newKey {
+    PINCache *cache = [self store];
+    uint64_t generation = _cacheGeneration.load(std::memory_order_relaxed);
+    id entry = [cache.diskCache objectForKey:oldKey];
+    [cache.diskCache removeObjectForKey:oldKey];
+    if (![entry isKindOfClass:[CodableAudioWaveform class]] || [cache.diskCache containsObjectForKey:newKey]
+            || generation != _cacheGeneration.load(std::memory_order_relaxed)) {
+        return;
+    }
+    [cache.diskCache setObject:entry forKey:newKey];
+    if (generation != _cacheGeneration.load(std::memory_order_relaxed)) {
+        [cache.diskCache removeObjectForKey:newKey];
+    }
 }
 
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {

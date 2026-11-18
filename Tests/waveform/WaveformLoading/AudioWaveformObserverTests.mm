@@ -383,4 +383,90 @@
     XCTAssertEqualObjects(_recorder.results.firstObject, @{@"test.frames": @44100});
 }
 
+#pragma mark - A tag-only rewrite
+
+// A tag edit's safe write leaves the audio and gives the file a later date,
+// so its key changes. Returns the new key.
+static NSString *Retouch(NSURL *url) {
+    NSDate *modified = [[NSFileManager.defaultManager attributesOfItemAtPath:url.path error:NULL] fileModificationDate];
+    [NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [modified dateByAddingTimeInterval:2]}
+                                   ofItemAtPath:url.path error:NULL];
+    return url.cacheKey;
+}
+
+- (void)moveFrom:(NSString *)oldKey to:(NSString *)newKey {
+    __block BOOL moved = NO;
+    [_cache moveEntryFromKey:oldKey toKey:newKey completion:^{
+        moved = YES;
+    }];
+    XCTAssertTrue([self eventually:^BOOL { return moved; }]);
+}
+
+// The whole file's entry and a cue row's each move to the new key, so a
+// load after the rewrite is a hit: no sink is made, and the results come
+// back under the new key.
+- (void)testAnEntryMovedToANewKeyIsServedWithNoDecode {
+    NSURL *url = [self writeWAVNamed:@"moved.wav" seconds:2.0];
+    VibeTestTrack *row = [[VibeTestTrack alloc] initWithURL:url cueStart:75 cueEnd:150];
+    [_cache loadWaveformForTrack:[VibeTestTrack withURL:url]];
+    XCTAssertTrue([self eventually:^BOOL { return self->_recorder.results.count == 1; }]);
+    [_cache loadWaveformForTrack:row];
+    XCTAssertTrue([self eventually:^BOOL { return self->_recorder.results.count == 2; }]);
+    XCTAssertTrue([self eventuallyCached:[VibeTestTrack withURL:url]]);
+    XCTAssertTrue([self eventuallyCached:row]);
+    XCTAssertEqual(_frames.sinks.count, 2u);
+
+    NSString *oldKey = url.cacheKey;
+    NSString *newKey = Retouch(url);
+    XCTAssertNotEqualObjects(newKey, oldKey);
+    [self moveFrom:oldKey to:newKey];
+    [self moveFrom:VibeKeyByAppendingCueWindow(oldKey, 75, 150) to:VibeKeyByAppendingCueWindow(newKey, 75, 150)];
+
+    [_cache loadWaveformForTrack:[VibeTestTrack withURL:url]];
+    XCTAssertTrue([self eventually:^BOOL { return self->_recorder.results.count == 3; }]);
+    [_cache loadWaveformForTrack:[[VibeTestTrack alloc] initWithURL:url cueStart:75 cueEnd:150]];
+    XCTAssertTrue([self eventually:^BOOL { return self->_recorder.results.count == 4; }]);
+    WaveformSpinFor(kVibeTestNegativeWindow);
+    XCTAssertEqual(_frames.sinks.count, 2u, @"no decode after the move");
+    XCTAssertEqualObjects([_recorder.entryKeys subarrayWithRange:NSMakeRange(2, 2)],
+                          (@[newKey, VibeKeyByAppendingCueWindow(newKey, 75, 150)]));
+    XCTAssertEqualObjects(_recorder.results[2], @{@"test.frames": @88200});
+    XCTAssertEqualObjects(_recorder.results[3], @{@"test.frames": @44100});
+    XCTAssertEqual(_recorder.failures, 0u);
+}
+
+// A move of a key with no entry does nothing, and an entry the new key
+// already holds is kept.
+- (void)testAMoveOfAnAbsentEntryDoesNothing {
+    NSURL *url = [self writeWAVNamed:@"absent.wav" seconds:1.0];
+    [_cache loadWaveformForTrack:[VibeTestTrack withURL:url]];
+    XCTAssertTrue([self eventually:^BOOL { return self->_recorder.results.count == 1; }]);
+    XCTAssertTrue([self eventuallyCached:[VibeTestTrack withURL:url]]);
+    [self moveFrom:@"0-0-absent" to:url.cacheKey];
+    XCTAssertTrue([self eventuallyCached:[VibeTestTrack withURL:url]], @"the new key's entry is kept");
+    XCTAssertEqual(_frames.sinks.count, 1u);
+}
+
+// A move while the old version's decode is held mid-pass: the decode ends on
+// a changed key, so it files nothing under the old one, and the load decodes
+// once more under the new key, delivered once with no failure.
+- (void)testAMoveDuringARunningLoadIsSafe {
+    NSURL *url = [self writeWAVNamed:@"running.wav" seconds:2.0];
+    [_frames holdNextDecode];
+    VibeTestTrack *track = [VibeTestTrack withURL:url];
+    [_cache loadWaveformForTrack:track];
+    XCTAssertTrue([_frames awaitHeld]);
+    NSString *oldKey = url.cacheKey;
+    NSString *newKey = Retouch(url);
+    [self moveFrom:oldKey to:newKey];
+    [_frames resume];
+    XCTAssertTrue([self eventually:^BOOL { return self->_recorder.results.count == 1; }]);
+    XCTAssertTrue([self eventuallyCached:[VibeTestTrack withURL:url]]);
+    WaveformSpinFor(kVibeTestNegativeWindow);
+    XCTAssertEqual(_frames.sinks.count, 2u, @"the held decode, then the new key's");
+    XCTAssertEqualObjects(_recorder.entryKeys, @[newKey]);
+    XCTAssertEqualObjects(_recorder.completedTracks, @[track]);
+    XCTAssertEqual(_recorder.failures, 0u);
+}
+
 @end

@@ -185,6 +185,21 @@ static NSData *ToneMD5(void) {
             case VibeTagFieldComment: text(metadata.comment, kVibeTagComment); break;
             case VibeTagFieldGrouping: text(metadata.grouping, kVibeTagGrouping); break;
             case VibeTagFieldLabel: text(metadata.label, kVibeTagLabel); break;
+            case VibeTagFieldCatalogNumber: text(metadata.catalogNumber, kVibeTagCatalogNumber); break;
+            case VibeTagFieldConductor: text(metadata.conductor, kVibeTagConductor); break;
+            case VibeTagFieldRemixer: text(metadata.remixer, kVibeTagRemixer); break;
+            case VibeTagFieldLyricist: text(metadata.lyricist, kVibeTagLyricist); break;
+            case VibeTagFieldMood: text(metadata.mood, kVibeTagMood); break;
+            case VibeTagFieldLanguage: text(metadata.language, kVibeTagLanguage); break;
+            case VibeTagFieldCopyright: text(metadata.copyright, kVibeTagCopyright); break;
+            case VibeTagFieldOriginalDate:
+                text(metadata.originalDate, VibeTagOriginalDate(fixture));
+                XCTAssertEqual(metadata.originalYear, on ? kVibeTagOriginalYear : 0, @"%@", name);
+                break;
+            case VibeTagFieldTitleSort: text(metadata.titleSort, kVibeTagTitleSort); break;
+            case VibeTagFieldArtistSort: text(metadata.artistSort, kVibeTagArtistSort); break;
+            case VibeTagFieldAlbumSort: text(metadata.albumSort, kVibeTagAlbumSort); break;
+            case VibeTagFieldAlbumArtistSort: text(metadata.albumArtistSort, kVibeTagAlbumArtistSort); break;
             case VibeTagFieldCount: break;
         }
     }
@@ -513,6 +528,18 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
 - (void)testComment { [self assertFieldAlone:VibeTagFieldComment]; }
 - (void)testGrouping { [self assertFieldAlone:VibeTagFieldGrouping]; }
 - (void)testLabel { [self assertFieldAlone:VibeTagFieldLabel]; }
+- (void)testCatalogNumber { [self assertFieldAlone:VibeTagFieldCatalogNumber]; }
+- (void)testConductor { [self assertFieldAlone:VibeTagFieldConductor]; }
+- (void)testRemixer { [self assertFieldAlone:VibeTagFieldRemixer]; }
+- (void)testLyricist { [self assertFieldAlone:VibeTagFieldLyricist]; }
+- (void)testMood { [self assertFieldAlone:VibeTagFieldMood]; }
+- (void)testLanguage { [self assertFieldAlone:VibeTagFieldLanguage]; }
+- (void)testCopyright { [self assertFieldAlone:VibeTagFieldCopyright]; }
+- (void)testOriginalDate { [self assertFieldAlone:VibeTagFieldOriginalDate]; }
+- (void)testTitleSort { [self assertFieldAlone:VibeTagFieldTitleSort]; }
+- (void)testArtistSort { [self assertFieldAlone:VibeTagFieldArtistSort]; }
+- (void)testAlbumSort { [self assertFieldAlone:VibeTagFieldAlbumSort]; }
+- (void)testAlbumArtistSort { [self assertFieldAlone:VibeTagFieldAlbumArtistSort]; }
 
 // A file tagged with its title alone reads no comment, grouping, or label.
 - (void)testAFileWithNoneOfTheFieldsReadsNone {
@@ -535,6 +562,7 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
             XCTAssertNil(read.comment, @"%@", name);
             XCTAssertNil(read.grouping, @"%@", name);
             XCTAssertNil(read.label, @"%@", name);
+            XCTAssertNil(read.extraTags, @"%@: no extra tag costs no dictionary", name);
             XCTAssertEqual(read.bitDepth, FixtureBitDepth(fixture), @"%@", name);
         }
     }
@@ -599,6 +627,30 @@ static void Retag(NSURL *url, VibeTagFixture fixture, NSDictionary<NSString *, N
         metadata = Parse(url, NULL);
         XCTAssertEqualObjects(metadata.comment, kVibeTagComment, @"%@", name);
         XCTAssertEqualObjects(metadata.label, kVibeTagLabel, @"%@", name);
+    }
+}
+
+// A Xiph comment or a TXXX frame may name the original date ORIGINALYEAR.
+// ORIGINALDATE wins. A tag of blanks is untagged, never empty.
+- (void)testTheOriginalDatesOtherKeyAndBlankExtras {
+    for (NSNumber *each in @[@(VibeTagFixtureMP3ID3v24), @(VibeTagFixtureFLAC), @(VibeTagFixtureVorbis)]) {
+        VibeTagFixture fixture = (VibeTagFixture)each.integerValue;
+        NSString *name = VibeTagFixtureName(fixture);
+        NSURL *url = VibeWriteTagFieldFixture(_dir, fixture, VibeTagFieldAlbum);
+        if (!url) {
+            XCTAssertEqual(fixture, VibeTagFixtureVorbis);
+            continue;
+        }
+        Retag(url, fixture, @{@"ORIGINALYEAR": @"1968"});
+        AudioTrackMetadata *metadata = Parse(url, NULL);
+        XCTAssertEqualObjects(metadata.originalDate, @"1968", @"%@", name);
+        XCTAssertEqual(metadata.originalYear, 1968, @"%@", name);
+        Retag(url, fixture, @{@"ORIGINALYEAR": @"1968", @"ORIGINALDATE": kVibeTagOriginalDate});
+        XCTAssertEqualObjects(Parse(url, NULL).originalDate, kVibeTagOriginalDate, @"%@", name);
+        Retag(url, fixture, @{@"CONDUCTOR": @"   ", @"MOOD": kVibeTagMood});
+        metadata = Parse(url, NULL);
+        XCTAssertNil(metadata.conductor, @"%@", name);
+        XCTAssertEqualObjects(metadata.extraTags, @{@"MOOD": kVibeTagMood}, @"%@", name);
     }
 }
 

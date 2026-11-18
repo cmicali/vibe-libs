@@ -107,6 +107,18 @@ typedef NS_ENUM(NSInteger, VibeTagField) {
     VibeTagFieldComment,
     VibeTagFieldGrouping,
     VibeTagFieldLabel,
+    VibeTagFieldCatalogNumber,
+    VibeTagFieldConductor,
+    VibeTagFieldRemixer,
+    VibeTagFieldLyricist,
+    VibeTagFieldMood,
+    VibeTagFieldLanguage,
+    VibeTagFieldCopyright,
+    VibeTagFieldOriginalDate,
+    VibeTagFieldTitleSort,
+    VibeTagFieldArtistSort,
+    VibeTagFieldAlbumSort,
+    VibeTagFieldAlbumArtistSort,
     VibeTagFieldCount,
 };
 
@@ -128,20 +140,41 @@ static const double kVibeTagSoundCheckGain = -3.0102999566398120;
 static NSString *const kVibeTagComment = @"Tagged Comment";
 static NSString *const kVibeTagGrouping = @"Tagged Grouping";
 static NSString *const kVibeTagLabel = @"Tagged Label";
+static NSString *const kVibeTagCatalogNumber = @"CAT-0042";
+static NSString *const kVibeTagConductor = @"Tagged Conductor";
+static NSString *const kVibeTagRemixer = @"Tagged Remixer";
+static NSString *const kVibeTagLyricist = @"Tagged Lyricist";
+static NSString *const kVibeTagMood = @"Mellow";
+static NSString *const kVibeTagLanguage = @"eng";
+static NSString *const kVibeTagCopyright = @"2024 Tagged Copyright";
+static NSString *const kVibeTagOriginalDate = @"1972-05-01";
+static const NSInteger kVibeTagOriginalYear = 1972;
+static NSString *const kVibeTagTitleSort = @"Title, Tagged";
+static NSString *const kVibeTagArtistSort = @"Artist, Tagged";
+static NSString *const kVibeTagAlbumSort = @"Album, Tagged";
+static NSString *const kVibeTagAlbumArtistSort = @"Album Artist, Tagged";
+
+// ID3v2.3 holds the original date as TORY, its year alone.
+static inline NSString *VibeTagOriginalDate(VibeTagFixture fixture) {
+    return fixture == VibeTagFixtureMP3ID3v23 ? @"1972" : kVibeTagOriginalDate;
+}
 
 static inline NSString *VibeTagFieldName(VibeTagField field) {
     static NSString *const names[VibeTagFieldCount] = {
             @"album", @"album artist", @"genre", @"composer", @"year", @"track", @"disc", @"compilation",
             @"release ID", @"recording ID", @"ISRC", @"ReplayGain track gain", @"ReplayGain track peak",
             @"ReplayGain album gain", @"ReplayGain album peak", @"R128 track gain", @"R128 album gain",
-            @"Sound Check", @"comment", @"grouping", @"label"};
+            @"Sound Check", @"comment", @"grouping", @"label", @"catalog number", @"conductor", @"remixer",
+            @"lyricist", @"mood", @"language", @"copyright", @"original date", @"title sort", @"artist sort",
+            @"album sort", @"album artist sort"};
     return names[field];
 }
 
 // What each format's tag carries. ID3v1 has an album, a year, a genre, a
-// track number, and a comment. RIFF INFO adds a composer, an ISRC, and a
-// label. R128 gains are read from any Xiph comment, though Opus is the format
-// that defines them.
+// track number, and a comment. RIFF INFO adds a composer, an ISRC, a label,
+// a copyright, a language, a lyricist, and a remixer. ID3v2.3 has no TMOO,
+// so TagLib's writer drops the mood. R128 gains are read from any Xiph
+// comment, though Opus is the format that defines them.
 static inline BOOL VibeTagFixtureCarries(VibeTagFixture fixture, VibeTagField field) {
     switch (fixture) {
         case VibeTagFixtureMP3ID3v1:
@@ -150,7 +183,12 @@ static inline BOOL VibeTagFixtureCarries(VibeTagFixture fixture, VibeTagField fi
         case VibeTagFixtureWAVInfo:
             return field == VibeTagFieldAlbum || field == VibeTagFieldYear || field == VibeTagFieldGenre
                     || field == VibeTagFieldTrack || field == VibeTagFieldComposer || field == VibeTagFieldISRC
-                    || field == VibeTagFieldComment || field == VibeTagFieldLabel;
+                    || field == VibeTagFieldComment || field == VibeTagFieldLabel
+                    || field == VibeTagFieldCopyright || field == VibeTagFieldLanguage
+                    || field == VibeTagFieldLyricist || field == VibeTagFieldRemixer;
+        case VibeTagFixtureMP3ID3v23:
+            return field != VibeTagFieldMood && field != VibeTagFieldR128TrackGain
+                    && field != VibeTagFieldR128AlbumGain;
         case VibeTagFixtureCAF: case VibeTagFixtureW64: case VibeTagFixtureCount:
             return NO;
         default:
@@ -217,6 +255,18 @@ static inline void VibeAddTagField(TagLib::PropertyMap &properties, VibeTagFixtu
         case VibeTagFieldComment: set("COMMENT", kVibeTagComment); break;
         case VibeTagFieldGrouping: set("GROUPING", kVibeTagGrouping); break;
         case VibeTagFieldLabel: set("LABEL", kVibeTagLabel); break;
+        case VibeTagFieldCatalogNumber: set("CATALOGNUMBER", kVibeTagCatalogNumber); break;
+        case VibeTagFieldConductor: set("CONDUCTOR", kVibeTagConductor); break;
+        case VibeTagFieldRemixer: set("REMIXER", kVibeTagRemixer); break;
+        case VibeTagFieldLyricist: set("LYRICIST", kVibeTagLyricist); break;
+        case VibeTagFieldMood: set("MOOD", kVibeTagMood); break;
+        case VibeTagFieldLanguage: set("LANGUAGE", kVibeTagLanguage); break;
+        case VibeTagFieldCopyright: set("COPYRIGHT", kVibeTagCopyright); break;
+        case VibeTagFieldOriginalDate: set("ORIGINALDATE", kVibeTagOriginalDate); break;
+        case VibeTagFieldTitleSort: set("TITLESORT", kVibeTagTitleSort); break;
+        case VibeTagFieldArtistSort: set("ARTISTSORT", kVibeTagArtistSort); break;
+        case VibeTagFieldAlbumSort: set("ALBUMSORT", kVibeTagAlbumSort); break;
+        case VibeTagFieldAlbumArtistSort: set("ALBUMARTISTSORT", kVibeTagAlbumArtistSort); break;
         case VibeTagFieldSoundCheck: case VibeTagFieldCount: break;
     }
 }
@@ -309,7 +359,8 @@ static inline NSArray<NSArray<NSString *> *> *VibeAPEItems(const TagLib::Propert
                                                     @"TRACKNUMBER": @"Track", @"DISCNUMBER": @"Disc",
                                                     @"GENRE": @"Genre", @"COMPOSER": @"Composer",
                                                     @"COMPILATION": @"Compilation", @"COMMENT": @"Comment",
-                                                    @"GROUPING": @"Grouping", @"LABEL": @"Label"};
+                                                    @"GROUPING": @"Grouping", @"LABEL": @"Label",
+                                                    @"REMIXER": @"MixArtist"};
     NSMutableArray<NSArray<NSString *> *> *items = [NSMutableArray array];
     for (const auto &[key, values] : properties) {
         NSString *name = @(key.toCString(true));

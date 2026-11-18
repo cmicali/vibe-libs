@@ -78,6 +78,20 @@ NS_ASSUME_NONNULL_BEGIN
 // still happens.
 - (void)invalidateWithCompletion:(nullable dispatch_block_t)completion;
 
+// After a rewrite of a file's tags that kept its audio, as a tag edit's safe
+// write does. oldKey is the file's cacheKey (NSURL+Hash) from before the
+// write, and newKey from after it. Drops the tags filed under oldKey, so the
+// next read parses the new tags. Moves the row thumbnail and the rendition to
+// newKey, or drops them when artChanged. An entry newKey already holds is
+// kept, since only a parse of the new version files one. An absent entry is
+// no work. First retires every memoized cacheKey, so an item's next lookup
+// stats the file. Safe while loads run. Any thread. completion runs on the
+// cache's internal queue.
+- (void)moveEntriesOfRetaggedFileFromKey:(NSString *)oldKey
+                                   toKey:(NSString *)newKey
+                              artChanged:(BOOL)artChanged
+                              completion:(nullable dispatch_block_t)completion;
+
 // All three stores', enumerated off the calling thread; the completion runs
 // on main.
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion;

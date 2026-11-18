@@ -84,6 +84,28 @@ typedef void (^VibeEmbeddedArtReadHandler)(NSURL *url, dispatch_block_t read);
 @property (copy, nullable, readonly) NSString *musicBrainzRecordingID;
 @property (copy, nullable, readonly) NSString *isrc;
 
+// The rarer tags, as tagged, by TagLib's property name, as CATALOGNUMBER or
+// ALBUMARTISTSORT, which media/Tags' VibeTagField names too: only those the
+// file carries. nil when it carries none, so an untagged file costs one
+// pointer. The getters below read it, and each is nil when untagged, never
+// empty.
+@property (copy, nullable, readonly) NSDictionary<NSString *, NSString *> *extraTags;
+@property (copy, nullable, readonly) NSString *catalogNumber;
+@property (copy, nullable, readonly) NSString *conductor;
+@property (copy, nullable, readonly) NSString *remixer;
+@property (copy, nullable, readonly) NSString *lyricist;
+@property (copy, nullable, readonly) NSString *mood;
+@property (copy, nullable, readonly) NSString *language;
+@property (copy, nullable, readonly) NSString *copyright;
+// The original release's date, as tagged: "1972", or "1972-05-01".
+@property (copy, nullable, readonly) NSString *originalDate;
+// The original date's leading year. 0 when untagged.
+@property (assign, readonly) NSInteger originalYear;
+@property (copy, nullable, readonly) NSString *titleSort;
+@property (copy, nullable, readonly) NSString *artistSort;
+@property (copy, nullable, readonly) NSString *albumSort;
+@property (copy, nullable, readonly) NSString *albumArtistSort;
+
 // The MD5 of a FLAC's decoded audio, from its STREAMINFO block. nil for
 // every other format, and when the encoder wrote none.
 @property (copy, nullable, readonly) NSData *audioMD5;

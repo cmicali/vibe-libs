@@ -15,6 +15,7 @@
 #import "AudioTrackMetadata.h"
 #import "MetadataParseCoordinator.h"
 #import "AudioTrackMetadataCache+Debug.h"
+#import "NSURL+Hash.h"
 
 // The three stores, built together and published at once, so a reader sees
 // all of them or none. Each has its own budget, so art never pushes tags
@@ -102,7 +103,10 @@
     // v10 added the comment, the grouping, the label, and the bit depth.
     // An entry that names an MP4's kind MP4 without kindByCodec is a miss of
     // its own (AudioTrackMetadata's initWithCoder:), so that change kept v10.
-    return @"Audio Track Metadata v10";
+    // v11 added the extra tags: the catalog number, the conductor, the
+    // remixer, the lyricist, the mood, the language, the copyright, the
+    // original date, and the four sort names.
+    return @"Audio Track Metadata v11";
 }
 
 + (NSString *)thumbnailCacheName {
@@ -194,6 +198,45 @@
         atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
         for (PINCache *store in [self storesOnQueue].all) {
             [store removeAllObjects];
+        }
+        if (completion) {
+            completion();
+        }
+    });
+}
+
+// One entry's move to a key with none, then the old one's removal.
+static void MoveEntry(PINCache *store, NSString *oldKey, NSString *newKey) {
+    id entry = [store.diskCache objectForKey:oldKey];
+    if (entry && ![store.diskCache containsObjectForKey:newKey]) {
+        [store.diskCache setObject:entry forKey:newKey];
+    }
+    [store.diskCache removeObjectForKey:oldKey];
+}
+
+- (void)moveEntriesOfRetaggedFileFromKey:(NSString *)oldKey
+                                   toKey:(NSString *)newKey
+                              artChanged:(BOOL)artChanged
+                              completion:(dispatch_block_t)completion {
+    NSParameterAssert(oldKey && newKey);
+    // Before the move, so no lookup after this call files under the old key.
+    [NSURL invalidateMemoizedCacheKeys];
+    oldKey = [oldKey copy];
+    newKey = [newKey copy];
+    // On the queue that invalidates, so an invalidation and a move never
+    // interleave. A parse of the old version that files after this lands
+    // files under a key no stat gives again.
+    dispatch_async(_cacheQueue, ^{
+        VibeMetadataStores *stores = [self storesOnQueue];
+        [stores.tags.diskCache removeObjectForKey:oldKey];
+        BOOL sameKey = [oldKey isEqualToString:newKey];
+        for (PINCache *art in @[stores.thumbnails, stores.displayArt]) {
+            if (artChanged) {
+                [art.diskCache removeObjectForKey:oldKey];
+            }
+            else if (!sameKey) {
+                MoveEntry(art, oldKey, newKey);
+            }
         }
         if (completion) {
             completion();
