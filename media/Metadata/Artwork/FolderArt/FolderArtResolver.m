@@ -61,6 +61,8 @@ static NSString *const kNoArtMarker = @"";
     FolderArtFileInfoProvider _fileInfo;
     FolderArtDataReader _dataReader;
     FolderArtDecoder _decoder;
+    // Guarded by _lock.
+    FolderArtDecodeHandler _decodeHandler;
     // holdsCloudCovers. Set before the first read.
     atomic_bool _holdsCloudCovers;
 }
@@ -93,6 +95,29 @@ static NSString *const kNoArtMarker = @"";
 }
 
 // Copied under the lock and called outside it, since an app's answer may stat.
+- (void)setDecodeHandler:(FolderArtDecodeHandler)handler {
+    FolderArtDecodeHandler copied = [handler copy];
+    os_unfair_lock_lock(&_lock);
+    _decodeHandler = copied;
+    os_unfair_lock_unlock(&_lock);
+}
+
+// Every decode of a cover's bytes, through the app's handler. nil when the
+// bytes don't decode, or the handler skipped them.
+- (VibeImage *)decodeData:(NSData *)data atPath:(NSString *)artPath maxPixelSize:(CGFloat)maxPixelSize {
+    os_unfair_lock_lock(&_lock);
+    FolderArtDecodeHandler handler = _decodeHandler;
+    os_unfair_lock_unlock(&_lock);
+    if (!handler) {
+        return _decoder(data, maxPixelSize);
+    }
+    __block VibeImage *image = nil;
+    handler(artPath, ^{
+        image = self->_decoder(data, maxPixelSize);
+    });
+    return image;
+}
+
 - (FolderArtEnabledProvider)currentEnabledProvider {
     os_unfair_lock_lock(&_lock);
     FolderArtEnabledProvider provider = _enabledProvider;
@@ -803,7 +828,7 @@ static NSString *const kNoArtMarker = @"";
                  directory:(NSString *)directory
                   answerGeneration:(uint64_t)answerGeneration
               maxPixelSize:(CGFloat)maxPixelSize {
-    VibeImage *image = _decoder(data, maxPixelSize);
+    VibeImage *image = [self decodeData:data atPath:artPath maxPixelSize:maxPixelSize];
     if (image) {
         return image;
     }
@@ -847,7 +872,7 @@ static NSString *const kNoArtMarker = @"";
     if (![_thumbnails objectForKey:directory]) {
         // Straight to the decoder: these bytes just decoded, so a failure
         // here must not settle the folder.
-        VibeImage *thumbnail = _decoder(data, kVibeThumbnailArtDimension);
+        VibeImage *thumbnail = [self decodeData:data atPath:artPath maxPixelSize:kVibeThumbnailArtDimension];
         if (thumbnail) {
             [self storeImage:thumbnail inCache:_thumbnails
                    directory:directory artPath:artPath answerGeneration:answerGeneration];

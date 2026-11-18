@@ -839,6 +839,58 @@
     XCTAssertEqual(reads, 1u);
 }
 
+- (void)testEveryCoverDecodeRunsThroughTheHandler {
+    NSImage *decoded = [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        return [NSData dataWithBytes:"x" length:1];
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        return decoded;
+    }];
+    NSMutableArray<NSString *> *handled = [NSMutableArray array];
+    [resolver setDecodeHandler:^(NSString *coverPath, dispatch_block_t decode) {
+        @synchronized (handled) {
+            [handled addObject:coverPath];
+        }
+        decode();
+    }];
+    NSString *directory = @"/Library/Albums/Handled";
+    NSString *track = [directory stringByAppendingPathComponent:@"track.mp3"];
+    [resolver noteListedDirectories:[NSSet setWithObject:directory]
+             artFilenameByDirectory:@{directory: @"cover.jpg"}];
+
+    XCTAssertEqualObjects([resolver displayImageForAudioFilePath:track], decoded);
+    NSString *cover = [directory stringByAppendingPathComponent:@"cover.jpg"];
+    XCTAssertEqualObjects(handled, (@[cover, cover]));
+}
+
+- (void)testACoverTheHandlerSkipsCountsAsNone {
+    __block NSUInteger decodes = 0;
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        return [NSData dataWithBytes:"x" length:1];
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        decodes++;
+        return [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
+    }];
+    __block NSUInteger skips = 0;
+    [resolver setDecodeHandler:^(NSString *coverPath, dispatch_block_t decode) {
+        skips++;
+    }];
+    NSString *directory = @"/Library/Albums/Skipped";
+    NSString *track = [directory stringByAppendingPathComponent:@"track.mp3"];
+    [resolver noteListedDirectories:[NSSet setWithObject:directory]
+             artFilenameByDirectory:@{directory: @"cover.jpg"}];
+
+    XCTAssertNil([resolver displayImageForAudioFilePath:track]);
+    XCTAssertNil([resolver displayImageForAudioFilePath:track]);
+    XCTAssertEqual(decodes, 0u);
+    XCTAssertEqual(skips, 1u);
+    XCTAssertFalse([resolver needsBackgroundLoadForAudioFilePath:track]);
+}
+
 // A settled cover decodes without the resolve claim, so eviction has to be told
 // about it some other way: dropping its answerGeneration mid-decode would make the
 // finished image fail its own currency check and vanish.

@@ -30,6 +30,13 @@ extern NSString *const FolderArtDirectoryKey;
 typedef BOOL (^FolderArtEnabledProvider)(void);
 typedef BOOL (^FolderArtAccessProvider)(NSString *directory);
 
+// Runs decode, every decode of a cover's bytes, on the caller's queue, in
+// the call's own frame. One that never calls it skips the cover: the folder
+// counts as having none, as for bytes that don't decode. It may wait, since
+// it runs off main. An app sets one to guard these decodes, as against a
+// cover that crashes the image decoder.
+typedef void (^FolderArtDecodeHandler)(NSString *coverPath, dispatch_block_t decode);
+
 @interface FolderArtResolver : NSObject
 
 + (instancetype)sharedInstance;
@@ -41,6 +48,10 @@ typedef BOOL (^FolderArtAccessProvider)(NSString *directory);
 // Any thread.
 - (void)setEnabledProvider:(FolderArtEnabledProvider)enabledProvider
              accessProvider:(FolderArtAccessProvider)accessProvider;
+
+// Runs every decode of a cover's bytes through handler. nil runs each as
+// is. Any thread.
+- (void)setDecodeHandler:(nullable FolderArtDecodeHandler)handler;
 
 // The row thumbnail, or nil. Never blocks or touches the filesystem, O(1)
 // under the lock, so safe while drawing; an unknown folder schedules a
