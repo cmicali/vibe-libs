@@ -1,0 +1,10 @@
+#EXTM3U
+#EXTINF:123,Seed Artist - One
+../Music/One.flac
+#EXTINF:-1,Stream
+http://example.com/stream
+file:///Users/Shared/Two%20Two.mp3
+#EXTVLCOPT:start-time=4
+#EXTVLCOPT:stop-time=8.5
+#VIBE-CUE:2,300,637,Two,Seed%20Artist,file:///Users/Shared/Album.cue
+/Users/Shared/Album.flac

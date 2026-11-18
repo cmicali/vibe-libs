@@ -24,8 +24,9 @@ env:
 jobs:
   checks:
     runs-on: macos-26
-    # Checks the piece rules, tests the strings tools, builds every piece for
-    # iOS, and builds and runs the minimal consumer.
+    # Checks the piece rules, tests the strings tools, replays the fuzz
+    # targets' inputs, builds every piece for iOS, and builds and runs the
+    # minimal consumer.
     timeout-minutes: 30
 
     steps:
@@ -40,6 +41,9 @@ jobs:
 
       - name: Test the strings tools
         run: make test-strings
+
+      - name: Replay the fuzz targets' seeds and regressions
+        run: make fuzz-replay
 
       - name: Build every piece for iOS
         run: make build-ios

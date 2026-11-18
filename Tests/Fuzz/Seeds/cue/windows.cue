@@ -1,0 +1,5 @@
+FILE C:\Music\mix.mp3 MP3
+  TRACK 1 AUDIO
+    INDEX 1 0:0:0
+  TRACK 2 AUDIO
+    INDEX 1 99:59:74
