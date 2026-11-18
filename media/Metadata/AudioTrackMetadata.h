@@ -26,6 +26,26 @@ FOUNDATION_EXPORT NSNotificationName const AudioTrackMetadataThumbnailDidLoadNot
 // against a file whose art crashes them.
 typedef void (^VibeEmbeddedArtReadHandler)(NSURL *url, dispatch_block_t read);
 
+// The rarer tags an editor shows, by TagLib's property name, which every
+// format's frame or atom maps to (this piece's AGENTS.md, The tag fields).
+typedef NSString *VibeMetadataTagName NS_TYPED_ENUM;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagCatalogNumber;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagConductor;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagRemixer;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagLyricist;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagMood;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagLanguage;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagCopyright;
+// The original release's date, as tagged: "1972", or "1972-05-01".
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagOriginalDate;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagTitleSort;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagArtistSort;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagAlbumSort;
+FOUNDATION_EXPORT VibeMetadataTagName const VibeMetadataTagAlbumArtistSort;
+
+// Every name above, in that order.
+FOUNDATION_EXPORT NSArray<VibeMetadataTagName> *VibeMetadataExtraTagNames(void);
+
 @interface AudioTrackMetadata : NSObject <NSSecureCoding, NSCopying>
 
 - (instancetype)init NS_UNAVAILABLE;
@@ -83,6 +103,14 @@ typedef void (^VibeEmbeddedArtReadHandler)(NSURL *url, dispatch_block_t read);
 @property (copy, nullable, readonly) NSString *musicBrainzReleaseID;
 @property (copy, nullable, readonly) NSString *musicBrainzRecordingID;
 @property (copy, nullable, readonly) NSString *isrc;
+
+// The rarer tags, as tagged, by name: only those the file carries. nil when
+// it carries none.
+@property (copy, nullable, readonly) NSDictionary<VibeMetadataTagName, NSString *> *extraTags;
+// One of them, nil when untagged, never empty.
+- (nullable NSString *)extraTag:(VibeMetadataTagName)name;
+// The original date's leading year. 0 when untagged.
+@property (assign, readonly) NSInteger originalYear;
 
 // The MD5 of a FLAC's decoded audio, from its STREAMINFO block. nil for
 // every other format, and when the encoder wrote none.

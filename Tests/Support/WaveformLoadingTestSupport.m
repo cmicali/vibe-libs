@@ -4,6 +4,7 @@
 //
 
 #import "WaveformLoadingTestSupport.h"
+#import "NSURL+Hash.h"
 #import "AudioFileMaterializationCoordinatorInternal.h"
 
 #include <math.h>
@@ -54,6 +55,24 @@ BOOL WaveformEventuallyCached(AudioWaveformCache *cache, id<VibePlayableItem> tr
     cache.delegate = delegate;
     return found;
 }
+
+@implementation WaveformMemoizingTrack {
+    NSString *_memo;
+    uint64_t _memoGeneration;
+}
+
+- (NSString *)cacheKey {
+    uint64_t generation = NSURL.cacheKeyGeneration;
+    @synchronized (self) {
+        if (!_memo || _memoGeneration != generation) {
+            _memo = [super cacheKey];
+            _memoGeneration = generation;
+        }
+        return _memo;
+    }
+}
+
+@end
 
 @implementation WaveformRecordingSink
 - (void)appendMonoSamples:(const float *)samples frameCount:(NSUInteger)frameCount {

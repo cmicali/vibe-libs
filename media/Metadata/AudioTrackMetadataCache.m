@@ -102,7 +102,10 @@
     // v10 added the comment, the grouping, the label, and the bit depth.
     // An entry that names an MP4's kind MP4 without kindByCodec is a miss of
     // its own (AudioTrackMetadata's initWithCoder:), so that change kept v10.
-    return @"Audio Track Metadata v10";
+    // v11 added the extra tags: the catalog number, the conductor, the
+    // remixer, the lyricist, the mood, the language, the copyright, the
+    // original date, and the four sort names.
+    return @"Audio Track Metadata v11";
 }
 
 + (NSString *)thumbnailCacheName {
@@ -194,6 +197,40 @@
         atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
         for (PINCache *store in [self storesOnQueue].all) {
             [store removeAllObjects];
+        }
+        if (completion) {
+            completion();
+        }
+    });
+}
+
+- (void)moveEntriesOfRetaggedFileFromKey:(NSString *)oldKey
+                                   toKey:(NSString *)newKey
+                              artChanged:(BOOL)artChanged
+                              completion:(dispatch_block_t)completion {
+    NSParameterAssert(oldKey && newKey);
+    oldKey = [oldKey copy];
+    newKey = [newKey copy];
+    // On the queue that invalidates, so an invalidation and a move never
+    // interleave. A parse of the old version that files after this lands
+    // files under a key no stat gives again.
+    dispatch_async(_cacheQueue, ^{
+        VibeMetadataStores *stores = [self storesOnQueue];
+        if ([oldKey isEqualToString:newKey]) {
+            // TRAP: the key names the new tags as well as the old, so a parse
+            // begun before the write would file the old ones under it for
+            // good. The bump keeps every parse in flight from filing.
+            atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
+        }
+        [stores.tags.diskCache removeObjectForKey:oldKey];
+        for (PINCache *art in @[stores.thumbnails, stores.displayArt]) {
+            if (artChanged || ![art.diskCache moveObjectForKey:oldKey toKey:newKey]) {
+                // Refused: the keys are equal, the new key holds an entry, or
+                // there is none. Equal keys keep unchanged art.
+                if (artChanged || ![oldKey isEqualToString:newKey]) {
+                    [art.diskCache removeObjectForKey:oldKey];
+                }
+            }
         }
         if (completion) {
             completion();

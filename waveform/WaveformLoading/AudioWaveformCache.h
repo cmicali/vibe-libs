@@ -58,6 +58,24 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 // their UI delivery still happens.
 - (void)invalidateWithCompletion:(nullable dispatch_block_t)completion;
 
+// After a rewrite of files' tags that kept their audio, as a tag edit's safe
+// write does: each entry filed under an old key moves to its new key, as one
+// rename of its file, so nothing decodes it again. A key is an entry's: the
+// file's cacheKey (NSURL+Hash) from before the write and from after it, with
+// a cue row's window appended through VibeKeyByAppendingCueWindow. A cue
+// window left out stays under its old key, and decodes again on its next
+// play. An entry the new key already holds is kept, and the old one goes.
+// An absent entry is no work. Calls run in the order made, on a queue of the
+// cache's, and completion runs there after the call's last move.
+// TRAP: this retires no memoized key. The app calls NSURL
+// invalidateMemoizedCacheKeys once per batch, from completion, after every
+// cache's moves. Until the moves land, a load that stats the file misses
+// under its new key and decodes it. Until the retirement, a row that
+// memoized its old key misses under it and decodes. Safe while loads run.
+// Any thread.
+- (void)moveEntriesToNewKeys:(NSDictionary<NSString *, NSString *> *)newKeysByOldKey
+                  completion:(nullable dispatch_block_t)completion;
+
 // The backing store's entry count and total bytes on disk, enumerated off the
 // calling thread; the completion runs on the main thread.
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion;
