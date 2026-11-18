@@ -1,13 +1,13 @@
 //
 //  AudioTrackMetadataTagFixtures.h
-//  The metadata tests
+//  The metadata and tag writer tests
 //
 //  Tagged files for the tag and fuzz tests. The audio comes from
 //  AudioFileFixtures.h or a stock Apple encoder. The tags come from TagLib's own
 //  writers, except APE, which the vendored TagLib cannot write to MPEG. Ogg
 //  has no Apple encoder. So Vorbis and Opus start from the render suite's
 //  generated fixtures, and are nil without them. Each fixture carries every
-//  tag field its format does (VibeTagField). C++, so only .mm files import it.
+//  tag field its format does (VibeTagFixtureField). C++, so only .mm files import it.
 //
 
 #import "AudioFileFixtures.h"
@@ -85,41 +85,41 @@ static inline BOOL VibeTagFixtureIsID3v2(VibeTagFixture fixture) {
 
 // The fields AudioTrackMetadata reads past the title, artist, tempo, and key.
 // A number and its count are one field, since one tag can carry both.
-typedef NS_ENUM(NSInteger, VibeTagField) {
-    VibeTagFieldAlbum,
-    VibeTagFieldAlbumArtist,
-    VibeTagFieldGenre,
-    VibeTagFieldComposer,
-    VibeTagFieldYear,
-    VibeTagFieldTrack,
-    VibeTagFieldDisc,
-    VibeTagFieldCompilation,
-    VibeTagFieldReleaseID,
-    VibeTagFieldRecordingID,
-    VibeTagFieldISRC,
-    VibeTagFieldReplayGainTrackGain,
-    VibeTagFieldReplayGainTrackPeak,
-    VibeTagFieldReplayGainAlbumGain,
-    VibeTagFieldReplayGainAlbumPeak,
-    VibeTagFieldR128TrackGain,
-    VibeTagFieldR128AlbumGain,
-    VibeTagFieldSoundCheck,
-    VibeTagFieldComment,
-    VibeTagFieldGrouping,
-    VibeTagFieldLabel,
-    VibeTagFieldCatalogNumber,
-    VibeTagFieldConductor,
-    VibeTagFieldRemixer,
-    VibeTagFieldLyricist,
-    VibeTagFieldMood,
-    VibeTagFieldLanguage,
-    VibeTagFieldCopyright,
-    VibeTagFieldOriginalDate,
-    VibeTagFieldTitleSort,
-    VibeTagFieldArtistSort,
-    VibeTagFieldAlbumSort,
-    VibeTagFieldAlbumArtistSort,
-    VibeTagFieldCount,
+typedef NS_ENUM(NSInteger, VibeTagFixtureField) {
+    VibeTagFixtureFieldAlbum,
+    VibeTagFixtureFieldAlbumArtist,
+    VibeTagFixtureFieldGenre,
+    VibeTagFixtureFieldComposer,
+    VibeTagFixtureFieldYear,
+    VibeTagFixtureFieldTrack,
+    VibeTagFixtureFieldDisc,
+    VibeTagFixtureFieldCompilation,
+    VibeTagFixtureFieldReleaseID,
+    VibeTagFixtureFieldRecordingID,
+    VibeTagFixtureFieldISRC,
+    VibeTagFixtureFieldReplayGainTrackGain,
+    VibeTagFixtureFieldReplayGainTrackPeak,
+    VibeTagFixtureFieldReplayGainAlbumGain,
+    VibeTagFixtureFieldReplayGainAlbumPeak,
+    VibeTagFixtureFieldR128TrackGain,
+    VibeTagFixtureFieldR128AlbumGain,
+    VibeTagFixtureFieldSoundCheck,
+    VibeTagFixtureFieldComment,
+    VibeTagFixtureFieldGrouping,
+    VibeTagFixtureFieldLabel,
+    VibeTagFixtureFieldCatalogNumber,
+    VibeTagFixtureFieldConductor,
+    VibeTagFixtureFieldRemixer,
+    VibeTagFixtureFieldLyricist,
+    VibeTagFixtureFieldMood,
+    VibeTagFixtureFieldLanguage,
+    VibeTagFixtureFieldCopyright,
+    VibeTagFixtureFieldOriginalDate,
+    VibeTagFixtureFieldTitleSort,
+    VibeTagFixtureFieldArtistSort,
+    VibeTagFixtureFieldAlbumSort,
+    VibeTagFixtureFieldAlbumArtistSort,
+    VibeTagFixtureFieldCount,
 };
 
 static NSString *const kVibeTagAlbum = @"Tagged Album";
@@ -143,34 +143,34 @@ static NSString *const kVibeTagLabel = @"Tagged Label";
 static NSString *const kVibeTagOriginalDate = @"1972-05-01";
 static const NSInteger kVibeTagOriginalYear = 1972;
 
-static inline BOOL VibeTagFieldIsExtra(VibeTagField field) {
-    return field >= VibeTagFieldCatalogNumber && field <= VibeTagFieldAlbumArtistSort;
+static inline BOOL VibeTagFixtureFieldIsExtra(VibeTagFixtureField field) {
+    return field >= VibeTagFixtureFieldCatalogNumber && field <= VibeTagFixtureFieldAlbumArtistSort;
 }
 
 // An extra tag's property name, as the parse files it and TagLib's writer
 // takes it.
-static inline const char *VibeTagExtraName(VibeTagField field) {
+static inline const char *VibeTagExtraName(VibeTagFixtureField field) {
     static const char *const names[] = {
             "CATALOGNUMBER", "CONDUCTOR", "REMIXER", "LYRICIST", "MOOD", "LANGUAGE", "COPYRIGHT",
             "ORIGINALDATE", "TITLESORT", "ARTISTSORT", "ALBUMSORT", "ALBUMARTISTSORT"};
-    return names[field - VibeTagFieldCatalogNumber];
+    return names[field - VibeTagFixtureFieldCatalogNumber];
 }
 
 // An extra tag's value as written, and as read back from `fixture`.
 // ID3v2.3 holds the original date as TORY, its year alone.
-static inline NSString *VibeTagExtraValue(VibeTagField field, VibeTagFixture fixture) {
+static inline NSString *VibeTagExtraValue(VibeTagFixtureField field, VibeTagFixture fixture) {
     static NSString *const values[] = {
             @"CAT-0042", @"Tagged Conductor", @"Tagged Remixer", @"Tagged Lyricist", @"Mellow", @"eng",
             @"2024 Tagged Copyright", kVibeTagOriginalDate, @"Title, Tagged", @"Artist, Tagged",
             @"Album, Tagged", @"Album Artist, Tagged"};
-    if (field == VibeTagFieldOriginalDate && fixture == VibeTagFixtureMP3ID3v23) {
+    if (field == VibeTagFixtureFieldOriginalDate && fixture == VibeTagFixtureMP3ID3v23) {
         return @"1972";
     }
-    return values[field - VibeTagFieldCatalogNumber];
+    return values[field - VibeTagFixtureFieldCatalogNumber];
 }
 
-static inline NSString *VibeTagFieldName(VibeTagField field) {
-    static NSString *const names[VibeTagFieldCount] = {
+static inline NSString *VibeTagFixtureFieldName(VibeTagFixtureField field) {
+    static NSString *const names[VibeTagFixtureFieldCount] = {
             @"album", @"album artist", @"genre", @"composer", @"year", @"track", @"disc", @"compilation",
             @"release ID", @"recording ID", @"ISRC", @"ReplayGain track gain", @"ReplayGain track peak",
             @"ReplayGain album gain", @"ReplayGain album peak", @"R128 track gain", @"R128 album gain",
@@ -185,31 +185,31 @@ static inline NSString *VibeTagFieldName(VibeTagField field) {
 // a copyright, a language, a lyricist, and a remixer. ID3v2.3 has no TMOO,
 // so TagLib's writer drops the mood. R128 gains are read from any Xiph
 // comment, though Opus is the format that defines them.
-static inline BOOL VibeTagFixtureCarries(VibeTagFixture fixture, VibeTagField field) {
+static inline BOOL VibeTagFixtureCarries(VibeTagFixture fixture, VibeTagFixtureField field) {
     switch (fixture) {
         case VibeTagFixtureMP3ID3v1:
-            return field == VibeTagFieldAlbum || field == VibeTagFieldYear || field == VibeTagFieldGenre
-                    || field == VibeTagFieldTrack || field == VibeTagFieldComment;
+            return field == VibeTagFixtureFieldAlbum || field == VibeTagFixtureFieldYear || field == VibeTagFixtureFieldGenre
+                    || field == VibeTagFixtureFieldTrack || field == VibeTagFixtureFieldComment;
         case VibeTagFixtureWAVInfo:
-            return field == VibeTagFieldAlbum || field == VibeTagFieldYear || field == VibeTagFieldGenre
-                    || field == VibeTagFieldTrack || field == VibeTagFieldComposer || field == VibeTagFieldISRC
-                    || field == VibeTagFieldComment || field == VibeTagFieldLabel
-                    || field == VibeTagFieldCopyright || field == VibeTagFieldLanguage
-                    || field == VibeTagFieldLyricist || field == VibeTagFieldRemixer;
+            return field == VibeTagFixtureFieldAlbum || field == VibeTagFixtureFieldYear || field == VibeTagFixtureFieldGenre
+                    || field == VibeTagFixtureFieldTrack || field == VibeTagFixtureFieldComposer || field == VibeTagFixtureFieldISRC
+                    || field == VibeTagFixtureFieldComment || field == VibeTagFixtureFieldLabel
+                    || field == VibeTagFixtureFieldCopyright || field == VibeTagFixtureFieldLanguage
+                    || field == VibeTagFixtureFieldLyricist || field == VibeTagFixtureFieldRemixer;
         case VibeTagFixtureMP3ID3v23:
-            return field != VibeTagFieldMood && field != VibeTagFieldR128TrackGain
-                    && field != VibeTagFieldR128AlbumGain;
+            return field != VibeTagFixtureFieldMood && field != VibeTagFixtureFieldR128TrackGain
+                    && field != VibeTagFixtureFieldR128AlbumGain;
         case VibeTagFixtureCAF: case VibeTagFixtureW64: case VibeTagFixtureCount:
             return NO;
         default:
             break;
     }
-    BOOL r128 = field == VibeTagFieldR128TrackGain || field == VibeTagFieldR128AlbumGain;
+    BOOL r128 = field == VibeTagFixtureFieldR128TrackGain || field == VibeTagFixtureFieldR128AlbumGain;
     if (VibeTagFixtureIsXiph(fixture)) {
-        return field != VibeTagFieldSoundCheck;
+        return field != VibeTagFixtureFieldSoundCheck;
     }
     if (fixture == VibeTagFixtureMP3APE) {
-        return !r128 && field != VibeTagFieldSoundCheck;
+        return !r128 && field != VibeTagFixtureFieldSoundCheck;
     }
     return !r128; // ID3v2 and MP4
 }
@@ -230,50 +230,50 @@ static inline TagLib::ByteVector VibeTagBytes(NSData *data) {
 
 // One field's tags as each format's writer spells them. Xiph comments keep a
 // count in a tag of its own. Sound Check is no property: the writer adds it.
-static inline void VibeAddTagField(TagLib::PropertyMap &properties, VibeTagFixture fixture, VibeTagField field) {
+static inline void VibeAddTagField(TagLib::PropertyMap &properties, VibeTagFixture fixture, VibeTagFixtureField field) {
     auto set = [&properties](const char *key, NSString *value) {
         properties[key] = TagLib::StringList(VibeTagString(value));
     };
-    if (VibeTagFieldIsExtra(field)) {
+    if (VibeTagFixtureFieldIsExtra(field)) {
         set(VibeTagExtraName(field), VibeTagExtraValue(field, VibeTagFixtureFLAC));
         return;
     }
     BOOL xiph = VibeTagFixtureIsXiph(fixture);
     BOOL counts = VibeTagFixtureHasCounts(fixture);
     switch (field) {
-        case VibeTagFieldAlbum: set("ALBUM", kVibeTagAlbum); break;
-        case VibeTagFieldAlbumArtist: set("ALBUMARTIST", kVibeTagAlbumArtist); break;
-        case VibeTagFieldGenre: set("GENRE", kVibeTagGenre); break;
-        case VibeTagFieldComposer: set("COMPOSER", kVibeTagComposer); break;
+        case VibeTagFixtureFieldAlbum: set("ALBUM", kVibeTagAlbum); break;
+        case VibeTagFixtureFieldAlbumArtist: set("ALBUMARTIST", kVibeTagAlbumArtist); break;
+        case VibeTagFixtureFieldGenre: set("GENRE", kVibeTagGenre); break;
+        case VibeTagFixtureFieldComposer: set("COMPOSER", kVibeTagComposer); break;
         // ID3v1 stores four digits.
-        case VibeTagFieldYear: set("DATE", fixture == VibeTagFixtureMP3ID3v1 ? @"1999" : @"1999-04-01"); break;
-        case VibeTagFieldTrack:
+        case VibeTagFixtureFieldYear: set("DATE", fixture == VibeTagFixtureMP3ID3v1 ? @"1999" : @"1999-04-01"); break;
+        case VibeTagFixtureFieldTrack:
             set("TRACKNUMBER", xiph || !counts ? @"3" : @"3/12");
             if (xiph) set("TRACKTOTAL", @"12");
             break;
-        case VibeTagFieldDisc:
+        case VibeTagFixtureFieldDisc:
             set("DISCNUMBER", xiph ? @"1" : @"1/2");
             if (xiph) set("DISCTOTAL", @"2");
             break;
-        case VibeTagFieldCompilation: set("COMPILATION", @"1"); break;
-        case VibeTagFieldReleaseID: set("MUSICBRAINZ_ALBUMID", kVibeTagReleaseID); break;
-        case VibeTagFieldRecordingID: set("MUSICBRAINZ_TRACKID", kVibeTagRecordingID); break;
-        case VibeTagFieldISRC: set("ISRC", kVibeTagISRC); break;
-        case VibeTagFieldReplayGainTrackGain: set("REPLAYGAIN_TRACK_GAIN", @"-6.54 dB"); break;
-        case VibeTagFieldReplayGainTrackPeak: set("REPLAYGAIN_TRACK_PEAK", @"0.988547"); break;
-        case VibeTagFieldReplayGainAlbumGain: set("REPLAYGAIN_ALBUM_GAIN", @"+1.25 dB"); break;
-        case VibeTagFieldReplayGainAlbumPeak: set("REPLAYGAIN_ALBUM_PEAK", @"1.000000"); break;
+        case VibeTagFixtureFieldCompilation: set("COMPILATION", @"1"); break;
+        case VibeTagFixtureFieldReleaseID: set("MUSICBRAINZ_ALBUMID", kVibeTagReleaseID); break;
+        case VibeTagFixtureFieldRecordingID: set("MUSICBRAINZ_TRACKID", kVibeTagRecordingID); break;
+        case VibeTagFixtureFieldISRC: set("ISRC", kVibeTagISRC); break;
+        case VibeTagFixtureFieldReplayGainTrackGain: set("REPLAYGAIN_TRACK_GAIN", @"-6.54 dB"); break;
+        case VibeTagFixtureFieldReplayGainTrackPeak: set("REPLAYGAIN_TRACK_PEAK", @"0.988547"); break;
+        case VibeTagFixtureFieldReplayGainAlbumGain: set("REPLAYGAIN_ALBUM_GAIN", @"+1.25 dB"); break;
+        case VibeTagFixtureFieldReplayGainAlbumPeak: set("REPLAYGAIN_ALBUM_PEAK", @"1.000000"); break;
         // Q7.8: -1234/256 and -512/256 dB.
-        case VibeTagFieldR128TrackGain: set("R128_TRACK_GAIN", @"-1234"); break;
-        case VibeTagFieldR128AlbumGain: set("R128_ALBUM_GAIN", @"-512"); break;
-        case VibeTagFieldComment: set("COMMENT", kVibeTagComment); break;
-        case VibeTagFieldGrouping: set("GROUPING", kVibeTagGrouping); break;
-        case VibeTagFieldLabel: set("LABEL", kVibeTagLabel); break;
-        case VibeTagFieldSoundCheck: case VibeTagFieldCount: break;
-        case VibeTagFieldCatalogNumber: case VibeTagFieldConductor: case VibeTagFieldRemixer:
-        case VibeTagFieldLyricist: case VibeTagFieldMood: case VibeTagFieldLanguage: case VibeTagFieldCopyright:
-        case VibeTagFieldOriginalDate: case VibeTagFieldTitleSort: case VibeTagFieldArtistSort:
-        case VibeTagFieldAlbumSort: case VibeTagFieldAlbumArtistSort: break; // above
+        case VibeTagFixtureFieldR128TrackGain: set("R128_TRACK_GAIN", @"-1234"); break;
+        case VibeTagFixtureFieldR128AlbumGain: set("R128_ALBUM_GAIN", @"-512"); break;
+        case VibeTagFixtureFieldComment: set("COMMENT", kVibeTagComment); break;
+        case VibeTagFixtureFieldGrouping: set("GROUPING", kVibeTagGrouping); break;
+        case VibeTagFixtureFieldLabel: set("LABEL", kVibeTagLabel); break;
+        case VibeTagFixtureFieldSoundCheck: case VibeTagFixtureFieldCount: break;
+        case VibeTagFixtureFieldCatalogNumber: case VibeTagFixtureFieldConductor: case VibeTagFixtureFieldRemixer:
+        case VibeTagFixtureFieldLyricist: case VibeTagFixtureFieldMood: case VibeTagFixtureFieldLanguage: case VibeTagFixtureFieldCopyright:
+        case VibeTagFixtureFieldOriginalDate: case VibeTagFixtureFieldTitleSort: case VibeTagFixtureFieldArtistSort:
+        case VibeTagFixtureFieldAlbumSort: case VibeTagFixtureFieldAlbumArtistSort: break; // above
     }
 }
 
@@ -287,9 +287,9 @@ static inline TagLib::PropertyMap VibeTagProperties(VibeTagFixture fixture) {
         properties["BPM"] = TagLib::StringList(VibeTagString([NSString stringWithFormat:@"%g", kVibeTagBPM]));
         properties["INITIALKEY"] = TagLib::StringList(VibeTagString(kVibeTagKey));
     }
-    for (NSInteger field = 0; field < VibeTagFieldCount; field++) {
-        if (VibeTagFixtureCarries(fixture, (VibeTagField)field)) {
-            VibeAddTagField(properties, fixture, (VibeTagField)field);
+    for (NSInteger field = 0; field < VibeTagFixtureFieldCount; field++) {
+        if (VibeTagFixtureCarries(fixture, (VibeTagFixtureField)field)) {
+            VibeAddTagField(properties, fixture, (VibeTagFixtureField)field);
         }
     }
     return properties;
@@ -411,11 +411,13 @@ static inline BOOL VibeInsertFLACBlock(NSURL *url, uint8_t type, NSData *block) 
     return [file writeToURL:url atomically:YES];
 }
 
-static inline void VibeAddAPIC(TagLib::ID3v2::Tag *tag, NSData *art) {
+static inline void VibeAddAPIC(TagLib::ID3v2::Tag *tag, NSData *art,
+                               TagLib::ID3v2::AttachedPictureFrame::Type type =
+                                       TagLib::ID3v2::AttachedPictureFrame::FrontCover) {
     if (!art) return;
     auto frame = new TagLib::ID3v2::AttachedPictureFrame();
     frame->setMimeType("image/png");
-    frame->setType(TagLib::ID3v2::AttachedPictureFrame::FrontCover);
+    frame->setType(type);
     frame->setPicture(VibeTagBytes(art));
     tag->addFrame(frame);
 }
@@ -429,9 +431,10 @@ static inline void VibeAddSoundCheck(TagLib::ID3v2::Tag *tag) {
     tag->addFrame(frame);
 }
 
-static inline TagLib::FLAC::Picture *VibeFLACPicture(NSData *art) {
+static inline TagLib::FLAC::Picture *VibeFLACPicture(NSData *art,
+                                                    TagLib::FLAC::Picture::Type type = TagLib::FLAC::Picture::FrontCover) {
     auto picture = new TagLib::FLAC::Picture();
-    picture->setType(TagLib::FLAC::Picture::FrontCover);
+    picture->setType(type);
     picture->setMimeType("image/png");
     picture->setData(VibeTagBytes(art));
     return picture;
@@ -588,13 +591,13 @@ static inline NSURL *VibeWriteTagFixture(NSURL *dir, VibeTagFixture fixture, NSD
     }
     BOOL saved = VibeSaveTagFixtureTags(url, fixture, VibeTagProperties(fixture),
                                         VibeTagFixtureHasArt(fixture) ? art : nil,
-                                        VibeTagFixtureCarries(fixture, VibeTagFieldSoundCheck));
+                                        VibeTagFixtureCarries(fixture, VibeTagFixtureFieldSoundCheck));
     return saved ? url : nil;
 }
 
 // The fixture's audio in `dir`, tagged with `field` alone. nil when the
 // format's source is unavailable.
-static inline NSURL *VibeWriteTagFieldFixture(NSURL *dir, VibeTagFixture fixture, VibeTagField field) {
+static inline NSURL *VibeWriteTagFieldFixture(NSURL *dir, VibeTagFixture fixture, VibeTagFixtureField field) {
     NSURL *url = [dir URLByAppendingPathComponent:VibeTagFixtureName(fixture)];
     [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
     if (!VibeWriteTagFixtureAudio(url, fixture)) {
@@ -602,5 +605,5 @@ static inline NSURL *VibeWriteTagFieldFixture(NSURL *dir, VibeTagFixture fixture
     }
     TagLib::PropertyMap properties;
     VibeAddTagField(properties, fixture, field);
-    return VibeSaveTagFixtureTags(url, fixture, properties, nil, field == VibeTagFieldSoundCheck) ? url : nil;
+    return VibeSaveTagFixtureTags(url, fixture, properties, nil, field == VibeTagFixtureFieldSoundCheck) ? url : nil;
 }

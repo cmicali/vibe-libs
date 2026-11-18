@@ -154,7 +154,7 @@
                    VibeMetadataReadOutcomeCacheMiss);
     VibeMetadataReadResult *read = [self read:url through:cache policy:VibeMetadataReadPolicyLocal];
     XCTAssertFalse(read.fromCache);
-    XCTAssertEqualObjects([read.metadata extraTag:VibeMetadataTagCatalogNumber], @"CAT-0042");
+    XCTAssertEqualObjects([read.metadata extraTag:VibeTagFieldCatalogNumber], @"CAT-0042");
 }
 
 #pragma mark - The art's stores
