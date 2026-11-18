@@ -4,7 +4,7 @@
 PROJECT := vibe-libs.xcodeproj
 DERIVED := build/DerivedData
 
-.PHONY: help project test build-ios consumer check-pieces test-strings clean
+.PHONY: help project test build-ios consumer check-pieces test-strings fuzz fuzz-replay clean
 
 # Every target, with the first sentence of its comment.
 help:
@@ -56,6 +56,20 @@ check-pieces:
 # Runs the strings tools' self-test over a tiny app of their own.
 test-strings:
 	Tests/tools/strings/strings-test.sh
+
+# FUZZ_TARGETS limits fuzz and fuzz-replay to some targets; fuzz.py list
+# names them. FUZZ_SECONDS is each target's run (600), and FUZZ_JOBS its
+# workers (4).
+FUZZ_TARGETS ?=
+FUZZ_FLAGS = $(if $(FUZZ_JOBS),--jobs $(FUZZ_JOBS))
+
+# Fuzzes the parsers under Homebrew's clang, one target at a time (Tests/Fuzz).
+fuzz:
+	python3 -I scripts/fuzz/fuzz.py run $(FUZZ_TARGETS) $(FUZZ_FLAGS) $(if $(FUZZ_SECONDS),--seconds $(FUZZ_SECONDS))
+
+# Replays each fuzz target's seeds and regressions once, under Xcode's clang.
+fuzz-replay:
+	python3 -I scripts/fuzz/fuzz.py replay $(FUZZ_TARGETS) $(FUZZ_FLAGS) $(if $(SINCE),--since '$(SINCE)')
 
 # Removes build output and the generated project.
 clean:
