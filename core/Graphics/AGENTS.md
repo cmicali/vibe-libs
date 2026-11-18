@@ -9,7 +9,7 @@ Images, colors, and type for an app on either platform. It depends on nothing. I
 `PlatformImage.h` and `PlatformColor.h` hold free functions over a foreign class. The class differs per platform, so there is no single class to hang a category on. Everything else here is a category, except `Fonts`, which is a class of its own.
 
 - `VibeDecodedImageWithData` is the bounded ImageIO decode. It never materializes the full-size bitmap. It takes 10 to 100 ms, so keep it off the main thread.
-- **TRAP: art longer than `kVibeLargestArtSide`, 16,384 px, is refused undecoded.** ImageIO's HEIC decode takes time in step with the width, whatever size is asked for. A 758-byte HEIC claiming 327,696 px took 5 s a decode. Tests/Fuzz's `art` found it.
+- **TRAP: art longer than `kVibeLargestArtDimension`, 16,384 px, is refused undecoded.** ImageIO's HEIC decode takes time in step with the width, whatever size is asked for. A 758-byte HEIC claiming 327,696 px took 5 s a decode. Tests/Fuzz's `art` found it.
 - `VibeDominantColorOfImage` is a weighted hue histogram over a fixed 32×32 downsample, so its cost does not depend on the image's size. **It works in a CoreGraphics bitmap context of its own**, not in either platform's bitmap type. `NSBitmapImageRep` and `UIImage`'s backing store share no layout, so one implementation serves both. `NSImage (Util)`'s `dominantColor` and `UIImage (VibeDominantColor)` forward to it.
 - `PlatformColor.h` carries the `#RRGGBB[AA]` form of a stored color and the linear blend. An opaque color stays six digits. It has `extern "C"` guards, because C++ files include it.
 - The three art sizes in `PlatformImage.h` are Vibe's: the list-row thumbnail, the display cap, and the archived display rendition.

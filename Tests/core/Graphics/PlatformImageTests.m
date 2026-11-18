@@ -28,11 +28,11 @@ static NSData *VibeStripPNG(size_t width) {
 }
 
 - (void)testArtAtTheLargestSideDecodes {
-    XCTAssertNotNil(VibeDecodedImageWithData(VibeStripPNG((size_t)kVibeLargestArtSide), kVibeThumbnailArtDimension));
+    XCTAssertNotNil(VibeDecodedImageWithData(VibeStripPNG((size_t)kVibeLargestArtDimension), kVibeThumbnailArtDimension));
 }
 
 - (void)testArtPastTheLargestSideIsRefused {
-    XCTAssertNil(VibeDecodedImageWithData(VibeStripPNG((size_t)kVibeLargestArtSide + 1), kVibeThumbnailArtDimension));
+    XCTAssertNil(VibeDecodedImageWithData(VibeStripPNG((size_t)kVibeLargestArtDimension + 1), kVibeThumbnailArtDimension));
 }
 
 // It took 5 s a decode before the refusal (PlatformImage.m).

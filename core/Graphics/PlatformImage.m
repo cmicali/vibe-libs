@@ -25,7 +25,7 @@ const CGFloat kVibeArchivedDisplayArtDimension = 640.0;
 const CGFloat kVibeArchivedDisplayArtDimension = 1024.0;
 #endif
 
-const CGFloat kVibeLargestArtSide = 16384.0;
+const CGFloat kVibeLargestArtDimension = 16384.0;
 
 CGSize VibeEncodedImagePixelSize(NSData *data) {
     CGImageSourceRef source = data ? CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL) : NULL;
@@ -128,7 +128,7 @@ VibeImage *VibeDecodedImageWithData(NSData *data, CGFloat maxPixelSize) {
     // claiming 327,696 by 16 took 5 s a decode (macOS 27). No cover comes
     // near this side, and art at it decodes in a quarter second. Found by
     // Tests/Fuzz's art.
-    if (longest > kVibeLargestArtSide) {
+    if (longest > kVibeLargestArtDimension) {
         CFRelease(source);
         return nil;
     }

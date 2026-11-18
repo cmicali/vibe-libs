@@ -24,10 +24,10 @@ FOUNDATION_EXPORT const CGFloat kVibeDisplayArtDimension;
 FOUNDATION_EXPORT const CGFloat kVibeArchivedDisplayArtDimension;
 
 // The longest side a decode takes. Longer art is refused undecoded.
-FOUNDATION_EXPORT const CGFloat kVibeLargestArtSide;
+FOUNDATION_EXPORT const CGFloat kVibeLargestArtDimension;
 
 // Decodes at a bounded pixel size without materializing the full-size bitmap;
-// nil for nil or undecodable data, or art past kVibeLargestArtSide. 10-100ms,
+// nil for nil or undecodable data, or art past kVibeLargestArtDimension. 10-100ms,
 // so keep it off the main thread.
 FOUNDATION_EXPORT VibeImage *_Nullable VibeDecodedImageWithData(NSData *_Nullable data, CGFloat maxPixelSize);
 
