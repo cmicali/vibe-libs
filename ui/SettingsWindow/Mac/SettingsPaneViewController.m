@@ -153,6 +153,8 @@ static const CGFloat kInlineTitleInset = 10;
 
 @end
 
+static void CollectRows(NSView *view, NSMutableArray<SettingsRowView *> *rows);
+
 @implementation SettingsPaneViewController {
     NSStackView *_sectionStack;
     NSSize _lastNaturalSize;
@@ -212,6 +214,11 @@ static const CGFloat kInlineTitleInset = 10;
         [section.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
     }
     _sectionStack = stack;
+    if (_wrapsRowCaptions) {
+        NSMutableArray<SettingsRowView *> *rows = [NSMutableArray array];
+        CollectRows(stack, rows);
+        for (SettingsRowView *row in rows) row.wrapsCaption = YES;
+    }
     NSSize paneSize = [self naturalPaneSize];
 
     SettingsFillView *view = [[SettingsFillView alloc]
@@ -423,7 +430,8 @@ static const CGFloat kInlineTitleInset = 10;
 
 // The design-width pane's row content, so the first shared-floor height is
 // the design one.
-static const CGFloat kWrappingLabelInitialWidth = 408;
+static const CGFloat kWrappingLabelInitialWidth =
+        kSettingsPaneWidth - 2 * kPanePadding - 2 * kSettingsRowInset;
 
 - (NSTextField *)wrappingLabelWithString:(NSString *)text {
     NSTextField *label = [NSTextField wrappingLabelWithString:text];

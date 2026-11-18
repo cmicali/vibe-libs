@@ -47,6 +47,12 @@ static const CGFloat kSettingsCardRevealInset = 12;
 // never reads. Every pane's effect request runs through it (applyLiveEffects:).
 - (instancetype)initWithEffectsSink:(void (^)(NSUInteger effects))sink;
 
+// YES wraps every row's caption (SettingsRowView.wrapsCaption), so no caption
+// widens the shared pane size. Set it before loadPaneWithSections:, which
+// applies it to each row it is given. A row made later sets its own. NO by default: a caption keeps one line, and every
+// pane widens to fit the longest.
+@property (nonatomic) BOOL wrapsRowCaptions;
+
 // Entries are normally SettingsSectionViews; a plain view stacks full width,
 // outside any card (the About pane's identity block).
 - (void)loadPaneWithSections:(NSArray<__kindof NSView *> *)sections;

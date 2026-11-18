@@ -4,6 +4,7 @@
 //
 
 #import "SettingsFormViews.h"
+#import "SettingsPaneViewController.h"
 #import "NSView+DarkMode.h"
 #import "NSString+FormLabel.h"
 #import "PlatformColor.h"
@@ -12,6 +13,9 @@ static const CGFloat kRowPaddingV = 8;
 static const CGFloat kRowMinHeight = 40;
 static const CGFloat kRowTitleControlGap = 8;
 static const CGFloat kCardCornerRadius = 10;
+// A card in a pane of the design width. A caption wraps at what this leaves
+// it until its row first lays out.
+static const CGFloat kRowDesignWidth = kSettingsPaneWidth - 2 * kPanePadding;
 
 // Legacy, not overlay: a list clipped at rowCount rows must show that there
 // are more without a scroll to reveal the bar. It still hides while every row
@@ -141,7 +145,11 @@ static SettingsFillView *Hairline(NSView *in) {
     SettingsFillView *_listHeader;
     NSStackView *_cluster;
     NSLayoutConstraint *_titleCenteredConstraint;
+    NSLayoutConstraint *_titleLeadingConstraint;
     NSArray<NSLayoutConstraint *> *_captionConstraints;
+    BOOL _laidOut;
+    // The caption's own compression resistance, as AppKit made the label.
+    NSLayoutPriority _captionResistance;
 }
 
 // AppKit owns a control's internal subviews, so the walk stops at a control.
@@ -237,6 +245,11 @@ static CGFloat SettingsCaptionHeight(NSTextField *label, NSString *text, CGFloat
         captionLabel.hidden = YES;
         [self addSubview:captionLabel];
         _captionLabel = captionLabel;
+        _captionResistance = [captionLabel contentCompressionResistancePriorityForOrientation:
+                NSLayoutConstraintOrientationHorizontal];
+        if (_wrapsCaption) {
+            [self applyCaptionWrapping];
+        }
         _captionConstraints = @[
             [_titleLabel.topAnchor constraintEqualToAnchor:self.topAnchor constant:kRowPaddingV],
             [captionLabel.topAnchor constraintEqualToAnchor:_titleLabel.bottomAnchor constant:2],
@@ -261,6 +274,69 @@ static CGFloat SettingsCaptionHeight(NSTextField *label, NSString *text, CGFloat
     return changed;
 }
 
+// The room between the title's leading edge and the controls. Before the
+// row's first layout it is the room in a card of the design width, so the
+// first measured height is the design one.
+- (CGFloat)captionRoom {
+    if (_laidOut) {
+        // The title's alignment rect, as the constraints place the caption.
+        return NSMinX(_cluster.frame) - kRowTitleControlGap
+                - NSMinX([_titleLabel alignmentRectForFrame:_titleLabel.frame]);
+    }
+    return kRowDesignWidth - kSettingsRowInset - _cluster.fittingSize.width - kRowTitleControlGap
+            - _titleLeadingConstraint.constant;
+}
+
+// TRAP: a wrapping caption resists compression below the fitting priority,
+// or its unwrapped text widens the shared pane size, and every pane with it.
+// It wraps at preferredMaxLayoutWidth instead, which layout keeps at the room
+// the row gives it. Unwrapped, it is the label as AppKit made it: one line,
+// which the pane widens to fit.
+- (void)applyCaptionWrapping {
+    if (!_captionLabel) {
+        return;
+    }
+    [_captionLabel setContentCompressionResistancePriority:_wrapsCaption
+            ? NSLayoutPriorityFittingSizeCompression - 1 : _captionResistance
+                                            forOrientation:NSLayoutConstraintOrientationHorizontal];
+    if (_wrapsCaption) {
+        [self updateCaptionWrappingWidth];
+    } else if (_captionLabel.preferredMaxLayoutWidth != 0) {
+        _captionLabel.preferredMaxLayoutWidth = 0;
+    }
+}
+
+- (void)setWrapsCaption:(BOOL)wrapsCaption {
+    if (wrapsCaption != _wrapsCaption) {
+        _wrapsCaption = wrapsCaption;
+        [self applyCaptionWrapping];
+    }
+}
+
+- (void)updateCaptionWrappingWidth {
+    if (!_captionLabel || !_wrapsCaption) {
+        return;
+    }
+    CGFloat room = [self captionRoom];
+    if (room > 0 && fabs(_captionLabel.preferredMaxLayoutWidth - room) > 0.5) {
+        _captionLabel.preferredMaxLayoutWidth = room; // invalidates the intrinsic size itself
+    }
+}
+
+- (void)setIndentLevel:(NSInteger)indentLevel {
+    indentLevel = MAX(0, indentLevel);
+    if (indentLevel == _indentLevel) {
+        return;
+    }
+    _indentLevel = indentLevel;
+    _titleLeadingConstraint.constant = kSettingsRowInset + indentLevel * kSettingsRowIndent;
+    if (_laidOut) {
+        self.needsLayout = YES; // the next layout rewraps the caption
+    } else {
+        [self updateCaptionWrappingWidth];
+    }
+}
+
 - (BOOL)setCaption:(NSString *)caption detail:(NSString *)detail {
     return [self setCaption:detail.length
             ? [NSString stringWithFormat:@"%@\n%@", caption, detail] : caption];
@@ -269,8 +345,11 @@ static CGFloat SettingsCaptionHeight(NSTextField *label, NSString *text, CGFloat
 // Measured, not assumed from the text: YES costs the caller a full Auto Layout
 // solve, and a status caption rewritten during playback keeps its line count.
 - (BOOL)captionHeightChangesFrom:(NSString *)previous to:(NSString *)text {
-    CGFloat width = NSMinX(_cluster.frame) - kRowTitleControlGap - NSMinX(_titleLabel.frame);
-    if (width <= 0 || NSIsEmptyRect(_captionLabel.frame)) {
+    if (!_laidOut || NSIsEmptyRect(_captionLabel.frame)) {
+        return YES;
+    }
+    CGFloat width = [self captionRoom];
+    if (width <= 0) {
         return YES;
     }
     return SettingsCaptionHeight(_captionLabel, previous, width)
@@ -337,8 +416,10 @@ static void AddCaptionedControls(NSStackView *row, NSArray<NSView *> *controls, 
         titleLabel.lineBreakMode = NSLineBreakByTruncatingTail;
         [row addSubview:titleLabel];
         row->_titleLabel = titleLabel;
+        row->_titleLeadingConstraint = [titleLabel.leadingAnchor constraintEqualToAnchor:row.leadingAnchor
+                                                                                constant:kSettingsRowInset];
         [NSLayoutConstraint activateConstraints:@[
-            [titleLabel.leadingAnchor constraintEqualToAnchor:row.leadingAnchor constant:kSettingsRowInset],
+            row->_titleLeadingConstraint,
             [titleLabel.trailingAnchor constraintLessThanOrEqualToAnchor:cluster.leadingAnchor
                                                                 constant:-kRowTitleControlGap],
         ]];
@@ -421,6 +502,8 @@ static void AddCaptionedControls(NSStackView *row, NSArray<NSView *> *controls, 
 
 - (void)layout {
     [super layout];
+    _laidOut = YES;
+    [self updateCaptionWrappingWidth];
     for (NSUInteger column = 0; column < _listHeader.subviews.count; column++) {
         NSTextField *label = (NSTextField *)_listHeader.subviews[column];
         NSRect cell = _listTable.numberOfRows

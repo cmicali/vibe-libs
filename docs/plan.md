@@ -76,7 +76,8 @@ vibe-libs/
 │   │                    display-paced update timer; helper macros; the integer token parser;
 │   │                    build provenance and its script; the form label's colon rule, on
 │   │                    the shell track
-│   └── Graphics ●○      image and color aliases, bounded image decode, hex, blend and OKLCH
+│   └── Graphics ●○      image and color aliases, bounded image decode, hex, blend and OKLCH;
+│                        Mac/ the Dock tile and the picture on the icon grid
 │                        colors, dominant color, blur, dark-mode helpers; Mac/ the typography
 │                        slots (Fonts), on the shell track
 │

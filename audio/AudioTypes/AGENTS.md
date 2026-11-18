@@ -1,6 +1,6 @@
 # audio/AudioTypes
 
-The words every audio piece shares, so a piece that needs one of them needs neither Decode nor Analysis. It holds the playable-item protocol, the CUE window math, the musical key, the file format names, and the playable extensions. It came from Vibe. It depends on nothing, not even `core/Common`, since no file here logs. Each file imports only Foundation, and the format names import `CoreAudioTypes` too.
+The words every audio piece shares, so a piece that needs one of them needs neither Decode nor Analysis. It holds the playable-item protocol, the CUE window math, the musical key and its color, the file format names, and the playable extensions. It came from Vibe. It depends on nothing, not even `core/Common`, since no file here logs. Each file imports only Foundation, but for two. The format names import `CoreAudioTypes` too, and the key's color imports AppKit or UIKit in its `.m` alone.
 
 ## The playable item
 
@@ -25,6 +25,8 @@ The words every audio piece shares, so a piece that needs one of them needs neit
 
 **TRAP: 0 is C major, not "none".** Every fresh holder must be set to `VibeMusicalKeyNone` (-1) explicitly. A zero-filled field or a message to nil reads as a tagged C major.
 
+**`VibeMusicalKeyCamelotColor` is a key's color around the Camelot wheel** (`MusicalKeyColor.h`). There is one hue per wheel number, with 1 green as on the printed wheel. So keys that mix harmonically sit in neighboring hues, and a relative major and minor share one color. The color resolves per appearance: less saturated on dark chrome, and darker on light, since one fixed color cannot read on both. It is an `NSColor` on macOS and a `UIColor` on iOS. A key that is not valid answers nil, so a caller that colors nothing passes `VibeMusicalKeyNone`. Whether keys are colored at all is the app's setting.
+
 ## The format names
 
 **`AudioFileFormat.h` names the codecs and containers**: MP3, FLAC, WAV, and the rest. A name is an identifier. It is compared with `isEqualToString:` and archived in a metadata cache, so it is never localized. `VibeAudioFileFormatForCodec` names a codec from its CoreAudio format ID. A codec with no constant here, PCM among them, answers nil, since its name is its container's.
@@ -37,4 +39,4 @@ The words every audio piece shares, so a piece that needs one of them needs neit
 
 ## Tests
 
-`Tests/audio/AudioTypes/` holds the tests of the CUE window, the musical key, the playable item, the format names, and the playable extensions. The CUE window's and the key's came from Vibe. The rest are new here. The playable item's tests adopt the protocol in a plain object, so they show any object may. `AudioTypesProbe.m` imports the header-only files, and the iOS target compiles it. The minimal consumer turns a CUE window into a file's frames.
+`Tests/audio/AudioTypes/` holds the tests of the CUE window, the musical key, the playable item, the format names, and the playable extensions. The CUE window's and the key's came from Vibe. The rest are new here. The key color's tests resolve an `NSColor`, so they sit in `Mac/`. The playable item's tests adopt the protocol in a plain object, so they show any object may. `AudioTypesProbe.m` imports the header-only files, and the iOS target compiles it. The minimal consumer turns a CUE window into a file's frames.
