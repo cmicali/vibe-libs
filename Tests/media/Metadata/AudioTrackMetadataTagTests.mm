@@ -393,6 +393,35 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
                   @"a well-formed item list is read");
 }
 
+// The fuzz's file is refused at its moov, which runs past the end. These
+// stay inside moov and the file: the first item's first atom runs past its
+// item, then the first item runs past the list.
+- (void)testMP4ItemOrItsDataPastItsParentIsSkipped {
+    NSURL *url = [self write:VibeTagFixtureM4A art:nil];
+    NSData *original = [NSData dataWithContentsOfURL:url];
+    NSRange found = [original rangeOfData:[@"ilst" dataUsingEncoding:NSASCIIStringEncoding] options:0
+                                    range:NSMakeRange(0, original.length)];
+    XCTAssertNotEqual(found.location, (NSUInteger)NSNotFound, @"the fixture carries an item list");
+    const uint8_t *bytes = (const uint8_t *)original.bytes;
+    NSUInteger list = found.location - 4, item = list + 8;
+    uint32_t listSize = OSReadBigInt32(bytes, list), itemSize = OSReadBigInt32(bytes, item);
+    XCTAssertLessThanOrEqual(OSReadBigInt32(bytes, item + 8), itemSize - 8, @"the first item holds an atom");
+    XCTAssertLessThan(item + itemSize + 8, list + listSize, @"another item follows the first");
+    XCTAssertLessThanOrEqual(list + listSize + 8, original.length, @"the list is not the file's last 8 bytes");
+
+    struct { NSUInteger at; uint32_t size; const char *label; } cases[] = {
+            {item + 8, itemSize, "the item's first atom past its item"},
+            {item, listSize, "the item past its list"},
+    };
+    for (const auto &patch : cases) {
+        NSMutableData *data = [original mutableCopy];
+        OSWriteBigInt32(data.mutableBytes, patch.at, patch.size);
+        XCTAssertTrue([data writeToURL:url atomically:NO]);
+        XCTAssertFalse([[AudioFileHandle alloc] initParserForReading:url error:NULL].infoDictionaryReadable,
+                       @"%s", patch.label);
+    }
+}
+
 - (void)testW64 {
     [self assertFixture:VibeTagFixtureW64 fileType:VibeAudioFileFormatW64 rate:44100 duration:0.5];
 }

@@ -637,7 +637,8 @@ static float VibeOpusOutputGain(AudioFileID parser) {
 
 // One MP4 atom's header at `at`: its type, the offset of its body, and its
 // end. NO when it cannot be read, or when it ends before its header or after
-// `end`, its parent's end. A size of 0 runs to `end`.
+// `end`, its parent's end. A size of 0 runs to `end`. The type is set once
+// the header is read, even when the atom does not fit.
 static BOOL VibeMP4Atom(void *context, uint64_t at, uint64_t end, uint8_t type[4], uint64_t *body,
                         uint64_t *atomEnd) {
     uint8_t header[16];
@@ -645,20 +646,19 @@ static BOOL VibeMP4Atom(void *context, uint64_t at, uint64_t end, uint8_t type[4
     if (at + 8 > end || VibeHandleRead(context, (SInt64)at, 8, header, &got) != noErr || got != 8) {
         return NO;
     }
-    uint64_t size = (uint64_t)header[0] << 24 | (uint64_t)header[1] << 16 | (uint64_t)header[2] << 8 | header[3];
+    memcpy(type, header + 4, 4);
+    uint64_t size = OSReadBigInt32(header, 0);
     *body = at + 8;
     if (size == 1) {
         if (at + 16 > end || VibeHandleRead(context, (SInt64)at + 8, 8, header + 8, &got) != noErr || got != 8) {
             return NO;
         }
-        size = 0;
-        for (size_t i = 8; i < 16; i++) size = size << 8 | header[i];
+        size = OSReadBigInt64(header, 8);
         *body = at + 16;
     }
     else if (size == 0) {
         size = end - at;
     }
-    memcpy(type, header + 4, 4);
     *atomEnd = at + size;
     return size >= *body - at && size <= end - at;
 }
@@ -677,10 +677,11 @@ static BOOL VibeMP4ChildrenInside(void *context, uint64_t at, uint64_t end, Vibe
         return NO;
     }
     while (at < end) {
-        uint8_t type[4];
+        uint8_t type[4] = {0};
         uint64_t body = 0, atomEnd = 0;
         if (!VibeMP4Atom(context, at, end, type, &body, &atomEnd)) {
-            return NO;
+            // A file cut short keeps its tags, unless the cut is in moov.
+            return depth == 0 && memcmp(type, "moov", 4) != 0;
         }
         VibeMP4Walk inner = VibeMP4WalkContainers;
         BOOL descend = NO;
@@ -718,7 +719,7 @@ static BOOL VibeMP4ChildrenInside(void *context, uint64_t at, uint64_t end, Vibe
 
 // TRAP: CoreAudio's MP4 metadata reader (MP4BoxParser_iTunesMeta) sizes each
 // item's copy from the item's declared size, not the file's. An item claiming
-// 1.38 GB past the end of a 2 KB M4A made the info dictionary read allocate
+// 1.38 GB past the end of a 1.6 KB M4A made the info dictionary read allocate
 // and touch 4.3 GB (macOS 27). So an MP4's info dictionary is readable only
 // when every atom on the way to the item list, each item, and each item's own
 // atoms sit inside their parents. Found by Tests/Fuzz's tags-m4a.
@@ -736,7 +737,8 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
 // declares size -1 and stops the walk, so an info chunk after it is dropped.
 // Asked, not walked at open: a playback open never waits for those bytes.
 - (BOOL)infoDictionaryReadable {
-    if (_container == kAudioFileM4AType || _container == kAudioFileMPEG4Type || _container == kAudioFileM4BType) {
+    if (_container == kAudioFileM4AType || _container == kAudioFileMPEG4Type || _container == kAudioFileM4BType
+            || _container == kAudioFile3GPType || _container == kAudioFile3GP2Type) {
         return VibeMP4ItemsInside((__bridge void *)self, (uint64_t)MAX(0, _size));
     }
     if (_container != kAudioFileCAFType) {
