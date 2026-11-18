@@ -47,6 +47,19 @@
     XCTAssertTrue([key hasPrefix:@"5-"], @"leads with the byte size: %@", key);
 }
 
+// The stat a key was made from comes back with it: the file's size, and the
+// date the key rounds.
+- (void)testTheKeyHandsBackItsStat {
+    NSURL *file = [self writeFileNamed:@"a.mp3" contents:@"hello"];
+    struct stat info;
+    memset(&info, 0, sizeof info);
+    NSString *key = [file cacheKeyWithStat:&info];
+    XCTAssertEqualObjects(key, file.cacheKey);
+    XCTAssertEqual(info.st_size, 5);
+    XCTAssertGreaterThan(info.st_mtimespec.tv_sec, 0);
+    XCTAssertNil([[NSURL fileURLWithPath:@"/no/such/file"] cacheKeyWithStat:&info]);
+}
+
 - (void)testKeyIsStableAcrossReads {
     NSURL *file = [self writeFileNamed:@"a.mp3" contents:@"hello"];
     XCTAssertEqualObjects(file.cacheKey, file.cacheKey);
