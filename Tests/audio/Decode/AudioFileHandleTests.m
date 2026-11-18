@@ -169,13 +169,18 @@ static int VibeDescriptorsOpenOn(NSURL *url) {
     XCTAssertNil([[AudioFileHandle alloc] initForReading:url error:NULL]);
 }
 
-// An ID3v2 tag of `size` zero bytes, then `next`: the start of a second tag.
-static NSData *VibeID3TagThen(NSUInteger size, NSData *next) {
-    const uint8_t header[10] = {'I', 'D', '3', 4, 0, 0, 0, 0, (uint8_t)(size >> 7 & 0x7F), (uint8_t)(size & 0x7F)};
+// An ID3v2 tag of `size` zero bytes, with a footer when `flags` say so, then
+// `next`: the start of a second tag.
+static NSData *VibeID3TagWithFlagsThen(uint8_t version, uint8_t flags, NSUInteger size, NSData *next) {
+    const uint8_t header[10] = {'I', 'D', '3', version, 0, flags, 0, 0, (uint8_t)(size >> 7 & 0x7F), (uint8_t)(size & 0x7F)};
     NSMutableData *bytes = [NSMutableData dataWithBytes:header length:sizeof header];
-    [bytes increaseLengthBy:size];
+    [bytes increaseLengthBy:size + (flags & 0x10 ? 10 : 0)];
     [bytes appendData:next];
     return bytes;
+}
+
+static NSData *VibeID3TagThen(NSUInteger size, NSData *next) {
+    return VibeID3TagWithFlagsThen(4, 0, size, next);
 }
 
 // CoreAudio's MPEG reader never returns on a second tag whose header is cut
@@ -183,10 +188,15 @@ static NSData *VibeID3TagThen(NSUInteger size, NSData *next) {
 - (void)testAnID3TagThatWouldHangCoreAudioIsRefused {
     NSData *cut = [NSData dataWithBytes:"ID3" length:3];
     NSData *versionFF = [NSData dataWithBytes:"ID3\xFF\x00\x00\x00\x00\x00\x10" length:10];
+    NSData *revisionFF = [NSData dataWithBytes:"ID3\x04\xFF\x00\x00\x00\x00\x10" length:10];
+    // CoreAudio counts a footer in v2.3 too, though there 0x10 is the experimental bit.
     NSDictionary<NSString *, NSData *> *files = @{
         @"cut.mp3": VibeID3TagThen(474, cut),
         @"cut.wav": VibeID3TagThen(474, cut),
         @"version.mp3": VibeID3TagThen(100, versionFF),
+        @"revision.mp3": VibeID3TagThen(100, revisionFF),
+        @"footer-v24.mp3": VibeID3TagWithFlagsThen(4, 0x10, 100, cut),
+        @"footer-v23.mp3": VibeID3TagWithFlagsThen(3, 0x10, 100, cut),
     };
     for (NSString *name in files) {
         NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:name];
