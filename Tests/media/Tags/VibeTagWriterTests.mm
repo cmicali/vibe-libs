@@ -917,7 +917,8 @@ static NSString *const kVibeLatin1Artist = @"Café Artist";
         XCTAssertTrue([flipped writeToURL:copy atomically:YES]);
         [self assertMatch:original with:copy name:[name stringByAppendingString:@" one bit"]];
 
-        NSData *cut = [bytes subdataWithRange:NSMakeRange(0, bytes.length - 300)];
+        // A WAV's or AIFF's tag follows its audio, so the cut reaches into the audio.
+        NSData *cut = [bytes subdataWithRange:NSMakeRange(0, chunk ? at + 200 : bytes.length - 300)];
         XCTAssertTrue([cut writeToURL:copy atomically:YES]);
         [self assertMatch:original with:copy name:[name stringByAppendingString:@" cut"]];
     }
