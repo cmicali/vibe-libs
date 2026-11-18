@@ -422,15 +422,15 @@ void ApplyXiphEdits(TagLib::Ogg::XiphComment *tag, const Edits &named) {
 template <class Owner>
 void ApplyPictureCover(Owner *owner, const Cover &cover) {
     if (!cover.change) return;
-    bool hasFront = false;
+    // TRAP: never hold a copy of pictureList(). It shares the list's
+    // auto-delete, so the copy deletes the pictures a second time.
+    std::vector<TagLib::FLAC::Picture *> fronts, all;
     for (TagLib::FLAC::Picture *picture : owner->pictureList()) {
-        if (picture->type() == TagLib::FLAC::Picture::FrontCover) hasFront = true;
+        all.push_back(picture);
+        if (picture->type() == TagLib::FLAC::Picture::FrontCover) fronts.push_back(picture);
     }
-    const bool takeAll = cover.replaceAll || (cover.data.isEmpty() && !hasFront);
-    const TagLib::List<TagLib::FLAC::Picture *> pictures = owner->pictureList();
-    for (TagLib::FLAC::Picture *picture : pictures) {
-        if (takeAll || picture->type() == TagLib::FLAC::Picture::FrontCover) owner->removePicture(picture, true);
-    }
+    const bool takeAll = cover.replaceAll || (cover.data.isEmpty() && fronts.empty());
+    for (TagLib::FLAC::Picture *picture : takeAll ? all : fronts) owner->removePicture(picture, true);
     if (cover.replaceAll) {
         for (const Record &record : cover.records) {
             auto picture = new TagLib::FLAC::Picture();

@@ -692,7 +692,8 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
     }
 }
 
-// Removing the front cover leaves the back cover, which the read then answers.
+// Removing the front cover leaves the back cover, which the read then
+// answers. MP4's pictures have no type, so it removes every one.
 - (void)testRemovingTheCoverLeavesOtherPictures {
     for (NSString *name in self.formats) {
         NSURL *url = [self write:name];
@@ -700,8 +701,9 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
         [self addOthersTo:url];
         XCTAssertEqualObjects(VibeFrontCover(url), VibeJPEG(0.5), @"%@", name);
         XCTAssertTrue(VibeTagLibWriteFrontCover(url.path, nil, nil, NULL), @"%@", name);
-        XCTAssertEqualObjects(VibePictures(url), @[VibePNG(0.9)], @"%@", name);
-        XCTAssertEqualObjects(VibeFrontCover(url), VibePNG(0.9), @"%@", name);
+        const BOOL mp4 = [name.pathExtension isEqualToString:@"m4a"];
+        XCTAssertEqualObjects(VibePictures(url), mp4 ? @[] : @[VibePNG(0.9)], @"%@", name);
+        XCTAssertEqualObjects(VibeFrontCover(url), mp4 ? nil : VibePNG(0.9), @"%@", name);
     }
 }
 
