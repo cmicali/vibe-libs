@@ -6,6 +6,8 @@
   fuzz.py run    [targets]   each built target for --seconds, one at a time
   fuzz.py replay [targets]   Xcode's clang, each target over its seeds and
                              regressions once
+  fuzz.py triage [targets]   each saved artifact replayed once, with whether
+                             it still fails and its peak memory
 
 Every build is under Address Sanitizer and Undefined Behavior Sanitizer. A
 target compiles its pieces' sources, search paths, and flags as their
@@ -21,6 +23,8 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 
 ROOT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
@@ -252,9 +256,45 @@ def replay(names, jobs, since):
         sys.exit(f"fuzz: replay failed for {', '.join(failed)}")
 
 
+def peak(command):
+    """A command's exit status, its peak resident memory in MB, and its report's first line."""
+    with tempfile.TemporaryFile("w+") as err:
+        process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=err, env=ENV)
+        timer = threading.Timer(TRIAGE_SECONDS, process.kill)
+        timer.start()
+        _, status, usage = os.wait4(process.pid, 0)
+        timer.cancel()
+        err.seek(0)
+        lines = [l.strip() for l in err if "ERROR:" in l or "runtime error:" in l]
+    return os.waitstatus_to_exitcode(status), usage.ru_maxrss / 2**20, (lines or [""])[0]
+
+
+# An oom- artifact holds memory only when its replay reaches this much: the
+# malloc limit also stops an allocation Apple's code makes and never touches.
+OOM_MB = 1024
+# A replay that runs longer is killed, which also bounds what it can hold.
+TRIAGE_SECONDS = 60
+
+
+def triage(names, jobs):
+    named = [n for n in names if os.path.isdir(os.path.join(OUT, "crashes", n))]
+    if not named:
+        print(f"fuzz: no artifacts under {os.path.relpath(os.path.join(OUT, 'crashes'), ROOT)}")
+        return
+    binaries = build(named, False, jobs)
+    for name in named:
+        folder = os.path.join(OUT, "crashes", name)
+        for artifact in sorted(f for f in os.listdir(folder) if not f.startswith(".")):
+            status, megabytes, report = peak([binaries[name], os.path.join(folder, artifact)])
+            verdict = "fails" if status else "passes"
+            if artifact.startswith("oom-"):
+                verdict += ", holds memory" if megabytes >= OOM_MB else ", no growth"
+            print(f"{name} {artifact}: {verdict}, {megabytes:.0f} MB {report}".rstrip(), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("command", choices=["build", "run", "replay", "list"])
+    parser.add_argument("command", choices=["build", "run", "replay", "triage", "list"])
     parser.add_argument("targets", nargs="*")
     parser.add_argument("--seconds", type=int, default=600)
     parser.add_argument("--jobs", type=int, default=4)
@@ -270,6 +310,8 @@ def main():
         build(names, True, args.jobs)
     elif args.command == "run":
         run(names, args.seconds, args.jobs)
+    elif args.command == "triage":
+        triage(names, args.jobs)
     else:
         replay(names, args.jobs, args.since)
 
