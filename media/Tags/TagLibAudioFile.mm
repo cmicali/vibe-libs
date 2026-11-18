@@ -356,6 +356,11 @@ VibeAudioFileFormat _Nullable fileTypeForTagLibFile(TagLib::File *file) {
     return nil;
 }
 
+bool tagLibFileCarriesID3v2(TagLib::File *file) {
+    return dynamic_cast<TagLib::MPEG::File *>(file) || dynamic_cast<TagLib::RIFF::WAV::File *>(file)
+            || dynamic_cast<TagLib::RIFF::AIFF::File *>(file);
+}
+
 NSData *_Nullable audioMD5FromTagLibFile(TagLib::File *file) {
     auto flac = dynamic_cast<TagLib::FLAC::File *>(file);
     auto props = flac ? flac->audioProperties() : nullptr;

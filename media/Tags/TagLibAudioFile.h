@@ -49,7 +49,11 @@ private:
     std::unique_ptr<TagLib::File> _file;
 };
 
+// The kind of the file's audio, its codec's name whatever the container.
 VibeAudioFileFormat _Nullable fileTypeForTagLibFile(TagLib::File *file);
+// Whether the file's tag is ID3v2: MPEG, WAV, and AIFF. A WAV may carry RIFF
+// INFO instead.
+bool tagLibFileCarriesID3v2(TagLib::File *file);
 NSData *_Nullable albumArtDataFromTagLibFile(TagLib::File *file);
 // A FLAC's audio MD5 from STREAMINFO. nil for another format, and for the
 // zeros an encoder writes when it computed none.

@@ -160,7 +160,7 @@ Opus defines the R128 gains. The parse reads them from any Xiph comment, since t
 
 | Store | `AudioTrackMetadataCache` name | Holds | Typical entry |
 | --- | --- | --- | --- |
-| Tags | `cacheName`, `Audio Track Metadata v10` | the archived `AudioTrackMetadata`: the tags, the facts, and whether the file carries art | about 1 KB |
+| Tags | `cacheName`, `Audio Track Metadata v11` | the archived `AudioTrackMetadata`: the tags, the facts, and whether the file carries art | about 1 KB |
 | Thumbnails | `thumbnailCacheName`, `Audio Track Thumbnails v1` | the 128 px row thumbnail's encoded bytes | about 8 KB |
 | Display art | `displayArtCacheName`, `Audio Track Display Art v1` | the rendition (Embedded artwork, above) | about 100 KB |
 

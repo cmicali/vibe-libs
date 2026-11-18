@@ -100,7 +100,8 @@
     // v9 moved the thumbnail out of the entry, into its own store, so art
     // never pushes tags out of their budget.
     // v10 added the comment, the grouping, the label, and the bit depth.
-    return @"Audio Track Metadata v10";
+    // v11 names an MP4's kind by its codec, so AAC in an M4A is AAC, not MP4.
+    return @"Audio Track Metadata v11";
 }
 
 + (NSString *)thumbnailCacheName {
