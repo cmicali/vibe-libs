@@ -25,6 +25,7 @@
 #import "PINCache+VibeAudioCache.h"
 #import "VibeReadAheadScript.h"
 #import "VibeTestTrack.h"
+#import "WaveformLoadingTestSupport.h"
 
 #include <fcntl.h>
 #include <atomic>
@@ -67,28 +68,6 @@
 @end
 
 // The cache's deliveries, on main.
-// An item that memoizes its disk key, as an app's row may, stamped with the
-// generation NSURL+Hash bumps when a download installs another version.
-@interface WaveformMemoizingTrack : VibeTestTrack
-@end
-
-@implementation WaveformMemoizingTrack {
-    NSString *_memo;
-    uint64_t _memoGeneration;
-}
-
-- (NSString *)cacheKey {
-    uint64_t generation = NSURL.cacheKeyGeneration;
-    @synchronized (self) {
-        if (!_memo || _memoGeneration != generation) {
-            _memo = [super cacheKey];
-            _memoGeneration = generation;
-        }
-        return _memo;
-    }
-}
-
-@end
 
 @interface WaveformCacheRecorder : NSObject <AudioWaveformCacheDelegate>
 @property (nonatomic) CodableAudioWaveform *complete;

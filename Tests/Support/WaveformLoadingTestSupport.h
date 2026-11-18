@@ -13,6 +13,7 @@
 #import "AudioFileMaterializationCoordinator.h"
 #import "AudioWaveformCache.h"
 #import "AudioWaveformObserver.h"
+#import "VibeTestTrack.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -29,6 +30,11 @@ FOUNDATION_EXPORT void WaveformSpinFor(NSTimeInterval seconds);
 // Whether the track's entry is on disk, read through the lane that never
 // decodes. The cache's delegate hears none of the lookup's deliveries.
 FOUNDATION_EXPORT BOOL WaveformEventuallyCached(AudioWaveformCache *cache, id<VibePlayableItem> track);
+
+// An item that memoizes its disk key, as an app's row may, stamped with the
+// generation NSURL+Hash bumps when a file is replaced by another version.
+@interface WaveformMemoizingTrack : VibeTestTrack
+@end
 
 // One decode's record: its rate and window, the frames it was fed, their
 // loudest sample, and how often it finished.

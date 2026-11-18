@@ -119,6 +119,32 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
     XCTAssertGreaterThan(cache.byteCount, 0u);
 }
 
+// A move renames the entry's file: the bytes follow it to the new key, and
+// the count stays. It refuses a new key that holds an entry, an old key that
+// holds none, and equal keys, and changes nothing then.
+- (void)testAMoveRenamesTheEntryAndRefusesATakenKey {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"move" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    NSData *one = [NSMutableData dataWithLength:1000];
+    NSData *two = [NSMutableData dataWithLength:30000];
+    [cache setObject:one forKey:@"one"];
+    [cache setObject:two forKey:@"two"];
+    NSUInteger bytes = cache.byteCount;
+    XCTAssertTrue([cache moveObjectForKey:@"one" toKey:@"moved"]);
+    XCTAssertNil([cache objectForKey:@"one"]);
+    XCTAssertEqualObjects([cache objectForKey:@"moved"], one);
+    XCTAssertEqual(cache.byteCount, bytes);
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+
+    XCTAssertFalse([cache moveObjectForKey:@"moved" toKey:@"two"], @"a taken key");
+    XCTAssertEqualObjects([cache objectForKey:@"moved"], one);
+    XCTAssertEqualObjects([cache objectForKey:@"two"], two);
+    XCTAssertFalse([cache moveObjectForKey:@"absent" toKey:@"other"], @"no entry");
+    XCTAssertNil([cache objectForKey:@"other"]);
+    XCTAssertFalse([cache moveObjectForKey:@"two" toKey:@"two"], @"equal keys");
+    XCTAssertEqualObjects([cache objectForKey:@"two"], two);
+}
+
 // A store opened again counts the bytes its files take, and keeps no records.
 - (void)testAStoreOpenedAgainCountsItsFiles {
     PINDiskCache *first = [PINCache audioCacheWithName:@"again" rootPath:_root].diskCache;

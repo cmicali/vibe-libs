@@ -108,6 +108,9 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     // could land its write after removeAllObjects and repopulate the emptied cache.
     std::atomic<uint64_t>           _cacheGeneration;
     AudioFileMaterializationCoordinator *_materializationCoordinator;
+    // The moves, in the order asked, apart from _loaderQueue, so the
+    // store's hop there stays short.
+    dispatch_queue_t                _moveQueue;
 }
 
 + (NSString *)cacheName {
@@ -157,6 +160,8 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
                 maximumRunningCount:kMaxDetachedWaveformLoads + 1
                 maximumPendingCount:kMaxPendingWaveformWork
                 pendingGrace:kWaveformAdmissionGraceSeconds];
+        _moveQueue = dispatch_queue_create("vibe-libs.waveformloading.move",
+                dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
         _scanQueue = dispatch_queue_create("vibe-libs.waveformloading.scan",
                 dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
         _scanScheduler = [[AudioWorkScheduler alloc]
@@ -194,6 +199,51 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
             completion();
         }
     });
+}
+
+- (void)moveEntriesToNewKeys:(NSDictionary<NSString *, NSString *> *)newKeysByOldKey
+                  completion:(dispatch_block_t)completion {
+    NSDictionary<NSString *, NSString *> *moves = [newKeysByOldKey copy];
+    dispatch_async(_moveQueue, ^{
+        PINCache *cache = [self store];
+        [moves enumerateKeysAndObjectsUsingBlock:^(NSString *oldKey, NSString *newKey, BOOL *stop) {
+            if ([oldKey isEqualToString:newKey]) {
+                return;
+            }
+            uint64_t generation = self->_cacheGeneration.load(std::memory_order_relaxed);
+            BOOL moved = [self fileUnderKey:newKey inStore:cache generation:generation write:^BOOL {
+                return [cache.diskCache moveObjectForKey:oldKey toKey:newKey];
+            }];
+            // Refused: the new key already holds an entry, or there is none.
+            if (!moved) {
+                [cache.diskCache removeObjectForKey:oldKey];
+            }
+        }];
+        if (completion) {
+            completion();
+        }
+    });
+}
+
+// Runs write, which files an entry under key, unless an invalidation came
+// after generation was taken. The generation is checked again once the write
+// lands, and a raced write is removed. removeAllObjects takes PINDiskCache's
+// lock directly rather than queueing behind pending writes, so an
+// invalidation can slip between the first check and the write. The
+// compensating remove is what makes the header's cannot-repopulate guarantee
+// hold. YES when the entry is filed.
+- (BOOL)fileUnderKey:(NSString *)key
+             inStore:(PINCache *)cache
+          generation:(uint64_t)generation
+               write:(NS_NOESCAPE BOOL (^)(void))write {
+    if (generation != _cacheGeneration.load(std::memory_order_relaxed) || !write()) {
+        return NO;
+    }
+    if (generation != _cacheGeneration.load(std::memory_order_relaxed)) {
+        [cache.diskCache removeObjectForKey:key];
+        return NO;
+    }
+    return YES;
 }
 
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
@@ -618,20 +668,11 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         // Cache even when cancelled: a completed decode is worth keeping for
         // the next play of this track. It is skipped when an invalidate
         // arrived after this decode started, since the write would repopulate
-        // the just-emptied cache. The write is synchronous and the generation
-        // is re-checked after it lands, because removeAllObjects takes
-        // PINDiskCache's lock directly rather than queueing behind pending
-        // writes, so an invalidate can slip between the check and the write.
-        // The compensating remove is what makes the header's
-        // cannot-repopulate guarantee hold.
-        BOOL filed = NO;
-        if (generation == self->_cacheGeneration.load(std::memory_order_relaxed)) {
+        // the just-emptied cache.
+        BOOL filed = [self fileUnderKey:cacheKey inStore:cache generation:generation write:^BOOL {
             [cache.diskCache setObject:waveform forKey:cacheKey];
-            filed = generation == self->_cacheGeneration.load(std::memory_order_relaxed);
-            if (!filed) {
-                [cache.diskCache removeObjectForKey:cacheKey];
-            }
-        }
+            return YES;
+        }];
         settled(filed);
     } failureQueue:dispatch_get_main_queue()
       admissionFailure:^(VibeAudioWorkAdmissionFailure failure) {
