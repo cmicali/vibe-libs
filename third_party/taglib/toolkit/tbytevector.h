@@ -1,3 +1,4 @@
+// vibe-libs changed this file from TagLib 2.3.2. See CHANGES.md in third_party/taglib.
 /***************************************************************************
     copyright            : (C) 2002 - 2008 by Scott Wheeler
     email                : wheeler@kde.org
@@ -639,7 +640,9 @@ namespace TagLib {
     ByteVector toBase64() const;
 
     /*!
-     * Decodes the base64 encoded byte vector.
+     * Decodes the base64 encoded byte vector.  Whitespace (space, tab, CR and
+     * LF), e.g. from line wrapped input, is ignored.  Returns an empty byte
+     * vector if the input contains other invalid characters.
      *
      * \see toBase64()
      */

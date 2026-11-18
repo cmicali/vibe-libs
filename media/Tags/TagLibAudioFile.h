@@ -39,6 +39,8 @@ public:
 
 private:
     static bool isOgg(TagLib::IOStream *stream);
+    static bool hasOtherContainerSignature(TagLib::IOStream *stream);
+    static std::unique_ptr<TagLib::File> openByContentAndRewind(TagLib::IOStream *stream, bool readProperties);
     static std::unique_ptr<TagLib::File> openByExtension(const char *path, TagLib::IOStream *stream,
                                                          bool readProperties);
     static std::unique_ptr<TagLib::File> openByContent(TagLib::IOStream *stream, bool readProperties);

@@ -7008,7 +7008,15 @@ static drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, d
             case DRFLAC_METADATA_BLOCK_TYPE_VORBIS_COMMENT:
             {
                 if (blockSize < 8) {
-                    return DRFLAC_FALSE;
+                    /* Too short for a vendor length and a comment count, so it is skipped, not the stream refused. */
+                    if (onMeta != NULL && blockSize > 0) {
+                        drflac_uint8 unused[8];
+                        if (onRead(pUserData, unused, blockSize) != blockSize) {
+                            return DRFLAC_FALSE;
+                        }
+                    }
+
+                    break;
                 }
 
                 if (onMeta) {
@@ -7192,12 +7200,11 @@ static drflac_bool32 drflac__read_and_decode_metadata(drflac_read_proc onRead, d
                         metadata.data.cuesheet.pTrackData = pTrackData;
                     }
 
-                    /* The original data is no longer needed. */
-                    drflac__free_from_callbacks(pRawData, pAllocationCallbacks);
-                    pRawData = NULL;
-
                     onMeta(pUserDataMD, &metadata);
 
+                    /* metadata.pRawData points into it until the callback returns. */
+                    drflac__free_from_callbacks(pRawData, pAllocationCallbacks);
+                    pRawData = NULL;
                     drflac__free_from_callbacks(pTrackData, pAllocationCallbacks);
                     pTrackData = NULL;
                 }

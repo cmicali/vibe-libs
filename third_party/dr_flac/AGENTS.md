@@ -14,6 +14,8 @@ Format and seek fixes cover an ID3v2 prefix, empty first residual partitions, st
 
 Damage handling covers undefined arithmetic in side channels and metadata, invalid residual partitions, bad Ogg CRCs, stale samples after failed frames, fixed-block frame numbering, false or missed sync codes, bit-stream position and exhaustion, and unreachable seekpoints. Decode and seek share the damaged-frame walk. They fill a gap only before a valid frame, resume a failed frame's search from its header, and distinguish truncation by exhausted input. A failed seek leaves the decoder at the first frame. Binary-search probes are bounded. Skipping and decoding both reject a negative LPC shift.
 
+A CUESHEET block's raw data is freed after the metadata callback, which reads it, not before. A VORBIS_COMMENT block too short to hold its counts is skipped, not the stream refused.
+
 Unknown-length streams use `drflac__find_unknown_total_pcm_frame_count` at open. It finds the end of the last valid frame by searching backward from the tail. The search window doubles after a miss. This supplies the nonzero length Vibe's `AudioPlayer` requires and permits bisection seeks. A STREAMINFO allowing no block is not searched.
 
 Rice partition orders above 8 are accepted in decoding, skipping, and the 33-bit side channel. Only the streamable subset limits them (RFC 9639 sections 7 and 9.2.7). The seek fast path keeps its distance at 64 bits. A jump of 2^32 PCM frames or more must not wrap into the current frame.

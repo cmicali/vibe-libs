@@ -4,7 +4,7 @@
 
 ## What is vendored
 
-**Sparkle 2.10.0, unmodified, as the prebuilt release.** It comes from the release tarball `Sparkle-2.10.0.tar.xz`, SHA-256 `c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c`, GitHub's own digest for the asset. Four things are kept: `Sparkle.framework` as shipped, its `LICENSE` as `LICENSE.txt`, and the tools `bin/sign_update` and `bin/generate_keys`. An app's release scripts run the tools to make its signing key and sign each update. The dSYMs, the test app, and the other tools are not vendored. Sparkle 2.10 needs macOS 12.0 or later.
+**Sparkle 2.10.1, unmodified, as the prebuilt release.** It comes from the release tarball `Sparkle-2.10.1.tar.xz`, SHA-256 `1a856d2a9edb8e628de88121d7be04cf0e2167f8641650b78fca00b14244cf27`, GitHub's own digest for the asset. Four things are kept: `Sparkle.framework` as shipped, its `LICENSE` as `LICENSE.txt`, and the tools `bin/sign_update` and `bin/generate_keys`. An app's release scripts run the tools to make its signing key and sign each update. The dSYMs, the test app, and the other tools are not vendored. Sparkle 2.10 needs macOS 12.0 or later.
 
 ## Building
 

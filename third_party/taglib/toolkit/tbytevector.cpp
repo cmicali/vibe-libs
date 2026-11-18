@@ -1,3 +1,4 @@
+// vibe-libs changed this file from TagLib 2.3.2. See CHANGES.md in third_party/taglib.
 /***************************************************************************
     copyright            : (C) 2002 - 2008 by Scott Wheeler
     email                : wheeler@kde.org
@@ -133,8 +134,12 @@ T toNumber(const ByteVector &v, size_t offset, bool mostSignificantByteFirst)
   const bool isBigEndian = Utils::systemByteOrder() == Utils::BigEndian;
   const bool swap = mostSignificantByteFirst != isBigEndian;
 
-  if(offset + sizeof(T) > v.size())
-    return toNumber<T>(v, offset, v.size() - offset, mostSignificantByteFirst);
+  if(offset >= v.size())
+    return toNumber<T>(v, offset, 0, mostSignificantByteFirst);
+
+  const size_t remaining = v.size() - offset;
+  if(sizeof(T) > remaining)
+    return toNumber<T>(v, offset, remaining, mostSignificantByteFirst);
 
   // Uses memcpy instead of reinterpret_cast to avoid an alignment exception.
   T tmp;
@@ -436,8 +441,11 @@ bool ByteVector::containsAt(const ByteVector &pattern, unsigned int offset, unsi
     patternLength = pattern.size();
 
   // do some sanity checking -- all of these things are needed for the search to be valid
+  if(patternLength == 0 || patternOffset >= patternLength || offset > size())
+    return false;
+
   const unsigned int compareLength = patternLength - patternOffset;
-  if(offset + compareLength > size() || patternOffset >= pattern.size() || patternLength == 0)
+  if(compareLength > size() - offset)
     return false;
 
   return ::memcmp(data() + offset, pattern.data() + patternOffset, compareLength) == 0;
@@ -450,7 +458,8 @@ bool ByteVector::startsWith(const ByteVector &pattern) const
 
 bool ByteVector::endsWith(const ByteVector &pattern) const
 {
-  return containsAt(pattern, size() - pattern.size());
+  return pattern.size() <= size() &&
+         containsAt(pattern, size() - pattern.size());
 }
 
 ByteVector &ByteVector::replace(char oldByte, char newByte)
@@ -870,6 +879,19 @@ ByteVector ByteVector::fromBase64(const ByteVector & input)
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
     0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80
   };
+
+  // Some encoders wrap the output into lines (e.g. MIME style base64 with a
+  // line break every 76 characters), skip such whitespace.
+  const auto isWhitespace = [](char c) {
+    return c == ' ' || c == '\t' || c == '\r' || c == '\n';
+  };
+  if(std::any_of(input.begin(), input.end(), isWhitespace)) {
+    ByteVector stripped(input.size());
+    const auto end = std::remove_copy_if(input.begin(), input.end(),
+                                         stripped.begin(), isWhitespace);
+    stripped.resize(static_cast<unsigned int>(end - stripped.begin()));
+    return fromBase64(stripped);
+  }
 
   unsigned int len = input.size();
 

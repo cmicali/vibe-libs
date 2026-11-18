@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <map>
+#include <mutex>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -25,6 +26,8 @@
 #include <opusfile.h>
 #include <tdebuglistener.h>
 #include <tagutils.h>
+#include <infotag.h>
+#include <utf8-cpp.core.h>
 
 namespace {
 
@@ -148,6 +151,29 @@ private:
     uint64_t _bytesFetched = 0;
 };
 
+// RIFF INFO text has no declared charset in most files. TagLib 2.3.2 reads it
+// as UTF-8 and answers an empty string for any other bytes, so Latin-1 or
+// Windows-1252 text from Windows tools reads as "". This reads UTF-8 when the
+// bytes are valid UTF-8, and Latin-1, the RIFF default, otherwise.
+class VibeInfoStringHandler : public TagLib::RIFF::Info::StringHandler {
+public:
+    TagLib::String parse(const TagLib::ByteVector &data) const override {
+        if (utf8::is_valid(data.begin(), data.end())) {
+            return TagLib::String(data, TagLib::String::UTF8);
+        }
+        return TagLib::String(data, TagLib::String::Latin1);
+    }
+};
+
+// TRAP: TagLib keeps one handler for the process. It is installed once,
+// before the first parse, and lives forever.
+static void VibeInstallInfoStringHandler() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        TagLib::RIFF::Info::Tag::setStringHandler(new VibeInfoStringHandler());
+    });
+}
+
 // The stream a parse reads: the file, or its bytes through the caller's reader.
 static std::unique_ptr<TagLib::IOStream> VibeOpenTagStream(const char *path, VibeTagByteRangeRead rangeRead,
                                                            uint64_t rangeLength) {
@@ -172,6 +198,7 @@ void VibeInstallTagLibDebugListener(void) {
 TagLibAudioFile::TagLibAudioFile(const char *path, bool readProperties, VibeTagByteRangeRead rangeRead,
                                  uint64_t rangeLength)
     : _stream(VibeOpenTagStream(path, rangeRead, rangeLength)) {
+    VibeInstallInfoStringHandler();
     if (!_stream->isOpen()) {
         return;
     }
@@ -195,14 +222,51 @@ bool TagLibAudioFile::isOgg(TagLib::IOStream *stream) {
     return TagLib::Utils::readHeader(stream, 4, false).startsWith("OggS");
 }
 
+// MPEG has no signature of its own, so a file named as MPEG is checked for
+// another container's, after any ID3v2 tag. FileRef's list (TagLib #1490).
+bool TagLibAudioFile::hasOtherContainerSignature(TagLib::IOStream *stream) {
+    static const TagLib::ByteVector asfGuid("\x30\x26\xB2\x75\x8E\x66\xCF\x11"
+                                            "\xA6\xD9\x00\xAA\x00\x62\xCE\x6C", 16);
+    const TagLib::ByteVector id = TagLib::Utils::readHeader(stream, 24, true);
+    // A WAVE holding MPEG audio stays MPEG, which also finds tags after the RIFF data.
+    if (id.startsWith("RIFF") && id.containsAt("WAVE", 8) && id.containsAt("fmt ", 12)) {
+        const unsigned short format = id.toUShort(20, false);
+        if (format == 0x0050 || format == 0x0055) {
+            return false;
+        }
+    }
+    return id.startsWith("RIFF") || id.startsWith("RF64") || id.startsWith("BW64") ||
+           id.startsWith("FORM") || id.containsAt("ftyp", 4) || id.startsWith("fLaC") ||
+           id.startsWith("OggS") || id.startsWith("\x1A\x45\xDF\xA3") || id.startsWith(asfGuid) ||
+           id.startsWith("MAC ") || id.startsWith("wvpk") || id.startsWith("TTA") ||
+           id.startsWith("MPCK") || id.startsWith("MP+") || id.startsWith("DSD ") ||
+           id.startsWith("FRM8") || id.startsWith("ajkg");
+}
+
+// The content's parser for a file its extension misnames, or null to use the
+// extension's parser. Rewound either way, as the constructor's sniff is.
+std::unique_ptr<TagLib::File> TagLibAudioFile::openByContentAndRewind(TagLib::IOStream *stream,
+                                                                     bool readProperties) {
+    std::unique_ptr<TagLib::File> file = openByContent(stream, readProperties);
+    stream->seek(0);
+    return file;
+}
+
 // FileRef::detectByExtension's mapping plus wave, bwf and qta (a QuickTime
 // container MP4::File parses). .ogg and .oga hold Vorbis or Opus, told
 // apart by a cheap sniff; FLAC in Ogg has no vendored parser.
+// TRAP: the MPEG, AIFF, and WAV parsers take another format's bytes as valid,
+// so a misnamed file would parse with no tags. Each checks the header first.
 std::unique_ptr<TagLib::File> TagLibAudioFile::openByExtension(const char *path, TagLib::IOStream *stream,
                                                               bool readProperties) {
     NSString *ext = [@(path) pathExtension].uppercaseString;
-    if ([ext isEqualToString:@"MP3"] || [ext isEqualToString:@"MP2"] || [ext isEqualToString:@"AAC"])
+    if ([ext isEqualToString:@"MP3"] || [ext isEqualToString:@"MP2"] || [ext isEqualToString:@"AAC"]) {
+        std::unique_ptr<TagLib::File> file;
+        if (hasOtherContainerSignature(stream))
+            file = openByContentAndRewind(stream, readProperties);
+        if (file) return file;
         return std::make_unique<TagLib::MPEG::File>(stream, readProperties);
+    }
     if ([ext isEqualToString:@"M4A"] || [ext isEqualToString:@"M4R"] || [ext isEqualToString:@"M4B"] ||
         [ext isEqualToString:@"M4P"] || [ext isEqualToString:@"MP4"] || [ext isEqualToString:@"M4V"] ||
         [ext isEqualToString:@"QTA"])
@@ -216,10 +280,20 @@ std::unique_ptr<TagLib::File> TagLibAudioFile::openByExtension(const char *path,
     if ([ext isEqualToString:@"OPUS"])
         return std::make_unique<TagLib::Ogg::Opus::File>(stream, readProperties);
     if ([ext isEqualToString:@"AIF"] || [ext isEqualToString:@"AIFF"] ||
-        [ext isEqualToString:@"AFC"] || [ext isEqualToString:@"AIFC"])
+        [ext isEqualToString:@"AFC"] || [ext isEqualToString:@"AIFC"]) {
+        std::unique_ptr<TagLib::File> file;
+        if (!TagLib::RIFF::AIFF::File::isSupported(stream))
+            file = openByContentAndRewind(stream, readProperties);
+        if (file) return file;
         return std::make_unique<TagLib::RIFF::AIFF::File>(stream, readProperties);
-    if ([ext isEqualToString:@"WAV"] || [ext isEqualToString:@"WAVE"] || [ext isEqualToString:@"BWF"])
+    }
+    if ([ext isEqualToString:@"WAV"] || [ext isEqualToString:@"WAVE"] || [ext isEqualToString:@"BWF"]) {
+        std::unique_ptr<TagLib::File> file;
+        if (!TagLib::RIFF::WAV::File::isSupported(stream))
+            file = openByContentAndRewind(stream, readProperties);
+        if (file) return file;
         return std::make_unique<TagLib::RIFF::WAV::File>(stream, readProperties);
+    }
     return nullptr;
 }
 
