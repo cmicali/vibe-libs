@@ -176,12 +176,12 @@ static void VibeInstallInfoStringHandler() {
 
 // The stream a parse reads: the file, or its bytes through the caller's reader.
 static std::unique_ptr<TagLib::IOStream> VibeOpenTagStream(const char *path, VibeTagByteRangeRead rangeRead,
-                                                           uint64_t rangeLength) {
+                                                           uint64_t rangeLength, bool writable) {
     if (rangeRead) {
         NSURL *url = [NSURL fileURLWithPath:@(path) isDirectory:NO];
         return std::make_unique<VibeRangedStream>(url, rangeRead, (TagLib::offset_t)rangeLength);
     }
-    return std::make_unique<TagLib::FileStream>(path, true);
+    return std::make_unique<TagLib::FileStream>(path, !writable);
 }
 
 } // namespace
@@ -196,8 +196,8 @@ void VibeInstallTagLibDebugListener(void) {
 #endif
 
 TagLibAudioFile::TagLibAudioFile(const char *path, bool readProperties, VibeTagByteRangeRead rangeRead,
-                                 uint64_t rangeLength)
-    : _stream(VibeOpenTagStream(path, rangeRead, rangeLength)) {
+                                 uint64_t rangeLength, bool writable)
+    : _stream(VibeOpenTagStream(path, rangeRead, rangeLength, writable)) {
     VibeInstallInfoStringHandler();
     if (!_stream->isOpen()) {
         return;

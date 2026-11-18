@@ -27,13 +27,17 @@ typedef NSData *_Nullable (^VibeTagByteRangeRead)(NSURL *url, uint64_t offset, u
 // library. Same order: extension, isValid(), then magic bytes. Without
 // readProperties no audio properties are parsed, which the art read never
 // uses; no format's validity depends on them. With rangeRead, the file's
-// rangeLength bytes are read through it instead of from disk.
+// rangeLength bytes are read through it instead of from disk. With writable,
+// the file opens for writing, or read-only when it cannot (VibeTagWriter.h).
 class TagLibAudioFile {
 public:
     explicit TagLibAudioFile(const char *path, bool readProperties = true,
-                             VibeTagByteRangeRead _Nullable rangeRead = nil, uint64_t rangeLength = 0);
+                             VibeTagByteRangeRead _Nullable rangeRead = nil, uint64_t rangeLength = 0,
+                             bool writable = false);
 
     bool isNull() const { return _file == nullptr; }
+    bool streamIsOpen() const { return _stream->isOpen(); }
+    bool streamIsReadOnly() const { return _stream->readOnly(); }
     TagLib::File *_Nullable file() const { return _file.get(); }
     TagLib::Tag *_Nullable tag() const { return _file ? _file->tag() : nullptr; }
 
