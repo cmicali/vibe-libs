@@ -56,7 +56,7 @@
 // Real PNG bytes, so the class's own ImageIO decode succeeds and the result is
 // distinguishable from the folder cover by size.
 - (NSData *)embeddedArtData {
-    return VibeImageOfColor(8, 0, 0, 1, NO);
+    return VibeImageOfColor(8, 0, 0, 1, UTTypePNG);
 }
 
 - (AudioTrackArtwork *)artworkWithExtractor:(AudioTrackArtworkExtractor)extractor {

@@ -439,33 +439,130 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file) {
     return bits > 0 && bits <= 64 ? bits : 0;
 }
 
-static NSData *getAlbumArtMP3(TagLib::MPEG::File *mp3File);
-static NSData *getAlbumArtPictures(const TagLib::List<TagLib::FLAC::Picture *> &pictures);
-static NSData *getAlbumArtMP4(TagLib::MP4::File *mp4File);
-static NSData *getAlbumArtAIFF(TagLib::RIFF::AIFF::File *aiffFile);
-static NSData *getAlbumArtWAV(TagLib::RIFF::WAV::File *wavFile);
+namespace {
 
-NSData *albumArtDataFromTagLibFile(TagLib::File *file) {
-    if (auto mp3 = dynamic_cast<TagLib::MPEG::File*>(file)) {
-        return getAlbumArtMP3(mp3);
+const struct {
+    TagLib::MP4::CoverArt::Format format;
+    const char *mimeType;
+} kMP4Formats[] = {
+    {TagLib::MP4::CoverArt::JPEG, "image/jpeg"},
+    {TagLib::MP4::CoverArt::PNG, "image/png"},
+    {TagLib::MP4::CoverArt::GIF, "image/gif"},
+    {TagLib::MP4::CoverArt::BMP, "image/bmp"},
+};
+
+void ListID3v2(TagLib::ID3v2::Tag *tag, std::vector<VibeEmbeddedPicture> *pictures) {
+    if (!tag) return;
+    size_t index = 0;
+    // Unparsed frames come back as UnknownFrame, so only those that cast
+    // count.
+    for (TagLib::ID3v2::Frame *frame : tag->frameList("APIC")) {
+        auto picture = dynamic_cast<TagLib::ID3v2::AttachedPictureFrame *>(frame);
+        if (!picture) continue;
+        if (!picture->picture().isEmpty()) {
+            VibeEmbeddedPicture item;
+            item.index = index;
+            item.type = (int)picture->type();
+            item.data = picture->picture();
+            item.mimeType = picture->mimeType();
+            item.description = picture->description();
+            pictures->push_back(item);
+        }
+        index++;
     }
-    else if (auto flac = dynamic_cast<TagLib::FLAC::File*>(file)) {
-        return getAlbumArtPictures(flac->pictureList());
+}
+
+// A FLAC file's picture blocks, or a Xiph comment's METADATA_BLOCK_PICTURE.
+void ListPictures(const TagLib::List<TagLib::FLAC::Picture *> &list, std::vector<VibeEmbeddedPicture> *pictures) {
+    size_t index = 0;
+    for (TagLib::FLAC::Picture *picture : list) {
+        if (picture && !picture->data().isEmpty()) {
+            VibeEmbeddedPicture item;
+            item.index = index;
+            item.type = (int)picture->type();
+            item.data = picture->data();
+            item.mimeType = picture->mimeType();
+            item.description = picture->description();
+            item.width = picture->width();
+            item.height = picture->height();
+            item.colorDepth = picture->colorDepth();
+            item.colorCount = picture->numColors();
+            pictures->push_back(item);
+        }
+        index++;
+    }
+}
+
+void ListMP4(TagLib::MP4::Tag *tag, std::vector<VibeEmbeddedPicture> *pictures) {
+    if (!tag->contains("covr")) return;
+    size_t index = 0;
+    for (const TagLib::MP4::CoverArt &art : tag->item("covr").toCoverArtList()) {
+        if (!art.data().isEmpty()) {
+            VibeEmbeddedPicture item;
+            item.index = index;
+            item.type = -1;
+            item.data = art.data();
+            item.mimeType = VibeMIMETypeOfMP4Format(art.format());
+            pictures->push_back(item);
+        }
+        index++;
+    }
+}
+
+} // namespace
+
+TagLib::String VibeMIMETypeOfMP4Format(int format) {
+    for (const auto &entry : kMP4Formats) {
+        if (entry.format == format) return entry.mimeType;
+    }
+    return TagLib::String();
+}
+
+int VibeMP4FormatOfMIMEType(const TagLib::String &mimeType) {
+    for (const auto &entry : kMP4Formats) {
+        if (mimeType == entry.mimeType) return entry.format;
+    }
+    return TagLib::MP4::CoverArt::Unknown;
+}
+
+std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file) {
+    std::vector<VibeEmbeddedPicture> pictures;
+    if (auto mp3 = dynamic_cast<TagLib::MPEG::File *>(file)) {
+        ListID3v2(mp3->hasID3v2Tag() ? mp3->ID3v2Tag(false) : nullptr, &pictures);
+    }
+    else if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
+        ListPictures(flac->pictureList(), &pictures);
     }
     // Vorbis and Opus, both tagged with a Xiph comment.
-    else if (auto xiph = dynamic_cast<TagLib::Ogg::XiphComment*>(file->tag())) {
-        return getAlbumArtPictures(xiph->pictureList());
+    else if (auto xiph = dynamic_cast<TagLib::Ogg::XiphComment *>(file->tag())) {
+        ListPictures(xiph->pictureList(), &pictures);
     }
-    else if (auto mp4 = dynamic_cast<TagLib::MP4::File*>(file)) {
-        return getAlbumArtMP4(mp4);
+    else if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
+        ListMP4(mp4->tag(), &pictures);
     }
-    else if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File*>(file)) {
-        return getAlbumArtAIFF(aiff);
+    else if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
+        ListID3v2(aiff->hasID3v2Tag() ? aiff->tag() : nullptr, &pictures);
     }
-    else if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File*>(file)) {
-        return getAlbumArtWAV(wav);
+    else if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
+        ListID3v2(wav->hasID3v2Tag() ? wav->ID3v2Tag() : nullptr, &pictures);
     }
-    return nil;
+    return pictures;
+}
+
+// The first front cover wins, since a 32x32 file icon can precede it.
+size_t VibeShownPicture(const std::vector<VibeEmbeddedPicture> &pictures) {
+    for (size_t i = 0; i < pictures.size(); i++) {
+        if (pictures[i].type == 3) return i;
+    }
+    return pictures.empty() ? SIZE_MAX : 0;
+}
+
+NSData *albumArtDataFromTagLibFile(TagLib::File *file) {
+    const std::vector<VibeEmbeddedPicture> pictures = VibeEmbeddedPictures(file);
+    const size_t shown = VibeShownPicture(pictures);
+    if (shown == SIZE_MAX) return nil;
+    const TagLib::ByteVector &bytes = pictures[shown].data;
+    return [[NSData alloc] initWithBytes:bytes.data() length:bytes.size()];
 }
 
 BOOL VibeTagLibReadEmbeddedArt(NSString *path, VibeTagByteRangeRead rangeRead, uint64_t rangeLength,
@@ -487,81 +584,4 @@ BOOL VibeTagLibReadEmbeddedArt(NSString *path, VibeTagByteRangeRead rangeRead, u
         LogError(@"TagLib art extraction failed for %@", path);
     }
     return NO;
-}
-
-static NSData *getAlbumArtID3v2(TagLib::ID3v2::Tag *id3v2Tag) {
-    // Unparsed frames come back as UnknownFrame, so only those that cast
-    // count. FrontCover wins: a 32x32 FileIcon can precede the cover.
-    const TagLib::ID3v2::FrameList &frameList = id3v2Tag->frameList("APIC");
-    TagLib::ID3v2::AttachedPictureFrame *fallback = nullptr;
-    for (auto it = frameList.begin(); it != frameList.end(); ++it) {
-        auto frame = dynamic_cast<TagLib::ID3v2::AttachedPictureFrame *>(*it);
-        if (!frame || frame->picture().isEmpty()) continue;
-        if (frame->type() == TagLib::ID3v2::AttachedPictureFrame::FrontCover) {
-            fallback = frame;
-            break;
-        }
-        if (!fallback) fallback = frame;
-    }
-    if (!fallback) {
-        return nil;
-    }
-    auto bytes = fallback->picture();
-    return [[NSData alloc] initWithBytes:bytes.data() length:bytes.size()];
-}
-
-static NSData *getAlbumArtMP4(TagLib::MP4::File *mp4File) {
-    if (!mp4File->tag()->isEmpty()) {
-        auto tag = mp4File->tag();
-        if (tag->contains("covr")) {
-            auto item = tag->item("covr");
-            auto list = item.toCoverArtList();
-            if (!list.isEmpty()) {
-                auto bytes = list.front().data();
-                return [[NSData alloc] initWithBytes:bytes.data() length:bytes.size()];
-            }
-        }
-    }
-    return nil;
-}
-
-// A FLAC file's picture blocks, or a Vorbis comment's METADATA_BLOCK_PICTURE.
-static NSData *getAlbumArtPictures(const TagLib::List<TagLib::FLAC::Picture *> &pictures) {
-    // FrontCover wins, as in getAlbumArtID3v2.
-    TagLib::FLAC::Picture *chosen = nullptr;
-    for (auto it = pictures.begin(); it != pictures.end(); ++it) {
-        TagLib::FLAC::Picture *pic = *it;
-        if (!pic || pic->data().isEmpty()) continue;
-        if (pic->type() == TagLib::FLAC::Picture::FrontCover) {
-            chosen = pic;
-            break;
-        }
-        if (!chosen) chosen = pic;
-    }
-    if (!chosen) {
-        return nil;
-    }
-    auto bytes = chosen->data();
-    return [[NSData alloc] initWithBytes:bytes.data() length:bytes.size()];
-}
-
-static NSData *getAlbumArtMP3(TagLib::MPEG::File *mp3File) {
-    if (mp3File->hasID3v2Tag()) {
-        return getAlbumArtID3v2(mp3File->ID3v2Tag(false));
-    }
-    return nil;
-}
-
-static NSData *getAlbumArtAIFF(TagLib::RIFF::AIFF::File *aiffFile) {
-    if (aiffFile->hasID3v2Tag()) {
-        return getAlbumArtID3v2(aiffFile->tag());
-    }
-    return nil;
-}
-
-static NSData *getAlbumArtWAV(TagLib::RIFF::WAV::File *wavFile) {
-    if (wavFile->hasID3v2Tag()) {
-        return getAlbumArtID3v2(wavFile->ID3v2Tag());
-    }
-    return nil;
 }

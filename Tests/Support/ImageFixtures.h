@@ -11,8 +11,9 @@
 #import <ImageIO/ImageIO.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-// A side x side image of one opaque sRGB color, PNG or JPEG.
-static inline NSData *VibeImageOfColor(size_t side, CGFloat red, CGFloat green, CGFloat blue, BOOL jpeg) {
+// A side x side image of one opaque sRGB color, of any type ImageIO writes:
+// JPEG, PNG, GIF, BMP, or TIFF among them.
+static inline NSData *VibeImageOfColor(size_t side, CGFloat red, CGFloat green, CGFloat blue, UTType *type) {
     CGColorSpaceRef space = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
     CGContextRef context = CGBitmapContextCreate(NULL, side, side, 8, 0, space,
                                                  (CGBitmapInfo)kCGImageAlphaNoneSkipLast);
@@ -22,7 +23,7 @@ static inline NSData *VibeImageOfColor(size_t side, CGFloat red, CGFloat green, 
     NSMutableData *data = [NSMutableData data];
     CGImageDestinationRef destination = CGImageDestinationCreateWithData(
             (__bridge CFMutableDataRef)data,
-            (__bridge CFStringRef)(jpeg ? UTTypeJPEG : UTTypePNG).identifier, 1, NULL);
+            (__bridge CFStringRef)type.identifier, 1, NULL);
     CGImageDestinationAddImage(destination, image, NULL);
     CGImageDestinationFinalize(destination);
     CFRelease(destination);

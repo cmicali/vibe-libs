@@ -147,7 +147,7 @@
 }
 
 - (NSData *)embeddedArtData {
-    return VibeImageOfColor(8, 0, 0, 1, NO);
+    return VibeImageOfColor(8, 0, 0, 1, UTTypePNG);
 }
 
 - (AudioTrackArtwork *)unloadedArtworkAtPath:(NSString *)path
