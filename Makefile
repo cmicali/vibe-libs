@@ -58,18 +58,18 @@ test-strings:
 	Tests/tools/strings/strings-test.sh
 
 # FUZZ_TARGETS limits fuzz and fuzz-replay to some targets; fuzz.py list
-# names them all. FUZZ_SECONDS is each target's run, and FUZZ_JOBS its workers.
+# names them. FUZZ_SECONDS is each target's run (600), and FUZZ_JOBS its
+# workers (4).
 FUZZ_TARGETS ?=
-FUZZ_SECONDS ?= 600
-FUZZ_JOBS ?= 4
+FUZZ_FLAGS = $(if $(FUZZ_JOBS),--jobs $(FUZZ_JOBS))
 
 # Fuzzes the parsers under Homebrew's clang, one target at a time (Tests/Fuzz).
 fuzz:
-	python3 -I scripts/fuzz/fuzz.py run $(FUZZ_TARGETS) --seconds $(FUZZ_SECONDS) --jobs $(FUZZ_JOBS)
+	python3 -I scripts/fuzz/fuzz.py run $(FUZZ_TARGETS) $(FUZZ_FLAGS) $(if $(FUZZ_SECONDS),--seconds $(FUZZ_SECONDS))
 
 # Replays each fuzz target's seeds and regressions once, under Xcode's clang.
 fuzz-replay:
-	python3 -I scripts/fuzz/fuzz.py replay $(FUZZ_TARGETS) --jobs $(FUZZ_JOBS)
+	python3 -I scripts/fuzz/fuzz.py replay $(FUZZ_TARGETS) $(FUZZ_FLAGS) $(if $(SINCE),--since '$(SINCE)')
 
 # Removes build output and the generated project.
 clean:

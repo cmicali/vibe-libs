@@ -15,9 +15,9 @@ The Xcode project is generated from `project.yml` by XcodeGen and is not checked
 | `make check-pieces` | The piece rules below, the dependency map in the plan, each target's excluded platform, no `#if DEBUG` in a header, the other app's name nowhere, no merge conflict marker, no doc line over 1,500 characters, `VibeUpdater.m` as the one source of `system/Updates` that reaches Sparkle, and the piece count this file and the README give. Then it breaks each rule in a copy of the repo and fails unless the check catches it. Then it tests the message filter a move runs. Last, with `SINCE`, it fails a change to a TagLib file that leaves `third_party/taglib/CHANGES.md` alone. |
 | `make consumer` | A minimal app outside this repo's project includes `vibe-libs.yml` as an app would, builds with no prefix header and no headermap, and runs. |
 | `make test-strings` | The strings tools' self-test, over a tiny app of their own. |
-| `make fuzz-replay` | Every parser fuzz target over its seeds and regressions once, under Address and Undefined Behavior Sanitizers, built by Xcode's clang ([Tests/Fuzz/AGENTS.md](Tests/Fuzz/AGENTS.md)). |
+| `make fuzz-replay` | Every parser fuzz target over its seeds and regressions once, under Address and Undefined Behavior Sanitizers, built by Xcode's clang ([Tests/Fuzz/AGENTS.md](Tests/Fuzz/AGENTS.md)). With `SINCE`, only the targets a change reaches. |
 
-CI runs all six on every pull request. There, `make test` and `make build-ios` take `SINCE=HEAD^1`, so they build only the targets the pull request's changes reach, as `scripts/checks/targets.py` finds them. A change outside every target, such as to a spec, the Makefile, or a script, reaches them all. Every push to main runs them in full. `make fuzz` fuzzes the parsers that read a user's files, and runs only on a Mac with Homebrew's `llvm`, never in CI.
+CI runs all six on every pull request. There, `make test`, `make build-ios`, and `make fuzz-replay` take `SINCE=HEAD^1`, so they build only the targets the pull request's changes reach, as `scripts/checks/targets.py` finds them. A change outside every target, such as to a spec, the Makefile, or a script, reaches them all. Every push to main runs them in full. `make fuzz` fuzzes the parsers that read a user's files, and runs only on a Mac with Homebrew's `llvm`, never in CI.
 
 ## What this repo is for
 

@@ -2,8 +2,8 @@
 # Writes the fuzz targets' seeds into Tests/Fuzz/Seeds, from a sine tone and a
 # small generated picture, so no seed is anyone's recording. Each is a valid
 # file of its target's format, tagged, and small enough that a run mutates it
-# fast. Needs ffmpeg and metaflac (the Brewfile of an app that runs this, or
-# `brew install ffmpeg flac`). The text seeds are written by hand.
+# fast. Needs `brew install ffmpeg flac`, and macOS's sips and iconv. The
+# text seeds are written by hand.
 # Re-run it only to change the seeds, then commit them.
 set -euo pipefail
 
@@ -42,10 +42,9 @@ ff -i "$work/tone-8000.wav" "${tags[@]}" -c:a flac "$seeds/tags-flac/tagged.flac
 with_cover "$work/tone-8000.wav" png "$seeds/tags-flac/cover.flac" "${tags[@]}" -c:a flac
 sheet=$'PERFORMER "Seed Artist"\nTITLE "Seed Album"\nFILE "tone.flac" WAVE\n  TRACK 01 AUDIO\n    TITLE "One"\n    INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    TITLE "Two"\n    INDEX 00 00:00:01\n    INDEX 01 00:00:02\n'
 ff -i "$work/tone-8000.wav" -metadata CUESHEET="$sheet" -c:a flac "$seeds/tags-flac/sheet-comment.flac"
-ff -i "$work/tone-44100.wav" -c:a flac "$work/cd.flac"
+ff -i "$work/tone-44100.wav" -c:a flac "$seeds/tags-flac/sheet-block.flac"
 printf 'FILE "cd.wav" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n  TRACK 02 AUDIO\n    INDEX 00 00:00:01\n    INDEX 01 00:00:02\n' > "$work/cd.cue"
-metaflac --import-cuesheet-from="$work/cd.cue" "$work/cd.flac"
-cp "$work/cd.flac" "$seeds/tags-flac/sheet-block.flac"
+metaflac --import-cuesheet-from="$work/cd.cue" "$seeds/tags-flac/sheet-block.flac"
 cp "$seeds/tags-flac/sheet-comment.flac" "$seeds/tags-flac/sheet-block.flac" "$seeds/flac-cue/"
 
 # Without the padding block, every FLAC seed is a few hundred bytes.

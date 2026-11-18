@@ -35,3 +35,5 @@ Images, colors, and type for an app on either platform. It depends on nothing. I
 ## Tests
 
 `Tests/core/Graphics/Mac/` holds the hex color tests, the image tests, and the icon grid's: the crop, the resize, the lower band's darkness, the dominant color, and the composed icon's margin, corners, rim light, and fit. The Dock tile itself needs a running app, so an app's own checks cover it. They run on macOS. The iOS target builds the shared files and the iOS half. Vibe's tests of its artwork, themes, and waveform colors exercise the rest through Vibe's own classes, so they stay in Vibe. The minimal consumer round-trips a color with alpha through its hex form.
+
+`Tests/Fuzz/` also fuzzes this piece by coverage, under sanitizers, through its `art` target ([Tests/Fuzz/AGENTS.md](../../Tests/Fuzz/AGENTS.md)).

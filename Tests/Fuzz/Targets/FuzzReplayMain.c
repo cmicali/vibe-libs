@@ -17,11 +17,15 @@ static int RunFile(const char *path) {
         fprintf(stderr, "replay: cannot open %s\n", path);
         return 1;
     }
-    fseek(file, 0, SEEK_END);
-    long size = ftell(file);
-    fseek(file, 0, SEEK_SET);
-    uint8_t *bytes = malloc(size > 0 ? (size_t)size : 1);
-    size_t read = fread(bytes, 1, (size_t)size, file);
+    struct stat info;
+    if (fstat(fileno(file), &info) != 0) {
+        fclose(file);
+        fprintf(stderr, "replay: cannot read %s\n", path);
+        return 1;
+    }
+    size_t size = (size_t)info.st_size;
+    uint8_t *bytes = malloc(size ? size : 1);
+    size_t read = fread(bytes, 1, size, file);
     fclose(file);
     fprintf(stderr, "replay: %s\n", path);
     LLVMFuzzerTestOneInput(bytes, read);
@@ -48,18 +52,21 @@ int main(int argc, char **argv) {
             continue;
         }
         DIR *dir = opendir(argv[i]);
+        if (!dir) {
+            fprintf(stderr, "replay: cannot open %s\n", argv[i]);
+            failures++;
+            continue;
+        }
         char **names = NULL;
         size_t count = 0;
-        for (struct dirent *entry; dir && (entry = readdir(dir));) {
+        for (struct dirent *entry; (entry = readdir(dir));) {
             if (entry->d_name[0] == '.') {
                 continue;
             }
             names = realloc(names, (count + 1) * sizeof *names);
             asprintf(&names[count++], "%s/%s", argv[i], entry->d_name);
         }
-        if (dir) {
-            closedir(dir);
-        }
+        closedir(dir);
         qsort(names, count, sizeof *names, Compare);
         for (size_t n = 0; n < count; n++) {
             failures += RunFile(names[n]);
@@ -69,5 +76,5 @@ int main(int argc, char **argv) {
         free(names);
     }
     fprintf(stderr, "replay: %d inputs, %d unreadable\n", runs, failures);
-    return failures ? 1 : 0;
+    return failures || runs == 0 ? 1 : 0;
 }
