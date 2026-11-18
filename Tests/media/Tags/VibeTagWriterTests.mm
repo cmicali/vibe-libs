@@ -429,6 +429,7 @@ static void VibeWriteLargeAudio(NSString *path, NSString *kind, uint64_t size, u
                                                                                  : TagLib::MP4::CoverArt::Unknown);
             list.append(TagLib::MP4::CoverArt(format, VibeTagBytes(picture.data)));
         }
+        if (list.isEmpty()) return;
         file.tag()->setItem("covr", TagLib::MP4::Item(list));
         XCTAssertTrue(file.save());
     }
