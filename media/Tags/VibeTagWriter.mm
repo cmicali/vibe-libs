@@ -46,10 +46,22 @@ namespace {
 // Keys upper case, each with its values. Empty values remove the key.
 using Edits = TagLib::Map<TagLib::String, TagLib::StringList>;
 
+// A picture as a tag stores it, for a write that puts pictures back.
+struct Record {
+    TagLib::ByteVector data;
+    TagLib::String mimeType;
+    int type = 0;
+    TagLib::String description;
+    int width = 0, height = 0, colorDepth = 0, colorCount = 0;
+};
+
 struct Cover {
     bool change = false;
     TagLib::ByteVector data;  // empty removes
     TagLib::String mimeType;
+    // Every picture becomes `records`, in order, and data is ignored.
+    bool replaceAll = false;
+    std::vector<Record> records;
 };
 
 // A refusal found before the first write, or a failure after it.
@@ -279,14 +291,32 @@ void ApplyID3v2Ops(TagLib::ID3v2::Tag *tag, const Edits &ops, TagLib::ID3v2::Ver
     }
 }
 
+// A removal takes every front cover, or every picture when none is one,
+// since the art read falls back to any picture. A replacement takes every
+// front cover. With replaceAll, every picture goes.
 void ApplyID3v2Cover(TagLib::ID3v2::Tag *tag, const Cover &cover) {
     if (!cover.change) return;
-    TagLib::ID3v2::FrameList remove;
+    TagLib::ID3v2::FrameList fronts, all;
     for (TagLib::ID3v2::Frame *frame : tag->frameList("APIC")) {
         auto picture = dynamic_cast<TagLib::ID3v2::AttachedPictureFrame *>(frame);
-        if (picture && picture->type() == TagLib::ID3v2::AttachedPictureFrame::FrontCover) remove.append(frame);
+        if (!picture) continue;
+        all.append(frame);
+        if (picture->type() == TagLib::ID3v2::AttachedPictureFrame::FrontCover) fronts.append(frame);
     }
-    for (TagLib::ID3v2::Frame *frame : remove) tag->removeFrame(frame, true);
+    const bool takeAll = cover.replaceAll || (cover.data.isEmpty() && fronts.isEmpty());
+    for (TagLib::ID3v2::Frame *frame : takeAll ? all : fronts) tag->removeFrame(frame, true);
+    if (cover.replaceAll) {
+        for (const Record &record : cover.records) {
+            auto frame = new TagLib::ID3v2::AttachedPictureFrame();
+            frame->setTextEncoding(TagLib::String::UTF8);
+            frame->setMimeType(record.mimeType);
+            frame->setType(static_cast<TagLib::ID3v2::AttachedPictureFrame::Type>(record.type));
+            frame->setDescription(record.description);
+            frame->setPicture(record.data);
+            tag->addFrame(frame);
+        }
+        return;
+    }
     if (cover.data.isEmpty()) return;
     auto frame = new TagLib::ID3v2::AttachedPictureFrame();
     frame->setTextEncoding(TagLib::String::UTF8);
@@ -388,12 +418,33 @@ void ApplyXiphEdits(TagLib::Ogg::XiphComment *tag, const Edits &named) {
 }
 
 // A FLAC file's picture blocks and a Xiph comment's pictures share the
-// API: every front cover goes, and the new one is added.
+// API, and the rule of ApplyID3v2Cover.
 template <class Owner>
 void ApplyPictureCover(Owner *owner, const Cover &cover) {
     if (!cover.change) return;
+    bool hasFront = false;
     for (TagLib::FLAC::Picture *picture : owner->pictureList()) {
-        if (picture->type() == TagLib::FLAC::Picture::FrontCover) owner->removePicture(picture, true);
+        if (picture->type() == TagLib::FLAC::Picture::FrontCover) hasFront = true;
+    }
+    const bool takeAll = cover.replaceAll || (cover.data.isEmpty() && !hasFront);
+    const TagLib::List<TagLib::FLAC::Picture *> pictures = owner->pictureList();
+    for (TagLib::FLAC::Picture *picture : pictures) {
+        if (takeAll || picture->type() == TagLib::FLAC::Picture::FrontCover) owner->removePicture(picture, true);
+    }
+    if (cover.replaceAll) {
+        for (const Record &record : cover.records) {
+            auto picture = new TagLib::FLAC::Picture();
+            picture->setType(static_cast<TagLib::FLAC::Picture::Type>(record.type));
+            picture->setMimeType(record.mimeType);
+            picture->setDescription(record.description);
+            picture->setWidth(record.width);
+            picture->setHeight(record.height);
+            picture->setColorDepth(record.colorDepth);
+            picture->setNumColors(record.colorCount);
+            picture->setData(record.data);
+            owner->addPicture(picture);
+        }
+        return;
     }
     if (cover.data.isEmpty()) return;
     auto picture = new TagLib::FLAC::Picture();
@@ -458,12 +509,26 @@ void ApplyMP4Edits(TagLib::MP4::Tag *tag, const Edits &named) {
     }
 }
 
-// MP4's pictures have no type. The first is the cover, which the read answers.
+// MP4's pictures have no type. The first is the cover, which the read
+// answers, and a replacement takes it. The read falls back to the next, so
+// a removal takes every entry.
 void ApplyMP4Cover(TagLib::MP4::Tag *tag, const Cover &cover) {
     if (!cover.change) return;
     TagLib::MP4::CoverArtList list = tag->item("covr").toCoverArtList();
-    if (!list.isEmpty()) list.erase(list.begin());
-    if (!cover.data.isEmpty()) {
+    if (cover.replaceAll) {
+        list.clear();
+        for (const Record &record : cover.records) {
+            TagLib::MP4::CoverArt::Format format = TagLib::MP4::CoverArt::Unknown;
+            if (record.mimeType == "image/jpeg") format = TagLib::MP4::CoverArt::JPEG;
+            else if (record.mimeType == "image/png") format = TagLib::MP4::CoverArt::PNG;
+            else if (record.mimeType == "image/gif") format = TagLib::MP4::CoverArt::GIF;
+            else if (record.mimeType == "image/bmp") format = TagLib::MP4::CoverArt::BMP;
+            list.append(TagLib::MP4::CoverArt(format, record.data));
+        }
+    }
+    else if (cover.data.isEmpty()) list.clear();
+    else if (!list.isEmpty()) list.erase(list.begin());
+    if (!cover.replaceAll && !cover.data.isEmpty()) {
         // TRAP: covr types only these four. TIFF or WebP would be an untyped
         // entry that Apple's readers need not show, so it is refused.
         TagLib::MP4::CoverArt::Format format;
@@ -595,6 +660,11 @@ NSSet<NSString *> *EditedFields(void) {
 
 } // namespace
 
+namespace {
+BOOL WriteFile(NSString *path, const Edits &edits, const Cover &cover, VibeTagWriteSync sync,
+               NSError *__autoreleasing *error);
+}
+
 BOOL VibeTagLibWriteTagsWithSync(NSString *path, VibeTagFieldValues *fields, BOOL changeCover, NSData *coverData,
                                  NSString *coverMIMEType, VibeTagWriteSync sync, NSError *__autoreleasing *error) {
     Edits edits;
@@ -630,6 +700,13 @@ BOOL VibeTagLibWriteTagsWithSync(NSString *path, VibeTagFieldValues *fields, BOO
             cover.mimeType = TL(mime);
         }
     }
+    return WriteFile(path, edits, cover, sync, error);
+}
+
+namespace {
+
+BOOL WriteFile(NSString *path, const Edits &edits, const Cover &cover, VibeTagWriteSync sync,
+               NSError *__autoreleasing *error) {
     // The barrier: no C++ exception leaves this call.
     try {
         const VibeInfoEncodingScope infoEncoding;
@@ -673,6 +750,8 @@ BOOL VibeTagLibWriteTagsWithSync(NSString *path, VibeTagFieldValues *fields, BOO
     }
 }
 
+} // namespace
+
 BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *fields, BOOL changeCover, NSData *coverData,
                          NSString *coverMIMEType, NSError *__autoreleasing *error) {
     return VibeTagLibWriteTagsWithSync(path, fields, changeCover, coverData, coverMIMEType, VibeTagWriteSyncFull, error);
@@ -690,62 +769,130 @@ NSArray<NSString *> *VibeTagCoverMIMETypes(void) {
     return @[@"image/jpeg", @"image/png", @"image/gif", @"image/bmp", @"image/tiff", @"image/webp"];
 }
 
+@implementation VibeTagPicture
+
+- (instancetype)initWithData:(NSData *)data mimeType:(NSString *)mimeType type:(VibeTagPictureType)type
+                 description:(NSString *)pictureDescription {
+    return [self initWithData:data mimeType:mimeType type:type description:pictureDescription width:0 height:0
+                   colorDepth:0 colorCount:0];
+}
+
+- (instancetype)initWithData:(NSData *)data mimeType:(NSString *)mimeType type:(VibeTagPictureType)type
+                 description:(NSString *)pictureDescription width:(NSUInteger)width height:(NSUInteger)height
+                  colorDepth:(NSUInteger)colorDepth colorCount:(NSUInteger)colorCount {
+    if ((self = [super init])) {
+        _data = [data copy];
+        _mimeType = [mimeType copy];
+        _type = type;
+        _pictureDescription = [pictureDescription copy] ?: @"";
+        _width = width;
+        _height = height;
+        _colorDepth = colorDepth;
+        _colorCount = colorCount;
+    }
+    return self;
+}
+
+- (NSString *)imageMIMEType {
+    NSString *sniffed = SniffedMIMEType(_data.bytes, _data.length);
+    if (sniffed) return sniffed;
+    return _mimeType.length ? CanonicalMIMEType(_mimeType) : nil;
+}
+
+- (BOOL)isEqual:(id)object {
+    if (![object isKindOfClass:VibeTagPicture.class]) return NO;
+    VibeTagPicture *other = object;
+    return [_data isEqualToData:other.data] && (_mimeType == other.mimeType || [_mimeType isEqual:other.mimeType])
+            && _type == other.type && [_pictureDescription isEqualToString:other.pictureDescription]
+            && _width == other.width && _height == other.height && _colorDepth == other.colorDepth
+            && _colorCount == other.colorCount;
+}
+
+- (NSUInteger)hash {
+    return _data.hash ^ (NSUInteger)_type;
+}
+
+- (NSString *)description {
+    return [NSString stringWithFormat:@"<VibeTagPicture type %ld, %@, \"%@\", %lu bytes, %lux%lu>", (long)_type,
+                                      _mimeType, _pictureDescription, (unsigned long)_data.length,
+                                      (unsigned long)_width, (unsigned long)_height];
+}
+
+@end
+
 namespace {
 
 NSData *Data(const TagLib::ByteVector &bytes) {
     return [NSData dataWithBytes:bytes.data() length:bytes.size()];
 }
 
-// The cover's type: the bytes' signature, else the tag's own type.
-NSString *TrueMIMEType(const TagLib::ByteVector &bytes, NSString *declared) {
-    NSString *sniffed = SniffedMIMEType(bytes.data(), bytes.size());
-    if (sniffed) return sniffed;
-    return declared.length ? CanonicalMIMEType(declared) : nil;
+// The tag's MIME string, or nil for none.
+NSString *StoredMIMEType(const TagLib::String &mime) {
+    return mime.isEmpty() ? nil : NS(mime);
 }
 
-// The first front cover, which a cover write replaces with every other.
-void FrontCoverOfID3v2(TagLib::ID3v2::Tag *tag, NSData **data, NSString **mime) {
-    if (!tag) return;
+NSArray<VibeTagPicture *> *PicturesOfID3v2(TagLib::ID3v2::Tag *tag) {
+    NSMutableArray<VibeTagPicture *> *pictures = [NSMutableArray array];
+    if (!tag) return pictures;
     for (TagLib::ID3v2::Frame *frame : tag->frameList("APIC")) {
         auto picture = dynamic_cast<TagLib::ID3v2::AttachedPictureFrame *>(frame);
-        if (!picture || picture->type() != TagLib::ID3v2::AttachedPictureFrame::FrontCover) continue;
-        *data = Data(picture->picture());
-        *mime = TrueMIMEType(picture->picture(), NS(picture->mimeType()));
-        return;
+        if (!picture) continue;
+        [pictures addObject:[[VibeTagPicture alloc] initWithData:Data(picture->picture())
+                                                        mimeType:StoredMIMEType(picture->mimeType())
+                                                            type:(VibeTagPictureType)picture->type()
+                                                     description:NS(picture->description())]];
     }
+    return pictures;
 }
 
-void FrontCoverOfPictures(const TagLib::List<TagLib::FLAC::Picture *> &pictures, NSData **data, NSString **mime) {
-    for (TagLib::FLAC::Picture *picture : pictures) {
-        if (picture->type() != TagLib::FLAC::Picture::FrontCover) continue;
-        *data = Data(picture->data());
-        *mime = TrueMIMEType(picture->data(), NS(picture->mimeType()));
-        return;
+NSArray<VibeTagPicture *> *PicturesOfList(const TagLib::List<TagLib::FLAC::Picture *> &list) {
+    NSMutableArray<VibeTagPicture *> *pictures = [NSMutableArray array];
+    for (TagLib::FLAC::Picture *picture : list) {
+        [pictures addObject:[[VibeTagPicture alloc] initWithData:Data(picture->data()) mimeType:StoredMIMEType(picture->mimeType())
+                                                            type:(VibeTagPictureType)picture->type()
+                                                     description:NS(picture->description())
+                                                           width:(NSUInteger)std::max(0, picture->width())
+                                                          height:(NSUInteger)std::max(0, picture->height())
+                                                      colorDepth:(NSUInteger)std::max(0, picture->colorDepth())
+                                                      colorCount:(NSUInteger)std::max(0, picture->numColors())]];
     }
+    return pictures;
 }
 
-void FrontCoverOfMP4(TagLib::MP4::Tag *tag, NSData **data, NSString **mime) {
-    const TagLib::MP4::CoverArtList list = tag->item("covr").toCoverArtList();
-    if (list.isEmpty()) return;
-    const TagLib::MP4::CoverArt &art = list.front();
-    NSString *typed = nil;
-    switch (art.format()) {
-        case TagLib::MP4::CoverArt::JPEG: typed = @"image/jpeg"; break;
-        case TagLib::MP4::CoverArt::PNG: typed = @"image/png"; break;
-        case TagLib::MP4::CoverArt::GIF: typed = @"image/gif"; break;
-        case TagLib::MP4::CoverArt::BMP: typed = @"image/bmp"; break;
-        default: break;
+NSArray<VibeTagPicture *> *PicturesOfMP4(TagLib::MP4::Tag *tag) {
+    NSMutableArray<VibeTagPicture *> *pictures = [NSMutableArray array];
+    for (const TagLib::MP4::CoverArt &art : tag->item("covr").toCoverArtList()) {
+        NSString *typed = nil;
+        switch (art.format()) {
+            case TagLib::MP4::CoverArt::JPEG: typed = @"image/jpeg"; break;
+            case TagLib::MP4::CoverArt::PNG: typed = @"image/png"; break;
+            case TagLib::MP4::CoverArt::GIF: typed = @"image/gif"; break;
+            case TagLib::MP4::CoverArt::BMP: typed = @"image/bmp"; break;
+            default: break;
+        }
+        [pictures addObject:[[VibeTagPicture alloc] initWithData:Data(art.data()) mimeType:typed
+                                                            type:VibeTagPictureTypeUntyped description:@""]];
     }
-    *data = Data(art.data());
-    *mime = TrueMIMEType(art.data(), typed);
+    return pictures;
+}
+
+// Which picture the art read shows: the first front cover with bytes, else
+// the first picture with bytes (TagLibAudioFile.mm, albumArtDataFromTagLibFile).
+NSUInteger ShownIndex(NSArray<VibeTagPicture *> *pictures) {
+    NSUInteger fallback = NSNotFound;
+    for (NSUInteger i = 0; i < pictures.count; i++) {
+        if (pictures[i].data.length == 0) continue;
+        if (pictures[i].type == VibeTagPictureTypeFrontCover) return i;
+        if (fallback == NSNotFound) fallback = i;
+    }
+    return fallback;
 }
 
 } // namespace
 
-BOOL VibeTagLibReadFrontCover(NSString *path, NSData *__autoreleasing *data, NSString *__autoreleasing *mimeType,
-                              NSError *__autoreleasing *error) {
-    NSData *cover = nil;
-    NSString *mime = nil;
+BOOL VibeTagLibReadPictures(NSString *path, NSArray<VibeTagPicture *> *__autoreleasing *pictures,
+                            NSUInteger *shownIndex, NSError *__autoreleasing *error) {
+    NSArray<VibeTagPicture *> *found = @[];
     try {
         TagLibAudioFile fileRef(path.fileSystemRepresentation, false);
         if (fileRef.isNull()) {
@@ -753,22 +900,22 @@ BOOL VibeTagLibReadFrontCover(NSString *path, NSData *__autoreleasing *data, NSS
         }
         TagLib::File *file = fileRef.file();
         if (auto mpeg = dynamic_cast<TagLib::MPEG::File *>(file)) {
-            FrontCoverOfID3v2(mpeg->hasID3v2Tag() ? mpeg->ID3v2Tag() : nullptr, &cover, &mime);
+            found = PicturesOfID3v2(mpeg->hasID3v2Tag() ? mpeg->ID3v2Tag() : nullptr);
         }
         else if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
-            FrontCoverOfID3v2(wav->hasID3v2Tag() ? wav->ID3v2Tag() : nullptr, &cover, &mime);
+            found = PicturesOfID3v2(wav->hasID3v2Tag() ? wav->ID3v2Tag() : nullptr);
         }
         else if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
-            FrontCoverOfID3v2(aiff->hasID3v2Tag() ? aiff->tag() : nullptr, &cover, &mime);
+            found = PicturesOfID3v2(aiff->hasID3v2Tag() ? aiff->tag() : nullptr);
         }
         else if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
-            FrontCoverOfPictures(flac->pictureList(), &cover, &mime);
+            found = PicturesOfList(flac->pictureList());
         }
         else if (auto xiph = dynamic_cast<TagLib::Ogg::XiphComment *>(file->tag())) {
-            FrontCoverOfPictures(xiph->pictureList(), &cover, &mime);
+            found = PicturesOfList(xiph->pictureList());
         }
         else if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
-            FrontCoverOfMP4(mp4->tag(), &cover, &mime);
+            found = PicturesOfMP4(mp4->tag());
         }
     }
     catch (const std::exception &e) {
@@ -777,9 +924,45 @@ BOOL VibeTagLibReadFrontCover(NSString *path, NSData *__autoreleasing *data, NSS
     catch (...) {
         return Fail(error, VibeTagWriteErrorTagLibThrew, path, @"TagLib threw");
     }
-    if (data) *data = cover;
-    if (mimeType) *mimeType = cover ? mime : nil;
+    if (pictures) *pictures = found;
+    if (shownIndex) *shownIndex = ShownIndex(found);
     return YES;
+}
+
+BOOL VibeTagLibReadCover(NSString *path, NSData *__autoreleasing *data, NSString *__autoreleasing *mimeType,
+                         NSError *__autoreleasing *error) {
+    NSArray<VibeTagPicture *> *pictures = nil;
+    NSUInteger shown = NSNotFound;
+    if (!VibeTagLibReadPictures(path, &pictures, &shown, error)) return NO;
+    VibeTagPicture *picture = shown == NSNotFound ? nil : pictures[shown];
+    if (data) *data = picture.data;
+    if (mimeType) *mimeType = picture.imageMIMEType;
+    return YES;
+}
+
+BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures, VibeTagWriteSync sync,
+                             NSError *__autoreleasing *error) {
+    Cover cover;
+    cover.change = true;
+    cover.replaceAll = true;
+    for (VibeTagPicture *picture in pictures) {
+        if (picture.data.length == 0 || picture.type < VibeTagPictureTypeUntyped || picture.type > 20) {
+            return Fail(error, VibeTagWriteErrorInvalidImage, path,
+                        [NSString stringWithFormat:@"A picture must hold bytes and a type from -1 to 20, not %@",
+                                                   picture]);
+        }
+        Record record;
+        record.data = TagLib::ByteVector((const char *)picture.data.bytes, (unsigned int)picture.data.length);
+        record.mimeType = TL(picture.mimeType ?: @"");
+        record.type = picture.type == VibeTagPictureTypeUntyped ? (int)VibeTagPictureTypeOther : (int)picture.type;
+        record.description = TL(picture.pictureDescription);
+        record.width = (int)std::min<NSUInteger>(picture.width, INT_MAX);
+        record.height = (int)std::min<NSUInteger>(picture.height, INT_MAX);
+        record.colorDepth = (int)std::min<NSUInteger>(picture.colorDepth, INT_MAX);
+        record.colorCount = (int)std::min<NSUInteger>(picture.colorCount, INT_MAX);
+        cover.records.push_back(record);
+    }
+    return WriteFile(path, Edits(), cover, sync, error);
 }
 
 VibeTagFieldValues *VibeTagLibReadFields(NSString *path, NSError *__autoreleasing *error) {

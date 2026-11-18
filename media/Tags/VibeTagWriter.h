@@ -73,9 +73,13 @@ typedef NSDictionary<VibeTagField, NSArray<NSString *> *> VibeTagFieldValues;
 FOUNDATION_EXTERN BOOL VibeTagLibWriteFields(NSString *path, VibeTagFieldValues *fields,
                                              NSError *_Nullable __autoreleasing *_Nullable error);
 
-// Sets the embedded front cover, or removes it when data is nil. Other
-// pictures stay. mimeType is one of VibeTagCoverMIMETypes(), and the bytes'
-// signature must match it. MP4 refuses TIFF and WebP.
+// Sets the embedded front cover, replacing every front cover and keeping
+// other pictures. mimeType is one of VibeTagCoverMIMETypes(), and the bytes'
+// signature must match it. MP4 replaces its first covr entry, and refuses
+// TIFF and WebP. With data nil it removes the cover, so the art read shows
+// nothing of it: every front cover goes, and when the file has none, every
+// picture does, since the read falls back to any. In MP4 every covr entry
+// goes.
 FOUNDATION_EXTERN BOOL VibeTagLibWriteFrontCover(NSString *path, NSData *_Nullable data, NSString *_Nullable mimeType,
                                                  NSError *_Nullable __autoreleasing *_Nullable error);
 
@@ -97,15 +101,66 @@ FOUNDATION_EXTERN BOOL VibeTagLibWriteTagsWithSync(NSString *path, VibeTagFieldV
 // image/bmp, image/tiff, and image/webp.
 FOUNDATION_EXTERN NSArray<NSString *> *VibeTagCoverMIMETypes(void);
 
-// The front cover a cover write replaces, so an app can put it back: an
-// ID3v2, FLAC, or Xiph comment's first picture of type front cover, or
-// MP4's first covr entry. Its MIME type comes from the bytes' signature,
-// else from the tag's own type, else nil. YES with nil data is a file with
-// no front cover. NO with an error when no parser took the file or TagLib
-// threw.
-FOUNDATION_EXTERN BOOL VibeTagLibReadFrontCover(NSString *path, NSData *_Nullable __autoreleasing *_Nullable data,
-                                                NSString *_Nullable __autoreleasing *_Nullable mimeType,
-                                                NSError *_Nullable __autoreleasing *_Nullable error);
+// What a picture is: ID3v2's APIC numbering, which FLAC and Xiph pictures
+// share, from 0 to 20. MP4's pictures have no type.
+typedef NS_ENUM(NSInteger, VibeTagPictureType) {
+    VibeTagPictureTypeUntyped = -1,
+    VibeTagPictureTypeOther = 0,
+    VibeTagPictureTypeFrontCover = 3,
+    VibeTagPictureTypeBackCover = 4,
+};
+
+// One embedded picture as its tag stores it.
+@interface VibeTagPicture : NSObject
+
+- (instancetype)init NS_UNAVAILABLE;
+- (instancetype)initWithData:(NSData *)data mimeType:(nullable NSString *)mimeType type:(VibeTagPictureType)type
+                 description:(nullable NSString *)pictureDescription;
+- (instancetype)initWithData:(NSData *)data mimeType:(nullable NSString *)mimeType type:(VibeTagPictureType)type
+                 description:(nullable NSString *)pictureDescription width:(NSUInteger)width
+                      height:(NSUInteger)height colorDepth:(NSUInteger)colorDepth
+                  colorCount:(NSUInteger)colorCount NS_DESIGNATED_INITIALIZER;
+
+@property (nonatomic, readonly) NSData *data;
+// The tag's own MIME string, unchanged, or nil for none. MP4's is its
+// typed format, or nil when untyped.
+@property (nonatomic, readonly, nullable) NSString *mimeType;
+// The type the bytes' signature names, else mimeType in the writer's
+// spelling, else nil.
+@property (nonatomic, readonly, nullable) NSString *imageMIMEType;
+@property (nonatomic, readonly) VibeTagPictureType type;
+// Empty in MP4.
+@property (nonatomic, readonly) NSString *pictureDescription;
+// FLAC's and a Xiph picture's fields, as stored. 0 elsewhere.
+@property (nonatomic, readonly) NSUInteger width, height, colorDepth, colorCount;
+
+@end
+
+// Every picture in the file, in its order, and the index of the one the art
+// read shows (TagLibAudioFile.h), or NSNotFound. An ID3v2 file's are its
+// ID3v2 tag's. YES with an empty array is a file with none. NO with an error
+// when no parser took the file or TagLib threw.
+FOUNDATION_EXTERN BOOL VibeTagLibReadPictures(NSString *path,
+                                              NSArray<VibeTagPicture *> *_Nullable __autoreleasing *_Nullable pictures,
+                                              NSUInteger *_Nullable shownIndex,
+                                              NSError *_Nullable __autoreleasing *_Nullable error);
+
+// The picture the art read shows, with its imageMIMEType. YES with nil data
+// is a file that shows none.
+FOUNDATION_EXTERN BOOL VibeTagLibReadCover(NSString *path, NSData *_Nullable __autoreleasing *_Nullable data,
+                                           NSString *_Nullable __autoreleasing *_Nullable mimeType,
+                                           NSError *_Nullable __autoreleasing *_Nullable error);
+
+// Replaces every picture in the file with `pictures`, in order, each as
+// VibeTagLibReadPictures answered it, so an undo puts back what an edit
+// changed. The bytes are not checked against the MIME type. Untyped is
+// Other outside MP4. In MP4 the type and description are ignored, and a
+// MIME type MP4 does not type writes an untyped entry. Every refusal of
+// VibeTagLibWriteTags holds, and a picture with no bytes or a type past 20
+// fails with InvalidImage.
+FOUNDATION_EXTERN BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures,
+                                               VibeTagWriteSync sync,
+                                               NSError *_Nullable __autoreleasing *_Nullable error);
 
 // The file's fields as TagLib's property map reads them, keys upper case. A
 // number's "3/12" is split into TRACKTOTAL or DISCTOTAL in every format, and
