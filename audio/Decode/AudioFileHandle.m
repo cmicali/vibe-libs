@@ -569,10 +569,43 @@ static float VibeOpusOutputGain(AudioFileID parser) {
     return self;
 }
 
+// TRAP: CoreAudio's MPEG reader (MPEGAudioFile::OpenFromDataSource) never
+// returns when an ID3v2 tag follows another and its header is cut short by
+// the file's end, or has a version or revision of 0xFF, which ID3v2 forbids.
+// A 487-byte file hung AudioFileOpenURL (macOS 27). It sniffs the tags
+// whatever the extension, so any file whose tags chain into such a header is
+// refused before it opens. CoreAudio counts a footer in v2.3 too, as
+// VibeID3v2TagBytes does. The walk reads only the tag headers, which
+// CoreAudio's open reads too. Found by Tests/Fuzz's decode-mp3.
+static BOOL VibeID3TagsOpenable(AudioFileHandle *handle, uint64_t fileSize) {
+    uint64_t at = 0;
+    for (int index = 0; at + 3 <= fileSize; index++) {
+        // Fetched past the read block, which the parser reads next from the head.
+        uint8_t header[10];
+        size_t want = (size_t)MIN((uint64_t)sizeof header, fileSize - at);
+        if (VibeHandleFetch(handle, (SInt64)at, (SInt64)want, header, want) != (ssize_t)want
+                || memcmp(header, "ID3", 3) != 0) {
+            return YES;
+        }
+        if (index > 0 && (want < sizeof header || header[3] == 0xFF || header[4] == 0xFF)) {
+            return NO;
+        }
+        if (want < sizeof header) {
+            return YES;
+        }
+        at += VibeID3v2TagBytes(header);
+    }
+    return YES;
+}
+
 // CoreAudio's parser over the file's reads, which answers its facts.
 - (instancetype)openParserWithError:(NSError **)error {
     NSURL *url = _url;
     NSString *name = url.lastPathComponent;
+    if (!VibeID3TagsOpenable(self, (uint64_t)MAX(0, _size))) {
+        return [self failWithError:error status:kAudioFileInvalidFileError
+                       description:[NSString stringWithFormat:@"%@'s ID3 tags would hang CoreAudio", name]];
+    }
     // TRAP: parse as the extension's type first, as AudioFileOpenURL does:
     // sniffing alone refuses an MP3 with stray bytes between its ID3 tag and
     // first frame, which the hinted parse plays. A refusal falls back to
