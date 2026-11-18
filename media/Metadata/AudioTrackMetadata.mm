@@ -37,6 +37,7 @@ NSNotificationName const AudioTrackMetadataThumbnailDidLoadNotification =
 @property (copy, nullable, readwrite) NSNumber *bitrate;
 @property (copy, nullable, readwrite) NSNumber *sampleRate;
 @property (assign, readwrite) NSTimeInterval duration;
+@property (assign, readwrite) NSInteger bitDepth;
 @property (assign, readwrite) float bpm;
 @property (assign, readwrite) VibeMusicalKey key;
 @property (copy, nullable, readwrite) NSString *album;
@@ -49,6 +50,9 @@ NSNotificationName const AudioTrackMetadataThumbnailDidLoadNotification =
 @property (assign, readwrite) NSInteger discNumber;
 @property (assign, readwrite) NSInteger discCount;
 @property (assign, readwrite) BOOL compilation;
+@property (copy, nullable, readwrite) NSString *comment;
+@property (copy, nullable, readwrite) NSString *grouping;
+@property (copy, nullable, readwrite) NSString *label;
 @property (copy, nullable, readwrite) NSString *musicBrainzReleaseID;
 @property (copy, nullable, readwrite) NSString *musicBrainzRecordingID;
 @property (copy, nullable, readwrite) NSString *isrc;
@@ -159,6 +163,14 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
     return @(-10 * log10(MAX(left, right) / 1000.0));
 }
 
+// The formats whose tag is ID3v2: MPEG, WAV, and AIFF. A WAV may carry RIFF
+// INFO instead, which has no WORK key.
+static BOOL FileTypeCarriesID3v2(VibeAudioFileFormat _Nullable fileType) {
+    return [fileType isEqualToString:VibeAudioFileFormatMP3] || [fileType isEqualToString:VibeAudioFileFormatMP2]
+            || [fileType isEqualToString:VibeAudioFileFormatAAC] || [fileType isEqualToString:VibeAudioFileFormatWAV]
+            || [fileType isEqualToString:VibeAudioFileFormatAIFF];
+}
+
 @implementation AudioTrackMetadata
 
 #if !defined(NDEBUG)
@@ -249,6 +261,7 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
     copy.bitrate = self.bitrate;
     copy.sampleRate = self.sampleRate;
     copy.duration = self.duration;
+    copy.bitDepth = self.bitDepth;
     copy.bpm = self.bpm;
     copy.key = self.key;
     copy.album = self.album;
@@ -261,6 +274,9 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
     copy.discNumber = self.discNumber;
     copy.discCount = self.discCount;
     copy.compilation = self.compilation;
+    copy.comment = self.comment;
+    copy.grouping = self.grouping;
+    copy.label = self.label;
     copy.musicBrainzReleaseID = self.musicBrainzReleaseID;
     copy.musicBrainzRecordingID = self.musicBrainzRecordingID;
     copy.isrc = self.isrc;
@@ -313,6 +329,10 @@ static void EncodePresentCount(NSCoder *coder, NSInteger value, NSString *key) {
     EncodePresentCount(coder, self.discNumber, @"discNumber");
     EncodePresentCount(coder, self.discCount, @"discCount");
     EncodePresentCount(coder, self.compilation, @"compilation");
+    EncodePresent(coder, self.comment, @"comment");
+    EncodePresent(coder, self.grouping, @"grouping");
+    EncodePresent(coder, self.label, @"label");
+    EncodePresentCount(coder, self.bitDepth, @"bitDepth");
     EncodePresent(coder, self.musicBrainzReleaseID, @"musicBrainzReleaseID");
     EncodePresent(coder, self.musicBrainzRecordingID, @"musicBrainzRecordingID");
     EncodePresent(coder, self.isrc, @"isrc");
@@ -367,6 +387,9 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
         self.albumArtist = DecodedObject(coder, @"albumArtist", NSString.class, &wrong);
         self.genre = DecodedObject(coder, @"genre", NSString.class, &wrong);
         self.composer = DecodedObject(coder, @"composer", NSString.class, &wrong);
+        self.comment = DecodedObject(coder, @"comment", NSString.class, &wrong);
+        self.grouping = DecodedObject(coder, @"grouping", NSString.class, &wrong);
+        self.label = DecodedObject(coder, @"label", NSString.class, &wrong);
         self.musicBrainzReleaseID = DecodedObject(coder, @"musicBrainzReleaseID", NSString.class, &wrong);
         self.musicBrainzRecordingID = DecodedObject(coder, @"musicBrainzRecordingID", NSString.class, &wrong);
         self.isrc = DecodedObject(coder, @"isrc", NSString.class, &wrong);
@@ -387,6 +410,8 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
         self.discNumber = DecodedCount(coder, @"discNumber");
         self.discCount = DecodedCount(coder, @"discCount");
         self.compilation = DecodedCount(coder, @"compilation") > 0;
+        NSInteger bitDepth = DecodedCount(coder, @"bitDepth");
+        self.bitDepth = bitDepth <= 64 ? bitDepth : 0;
         self.artwork = [[AudioTrackArtwork alloc] initWithSourceFilePath:sourceFilePath
                                                                extractor:VibeTagLibArtExtractor()];
         // The thumbnail's bytes are in their own store. The loader stamps
@@ -556,10 +581,11 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
             self.key = VibeMusicalKeyFromString(
                     [NSString stringWithStdString:keyValues.front().to8Bit(true)]);
         }
+        self.fileType = fileTypeForTagLibFile(file);
         [self readFieldsFromProperties:properties];
         self.audioMD5 = audioMD5FromTagLibFile(file);
+        self.bitDepth = bitsPerSampleFromTagLibFile(file);
 
-        self.fileType = fileTypeForTagLibFile(file);
         [self.artwork adoptParsedArtData:albumArtDataFromTagLibFile(file)];
         self.parsedOK = YES;
     }
@@ -600,6 +626,38 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
     self.r128AlbumGain = R128Gain(PropertyText(properties, "R128_ALBUM_GAIN"));
     self.soundCheckGain = SoundCheckGain(PropertyText(properties, "COMMENT:ITUNNORM")
                                          ?: PropertyText(properties, "ITUNNORM"));
+    // An ID3v2 comment with a description, such as iTunNORM, has a key of
+    // its own, so only the plain comment reads here.
+    self.comment = PropertyText(properties, "COMMENT") ?: PropertyText(properties, "DESCRIPTION");
+    // ID3v2's GRP1 arrives as GROUPING. TIT1 arrives as WORK. TIT1 was the
+    // grouping until iTunes 12.5 moved it to GRP1, and many taggers still
+    // write it there, so an ID3v2 file without GRP1 takes it. MP4's and a
+    // Xiph comment's WORK is the work, never the grouping.
+    self.grouping = PropertyText(properties, "GROUPING")
+            ?: (FileTypeCarriesID3v2(self.fileType) ? PropertyText(properties, "WORK") : nil);
+    // ID3v2's TPUB, RIFF INFO's IPUB, and MP4's LABEL atom arrive as LABEL.
+    // A Xiph comment may name it ORGANIZATION, as the Vorbis spec does, or
+    // PUBLISHER.
+    self.label = PropertyText(properties, "LABEL") ?: PropertyText(properties, "ORGANIZATION")
+            ?: PropertyText(properties, "PUBLISHER");
+}
+
+// PCM's bits per channel, or ALAC's source depth from its flags. 0 for a
+// lossy codec.
+static NSInteger CoreAudioBitDepth(const AudioStreamBasicDescription &format) {
+    if (format.mFormatID == kAudioFormatLinearPCM) {
+        return format.mBitsPerChannel <= 64 ? format.mBitsPerChannel : 0;
+    }
+    if (format.mFormatID == kAudioFormatAppleLossless || format.mFormatID == kAudioFormatFLAC) {
+        switch (format.mFormatFlags) {
+            case kAppleLosslessFormatFlag_16BitSourceData: return 16;
+            case kAppleLosslessFormatFlag_20BitSourceData: return 20;
+            case kAppleLosslessFormatFlag_24BitSourceData: return 24;
+            case kAppleLosslessFormatFlag_32BitSourceData: return 32;
+            default: return 0;
+        }
+    }
+    return 0;
 }
 
 // CoreAudio's facts for a file TagLib cannot read (this piece's AGENTS.md).
@@ -630,6 +688,7 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
         self.bitrate = @(bitsPerSecond / 1000); // TagLib's unit
     }
     self.sampleRate = @((int)format.mSampleRate);
+    self.bitDepth = CoreAudioBitDepth(format);
     CFDictionaryRef infoDictionary = NULL;
     size = sizeof(infoDictionary);
     if (handle.infoDictionaryReadable

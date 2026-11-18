@@ -364,6 +364,31 @@ NSData *_Nullable audioMD5FromTagLibFile(TagLib::File *file) {
     return [[NSData alloc] initWithBytes:md5.data() length:md5.size()];
 }
 
+int bitsPerSampleFromTagLibFile(TagLib::File *file) {
+    int bits = 0;
+    if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
+        if (auto props = flac->audioProperties()) bits = props->bitsPerSample();
+    }
+    else if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
+        // An AAC sample entry names 16 bits, which describes no source.
+        auto props = mp4->audioProperties();
+        if (props && (props->codec() == TagLib::MP4::Properties::ALAC
+                      || props->codec() == TagLib::MP4::Properties::FLAC)) {
+            bits = props->bitsPerSample();
+        }
+    }
+    else if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
+        // PCM is 1, and IEEE float 3. Other codecs, such as ADPCM or MP3 in
+        // WAV, name a coded size or none.
+        auto props = wav->audioProperties();
+        if (props && (props->format() == 1 || props->format() == 3)) bits = props->bitsPerSample();
+    }
+    else if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
+        if (auto props = aiff->audioProperties()) bits = props->bitsPerSample();
+    }
+    return bits > 0 && bits <= 64 ? bits : 0;
+}
+
 static NSData *getAlbumArtMP3(TagLib::MPEG::File *mp3File);
 static NSData *getAlbumArtPictures(const TagLib::List<TagLib::FLAC::Picture *> &pictures);
 static NSData *getAlbumArtMP4(TagLib::MP4::File *mp4File);
