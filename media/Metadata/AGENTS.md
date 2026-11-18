@@ -102,7 +102,7 @@ A loader snapshots `AudioLoadingConfiguration`, so a settings change reaches onl
 
 **The parse reads them from the property map it builds once for the tempo and the key.** TagLib turns each format's frame or atom into one key, and its keys ignore case. So one lookup serves every format. These are the names each format's tag carries:
 
-| Field | ID3v2: MP3, WAV, AIFF | MP4: AAC, ALAC | Xiph comment: FLAC, Vorbis, Opus | APE on MP3 | RIFF INFO | ID3v1 |
+| Field | ID3v2: MP3, WAV, AIFF | MP4: AAC, ALAC, FLAC | Xiph comment: FLAC, Vorbis, Opus | APE on MP3 | RIFF INFO | ID3v1 |
 | --- | --- | --- | --- | --- | --- | --- |
 | album | `TALB` | `©alb` | `ALBUM` | `Album` | `IPRD` | album |
 | album artist | `TPE2` | `aART` | `ALBUMARTIST` | `Album Artist` | | |
@@ -160,7 +160,7 @@ Opus defines the R128 gains. The parse reads them from any Xiph comment, since t
 
 | Store | `AudioTrackMetadataCache` name | Holds | Typical entry |
 | --- | --- | --- | --- |
-| Tags | `cacheName`, `Audio Track Metadata v11` | the archived `AudioTrackMetadata`: the tags, the facts, and whether the file carries art | about 1 KB |
+| Tags | `cacheName`, `Audio Track Metadata v10` | the archived `AudioTrackMetadata`: the tags, the facts, and whether the file carries art | about 1 KB |
 | Thumbnails | `thumbnailCacheName`, `Audio Track Thumbnails v1` | the 128 px row thumbnail's encoded bytes | about 8 KB |
 | Display art | `displayArtCacheName`, `Audio Track Display Art v1` | the rendition (Embedded artwork, above) | about 100 KB |
 

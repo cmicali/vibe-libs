@@ -35,6 +35,21 @@ static NSURL *sFixtureDir;
 static NSDictionary<NSNumber *, NSURL *> *sFixtures;
 static NSData *sArt;
 
+// An entry archived before kindByCodec, as an older store holds one. Only
+// its kind is archived.
+@interface OldKindEntry : NSObject <NSCoding>
+@property (copy) NSString *fileType;
+@end
+
+@implementation OldKindEntry
+- (void)encodeWithCoder:(NSCoder *)coder {
+    [coder encodeObject:self.fileType forKey:@"fileType"];
+}
+- (instancetype)initWithCoder:(NSCoder *)coder {
+    return [super init];
+}
+@end
+
 @implementation AudioTrackMetadataTagTests {
     NSURL *_dir;
 }
@@ -297,7 +312,28 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
     [self assertFixture:VibeTagFixtureMP3APE fileType:VibeAudioFileFormatMP3 rate:44100 duration:kMP3Duration];
 }
 
-// AAC in M4A names its container. The key rides iTunes' freeform atom.
+// An entry that named an MP4's kind by its container misses, so the file
+// is parsed again. Every other older entry stays a hit.
+- (void)testAnOldMP4KindIsACacheMiss {
+    for (VibeAudioFileFormat kind in @[VibeAudioFileFormatMP4, VibeAudioFileFormatMP3]) {
+        OldKindEntry *old = [[OldKindEntry alloc] init];
+        old.fileType = kind;
+        NSKeyedArchiver *archiver = [[NSKeyedArchiver alloc] initRequiringSecureCoding:NO];
+        [archiver setClassName:NSStringFromClass(AudioTrackMetadata.class) forClass:OldKindEntry.class];
+        [archiver encodeObject:old forKey:NSKeyedArchiveRootObjectKey];
+        NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingFromData:archiver.encodedData
+                                                                                    error:NULL];
+        unarchiver.requiresSecureCoding = NO;
+        AudioTrackMetadata *decoded = [unarchiver decodeObjectForKey:NSKeyedArchiveRootObjectKey];
+        if ([kind isEqualToString:VibeAudioFileFormatMP4]) {
+            XCTAssertNil(decoded);
+        } else {
+            XCTAssertEqualObjects(decoded.fileType, kind);
+        }
+    }
+}
+
+// AAC in M4A names its codec. The key rides iTunes' freeform atom.
 - (void)testM4A {
     [self assertFixture:VibeTagFixtureM4A fileType:VibeAudioFileFormatAAC rate:44100 duration:0.5];
     XCTAssertGreaterThan(Parse([_dir URLByAppendingPathComponent:@"tagged.m4a"], NULL).bitrate.intValue, 0);

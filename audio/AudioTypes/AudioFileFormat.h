@@ -2,7 +2,10 @@
 //  AudioFileFormat.h
 //  vibe-libs
 //
-//  Sniffed codec/container names shared by metadata display and conversion.
+//  A file's kind, shared by metadata display and conversion. The kind is
+//  the codec's name, whatever the container: AAC in an M4A is AAC. A
+//  container's name (WAV, AIFF, W64, CAF, MP4) is the kind only for PCM, or
+//  for a codec with no name of its own here.
 //
 
 #import <Foundation/Foundation.h>

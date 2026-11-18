@@ -39,6 +39,7 @@ typedef void (^VibeEmbeddedArtReadHandler)(NSURL *url, dispatch_block_t read);
 // keeps the filename title and any facts read before the failure.
 @property (copy, nullable, readonly) NSString *title;
 @property (copy, nullable, readonly) NSString *artist;
+// The kind: the codec's name, whatever the container (AudioFileFormat.h).
 @property (copy, nullable, readonly) VibeAudioFileFormat fileType;
 @property (copy, nullable, readonly) NSNumber *bitrate;
 @property (copy, nullable, readonly) NSNumber *sampleRate;

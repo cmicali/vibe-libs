@@ -49,7 +49,7 @@ private:
     std::unique_ptr<TagLib::File> _file;
 };
 
-// The kind of the file's audio, its codec's name whatever the container.
+// The kind of the file's audio (AudioFileFormat.h).
 VibeAudioFileFormat _Nullable fileTypeForTagLibFile(TagLib::File *file);
 // Whether the file's tag is ID3v2: MPEG, WAV, and AIFF. A WAV may carry RIFF
 // INFO instead.

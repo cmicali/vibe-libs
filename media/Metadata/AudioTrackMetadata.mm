@@ -303,6 +303,7 @@ static void EncodePresentCount(NSCoder *coder, NSInteger value, NSString *key) {
     [coder encodeBool:self.artwork.hasEmbeddedArt forKey:@"hasEmbeddedArt"];
     [coder encodeObject:self.artwork.sourceFilePath forKey:@"sourceFilePath"];
     [coder encodeObject:self.fileType forKey:@"fileType"];
+    [coder encodeBool:YES forKey:@"kindByCodec"];
     [coder encodeObject:self.bitrate forKey:@"bitrate"];
     [coder encodeObject:self.sampleRate forKey:@"sampleRate"];
     [coder encodeDouble:self.duration forKey:@"duration"];
@@ -393,7 +394,11 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
         self.r128TrackGain = DecodedObject(coder, @"r128TrackGain", NSNumber.class, &wrong);
         self.r128AlbumGain = DecodedObject(coder, @"r128AlbumGain", NSNumber.class, &wrong);
         self.soundCheckGain = DecodedObject(coder, @"soundCheckGain", NSNumber.class, &wrong);
-        if (wrong) {
+        // An entry from before kindByCodec named an AAC or FLAC stream in an
+        // MP4 by its container. Only those entries miss, so the store keeps
+        // its name, and every other file's entry stays a hit.
+        if (wrong || ([self.fileType isEqualToString:VibeAudioFileFormatMP4]
+                      && ![coder decodeBoolForKey:@"kindByCodec"])) {
             return nil;
         }
         self.year = DecodedCount(coder, @"year");
