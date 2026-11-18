@@ -192,6 +192,8 @@ The cover fallback, in `Artwork/FolderArt/`. `FolderArtResolver` is discovery an
 
 **The resolver reads no setting and no grant.** The app answers both through `setEnabledProvider:accessProvider:` (the plan's cut 4). Until it does, folder art is off and any directory may be read. An app installs both at launch, from its own setting and its folder grants.
 
+**An app may guard each decode of a cover.** Every decode of a cover's bytes, the row's thumbnail and the display size alike, runs inside the handler `setDecodeHandler:` sets, on the caller's queue, which is never main. The handler calls `decode` at most once, before it returns. A handler that never calls it skips the cover, and the folder counts as having none, as for bytes that don't decode. An app guards a cover that crashes the image decoder this way, as it guards a file's own art.
+
 **TRAP: the resolver caches the app's enabled answer.** Only init, `setEnabledProvider:accessProvider:`, `folderArtSettingDidChange` and the test-only `invalidate` refresh the cached value. So an app calls `folderArtSettingDidChange` after every write of its setting. A write the app does not route there is never observed.
 
 ## Tests
