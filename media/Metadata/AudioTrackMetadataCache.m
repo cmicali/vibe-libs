@@ -3,6 +3,7 @@
 //  vibe-libs
 //
 
+#import <os/lock.h>
 #import <stdatomic.h>
 
 #import "AudioTrackMetadataCacheInternal.h"
@@ -41,8 +42,10 @@
 @end
 
 @interface AudioTrackMetadataCache ()
-// Atomic: set on the cache's queue, read per track from the loader's workers.
-@property (atomic, strong, nullable) VibeMetadataStores *stores;
+// Set on the cache's queue, read per track from the loader's workers, under
+// _storesLock. An atomic property's lock is libobjc's own, which Thread
+// Sanitizer can't see, so it took each read of a store for a race.
+@property (nonatomic, strong, nullable) VibeMetadataStores *stores;
 @property (nonatomic, readonly) AudioLoadingConfiguration *loadingConfiguration;
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration;
 - (void)setNeighborhoodURLs:(nullable NSArray<NSURL *> *)urls;
@@ -64,6 +67,21 @@
     // Weak: never pins a departed playlist's track.
     __weak id<AudioTrackMetadataHolder> _lastPrioritizedTrack;
     AudioLoadingConfiguration   *_loadingConfiguration;
+    os_unfair_lock              _storesLock;
+    VibeMetadataStores          *_stores;
+}
+
+- (nullable VibeMetadataStores *)stores {
+    os_unfair_lock_lock(&_storesLock);
+    VibeMetadataStores *stores = _stores;
+    os_unfair_lock_unlock(&_storesLock);
+    return stores;
+}
+
+- (void)setStores:(nullable VibeMetadataStores *)stores {
+    os_unfair_lock_lock(&_storesLock);
+    _stores = stores;
+    os_unfair_lock_unlock(&_storesLock);
 }
 
 - (uint64_t)cacheGeneration {
@@ -108,6 +126,7 @@
         _currentLoader = nil;
         _parseCoordinator = [[MetadataParseCoordinator alloc] init];
         _rootPath = [rootPath copy];
+        _storesLock = OS_UNFAIR_LOCK_INIT;
         _cacheQueue = dispatch_queue_create("vibe-libs.metadata.cache",
                 dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
         // Off main: constructing on main boosts PINCache's init-time disk scan
