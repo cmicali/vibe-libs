@@ -1,3 +1,13 @@
 # Thread Sanitizer's suppressions for make test-tsan.
 # Only a known benign race inside Apple's frameworks belongs here, each with
 # its reason. A race in this repo's code is fixed, never suppressed.
+
+# A block that a parallel loop runs is copied to the heap as the loop
+# starts: by Thread Sanitizer's own dispatch_apply, once it has ordered the
+# caller's writes, and inside CoreFoundation's concurrent sort, which it
+# can't see into. The copy's writes come before every iteration that reads
+# the block, but the sanitizer sees no order, and reports the block's heap
+# memory, with the copy helper as the top frame of one side. Only the top
+# frame matches, so a real race whose stack passes through a copy deeper
+# still reports.
+race_top:__copy_helper_block_
