@@ -1,6 +1,6 @@
 # files/DiskCache
 
-A bounded disk cache over PINCache. It depends on `third_party/PINCache` and on `core/Common`. It holds one category, `PINCache (VibeAudioCache)`. It came from Vibe. `media/Metadata`'s cache and `waveform/WaveformLoading`'s cache build their stores through it, so their entries live and die on the same terms. The category also removes the stores other versions left.
+A bounded disk cache over PINCache. It depends on `third_party/PINCache` and on `core/Common`. It holds one category, `PINCache (VibeAudioCache)`, and a store over the system's SQLite, `VibeCacheStore`, which no piece uses yet. It came from Vibe. `media/Metadata`'s cache and `waveform/WaveformLoading`'s cache build their stores through it, so their entries live and die on the same terms. The category also removes the stores other versions left.
 
 ## The store
 
@@ -33,3 +33,38 @@ The keys are the caller's. Every store is keyed by `core/Common`'s disk key, `NS
 The tests of the store's limits and usage are new here: the defaults at once, the latest limit winning, an entry read since its write that stays, and a hit before a relaunch that keeps an old entry while the one nobody read goes.
 
 So are the tests of its records on demand: none kept, the byte count through writes, replacements, removals, and a reopening, a trim by use and one by date, and the records a plain store drops. The tests of changes during the launch's count hold the count through PINDiskCache's seam, before it lists, at a file it listed, or after the last. They check that a write, a removal, a move, and a hit answer while it is held, and they cover a key written or removed before the count reaches it, one removed after, a trim fired during the count, an old entry moved during it that still ages out, moves as Metadata makes them, two stores on one folder, and a removal of everything. Each ends with a byte count equal to the files' bytes and to a fresh store's count. They root a store in a temporary directory, check the limits, and read the usage back on main. The tests of the removal came from Vibe. They lay out every name a release shipped, keep the current stores, another store, and a directory that is no store, and remove the rest. A missing directory is a no-op. `waveform/WaveformLoading`'s tests and `media/Metadata`'s each check that their store's name follows the rule. The minimal consumer makes a store under a temporary root, writes an entry, and reads the usage back, as an app would.
+
+## The SQLite store
+
+**`VibeCacheStore` is a bounded store over the system's SQLite, for the caches to move onto.** No piece uses it yet. Each entry is a row keyed by the caller's key, with a blob, the number of its format, the name of a shared item it points into, its size, and its last use as a day. A blob over `inlineLimit`, 64 KiB by default, goes to a file in `Files/` beside the database, and the row lists it. So a count or a trim reads rows, never the folder.
+
+**Formats.** Every row carries its format's number, so a format change never empties a store. `hitForKey:format:` answers only a row of that format. `hitForKey:acceptingFormatsUpTo:` also answers an older row, and the hit says it is older. A newer row is a miss for both, so a downgrade never misreads one.
+
+**Shared items** are a second table, keyed by a name and a part, that an entry names by its name, as a file's entry would name its picture's hash. Two entries that name one item share one copy. An item goes when its last entry goes or names another, through a trigger, or when a trim takes it. Then the entries that named it read as naming an item that is not cached. The daily work removes an item that no entry ever named.
+
+**Limits.** The creator sets `byteLimit` and `ageLimit`. 0 means none, and the defaults are 1 GiB and 180 days. The bytes are the blobs' and files' sizes, summed. A write over the byte limit starts a trim to 90% of it, least recently used first, entries and shared items together. The age counts from the last use. A read records its use once a day at most, and the uses go to the database together, half a second later. Ties within a day go by the order of writing. The age limit runs in the daily work, ten seconds after an open and then once a day. Each trim or sweep runs 64 rows a transaction, so a write waits for one batch at most.
+
+**The usage is a sum the triggers keep.** `usage` reads one row, so nothing is counted at an open, and it never waits for a write.
+
+**Threads.** Every method may be called from any thread. Writes, removals, and moves run on the store's serial queue and return once they read back. Reads borrow one of a few read connections and never wait for the writer, since the database uses WAL. Each connection's page cache is capped, 256 KiB for a reader and 1 MiB for the writer. A checkpoint runs on the queue, never inside a caller's write. The open prepares the write statements and makes the journal on the queue, so the first write doesn't pay for them.
+
+**One open at a time.** The store holds an exclusive `flock` on `Cache.lock`. A second open, in this process or another, gets nil until the first closes. `close` waits for queued work, then frees the directory. A closed store reads as empty and ignores writes.
+
+**Damage and crashes.** A database that will not open, or that a read or a write finds damaged, is removed with its files and made again, since a cache holds nothing the user made. A file being written is listed in `pending` before it is written, and leaves the list in the transaction that writes its row. A file that a removal, a replacement, or a trim lets go is listed by a trigger in that transaction, and removed once it commits. An open removes every listed file. So a crash at any point leaves no entry that reads as good and no file that is never removed. A file whose size is not its row's reads as a miss, and its row goes. `removeAllWithCompletion:` makes the database again, and removes the old files off the queue.
+
+**Measured** on 2026-11-19 on an M4 Max, at a load of 5 to 12, beside PINCache's store with records on demand, built the same way with `-O2` into one tool, three runs each. Each store held 200,000 entries of 200 bytes, as above, kept as a keyed archive, 457 bytes in the store. A hit decodes the archive in both.
+
+| Measure | PINCache | The SQLite store | The bar |
+| --- | --- | --- | --- |
+| A hit | 130 to 133 µs median | 8 to 9 µs median, 6 µs for the bytes alone | no slower |
+| A miss | 6 to 7 µs median | 2 µs median | no slower |
+| Footprint at rest, after 20 s of a read each ms | 11.7 to 12.1 MB | 3.09 to 3.14 MB, a peak of 3.45 to 3.50 MB | at most 3.5 MB |
+| The count at an open | 1.1 s in the background, from above | none, and the open takes 1.7 to 3.1 ms on the caller's thread | none |
+| A write 50 ms after an open | 0.51 to 1.78 ms | 0.16 to 0.21 ms | under 1 ms |
+| A removal 50 ms after an open | 0.83 to 0.87 ms | 0.04 to 0.05 ms | |
+| A usage count | 4.0 to 9.6 s | 0.29 to 0.30 ms | under 50 ms |
+| A tag entry on disk, 928 bytes, at 250,000 | 4 KB, a block | 1.12 KB, 280 MB in all | under 1.5 KB |
+
+Here PINCache measured slower and larger than the numbers above, which came from another tool. The store beats both. Over 250,000 tag entries, with the file not yet in the system's cache, a first hit read from the disk: 111 µs median for the bytes, 220 µs decoded, and the first write 1.4 ms. Run again, they were 7 µs, 10 µs, and 0.21 ms. The launch to an app's first screen waits for a user of the store.
+
+**Its tests**, in `VibeCacheStoreTests`, root a store in a temporary directory: writes in a row and in a file, replacements, removals, moves, removing everything, the usage, a trim by use over entries and shared items, the age limit from the last use, a reopening, one open at a time, a closed store, a database that will not open, a crash between a file's write and its row, a file of the wrong size, a read while the writer is busy, the formats, and shared items. Two seams, each empty outside DEBUG, move the store's today and write the uses now.

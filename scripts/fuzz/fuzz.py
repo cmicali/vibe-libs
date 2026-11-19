@@ -99,9 +99,9 @@ def expand(entry):
     return sorted(out)
 
 
-def resolve(spec, name):
-    """The sources with their flags, and the search paths, of a template and those it lists."""
-    order, sources, includes = [], {}, []
+def listed(spec, name):
+    """A template and every template it lists, each once."""
+    order = []
 
     def visit(n):
         if n not in order:
@@ -110,7 +110,24 @@ def resolve(spec, name):
                 visit(child)
 
     visit(name)
-    for n in order:
+    return order
+
+
+def libraries(spec, name):
+    """The libraries a template and those it lists link by flag, as DiskCache links SQLite."""
+    out = []
+    for n in listed(spec, name):
+        flags = spec[n].get("settings", {}).get("base", {}).get("OTHER_LDFLAGS", [])
+        for flag in [flags] if isinstance(flags, str) else flags:
+            if flag.startswith("-l") and flag not in out:
+                out.append(flag)
+    return out
+
+
+def resolve(spec, name):
+    """The sources with their flags, and the search paths, of a template and those it lists."""
+    sources, includes = {}, []
+    for n in listed(spec, name):
         for entry in spec[n].get("sources", []):
             for file, flags in expand(entry):
                 # A narrower entry's flags win, as PINDiskCache.m's do.
@@ -184,7 +201,8 @@ def build(names, fuzzer, jobs):
         binary = os.path.join(OUT, kind, "bin", name)
         os.makedirs(os.path.dirname(binary), exist_ok=True)
         link = [compiler, "-isysroot", sdk, *SANITIZE, *(["-fsanitize=fuzzer"] if fuzzer else []),
-                "-mmacosx-version-min=13.0", *[o for _, _, o in work], "-o", binary]
+                "-mmacosx-version-min=13.0", *[o for _, _, o in work], *libraries(spec, info["template"]),
+                "-o", binary]
         for framework in FRAMEWORKS:
             link += ["-framework", framework]
         result = subprocess.run(link, capture_output=True, text=True)

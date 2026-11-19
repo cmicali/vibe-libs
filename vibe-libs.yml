@@ -142,6 +142,8 @@ targetTemplates:
           - "$(VIBE_LIBS_ROOT)/files/FileLoading/Claim"
           - "$(VIBE_LIBS_ROOT)/files/FileLoading/Transfer"
 
+  # The PINCache category, and the store over the system's SQLite, which it
+  # links by flag.
   VibeLibsDiskCache:
     templates: [VibeLibsCommon, VibeLibsPINCache]
     sources:
@@ -150,6 +152,7 @@ targetTemplates:
     settings:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/files/DiskCache"]
+        OTHER_LDFLAGS: ["$(inherited)", "-lsqlite3"]
 
   # Ranged HTTP transfers: a download streamed into a file, a ranged read,
   # and a probe of the first bytes. Foundation only. The fake of ranged
