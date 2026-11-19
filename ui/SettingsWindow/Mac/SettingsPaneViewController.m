@@ -462,7 +462,7 @@ static const CGFloat kWrappingLabelInitialWidth =
 
 #pragma mark - Search
 
-static BOOL SettingsTextMatches(NSString *text, NSString *query) {
+BOOL SettingsTextMatches(NSString *text, NSString *query) {
     return text.length && [text rangeOfString:query
             options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch | NSWidthInsensitiveSearch
               range:NSMakeRange(0, text.length) locale:NSLocale.currentLocale].location != NSNotFound;

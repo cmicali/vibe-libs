@@ -56,7 +56,7 @@ static NSData *sArt;
 
 + (void)setUp {
     [super setUp];
-    sArt = VibeImageOfColor(300, 0.8, 0.2, 0.3, NO);
+    sArt = VibeImageOfColor(300, 0.8, 0.2, 0.3, UTTypePNG);
     sFixtureDir = VibeTagFixtureDirectory();
     NSMutableDictionary<NSNumber *, NSURL *> *fixtures = [NSMutableDictionary dictionary];
     for (NSInteger fixture = 0; fixture < VibeTagFixtureCount; fixture++) {
@@ -855,7 +855,7 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
 
 // Larger art is downscaled for the rendition, aspect kept.
 - (void)testLargeArtArchivesABoundedRendition {
-    NSData *art = VibeImageOfColor(1500, 0.8, 0.2, 0.3, YES);
+    NSData *art = VibeImageOfColor(1500, 0.8, 0.2, 0.3, UTTypeJPEG);
     NSData *displayArt = nil;
     AudioTrackMetadata *metadata = Parse([self write:VibeTagFixtureM4A art:art], &displayArt);
     XCTAssertTrue(metadata.artwork.hasEmbeddedArt);
@@ -867,7 +867,7 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
 // Two files that embed one picture, as an album's tracks do, share its
 // archived forms: the second parse decodes nothing (ArchivedArtShare.h).
 - (void)testFilesEmbeddingOnePictureShareItsForms {
-    NSData *art = VibeImageOfColor(1400, 0.1, 0.6, 0.4, YES);
+    NSData *art = VibeImageOfColor(1400, 0.1, 0.6, 0.4, UTTypeJPEG);
     NSURL *first = [self write:VibeTagFixtureFLAC art:art];
     NSURL *second = [_dir URLByAppendingPathComponent:@"second.flac"];
     XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:first toURL:second error:NULL]);

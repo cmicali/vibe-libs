@@ -7,7 +7,7 @@
 //  write cut short by a full disk reports success. This one writes with
 //  pwrite, records the first failed read, write, or truncate, and stops
 //  writing after it. finish() then checks the file's size against the one
-//  the writes imply and flushes it to the disk. C++.
+//  the writes imply and flushes it. C++.
 //
 
 #pragma once
@@ -40,10 +40,16 @@ public:
     const std::string &failure() const { return _failure; }
     // Whether any write reached the file, so a failure may have changed it.
     bool wrote() const { return _wrote; }
-    // After the last write: checks the size, flushes to the disk with
-    // F_FULLFSYNC, and closes. false with failure() set when any step, or
-    // any write before it, failed.
-    bool finish();
+    // How finish() flushes. Full is F_FULLFSYNC, Barrier is F_BARRIERFSYNC.
+    // Barrier is taken only where VibeVolumeOrdersBarriers() answers true,
+    // and Full everywhere else. A volume that refuses the barrier gets Full,
+    // and one that refuses Full gets fsync.
+    enum class Sync { Full, Barrier, Fsync };
+    // After the last write: checks the size, flushes, and closes. false
+    // with failure() set when any step, or any write before it, failed.
+    bool finish(Sync sync = Sync::Full);
+    // The flush finish() used, once it has.
+    Sync synced() const { return _synced; }
 
 private:
     bool fail(const char *operation);
@@ -59,4 +65,12 @@ private:
     // The size the writes imply, from the size at open.
     off_t _expectedLength = 0;
     std::string _failure;
+    Sync _synced = Sync::Full;
 };
+
+// Whether a barrier on fd's volume is known to order writes: APFS, local,
+// not removable, and in the APFS container of the boot volume, which Apple
+// ships on its own SSD. Any other volume, an external drive or a disk image
+// among them, answers false, since a drive that ignores barriers still
+// answers success.
+bool VibeVolumeOrdersBarriers(int fd);

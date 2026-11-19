@@ -6,9 +6,11 @@
 #include "VibeCheckedFileStream.h"
 
 #include <algorithm>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/mount.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
@@ -198,7 +200,34 @@ void VibeCheckedFileStream::truncate(TagLib::offset_t length) {
     _expectedLength = (off_t)length;
 }
 
-bool VibeCheckedFileStream::finish() {
+namespace {
+// A file system that lacks the call answers one of these.
+bool Refused(int error) { return error == ENOTSUP || error == ENOTTY || error == EINVAL; }
+
+// The whole disk a volume is on, "disk3" for "/dev/disk3s5", or for the
+// snapshot "com.apple.os.update-…@/dev/disk3s1s1" the root mounts.
+std::string WholeDisk(const char *from) {
+    std::string name(from);
+    const size_t at = name.rfind("/dev/");
+    if (at == std::string::npos) return "";
+    name = name.substr(at + 5);
+    if (name.compare(0, 4, "disk") != 0) return "";
+    size_t end = 4;
+    while (end < name.size() && isdigit((unsigned char)name[end])) end++;
+    return end > 4 ? name.substr(0, end) : "";
+}
+}
+
+bool VibeVolumeOrdersBarriers(int fd) {
+    struct statfs volume, root;
+    if (fstatfs(fd, &volume) != 0 || statfs("/", &root) != 0) return false;
+    if (strcmp(volume.f_fstypename, "apfs") != 0) return false;
+    if (!(volume.f_flags & MNT_LOCAL) || (volume.f_flags & MNT_REMOVABLE)) return false;
+    const std::string disk = WholeDisk(volume.f_mntfromname);
+    return !disk.empty() && disk == WholeDisk(root.f_mntfromname);
+}
+
+bool VibeCheckedFileStream::finish(Sync sync) {
     if (_fd < 0) {
         if (_failure.empty()) _failure = "the file is not open";
         return false;
@@ -213,14 +242,32 @@ bool VibeCheckedFileStream::finish() {
                     + std::to_string((long long)_expectedLength) + " its writes imply";
         }
     }
-    // F_FULLFSYNC flushes the drive's own cache too. A file system that
-    // lacks it gets fsync.
-    if (_failure.empty() && _wrote && fcntl(_fd, F_FULLFSYNC) != 0) {
-        if (errno != ENOTSUP && errno != ENOTTY && errno != EINVAL) {
-            fail("F_FULLFSYNC");
+    // F_FULLFSYNC flushes the drive's own cache too. F_BARRIERFSYNC orders
+    // these writes before any the device takes after it. A volume that
+    // refuses the barrier gets the full flush, and one that refuses that
+    // gets fsync.
+    // TRAP: a drive that ignores barriers still answers success, so the
+    // barrier is taken only on a volume known to order it.
+    if (_failure.empty() && _wrote) {
+        bool done = false;
+        _synced = Sync::Full;
+        if (sync == Sync::Barrier && VibeVolumeOrdersBarriers(_fd)) {
+            if (fcntl(_fd, F_BARRIERFSYNC) == 0) {
+                _synced = Sync::Barrier;
+                done = true;
+            }
+            else if (!Refused(errno)) {
+                fail("F_BARRIERFSYNC");
+                done = true;
+            }
         }
-        else if (fsync(_fd) != 0) {
-            fail("fsync");
+        if (!done) {
+            if (fcntl(_fd, F_FULLFSYNC) == 0) {}
+            else if (!Refused(errno)) fail("F_FULLFSYNC");
+            else {
+                _synced = Sync::Fsync;
+                if (fsync(_fd) != 0) fail("fsync");
+            }
         }
     }
     const int fd = _fd;

@@ -162,7 +162,7 @@
 // A tagged file with a picture of the rendition's size, so the rendition is
 // the picture's bytes.
 - (NSURL *)fileWithArt {
-    NSURL *url = VibeWriteTagFixture(_dir, VibeTagFixtureMP3ID3v24, VibeImageOfColor(600, 1, 0, 0, YES), NULL);
+    NSURL *url = VibeWriteTagFixture(_dir, VibeTagFixtureMP3ID3v24, VibeImageOfColor(600, 1, 0, 0, UTTypeJPEG), NULL);
     XCTAssertNotNil(url);
     return url;
 }
@@ -221,7 +221,7 @@
     XCTAssertEqual(MAX(size.width, size.height), kVibeThumbnailArtDimension);
     NSData *rendition =
             (NSData *)[[self store:AudioTrackMetadataCache.displayArtCacheName under:root].diskCache objectForKey:key];
-    XCTAssertEqualObjects(rendition, VibeImageOfColor(600, 1, 0, 0, YES));
+    XCTAssertEqualObjects(rendition, VibeImageOfColor(600, 1, 0, 0, UTTypeJPEG));
 }
 
 // A hit holds no art bytes. Its row thumbnail decodes from the thumbnail
@@ -365,7 +365,7 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
     NSString *oldKey = [self read:url through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
-    NSData *blue = VibeImageOfColor(600, 0, 0, 1, YES);
+    NSData *blue = VibeImageOfColor(600, 0, 0, 1, UTTypeJPEG);
     SafeRetitle(url, @"Edited Title", blue);
     NSString *newKey = url.cacheKey;
     [self moveIn:cache from:oldKey to:newKey artChanged:YES];

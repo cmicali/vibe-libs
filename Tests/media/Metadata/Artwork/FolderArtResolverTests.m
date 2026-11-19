@@ -281,7 +281,7 @@
     [self addTeardownBlock:^{
         [NSFileManager.defaultManager removeItemAtPath:directory error:nil];
     }];
-    NSData *png = VibeImageOfColor(2, 1, 0, 0, NO);
+    NSData *png = VibeImageOfColor(2, 1, 0, 0, UTTypePNG);
     NSString *target = [directory stringByAppendingPathComponent:@"actual.png"];
     XCTAssertTrue([png writeToFile:target atomically:YES]);
     NSString *candidate = [directory stringByAppendingPathComponent:@"cover.jpg"];

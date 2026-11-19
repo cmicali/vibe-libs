@@ -11,6 +11,8 @@
 #import "AudioFileFormat.h"
 
 #include <memory>
+#include <vector>
+#include <tbytevector.h>
 #include <tfile.h>
 #include <tiostream.h>
 #include <tag.h>
@@ -74,7 +76,35 @@ VibeAudioFileFormat _Nullable fileTypeForTagLibFile(TagLib::File *file);
 // Whether the file's tag is ID3v2: MPEG, WAV, and AIFF. A WAV may carry RIFF
 // INFO instead.
 bool tagLibFileCarriesID3v2(TagLib::File *file);
+// The bytes of the picture VibeShownPicture() names, or nil.
 NSData *_Nullable albumArtDataFromTagLibFile(TagLib::File *file);
+
+// One embedded picture with bytes, as its tag stores it.
+struct VibeEmbeddedPicture {
+    // Its place in the format's own list, empty pictures counted: the ID3v2
+    // tag's APIC frames, the picture blocks, or the covr entries.
+    size_t index = 0;
+    // ID3v2's numbering, which FLAC and Xiph share. -1 in MP4.
+    int type = 0;
+    TagLib::ByteVector data;
+    // MP4's is its typed format's, or empty.
+    TagLib::String mimeType;
+    TagLib::String description;
+    // FLAC's and Xiph's own fields.
+    int width = 0, height = 0, colorDepth = 0, colorCount = 0;
+};
+
+// Every picture with bytes, in the file's order: an MPEG, WAV, or AIFF's
+// ID3v2 tag's, a FLAC's picture blocks, a Xiph comment's, or an MP4's covr
+// entries. A picture with no bytes is never shown, taken, or listed.
+std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file);
+// The picture the art read shows: the first front cover, else the first.
+// SIZE_MAX for none.
+size_t VibeShownPicture(const std::vector<VibeEmbeddedPicture> &pictures);
+// One table, both ways: an MP4 cover's typed format and its MIME type. A
+// MIME type MP4 does not type answers MP4::CoverArt::Unknown, the untyped.
+TagLib::String VibeMIMETypeOfMP4Format(int format);
+int VibeMP4FormatOfMIMEType(const TagLib::String &mimeType);
 // A FLAC's audio MD5 from STREAMINFO. nil for another format, and for the
 // zeros an encoder writes when it computed none.
 NSData *_Nullable audioMD5FromTagLibFile(TagLib::File *file);

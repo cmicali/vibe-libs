@@ -275,7 +275,7 @@ static const NSTimeInterval kParseBound = 3;
         VibeTagFixture fixture = (VibeTagFixture)index;
         NSString *name = VibeTagFixtureName(fixture);
         NSURL *untaggedURL = nil;
-        NSData *art = VibeImageOfColor(64, 0.8, 0.2, 0.3, NO);
+        NSData *art = VibeImageOfColor(64, 0.8, 0.2, 0.3, UTTypePNG);
         NSURL *url = VibeWriteTagFixture(_dir, fixture, VibeTagFixtureHasArt(fixture) ? art : nil, &untaggedURL);
         if (!url) {
             // Ogg without the render fixtures; AudioTrackMetadataTagTests reports the skip.

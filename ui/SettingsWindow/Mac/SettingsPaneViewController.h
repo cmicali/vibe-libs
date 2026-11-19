@@ -29,6 +29,11 @@ static const CGFloat kPanePadding = 20;
 // How far under the top a revealed card's header lands.
 static const CGFloat kSettingsCardRevealInset = 12;
 
+// Whether text holds query, ignoring case, diacritics, and width, in the
+// current locale. The pane search's own match, for a pane that filters its
+// own rows. NO for empty text.
+FOUNDATION_EXTERN BOOL SettingsTextMatches(NSString *_Nullable text, NSString *query);
+
 // The tab controller. A pane carries no size constraints
 // (loadPaneWithSections:), so this is the only way its size reaches the window.
 @protocol SettingsPaneSizeHost <NSObject>

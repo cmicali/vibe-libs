@@ -319,7 +319,7 @@ static inline NSData *VibeTagUndecodableArt(void) {
 // the header past about 10000px. Below that it decodes, filling what the
 // bytes lack, so only the bounded decode keeps the bitmap small.
 static inline NSData *VibeTagOversizeArt(uint16_t side) {
-    NSMutableData *data = [VibeImageOfColor(16, 0.8, 0.2, 0.3, YES) mutableCopy];
+    NSMutableData *data = [VibeImageOfColor(16, 0.8, 0.2, 0.3, UTTypeJPEG) mutableCopy];
     uint8_t *bytes = (uint8_t *)data.mutableBytes;
     for (NSUInteger i = 0; i + 9 < data.length; i++) {
         if (bytes[i] == 0xFF && (bytes[i + 1] == 0xC0 || bytes[i + 1] == 0xC2)) {
@@ -413,11 +413,13 @@ static inline BOOL VibeInsertFLACBlock(NSURL *url, uint8_t type, NSData *block) 
 
 static inline void VibeAddAPIC(TagLib::ID3v2::Tag *tag, NSData *art,
                                TagLib::ID3v2::AttachedPictureFrame::Type type =
-                                       TagLib::ID3v2::AttachedPictureFrame::FrontCover) {
+                                       TagLib::ID3v2::AttachedPictureFrame::FrontCover,
+                               NSString *mimeType = @"image/png", NSString *pictureDescription = @"") {
     if (!art) return;
     auto frame = new TagLib::ID3v2::AttachedPictureFrame();
-    frame->setMimeType("image/png");
+    frame->setMimeType(VibeTagString(mimeType ?: @""));
     frame->setType(type);
+    frame->setDescription(VibeTagString(pictureDescription ?: @""));
     frame->setPicture(VibeTagBytes(art));
     tag->addFrame(frame);
 }
@@ -432,10 +434,13 @@ static inline void VibeAddSoundCheck(TagLib::ID3v2::Tag *tag) {
 }
 
 static inline TagLib::FLAC::Picture *VibeFLACPicture(NSData *art,
-                                                    TagLib::FLAC::Picture::Type type = TagLib::FLAC::Picture::FrontCover) {
+                                                    TagLib::FLAC::Picture::Type type = TagLib::FLAC::Picture::FrontCover,
+                                                    NSString *mimeType = @"image/png",
+                                                    NSString *pictureDescription = @"") {
     auto picture = new TagLib::FLAC::Picture();
     picture->setType(type);
-    picture->setMimeType("image/png");
+    picture->setMimeType(VibeTagString(mimeType ?: @""));
+    picture->setDescription(VibeTagString(pictureDescription ?: @""));
     picture->setData(VibeTagBytes(art));
     return picture;
 }
