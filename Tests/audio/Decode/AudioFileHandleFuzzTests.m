@@ -1134,6 +1134,14 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
             [problems addObject:[NSString stringWithFormat:@"processing format %@", format]];
             return;
         }
+        // TRAP: each capture is sized once, before its reads. Under Thread Sanitizer (macOS 27), growing an
+        // NSMutableData past about 96 KB can zero the bytes it already held, or crash in the sanitizer's realloc
+        // (MetaMap::AllocBlock). A seek's slice then read as silence and failed the check below, at random.
+        NSUInteger frameBytes = channels * sizeof(float), sliceBytes = 2 * kFuzzChunkFrames * frameBytes;
+        if (keep) {
+            AVAudioFramePosition expected = MIN(budget, MAX(0, result.length)) + kFuzzChunkFrames;
+            result.pcm = [NSMutableData dataWithCapacity:(NSUInteger)expected * frameBytes];
+        }
         AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format frameCapacity:kFuzzChunkFrames];
         AVAudioFramePosition delivered = 0;
         while (delivered < budget && FuzzRead(handle, buffer, kFuzzChunkFrames, @"decode", problems)) {
@@ -1151,6 +1159,7 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
         // A damaged count can make a length near INT64_MAX, so the target past it saturates.
         AVAudioFramePosition targets[] = {0, 1, delivered / 3, delivered / 2, delivered - 1, delivered, delivered + 4096,
                                           length < INT64_MAX ? length + 1 : length, delivered * 7 / 11};
+        if (capture) result.seekReads = [NSMutableData dataWithCapacity:sizeof(targets) / sizeof(*targets) * sliceBytes];
         for (size_t i = 0; i < sizeof(targets) / sizeof(*targets); i++) {
             AVAudioFramePosition target = MAX(0, targets[i]);
             NSString *what = [NSString stringWithFormat:@"seek to %lld", target];
@@ -1169,7 +1178,7 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
                 continue;
             }
             AVAudioFramePosition read = 0;
-            NSMutableData *slice = [NSMutableData data];
+            NSMutableData *slice = [NSMutableData dataWithCapacity:keep ? sliceBytes : 0];
             while (read < 2 * kFuzzChunkFrames && FuzzRead(handle, buffer, kFuzzChunkFrames, what, problems)) {
                 if (keep) VibeAppendPCM(slice, buffer);
                 read += buffer.frameLength;
