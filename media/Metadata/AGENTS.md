@@ -186,6 +186,21 @@ Opus defines the R128 gains. The parse reads them from any Xiph comment, since t
 
 **A tag-only rewrite drops the tags and keeps the art** (`moveEntriesOfRetaggedFileFromKey:toKey:artChanged:completion:`, CH10). A tag edit's safe write swaps a rewritten copy in for the file, so its size and date change, and so its key, though its audio is the same. The app takes the file's `cacheKey` before the write and after it, and calls the verb. The entry moves to the new key as a row that names the same picture and holds no tags, of a format no read takes, so the next read parses the new tags and files them, and finds the picture's parts there. No art moves or is written. When the app says the art changed, the entry goes, and its picture with it if no other entry names it. An entry the new key already holds is kept and the old one goes, and an absent entry is no work. It runs on the cache's queue, behind any invalidation. A parse of the old version that ends after it fails its version check, or files under a key no stat gives again. **TRAP: equal keys, from a writer that kept the size and the date, bump the generation.** The key then names the new tags too, so a parse begun before the write would file the old ones under it for good. A row that still holds the old metadata keeps its art providers, which read the picture by its name, so they still draw.
 
+**Measured** on 2026-11-19 on an M4 Max, at a load of 5 to 24 from other work, with one tool built with `-O2`: the three PINCache stores as this cache used them, beside `VibeMetadataStore`, each holding 200,000 tag entries of a 1.0 KB archive, 6,000 of them with art, twelve files to a picture. Three runs each.
+
+| Measure | PINCache, three stores | One store |
+| --- | --- | --- |
+| A hit, the tags decoded | 37 to 127 µs median | 21 to 24 µs median |
+| A row's thumbnail read | 27 to 126 µs median | 7 to 8 µs median |
+| A miss | 6 µs | 2 µs |
+| Footprint at rest, after 20 s of a read each ms | 28.6 to 29.4 MB | 3.67 to 3.77 MB, a peak of 4.1 MB |
+| The count at an open | 4.0 to 4.6 s, on the three stores | none. The open takes 1.6 to 4.8 ms off main |
+| A parse's write at launch: the tags, a thumbnail, and a rendition | 1.1 to 2.3 ms | 0.58 to 1.57 ms, one transaction |
+| A usage count | 4.0 to 4.6 s | 0.3 ms |
+| On disk | 819 MB of tags, 74 MB of thumbnails, 688 MB of renditions | 286 MB in all: 1.37 KB a tag entry, art once a picture |
+
+**A cold first hit is slower.** With the pages dropped from the system's cache, a run of 400 first hits took 284 to 320 µs median on the store, 139 to 179 ms in all, against 119 to 159 µs and 49 to 66 ms on PINCache. A lookup reads the key's index and then the table, each from the disk, where PINCache reads one file. The tool can't drop the file system's own directory cache, so PINCache's numbers are its best case. A copy of the store with 16 KB pages read the run in 109 to 126 ms, and a table without row ids spilled every row to an overflow page. **The import** brought 200,000 entries over in 572 s, in the background, at a load of 10 to 24.
+
 **TRAP: the verb retires no memoized key.** `NSURL invalidateMemoizedCacheKeys` is process-wide, so the app calls it once per batch: after its writes, and after every cache's moves have landed, from the last completion. A held row's next lookup then stats the file. Retiring per file would make every held row stat again once a file.
 
 ## Folder art
