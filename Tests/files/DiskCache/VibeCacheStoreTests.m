@@ -9,6 +9,8 @@
 #import "VibeCacheStore.h"
 #import "VibeCacheStore+Testing.h"
 
+#import <sqlite3.h>
+
 @interface VibeCacheStoreTests : XCTestCase
 @property (nonatomic, copy) NSString *directory;
 @property (nonatomic, strong, nullable) VibeCacheStore *store;
@@ -74,6 +76,10 @@ static NSString *VibeTestKey(NSUInteger i) {
     return [self.directory stringByAppendingPathComponent:@"Files"];
 }
 
+- (NSArray<NSString *> *)fileNames {
+    return [NSFileManager.defaultManager contentsOfDirectoryAtPath:self.filesPath error:NULL] ?: @[];
+}
+
 // MARK: Writes and reads
 
 - (void)testWritesReadBackInARowAndInAFile {
@@ -94,7 +100,7 @@ static NSString *VibeTestKey(NSUInteger i) {
     XCTAssertTrue([self.store hasEntryForKey:@"large"]);
     XCTAssertFalse([self.store hasEntryForKey:@"missing"]);
 
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 1u);
+    XCTAssertEqual(self.fileNames.count, 1u);
     VibeCacheUsage usage = self.store.usage;
     XCTAssertEqual(usage.entries, 2u);
     XCTAssertEqual(usage.bytes, small.length + large.length);
@@ -109,19 +115,19 @@ static NSString *VibeTestKey(NSUInteger i) {
 
 - (void)testAReplacementRemovesTheOldFileAndCountsTheNewSize {
     [self.store setData:VibeTestData(100 * 1024, 1) forKey:@"k" format:1 sharedName:nil];
-    NSArray *first = self.store.fileNamesForTesting;
+    NSArray *first = self.fileNames;
     XCTAssertEqual(first.count, 1u);
 
     NSData *second = VibeTestData(120 * 1024, 2);
     [self.store setData:second forKey:@"k" format:1 sharedName:nil];
-    NSArray *now = self.store.fileNamesForTesting;
+    NSArray *now = self.fileNames;
     XCTAssertEqual(now.count, 1u);
     XCTAssertNotEqualObjects(now, first);
     XCTAssertEqualObjects([self.store hitForKey:@"k" format:1].data, second);
 
     NSData *inlined = VibeTestData(500, 3);
     [self.store setData:inlined forKey:@"k" format:1 sharedName:nil];
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 0u);
+    XCTAssertEqual(self.fileNames.count, 0u);
     XCTAssertEqualObjects([self.store hitForKey:@"k" format:1].data, inlined);
     XCTAssertEqual(self.store.usage.entries, 1u);
     XCTAssertEqual(self.store.usage.bytes, 500u);
@@ -133,7 +139,7 @@ static NSString *VibeTestKey(NSUInteger i) {
     [self.store removeEntryForKey:@"large"];
     [self.store removeEntryForKey:@"missing"];
     XCTAssertNil([self.store hitForKey:@"large" format:1]);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 0u);
+    XCTAssertEqual(self.fileNames.count, 0u);
     XCTAssertEqual(self.store.usage.entries, 1u);
     XCTAssertEqual(self.store.usage.bytes, 10u);
 }
@@ -150,7 +156,7 @@ static NSString *VibeTestKey(NSUInteger i) {
     XCTAssertEqualObjects(hit.data, moved);
     XCTAssertEqualObjects(hit.sharedName, @"a");
     // The replaced entry's file goes, and the shared item only it named.
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 1u);
+    XCTAssertEqual(self.fileNames.count, 1u);
     XCTAssertFalse([self.store hasSharedItemForName:@"b" part:@"thumb"]);
     XCTAssertEqual(self.store.usage.entries, 1u);
     XCTAssertEqual(self.store.usage.bytes, moved.length);
@@ -174,7 +180,7 @@ static NSString *VibeTestKey(NSUInteger i) {
     XCTAssertEqual(usage.entries, 0u);
     XCTAssertEqual(usage.sharedItems, 0u);
     XCTAssertEqual(usage.bytes, 0u);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 0u);
+    XCTAssertEqual(self.fileNames.count, 0u);
     XCTAssertNil([self.store hitForKey:@"k0" format:1]);
 
     [self.store setData:VibeTestData(10, 1) forKey:@"after" format:1 sharedName:nil];
@@ -257,7 +263,7 @@ static NSString *VibeTestKey(NSUInteger i) {
     XCTAssertTrue([self.store hasEntryForKey:@"read"]);
     XCTAssertFalse([self.store hasEntryForKey:@"unread"]);
     XCTAssertFalse([self.store hasEntryForKey:@"unread-file"]);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 0u);
+    XCTAssertEqual(self.fileNames.count, 0u);
     XCTAssertEqual(self.store.usage.entries, 1u);
 }
 
@@ -319,26 +325,35 @@ static NSString *VibeTestKey(NSUInteger i) {
     self.store = [self openStore];
     XCTAssertNotNil(self.store);
     XCTAssertEqual(self.store.usage.entries, 0u);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 0u);
+    XCTAssertEqual(self.fileNames.count, 0u);
     [self.store setData:VibeTestData(10, 1) forKey:@"k" format:1 sharedName:nil];
     XCTAssertNotNil([self.store hitForKey:@"k" format:1]);
 }
 
+// A crash after a file's write and before its row leaves the file listed as
+// pending, with no row. The open removes it.
 - (void)testACrashBetweenAFileAndItsRowLeavesNoEntryAndNoFile {
-    [self.store setStopsBeforeFileRowForTesting:YES];
-    [self.store setData:VibeTestData(100 * 1024, 1) forKey:@"k" format:1 sharedName:nil];
-    XCTAssertFalse([self.store hasEntryForKey:@"k"]);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 1u);
-    XCTAssertEqual(self.store.usage.bytes, 0u);
+    [self.store setData:VibeTestData(10, 1) forKey:@"other" format:1 sharedName:nil];
+    [self.store close];
+    XCTAssertTrue([VibeTestData(100 * 1024, 1) writeToFile:[self.filesPath stringByAppendingPathComponent:@"0123456789abcdef"]
+                                               atomically:NO]);
+    sqlite3 *db = NULL;
+    NSString *database = [self.directory stringByAppendingPathComponent:@"Cache.sqlite"];
+    XCTAssertEqual(sqlite3_open(database.fileSystemRepresentation, &db), SQLITE_OK);
+    XCTAssertEqual(sqlite3_exec(db, "INSERT INTO pending VALUES ('0123456789abcdef', 0)", NULL, NULL, NULL), SQLITE_OK);
+    sqlite3_close(db);
+    XCTAssertEqual(self.fileNames.count, 1u);
 
-    [self reopen];
-    XCTAssertFalse([self.store hasEntryForKey:@"k"]);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 0u);
+    self.store = [self openStore];
+    XCTAssertNotNil(self.store);
+    XCTAssertEqual(self.fileNames.count, 0u);
+    XCTAssertEqual(self.store.usage.entries, 1u);
+    XCTAssertTrue([self.store hasEntryForKey:@"other"]);
 }
 
 - (void)testAFileOfTheWrongSizeIsAMissAndGoes {
     [self.store setData:VibeTestData(100 * 1024, 1) forKey:@"k" format:1 sharedName:nil];
-    NSString *file = [self.filesPath stringByAppendingPathComponent:self.store.fileNamesForTesting.firstObject];
+    NSString *file = [self.filesPath stringByAppendingPathComponent:self.fileNames.firstObject];
     NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:file];
     [handle truncateAtOffset:10 error:NULL];
     [handle closeFile];
@@ -346,7 +361,7 @@ static NSString *VibeTestKey(NSUInteger i) {
     XCTAssertNil([self.store hitForKey:@"k" format:1]);
     [self waitForQueue];
     XCTAssertFalse([self.store hasEntryForKey:@"k"]);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 0u);
+    XCTAssertEqual(self.fileNames.count, 0u);
 }
 
 - (void)testAReadNeverWaitsForTheWriter {
@@ -419,7 +434,7 @@ static NSString *VibeTestKey(NSUInteger i) {
     VibeCacheUsage usage = self.store.usage;
     XCTAssertEqual(usage.entries, 2u);
     XCTAssertEqual(usage.sharedItems, 2u);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 1u);
+    XCTAssertEqual(self.fileNames.count, 1u);
     XCTAssertEqualObjects([self.store sharedHitForName:@"sha" part:@"thumb" format:1].data, thumb);
     XCTAssertEqualObjects([self.store sharedHitForName:@"sha" part:@"display" format:1].data, rendition);
 
@@ -428,7 +443,7 @@ static NSString *VibeTestKey(NSUInteger i) {
     [self.store removeEntryForKey:@"b"];
     XCTAssertFalse([self.store hasSharedItemForName:@"sha" part:@"thumb"]);
     XCTAssertFalse([self.store hasSharedItemForName:@"sha" part:@"display"]);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 0u);
+    XCTAssertEqual(self.fileNames.count, 0u);
     XCTAssertEqual(self.store.usage.bytes, 0u);
 }
 
@@ -455,7 +470,7 @@ static NSString *VibeTestKey(NSUInteger i) {
     XCTAssertTrue([self.store hasSharedItemForName:@"named" part:@"thumb"]);
     XCTAssertFalse([self.store hasSharedItemForName:@"orphan" part:@"thumb"]);
     XCTAssertFalse([self.store hasSharedItemForName:@"orphan" part:@"display"]);
-    XCTAssertEqual(self.store.fileNamesForTesting.count, 0u);
+    XCTAssertEqual(self.fileNames.count, 0u);
 }
 
 @end
