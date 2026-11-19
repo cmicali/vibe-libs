@@ -34,11 +34,15 @@ typedef void (^VibeWalkedDirectoriesHandler)(NSSet<NSString *> *directories,
 // is a fair price. Once per expansion; never for a single file.
 typedef void (^VibeBulkOpenDirectoriesHandler)(NSSet<NSString *> *directories);
 
-// Runs around each read of a sheet embedded in a FLAC, the walk's one read
-// of an audio file's contents, on the thread that reads it. read reads the
-// sheet and answers its entries, or none. The handler calls it at most once
-// and answers what it answered, or skips it and answers nil, so the file is
-// one entry whole. scanning says a catalog scan reads it, in the background,
+// Runs around each read of a sheet, on the thread that reads it: a sheet
+// embedded in a FLAC, the walk's one read of an audio file's contents, and a
+// CUE file a walk lists or entriesForFile: reads. An opened playlist file is
+// the user's own ask, and is read directly. url is the file read. read reads
+// the sheet and answers its entries, or none. The handler calls it at most
+// once and answers what it answered, or skips it and answers nil. A skipped
+// embedded sheet leaves its FLAC one entry whole. A skipped CUE file reads as
+// a sheet with no entries: it claims no file, so the audio it names lists
+// whole. scanning says a catalog scan reads it, in the background,
 // rather than an open the user waits on. An app can mark the file before the
 // read and clear it after, so a file whose read crashes the process is
 // skipped at the next launch. Unset, the walk reads directly.

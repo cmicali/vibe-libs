@@ -613,6 +613,72 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
                           (@[@"folder/mix.flac"]));
 }
 
+// A CUE file a walk lists, a scan included, and one file's entries of a
+// sheet, are read through the same handler, on the sheet's own file. An open
+// of a playlist file the user picked is not: each read is the user's ask.
+- (void)testTheSheetHandlerWrapsACueFilesRead {
+    [self makeFile:@"folder/mix.flac"];
+    NSURL *sheet = [self makeText:kTwoTrackSheet at:@"folder/mix.cue"];
+    NSMutableArray<NSString *> *seen = [NSMutableArray array];
+    [FolderWalk setEmbeddedSheetReadHandler:^NSArray<VibePlaylistEntry *> *(NSURL *url, BOOL scanning, VibeEmbeddedSheetRead read) {
+        @synchronized (seen) {
+            [seen addObject:[NSString stringWithFormat:@"%@ %@", url.lastPathComponent, scanning ? @"scan" : @"open"]];
+        }
+        return read();
+    }];
+
+    XCTAssertEqualObjects([self expandAndFilter:@[[self makeDirectory:@"folder"]] folderCount:NULL],
+                          (@[@"folder/mix.flac#0-4500", @"folder/mix.flac#4500-0"]));
+    XCTAssertEqualObjects([self relativePaths:[FolderWalk entriesForFile:sheet]],
+                          (@[@"folder/mix.flac#0-4500", @"folder/mix.flac#4500-0"]));
+    XCTAssertEqualObjects([self expandAndFilter:@[sheet] folderCount:NULL],
+                          (@[@"folder/mix.flac#0-4500", @"folder/mix.flac#4500-0"]));
+    XCTestExpectation *scanned = [self expectationWithDescription:@"scan"];
+    NSMutableArray<VibePlaylistEntry *> *found = [NSMutableArray array];
+    [FolderWalk scanRoots:@[[self makeDirectory:@"folder"]] readPolicy:VibeFolderScanReadPolicyLocal
+                 progress:[NSProgress discreteProgressWithTotalUnitCount:0]
+                    batch:^(NSArray<VibePlaylistEntry *> *entries) {
+        @synchronized (found) {
+            [found addObjectsFromArray:entries];
+        }
+    } completion:^(NSArray<NSNumber *> *verdicts, NSArray<NSArray<NSError *> *> *failures) {
+        [scanned fulfill];
+    }];
+    [self waitForExpectations:@[scanned] timeout:10];
+
+    XCTAssertEqualObjects([self relativePaths:found], (@[@"folder/mix.flac#0-4500", @"folder/mix.flac#4500-0"]));
+    XCTAssertEqualObjects(seen, (@[@"mix.cue open", @"mix.cue open", @"mix.cue scan"]));
+}
+
+// A handler that skips a CUE file's read leaves the sheet with no entries:
+// it claims nothing, so its audio lists whole, in a walk and a scan, and the
+// sheet's own entries are none.
+- (void)testASheetHandlerThatSkipsACueFileLeavesItsAudioWhole {
+    [self makeFile:@"folder/mix.flac"];
+    NSURL *sheet = [self makeText:kTwoTrackSheet at:@"folder/mix.cue"];
+    [FolderWalk setEmbeddedSheetReadHandler:^NSArray<VibePlaylistEntry *> *(NSURL *url, BOOL scanning, VibeEmbeddedSheetRead read) {
+        return nil;
+    }];
+
+    XCTAssertEqualObjects([self expandAndFilter:@[[self makeDirectory:@"folder"]] folderCount:NULL],
+                          (@[@"folder/mix.flac"]));
+    XCTAssertEqualObjects([FolderWalk entriesForFile:sheet], (@[]));
+    XCTestExpectation *scanned = [self expectationWithDescription:@"scan"];
+    NSMutableArray<VibePlaylistEntry *> *found = [NSMutableArray array];
+    [FolderWalk scanRoots:@[[self makeDirectory:@"folder"]] readPolicy:VibeFolderScanReadPolicyLocal
+                 progress:[NSProgress discreteProgressWithTotalUnitCount:0]
+                    batch:^(NSArray<VibePlaylistEntry *> *entries) {
+        @synchronized (found) {
+            [found addObjectsFromArray:entries];
+        }
+    } completion:^(NSArray<NSNumber *> *verdicts, NSArray<NSArray<NSError *> *> *failures) {
+        [scanned fulfill];
+    }];
+    [self waitForExpectations:@[scanned] timeout:10];
+
+    XCTAssertEqualObjects([self relativePaths:found], (@[@"folder/mix.flac"]));
+}
+
 // Only a file the walk would open is handed to it.
 - (void)testAnOrdinaryFLACNeverReachesTheEmbeddedSheetHandler {
     [self makeFLAC:@"folder/mix.flac" sheet:kTwoTrackSheet size:0];
