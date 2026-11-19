@@ -207,17 +207,20 @@ id VibeMetadataUnarchive(NSData *archive, Class tagsClass) {
     }
 }
 
+// The tags and the thumbnails share the store's byte limit, and the
+// renditions have their own, so art never pushes out an entry (CH7). Every
+// row ages by the longest age limit.
 - (void)applyLimits {
-    unsigned long long bytes = 0;
+    unsigned long long tags = _byteLimits[VibeMetadataCacheStoreTags];
+    unsigned long long thumbnails = _byteLimits[VibeMetadataCacheStoreThumbnails];
     NSTimeInterval age = 0;
-    BOOL anyBytes = YES, anyAge = YES;
+    BOOL anyAge = YES;
     for (int budget = 0; budget <= VibeMetadataCacheStoreDisplayArt; budget++) {
-        anyBytes = anyBytes && _byteLimits[budget] > 0;
         anyAge = anyAge && _ageLimits[budget] > 0;
-        bytes += _byteLimits[budget];
         age = MAX(age, _ageLimits[budget]);
     }
-    _cacheStore.byteLimit = anyBytes ? bytes : 0;
+    _cacheStore.byteLimit = tags > 0 && thumbnails > 0 ? tags + thumbnails : 0;
+    [_cacheStore setByteLimit:_byteLimits[VibeMetadataCacheStoreDisplayArt] ofSharedPart:VibeMetadataRenditionPart];
     _cacheStore.ageLimit = anyAge ? age : 0;
 }
 

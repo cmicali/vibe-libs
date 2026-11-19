@@ -94,8 +94,10 @@ FOUNDATION_EXPORT id _Nullable VibeMetadataUnarchive(NSData *archive, Class tags
 
 // MARK: The whole store
 
-// Sets one budget. The store's byte limit is the three budgets' sum, and its
-// age limit the longest. 0 is none, so a budget of 0 lifts the store's limit.
+// Sets one budget. The tags and the thumbnails share one limit, their sum,
+// and the renditions have their own, so art never pushes out an entry. Every
+// row ages by the longest age limit. 0 is none, so a tags or thumbnails
+// budget of 0 lifts their shared limit.
 - (void)setByteLimit:(unsigned long long)byteLimit
             ageLimit:(NSTimeInterval)ageLimit
            forBudget:(VibeMetadataCacheStore)budget;

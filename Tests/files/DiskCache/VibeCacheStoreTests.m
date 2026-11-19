@@ -64,6 +64,15 @@ static NSString *VibeTestKey(NSUInteger i) {
     [self waitForExpectations:@[done] timeout:VIBE_TEST_HANG_TIMEOUT];
 }
 
+// Waits on the queue until the condition holds, since a trim runs in steps
+// that each queue the next.
+- (BOOL)waitForQueueUntil:(BOOL (^)(void))condition {
+    for (int i = 0; i < 100 && !condition(); i++) {
+        [self waitForQueue];
+    }
+    return condition();
+}
+
 - (void)maintain {
     XCTestExpectation *done = [self expectationWithDescription:@"maintenance"];
     [self.store performMaintenanceWithCompletion:^{
@@ -245,6 +254,51 @@ static NSString *VibeTestKey(NSUInteger i) {
     XCTAssertEqualObjects([self.store hitForKey:@"names-old" format:1].sharedName, @"old");
     XCTAssertTrue([self.store hasSharedItemForName:@"new" part:@"thumb"]);
     XCTAssertLessThanOrEqual(self.store.usage.bytes, 9000u);
+}
+
+// A part with a limit of its own: art over it loses its least recently used
+// parts and never an entry, and its bytes never count against the store's
+// limit.
+- (void)testAPartWithItsOwnLimitNeverPushesOutAnEntry {
+    self.store.byteLimit = 3000;
+    [self.store setByteLimit:250 * 1024 ofSharedPart:@"display"];
+    for (int i = 0; i < 10; i++) {
+        NSString *name = [NSString stringWithFormat:@"picture-%d", i];
+        [self.store setData:VibeTestData(200, i) forKey:[NSString stringWithFormat:@"entry-%d", i] format:1
+                 sharedName:name];
+        [self.store setSharedData:VibeTestData(100 * 1024, i) forName:name part:@"display" format:1];
+        [self.store setSharedData:VibeTestData(50, i) forName:name part:@"thumb" format:1];
+    }
+    XCTAssertTrue([self waitForQueueUntil:^BOOL {
+        return ![self.store hasSharedItemForName:@"picture-7" part:@"display"];
+    }]);
+    for (int i = 0; i < 10; i++) {
+        NSString *key = [NSString stringWithFormat:@"entry-%d", i];
+        NSString *name = [NSString stringWithFormat:@"picture-%d", i];
+        XCTAssertTrue([self.store hasEntryForKey:key], @"%@", key);
+        XCTAssertTrue([self.store hasSharedItemForName:name part:@"thumb"], @"%@", name);
+        if (i < 8) {
+            XCTAssertFalse([self.store hasSharedItemForName:name part:@"display"], @"the oldest art goes first, %@", name);
+        }
+    }
+    XCTAssertTrue([self.store hasSharedItemForName:@"picture-9" part:@"display"]);
+    // The art's bytes count against its own limit alone: every entry stays,
+    // though the store holds far more than its limit of 3,000 bytes.
+    XCTAssertGreaterThan(self.store.usage.bytes, 200u * 1024);
+    XCTAssertEqual(self.store.usage.entries, 10u);
+}
+
+// An entry's row id is its key's hash, so a key reads back after a move and
+// a reopening, and two keys stay apart.
+- (void)testKeysReadBackByTheirHash {
+    [self.store setData:VibeTestData(10, 1) forKey:@"a" format:1 sharedName:nil];
+    [self.store setData:VibeTestData(10, 2) forKey:@"b" format:1 sharedName:nil];
+    XCTAssertTrue([self.store moveEntryFromKey:@"a" toKey:@"c"]);
+    [self reopen];
+    XCTAssertNil([self.store hitForKey:@"a" format:1]);
+    XCTAssertEqualObjects([self.store hitForKey:@"c" format:1].data, VibeTestData(10, 1));
+    XCTAssertEqualObjects([self.store hitForKey:@"b" format:1].data, VibeTestData(10, 2));
+    XCTAssertEqual(self.store.usage.entries, 2u);
 }
 
 - (void)testTheAgeCountsFromTheLastUse {

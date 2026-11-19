@@ -62,6 +62,13 @@ typedef struct {
 // which a read records once a day at most.
 @property (atomic) unsigned long long byteLimit;
 @property (atomic) NSTimeInterval ageLimit;
+// One part of the shared items may have a byte limit of its own, as a cache
+// keeps its large art apart from its small entries. That part's rows count
+// against it, never against byteLimit, and its trim takes only that part's
+// rows, least recently used first, to 90% of it. So the part never pushes
+// out an entry, and the rest never push out the part. 0 is none. A later
+// call names another part in its place. The age limit counts for every row.
+- (void)setByteLimit:(unsigned long long)byteLimit ofSharedPart:(NSString *)part;
 // A blob longer than this goes to a file. 64 KiB by default.
 @property (atomic) NSUInteger inlineLimit;
 

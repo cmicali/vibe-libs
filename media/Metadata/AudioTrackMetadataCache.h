@@ -11,8 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @protocol AudioTrackMetadataCacheDelegate;
 
-// The three budgets an app sets. One store holds them all, and its limits
-// are their sum and the longest of their ages (setByteLimit:...).
+// The three budgets an app sets. One store holds them all: the tags and the
+// thumbnails share one limit, their sum, and the renditions have their own
+// (setByteLimit:...).
 typedef NS_ENUM(NSInteger, VibeMetadataCacheStore) {
     VibeMetadataCacheStoreTags,
     VibeMetadataCacheStoreThumbnails,
@@ -108,10 +109,12 @@ typedef NS_ENUM(NSInteger, VibeMetadataCacheStore) {
                               completion:(nullable dispatch_block_t)completion;
 
 // One budget's limits, over files/DiskCache's defaults, which a budget keeps
-// until its app sets others. The store's byte limit is the three budgets'
-// sum, and its age limit the longest, so an app that sets nothing gets 3 GiB
-// and 180 days. A budget of 0 is none, which lifts the store's limit. The
-// store trims by least recent use, entries and pictures together.
+// until its app sets others. The tags and the thumbnails share one byte
+// limit, their sum, and the renditions have their own, so art never pushes
+// out tags. Each trims by least recent use. Every row ages by the longest age
+// limit, so an app that sets nothing gets 2 GiB for the tags and thumbnails,
+// 1 GiB for the renditions, and 180 days. A budget of 0 is none: for the tags
+// or the thumbnails, it lifts their shared limit.
 // Calls run in the order made, on the cache's internal queue, once the store
 // is built. The store then trims to them in the background. Any thread.
 - (void)setByteLimit:(NSUInteger)byteLimit

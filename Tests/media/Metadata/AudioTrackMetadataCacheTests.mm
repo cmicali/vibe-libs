@@ -272,14 +272,14 @@
     XCTAssertNil(hit.metadata.artwork.archivedThumbnailProvider);
 }
 
-// An app sets each budget over the defaults. The one store's byte limit is
-// their sum, and its age limit the longest. A budget it sets nothing for
-// keeps the defaults.
+// An app sets each budget over the defaults. The tags and the thumbnails
+// share the store's byte limit, their sum, and the renditions have their
+// own. Every row ages by the longest age limit.
 - (void)testAnAppSetsEachStoresLimits {
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
     VibeCacheStore *store = cache.metadataCache.cacheStore;
-    XCTAssertEqual(store.byteLimit, 3 * VibeCacheStore.defaultByteLimit, @"an app that sets nothing");
+    XCTAssertEqual(store.byteLimit, 2 * VibeCacheStore.defaultByteLimit, @"an app that sets nothing");
     XCTAssertEqual(store.ageLimit, VibeCacheStore.defaultAgeLimit);
     [cache setByteLimit:3 * 1024 * 1024 ageLimit:30 * 86400.0 forStore:VibeMetadataCacheStoreThumbnails];
     [cache setByteLimit:4 * 1024 * 1024 ageLimit:60 * 86400.0 forStore:VibeMetadataCacheStoreDisplayArt];
@@ -292,16 +292,45 @@
         [self waitForExpectations:@[counted] timeout:VIBE_TEST_HANG_TIMEOUT];
     };
     settle();
-    XCTAssertEqual(store.byteLimit, VibeCacheStore.defaultByteLimit + 7u * 1024 * 1024);
+    XCTAssertEqual(store.byteLimit, VibeCacheStore.defaultByteLimit + 3u * 1024 * 1024,
+                   @"the renditions' budget is apart");
     XCTAssertEqual(store.ageLimit, VibeCacheStore.defaultAgeLimit, @"the tags' default is the longest");
     [cache setByteLimit:5 * 1024 * 1024 ageLimit:90 * 86400.0 forStore:VibeMetadataCacheStoreTags];
     settle();
-    XCTAssertEqual(store.byteLimit, 12u * 1024 * 1024);
+    XCTAssertEqual(store.byteLimit, 8u * 1024 * 1024);
     XCTAssertEqual(store.ageLimit, 90 * 86400.0);
     [cache setByteLimit:0 ageLimit:0 forStore:VibeMetadataCacheStoreTags];
     settle();
-    XCTAssertEqual(store.byteLimit, 0u, @"a budget of none lifts the store's limit");
+    XCTAssertEqual(store.byteLimit, 0u, @"a tags budget of none lifts the shared limit");
     XCTAssertEqual(store.ageLimit, 0.0);
+}
+
+// Art over its budget loses its least recently used renditions, and never a
+// file's tags or its thumbnail (CH7).
+- (void)testArtOverItsBudgetKeepsEveryTagEntry {
+    NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    [cache setByteLimit:64 * 1024 ageLimit:0 forStore:VibeMetadataCacheStoreTags];
+    [cache setByteLimit:64 * 1024 ageLimit:0 forStore:VibeMetadataCacheStoreThumbnails];
+    [cache setByteLimit:500 * 1024 ageLimit:0 forStore:VibeMetadataCacheStoreDisplayArt];
+    VibeMetadataStore *store = cache.metadataCache;
+    NSMutableArray<NSString *> *pictures = [NSMutableArray array];
+    for (int i = 0; i < 20; i++) {
+        NSMutableData *rendition = [NSMutableData dataWithLength:100 * 1024];
+        ((uint8_t *)rendition.mutableBytes)[0] = (uint8_t)i;
+        NSData *thumbnail = [NSData dataWithBytes:&i length:sizeof i];
+        [pictures addObject:[store fileTags:[NSString stringWithFormat:@"tags %d", i] thumbnail:thumbnail
+                                  rendition:rendition pictureName:nil forKey:[NSString stringWithFormat:@"key-%d", i]]];
+    }
+    XCTAssertTrue([self waitFor:^BOOL {
+        return [store renditionOfPicture:pictures[14]] == nil;
+    } within:VIBE_TEST_HANG_TIMEOUT], @"the art was trimmed");
+    for (int i = 0; i < 20; i++) {
+        NSString *key = [NSString stringWithFormat:@"key-%d", i];
+        XCTAssertNotNil([store tagsHitForKey:key acceptingOlder:NO], @"%@", key);
+        XCTAssertNotNil([store thumbnailOfPicture:pictures[i]], @"%@", key);
+    }
+    XCTAssertNotNil([store renditionOfPicture:pictures[19]], @"the newest art stays");
 }
 
 // The disk usage counts the entry and the picture's two parts, and an
