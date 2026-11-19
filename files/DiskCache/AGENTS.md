@@ -4,11 +4,11 @@ A bounded disk cache over the system's SQLite, `VibeCacheStore`, and what is lef
 
 ## What is left of PINCache
 
-**PINCache and PINOperation are gone** (CH23 of another app's cache spec). Each cache imports the PINCache store it replaced and reads it with no PINDiskCache (`media/Metadata` and `waveform/WaveformLoading`'s AGENTS.md). Three things stay, in `PINCache+VibeAudioCache`, each because an app or an import still uses it:
+**PINCache and PINOperation are gone** (CH23 of another app's cache spec). Each cache imports the PINCache store it replaced and reads it with no PINDiskCache (`media/Metadata` and `waveform/WaveformLoading`'s AGENTS.md). Three things stay, each because an app or an import still uses it:
 
 - **`removeOtherAudioCacheVersionsKeeping:rootPath:completion:`**, a class method of a tiny `PINCache` class that holds nothing else. Apps call it at launch, and the header keeps its name, so their code builds with no edit. A PINCache store left by an older format is still on users' disks, and this is what removes it.
 - **`VibeAudioCacheDefaultAgeLimit`**, 180 days, which an app passes to a cache's `setByteLimit:ageLimit:` to keep the default age. It equals `VibeCacheStore.defaultAgeLimit`.
-- **`VibeAudioCacheLegacyPrefix` and `VibeAudioCacheLegacyFileName`**: the folder and the file names a PINCache store used, which both imports read their old store by.
+- **`VibeLegacyCacheNames.h`**: the folder and the file names a PINCache store used, which both imports read their old store by, and the removal and the tests' fixture too. **TRAP: its functions are defined in `PINCache+VibeAudioCache.m`**, since an app's test target lists that file by its path, and a file of their own would leave the target unable to link.
 
 **TRAP: `PINCache` is a class of this piece now.** An app that also links the real PINCache gets two classes of one name. None does.
 
@@ -16,7 +16,7 @@ A bounded disk cache over the system's SQLite, `VibeCacheStore`, and what is lef
 
 ## Other versions' stores
 
-**`removeOtherAudioCacheVersionsKeeping:rootPath:completion:` removes the PINCache stores other versions left.** A PINCache store's name carried its entry format's version, as `Audio Track Metadata v10` and `audio_waveform_cache_v7` do. A format change renamed the store, so the old one was never opened again, and it kept up to 1 GiB on disk for good. The rule removes a store when its name is a current name's apart from the version suffix, a space or an underscore then `v` and digits, and it is none of the current names. So two current names of one family both stay, as `media/Metadata`'s new store, `Audio Track Metadata`, and `Audio Track Metadata v11`, the store it imports, do. A name with no suffix is a version too. Another store, and a directory that is no store, stay. An app calls it once at launch, with every name its caches give, and it runs off the calling thread. The waveform cache's `cacheName` is `audio_waveforms`, of another family, so the rule removes none of the waveform stores, and the waveform cache removes them itself (`waveform/WaveformLoading/AGENTS.md`). The SQLite stores live outside PINDiskCache's prefix, so the rule never reaches them.
+**`removeOtherAudioCacheVersionsKeeping:rootPath:completion:` removes the PINCache stores other versions left.** A PINCache store's name carried its entry format's version, as `Audio Track Metadata v10` and `audio_waveform_cache_v7` do. A format change renamed the store, so the old one was never opened again, and it kept up to 1 GiB on disk for good. The rule removes a store when its name is a current name's apart from the version suffix, a space or an underscore then `v` and digits, and it is none of the current names. So two current names of one family both stay, as `media/Metadata`'s new store, `Audio Track Metadata`, and `Audio Track Metadata v11`, the store it imports, do. A name with no suffix is a version too. Another store, and a directory that is no store, stay. An app calls it once at launch, with every name its caches give, and it runs off the calling thread. The waveform cache's `cacheName` is `audio_waveforms`, of another family, so the rule removes none of the waveform stores, and the waveform cache removes them itself (`waveform/WaveformLoading/AGENTS.md`).
 
 **The cost is a downgrade's.** An older build keeps only the names it knows. So it removes a newer build's store in the same way.
 

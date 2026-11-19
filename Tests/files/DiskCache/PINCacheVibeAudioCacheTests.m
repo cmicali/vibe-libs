@@ -7,6 +7,7 @@
 #import <XCTest/XCTest.h>
 
 #import "PINCache+VibeAudioCache.h"
+#import "VibeLegacyCacheNames.h"
 #import "VibeCacheStore.h"
 
 @interface PINCacheVibeAudioCacheTests : XCTestCase
@@ -31,10 +32,11 @@
 // The folder and the file name, as PINDiskCache's default key encoder named
 // them: only the four characters it escaped are escaped.
 - (void)testAnOldEntryIsNamedAsPINDiskCacheNamedIt {
-    XCTAssertEqualObjects(VibeAudioCacheLegacyPrefix, @"com.pinterest.PINDiskCache");
-    XCTAssertEqualObjects(VibeAudioCacheLegacyFileName(@"3-1700000000-/Music/a b:c.flac%"),
+    XCTAssertEqualObjects(VibeLegacyCacheFolder(@"/caches", @"Audio Track Metadata v11"),
+                          @"/caches/com.pinterest.PINDiskCache.Audio Track Metadata v11");
+    XCTAssertEqualObjects(VibeLegacyCacheFileName(@"3-1700000000-/Music/a b:c.flac%"),
                           @"3-1700000000-%2FMusic%2Fa b%3Ac%2Eflac%25");
-    XCTAssertNil(VibeAudioCacheLegacyFileName(@""));
+    XCTAssertNil(VibeLegacyCacheFileName(@""));
 }
 
 // An app that keeps the default age passes the store's.

@@ -2,10 +2,10 @@
 //  PINCache+VibeAudioCache.h
 //  vibe-libs
 //
-//  What is left of the PINCache stores the releases before VibeCacheStore
-//  kept: their names, and the removal of the ones a format change left. The
+//  What an app's launch still calls from when PINCache was here: the removal
+//  of the PINCache stores a format change left, and the default age. The
 //  header keeps its name, and PINCache stays a class with that one method,
-//  so an app's launch builds as it did. PINCache itself is no longer here.
+//  so the launch builds as it did. PINCache itself is gone.
 //
 
 #import <Foundation/Foundation.h>
@@ -15,13 +15,6 @@ NS_ASSUME_NONNULL_BEGIN
 // 180 days, the age limit an app passes to a cache's setByteLimit:ageLimit:
 // when it keeps the default age. VibeCacheStore.defaultAgeLimit is the same.
 extern const NSTimeInterval VibeAudioCacheDefaultAgeLimit;
-
-// The prefix of every PINCache store's folder, "<prefix>.<name>", which an
-// import reads its old store by.
-extern NSString *const VibeAudioCacheLegacyPrefix;
-
-// The file a PINCache store kept key in, as its key encoder named it.
-FOUNDATION_EXPORT NSString *_Nullable VibeAudioCacheLegacyFileName(NSString *key);
 
 @interface PINCache : NSObject
 

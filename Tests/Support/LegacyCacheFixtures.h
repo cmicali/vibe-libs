@@ -10,19 +10,15 @@
 //
 
 #import <Foundation/Foundation.h>
-#import "PINCache+VibeAudioCache.h"
+#import "VibeLegacyCacheNames.h"
 
 NS_ASSUME_NONNULL_BEGIN
-
-static inline NSString *VibeLegacyCacheFolder(NSString *root, NSString *store) {
-    return [root stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@", VibeAudioCacheLegacyPrefix, store]];
-}
 
 // The bytes written, or nil when the file could not be.
 static inline NSData *_Nullable VibeWriteLegacyCacheEntry(NSString *root, NSString *store, NSString *key,
                                                           id<NSCoding> object) {
     NSString *folder = VibeLegacyCacheFolder(root, store);
-    NSString *name = VibeAudioCacheLegacyFileName(key);
+    NSString *name = VibeLegacyCacheFileName(key);
     NSData *bytes = [NSKeyedArchiver archivedDataWithRootObject:object requiringSecureCoding:NO error:NULL];
     BOOL made = [NSFileManager.defaultManager createDirectoryAtPath:folder withIntermediateDirectories:YES
                                                          attributes:nil error:NULL];

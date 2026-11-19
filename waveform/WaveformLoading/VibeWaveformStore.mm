@@ -6,6 +6,7 @@
 #import "VibeWaveformStore.h"
 #import "AudioWaveform.h"
 #import "PINCache+VibeAudioCache.h"
+#import "VibeLegacyCacheNames.h"
 #import "VibeMacros.h"
 
 #import <os/lock.h>
@@ -83,8 +84,7 @@ static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
         if (!_entries) {
             return self;
         }
-        NSString *legacy = [root stringByAppendingPathComponent:
-                [NSString stringWithFormat:@"%@.%@", VibeAudioCacheLegacyPrefix, VibeWaveformStore.legacyName]];
+        NSString *legacy = VibeLegacyCacheFolder(root, VibeWaveformStore.legacyName);
         BOOL isDirectory = NO;
         if ([NSFileManager.defaultManager fileExistsAtPath:legacy isDirectory:&isDirectory] && isDirectory) {
             _legacyDirectory = legacy;
@@ -178,7 +178,7 @@ static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
 
 // The old store's file for key during the import.
 - (nullable NSString *)legacyPathForKey:(NSString *)key {
-    NSString *name = self.importing ? VibeAudioCacheLegacyFileName(key) : nil;
+    NSString *name = self.importing ? VibeLegacyCacheFileName(key) : nil;
     return name ? [_legacyDirectory stringByAppendingPathComponent:name] : nil;
 }
 

@@ -4,12 +4,20 @@
 //
 
 #import "PINCache+VibeAudioCache.h"
+#import "VibeLegacyCacheNames.h"
 
 const NSTimeInterval VibeAudioCacheDefaultAgeLimit = 180 * 24 * 60 * 60;
 
-NSString *const VibeAudioCacheLegacyPrefix = @"com.pinterest.PINDiskCache";
+// VibeLegacyCacheNames.h's, defined here rather than in a file of their own:
+// an app's test target lists this file by its path beside the waveform
+// store, and a new file would leave it unable to link.
+NSString *const VibeLegacyCacheFolderPrefix = @"com.pinterest.PINDiskCache.";
 
-NSString *VibeAudioCacheLegacyFileName(NSString *key) {
+NSString *VibeLegacyCacheFolder(NSString *root, NSString *name) {
+    return [root stringByAppendingPathComponent:[VibeLegacyCacheFolderPrefix stringByAppendingString:name]];
+}
+
+NSString *VibeLegacyCacheFileName(NSString *key) {
     static NSCharacterSet *allowed;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
@@ -30,12 +38,16 @@ static NSString *VibeAudioCacheFamily(NSString *name) {
 + (void)removeOtherAudioCacheVersionsKeeping:(NSArray<NSString *> *)currentNames
                                     rootPath:(NSString *)rootPath
                                   completion:(dispatch_block_t)completion {
-    NSArray<NSString *> *current = [currentNames copy];
+    NSSet<NSString *> *current = [NSSet setWithArray:currentNames];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSString *root = rootPath
                 ?: NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
         NSFileManager *fileManager = NSFileManager.defaultManager;
-        NSString *prefix = [VibeAudioCacheLegacyPrefix stringByAppendingString:@"."];
+        NSString *prefix = VibeLegacyCacheFolderPrefix;
+        NSMutableSet<NSString *> *families = [NSMutableSet set];
+        for (NSString *keep in current) {
+            [families addObject:VibeAudioCacheFamily(keep)];
+        }
         if (root) {
             for (NSString *entry in [fileManager contentsOfDirectoryAtPath:root error:nil]) {
                 if (![entry hasPrefix:prefix]) {
@@ -45,14 +57,8 @@ static NSString *VibeAudioCacheFamily(NSString *name) {
                 // A name the list keeps stays, though another kept name
                 // shares its family, as a store and the older one it imports
                 // do.
-                if ([current containsObject:name]) {
-                    continue;
-                }
-                for (NSString *keep in current) {
-                    if ([VibeAudioCacheFamily(name) isEqualToString:VibeAudioCacheFamily(keep)]) {
-                        [fileManager removeItemAtPath:[root stringByAppendingPathComponent:entry] error:nil];
-                        break;
-                    }
+                if (![current containsObject:name] && [families containsObject:VibeAudioCacheFamily(name)]) {
+                    [fileManager removeItemAtPath:[root stringByAppendingPathComponent:entry] error:nil];
                 }
             }
         }
