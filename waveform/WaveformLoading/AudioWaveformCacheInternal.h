@@ -35,7 +35,10 @@ static inline NSString *_Nullable VibeWaveformEntryKey(id<VibePlayableItem> trac
 // The claim key a load of the same window files under.
 @property (nonatomic, copy) NSString *key;
 @property (nonatomic) VibeWaveformAnalysis analysis;
-@property (nonatomic, copy, nullable) void (^completion)(BOOL filed);
+// scanResultsForTrack:'s: its decode files nothing.
+@property (nonatomic) BOOL resultsOnly;
+// done is filed for a scan, and analyzed for a scan for results alone.
+@property (nonatomic, copy, nullable) void (^completion)(BOOL done);
 @property (atomic) BOOL cancelled;
 // The decode running for it, or nil while it waits.
 @property (nonatomic, strong, nullable) AudioWaveformLoader *loader;

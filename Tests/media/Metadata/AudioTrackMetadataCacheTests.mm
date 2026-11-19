@@ -10,6 +10,7 @@
 
 #import "AudioTrackArtwork.h"
 #import "AudioTrackMetadataCache.h"
+#import "AudioTrackMetadataCacheInternal.h"
 #import "AudioTrackMetadataInternal.h"
 #import "AudioTrackMetadataTagFixtures.h"
 #import "ImageFixtures.h"
@@ -257,6 +258,30 @@
     XCTAssertTrue(hit.fromCache);
     XCTAssertNotNil([self thumbnailOf:hit.metadata], @"the rendition stands in");
     XCTAssertNil(hit.metadata.artwork.archivedThumbnailProvider);
+}
+
+// An app sets each store's limits over the defaults. A store it sets nothing
+// for keeps them.
+- (void)testAnAppSetsEachStoresLimits {
+    NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    [cache setByteLimit:3 * 1024 * 1024 ageLimit:30 * 86400.0 forStore:VibeMetadataCacheStoreThumbnails];
+    [cache setByteLimit:4 * 1024 * 1024 ageLimit:60 * 86400.0 forStore:VibeMetadataCacheStoreDisplayArt];
+    PINDiskCache *tags = cache.metadataCache.diskCache;
+    PINDiskCache *thumbnails = cache.thumbnailCache.diskCache;
+    PINDiskCache *displayArt = cache.displayArtCache.diskCache;
+    // The setters run on the cache's queue, which the usage count runs after.
+    XCTestExpectation *counted = [self expectationWithDescription:@"counted"];
+    [cache diskUsageWithCompletion:^(NSUInteger fileCount, unsigned long long totalBytes) {
+        [counted fulfill];
+    }];
+    [self waitForExpectations:@[counted] timeout:VIBE_TEST_HANG_TIMEOUT];
+    XCTAssertEqual(thumbnails.byteLimit, 3u * 1024 * 1024);
+    XCTAssertEqual(thumbnails.ageLimit, 30 * 86400.0);
+    XCTAssertEqual(displayArt.byteLimit, 4u * 1024 * 1024);
+    XCTAssertEqual(displayArt.ageLimit, 60 * 86400.0);
+    XCTAssertEqual(tags.byteLimit, VibeAudioCacheDefaultByteLimit);
+    XCTAssertEqual(tags.ageLimit, VibeAudioCacheDefaultAgeLimit);
 }
 
 // The disk usage counts all three stores, and an invalidation empties them.
