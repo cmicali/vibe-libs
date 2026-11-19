@@ -31,6 +31,10 @@ FOUNDATION_EXPORT void WaveformSpinFor(NSTimeInterval seconds);
 // decodes. The cache's delegate hears none of the lookup's deliveries.
 FOUNDATION_EXPORT BOOL WaveformEventuallyCached(AudioWaveformCache *cache, id<VibePlayableItem> track);
 
+// Whether the seam's lookup-or-decode found the track's entry filed, so no
+// decode ran. A miss decodes and files it.
+FOUNDATION_EXPORT BOOL WaveformWasCached(AudioWaveformCache *cache, id<VibePlayableItem> track);
+
 // An item that memoizes its disk key, as an app's row may, stamped with the
 // generation NSURL+Hash bumps when a file is replaced by another version.
 @interface WaveformMemoizingTrack : VibeTestTrack

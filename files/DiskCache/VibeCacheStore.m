@@ -381,8 +381,11 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
 // MARK: Days
 
 - (int64_t)today {
-    return (int64_t)floor(CFAbsoluteTimeGetCurrent() / VibeCacheSecondsPerDay)
-        + atomic_load_explicit(&_dayOffset, memory_order_relaxed);
+    return [self dayOfTime:CFAbsoluteTimeGetCurrent()];
+}
+
+- (int64_t)dayOfTime:(CFAbsoluteTime)time {
+    return (int64_t)floor(time / VibeCacheSecondsPerDay) + atomic_load_explicit(&_dayOffset, memory_order_relaxed);
 }
 
 // MARK: The writer
@@ -475,16 +478,21 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
     for (NSString *suffix in @[@"", @"-wal", @"-shm"]) {
         [fm removeItemAtPath:[_databasePath stringByAppendingString:suffix] error:NULL];
     }
+    [self removeFolderAtPath:_filesPath];
+    [fm createDirectoryAtPath:_filesPath withIntermediateDirectories:YES attributes:nil error:NULL];
+}
+
+- (void)removeFolderAtPath:(NSString *)path {
+    NSFileManager *fm = NSFileManager.defaultManager;
     NSString *removed = [_directory stringByAppendingPathComponent:
         [VibeCacheRemovedPrefix stringByAppendingString:NSUUID.UUID.UUIDString]];
-    if ([fm moveItemAtPath:_filesPath toPath:removed error:NULL]) {
+    if ([fm moveItemAtPath:path toPath:removed error:NULL]) {
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
             [NSFileManager.defaultManager removeItemAtPath:removed error:NULL];
         });
     } else {
-        [fm removeItemAtPath:_filesPath error:NULL];
+        [fm removeItemAtPath:path error:NULL];
     }
-    [fm createDirectoryAtPath:_filesPath withIntermediateDirectories:YES attributes:nil error:NULL];
 }
 
 - (void)removeLeftFolders {
@@ -1079,9 +1087,7 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
             return;
         }
         int64_t today = [self today];
-        int64_t used = lastUse ? MIN(today, (int64_t)floor(lastUse.timeIntervalSinceReferenceDate / VibeCacheSecondsPerDay)
-                                                + atomic_load_explicit(&self->_dayOffset, memory_order_relaxed))
-                               : today;
+        int64_t used = lastUse ? MIN(today, [self dayOfTime:lastUse.timeIntervalSinceReferenceDate]) : today;
         NSUInteger size = (NSUInteger)info.st_size;
         // A small file goes into its row, as a write's would, and a large one
         // is renamed into Files. Listed first, so a crash after the rename

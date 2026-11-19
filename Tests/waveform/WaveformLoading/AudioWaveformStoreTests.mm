@@ -13,14 +13,13 @@
 #import "AudioFileFixtures.h"
 #import "AudioWaveform.h"
 #import "AudioWaveformCache.h"
-#import "AudioWaveformCache+Debug.h"
 #import "AudioWaveformCacheInternal.h"
 #import "PINCache+VibeAudioCache.h"
+#import "PINDiskCache.h"
 #import "VibeTestTrack.h"
 #import "VibeWaveformStore.h"
 #import "WaveformLoadingTestSupport.h"
 
-#include <cmath>
 
 // The cache's complete deliveries.
 @interface StoreTestRecorder : NSObject <AudioWaveformCacheDelegate>
@@ -69,32 +68,12 @@
 
 - (NSString *)legacyUnder:(NSString *)root {
     return [root stringByAppendingPathComponent:
-            [@"com.pinterest.PINDiskCache." stringByAppendingString:VibeWaveformStore.legacyName]];
+            [NSString stringWithFormat:@"%@.%@", PINDiskCachePrefix, VibeWaveformStore.legacyName]];
 }
 
-// Whether the seam's lookup-or-decode found the entry filed, so no decode ran.
-static BOOL WasCached(AudioWaveformCache *cache, id<VibePlayableItem> track) {
-    __block BOOL answered = NO, cached = NO;
-    [cache cacheWaveformForTrack:track completion:^(BOOL ok, BOOL wasCached, NSDictionary *results) {
-        cached = ok && wasCached;
-        answered = YES;
-    }];
-    WaveformSpinUntil(^BOOL { return answered; });
-    return cached;
-}
-
-// A second of 16-bit stereo noise, a different one for each seed.
 - (VibeTestTrack *)trackNamed:(NSString *)name seed:(uint32_t)seed {
-    uint32_t frames = 44100;
-    NSMutableData *samples = [NSMutableData dataWithLength:(NSUInteger)frames * 4];
-    int16_t *out = (int16_t *)samples.mutableBytes;
-    uint32_t state = seed;
-    for (NSUInteger i = 0; i < (NSUInteger)frames * 2; i++) {
-        state = state * 1664525u + 1013904223u;
-        out[i] = (int16_t)(sin((double)i * 0.00071) * 16000.0 + (double)(int16_t)(state >> 16) * 0.4);
-    }
-    NSURL *url = [_directory URLByAppendingPathComponent:name];
-    XCTAssertNotNil(VibeWriteWAV(url, samples, 44100, 2, 16, frames * 4));
+    NSURL *url = VibeWriteNoiseWAV([_directory URLByAppendingPathComponent:name], 1.0, seed);
+    XCTAssertNotNil(url);
     return [VibeTestTrack withURL:url];
 }
 
@@ -121,8 +100,8 @@ static BOOL WasCached(AudioWaveformCache *cache, id<VibePlayableItem> track) {
 }
 
 // CH19: every entry of the old store reads back the same, with no decode,
-// and the old store, the ones before it, and one a quit left renamed aside
-// are gone at the end. A folder of another kind stays.
+// and the old store and the ones before it are gone at the end, leaving only
+// the new store and a folder of another kind.
 - (void)testTheImportBringsEveryEntryOverAndRemovesTheOldStores {
     NSString *root = [self rootNamed:@"caches"];
     NSArray<VibeTestTrack *> *tracks = @[[self trackNamed:@"a.wav" seed:1], [self trackNamed:@"b.wav" seed:2],
@@ -130,9 +109,8 @@ static BOOL WasCached(AudioWaveformCache *cache, id<VibePlayableItem> track) {
     NSDictionary<NSString *, NSData *> *files = [self legacyStoreUnder:root withTracks:tracks];
     NSFileManager *fileManager = NSFileManager.defaultManager;
     NSString *older = [root stringByAppendingPathComponent:@"com.pinterest.PINDiskCache.audio_waveform_cache_v6"];
-    NSString *left = [[self legacyUnder:root] stringByAppendingString:@" removed 0F0E5B4C-0000-4000-8000-000000000000"];
     NSString *other = [root stringByAppendingPathComponent:@"com.pinterest.PINDiskCache.audio_track_metadata_v11"];
-    for (NSString *path in @[older, left, other]) {
+    for (NSString *path in @[older, other]) {
         XCTAssertTrue([fileManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
     }
 
@@ -140,16 +118,20 @@ static BOOL WasCached(AudioWaveformCache *cache, id<VibePlayableItem> track) {
     VibeWaveformStore *store = [VibeWaveformStore storeUnderRoot:root];
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return !store.importing; }));
     XCTAssertTrue(WaveformSpinUntil(^BOOL {
-        return ![fileManager fileExistsAtPath:[self legacyUnder:root]] && ![fileManager fileExistsAtPath:older]
-                && ![fileManager fileExistsAtPath:left];
+        return ![fileManager fileExistsAtPath:[self legacyUnder:root]] && ![fileManager fileExistsAtPath:older];
     }));
-    XCTAssertTrue([fileManager fileExistsAtPath:other]);
+    XCTAssertTrue(WaveformSpinUntil(^BOOL {
+        NSArray<NSString *> *left = [fileManager contentsOfDirectoryAtPath:[root stringByAppendingPathComponent:VibeWaveformStore.name] error:nil];
+        return [left filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"SELF BEGINSWITH 'Files removed'"]].count == 0;
+    }), @"the old folder, moved into the store to be removed, is gone");
+    NSArray<NSString *> *kept = [[fileManager contentsOfDirectoryAtPath:root error:nil] sortedArrayUsingSelector:@selector(compare:)];
+    XCTAssertEqualObjects(kept, (@[VibeWaveformStore.name, other.lastPathComponent]));
     XCTAssertEqual(store.entries.usage.entries, tracks.count);
     for (VibeTestTrack *track in tracks) {
         NSString *key = VibeWaveformEntryKey(track);
         XCTAssertEqualObjects([store dataForKey:key], files[key], @"the file is listed as it was");
         XCTAssertTrue(WaveformEventuallyCached(cache, track));
-        XCTAssertTrue(WasCached(cache, track), @"a hit, so nothing decoded");
+        XCTAssertTrue(WaveformWasCached(cache, track), @"a hit, so nothing decoded");
     }
 }
 
@@ -191,7 +173,7 @@ static BOOL WasCached(AudioWaveformCache *cache, id<VibePlayableItem> track) {
     NSString *root = [self rootNamed:@"caches"];
     VibeTestTrack *track = [self trackNamed:@"a.wav" seed:7];
     AudioWaveformCache *cache = [[AudioWaveformCache alloc] initWithRootPath:root];
-    XCTAssertFalse(WasCached(cache, track));
+    XCTAssertFalse(WaveformWasCached(cache, track));
     VibeWaveformStore *store = [VibeWaveformStore storeUnderRoot:root];
     NSString *key = VibeWaveformEntryKey(track);
     NSData *archive = [store.entries hitForKey:key format:kCodableAudioWaveformVersion].data;
@@ -207,9 +189,9 @@ static BOOL WasCached(AudioWaveformCache *cache, id<VibePlayableItem> track) {
         }];
         XCTAssertTrue(WaveformSpinUntil(^BOOL { return answered; }));
         XCTAssertNil(found, @"format %@ is a miss", format);
-        XCTAssertFalse(WasCached(cache, track), @"format %@ decoded again", format);
+        XCTAssertFalse(WaveformWasCached(cache, track), @"format %@ decoded again", format);
         XCTAssertNotNil([store.entries hitForKey:key format:kCodableAudioWaveformVersion], @"and the decode replaced it");
-        XCTAssertTrue(WasCached(cache, track));
+        XCTAssertTrue(WaveformWasCached(cache, track));
     }
     XCTAssertEqual(store.entries.usage.entries, 1u);
 }

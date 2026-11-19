@@ -32,7 +32,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)init NS_UNAVAILABLE;
 
 // Nil when the folder could not be opened. Then every read misses and every
-// write is dropped, as a cache may.
+// write is dropped, as a cache may. A caller goes through the methods below,
+// which reach the old store during the import. The tests read it directly.
 @property (nonatomic, readonly, nullable) VibeCacheStore *entries;
 
 // The archive filed under key in the current format, from the old store
@@ -44,6 +45,12 @@ NS_ASSUME_NONNULL_BEGIN
 // Moves the entry, from the old store during the import. NO when there is
 // none, or newKey already holds one, which is kept.
 - (BOOL)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey;
+
+// The limits, over files/DiskCache's defaults.
+- (void)setByteLimit:(unsigned long long)byteLimit ageLimit:(NSTimeInterval)ageLimit;
+// The entries and bytes the store lists. During the import, the entries not
+// yet brought over are not counted.
+- (VibeCacheUsage)usage;
 
 // Ends the import, removes the old store, and empties this one. It returns
 // once the store is empty.

@@ -5,6 +5,8 @@
 
 #import "VibeWaveformStore.h"
 #import "AudioWaveform.h"
+#import "PINCache+VibeAudioCache.h"
+#import "PINDiskCache.h"
 #import "VibeMacros.h"
 
 #import <os/lock.h>
@@ -12,54 +14,28 @@
 
 // The PINCache store's entries were all of this format: its name carried it.
 static const NSInteger VibeWaveformLegacyFormat = 7;
-// PINDiskCache names a store's directory "<prefix>.<name>".
-static NSString *const VibeWaveformLegacyPrefix = @"com.pinterest.PINDiskCache.";
-static NSString *const VibeWaveformLegacyFamily = @"audio_waveform_cache";
-static NSString *const VibeWaveformRemovedMark = @" removed ";
 
-// An open that finds the folder still held waits this long for the store
-// that holds it to finish closing.
-static const int VibeWaveformOpenAttempts = 20;
-static const useconds_t VibeWaveformOpenRetryMicroseconds = 50 * 1000;
+// An open that finds the folder held, when no store under that root is
+// closing, tries this many times more, a few ms apart: a store's last user
+// can let go just before the registry sees it closing.
+static const int VibeWaveformOpenRetries = 3;
+static const useconds_t VibeWaveformOpenRetryMicroseconds = 10 * 1000;
 
 #if DEBUG
 static atomic_bool VibeWaveformImportsHeld;
 #endif
 
-@interface VibeWaveformStore ()
-// The old store's directory until the import ends. Any thread.
-@property (nonatomic, copy, nullable) NSString *legacyDirectory;
-@end
+// The open stores by root, and the roots whose store is closing. Under
+// VibeWaveformRegistryLock.
+static os_unfair_lock VibeWaveformRegistryLock = OS_UNFAIR_LOCK_INIT;
+static NSMapTable<NSString *, VibeWaveformStore *> *VibeWaveformOpenStores;
+static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
 
 @implementation VibeWaveformStore {
-    // Guards _legacyDirectory. A lock of the store's own, which the thread
-    // sanitizer sees, rather than an atomic property's.
-    os_unfair_lock _legacyLock;
+    NSString *_root;
+    // The old store's directory, read while _importing is set.
     NSString *_legacyDirectory;
-}
-
-- (nullable NSString *)legacyDirectory {
-    os_unfair_lock_lock(&_legacyLock);
-    NSString *directory = _legacyDirectory;
-    os_unfair_lock_unlock(&_legacyLock);
-    return directory;
-}
-
-- (void)setLegacyDirectory:(nullable NSString *)directory {
-    directory = [directory copy];
-    os_unfair_lock_lock(&_legacyLock);
-    _legacyDirectory = directory;
-    os_unfair_lock_unlock(&_legacyLock);
-}
-
-// The old store's directory, and no more import: the one caller that gets it
-// removes it.
-- (nullable NSString *)takeLegacyDirectory {
-    os_unfair_lock_lock(&_legacyLock);
-    NSString *directory = _legacyDirectory;
-    _legacyDirectory = nil;
-    os_unfair_lock_unlock(&_legacyLock);
-    return directory;
+    atomic_bool _importing;
 }
 
 + (NSString *)name {
@@ -68,90 +44,103 @@ static atomic_bool VibeWaveformImportsHeld;
 }
 
 + (NSString *)legacyName {
-    return [NSString stringWithFormat:@"%@_v%ld", VibeWaveformLegacyFamily, (long)VibeWaveformLegacyFormat];
+    return [NSString stringWithFormat:@"audio_waveform_cache_v%ld", (long)VibeWaveformLegacyFormat];
 }
 
 + (instancetype)storeUnderRoot:(NSString *)rootPath {
     NSString *root = rootPath
             ?: NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    static os_unfair_lock lock = OS_UNFAIR_LOCK_INIT;
-    static NSMapTable<NSString *, VibeWaveformStore *> *open;
-    os_unfair_lock_lock(&lock);
-    if (!open) {
-        open = [NSMapTable strongToWeakObjectsMapTable];
-    }
-    VibeWaveformStore *store = root ? [open objectForKey:root] : nil;
-    if (!store) {
-        store = [[VibeWaveformStore alloc] initWithRoot:root];
-        if (store.entries) {
-            [open setObject:store forKey:root];
+    for (int retries = 0;; ) {
+        os_unfair_lock_lock(&VibeWaveformRegistryLock);
+        if (!VibeWaveformOpenStores) {
+            VibeWaveformOpenStores = [NSMapTable strongToWeakObjectsMapTable];
+            VibeWaveformClosingRoots = [NSCountedSet set];
         }
+        VibeWaveformStore *store = root ? [VibeWaveformOpenStores objectForKey:root] : nil;
+        BOOL closing = root && [VibeWaveformClosingRoots countForObject:root] > 0;
+        if (!store && !closing) {
+            store = [[VibeWaveformStore alloc] initWithRoot:root];
+            if (store.entries) {
+                [VibeWaveformOpenStores setObject:store forKey:root];
+            }
+        }
+        os_unfair_lock_unlock(&VibeWaveformRegistryLock);
+        if (store.entries || (store && retries++ >= VibeWaveformOpenRetries)) {
+            if (!store.entries) {
+                LogError(@"The waveform store would not open; waveforms are not kept");
+            }
+            return store;
+        }
+        // A store under this root is closing, and holds the folder until it has.
+        usleep(VibeWaveformOpenRetryMicroseconds);
     }
-    os_unfair_lock_unlock(&lock);
-    return store;
 }
 
 - (instancetype)initWithRoot:(nullable NSString *)root {
     self = [super init];
     if (self) {
-        _legacyLock = OS_UNFAIR_LOCK_INIT;
-        // A store that just let go of its last user may still be closing.
-        for (int attempt = 0; root && !_entries && attempt < VibeWaveformOpenAttempts; attempt++) {
-            if (attempt > 0) {
-                usleep(VibeWaveformOpenRetryMicroseconds);
-            }
-            _entries = [VibeCacheStore storeWithName:VibeWaveformStore.name rootPath:root];
-        }
+        _root = [root copy];
+        _entries = root ? [VibeCacheStore storeWithName:VibeWaveformStore.name rootPath:root] : nil;
         if (!_entries) {
-            LogError(@"The waveform store would not open; waveforms are not kept");
             return self;
         }
         NSString *legacy = [root stringByAppendingPathComponent:
-                [VibeWaveformLegacyPrefix stringByAppendingString:VibeWaveformStore.legacyName]];
+                [NSString stringWithFormat:@"%@.%@", PINDiskCachePrefix, VibeWaveformStore.legacyName]];
         BOOL isDirectory = NO;
         if ([NSFileManager.defaultManager fileExistsAtPath:legacy isDirectory:&isDirectory] && isDirectory) {
-            self.legacyDirectory = legacy;
+            _legacyDirectory = legacy;
+            atomic_store(&_importing, true);
         }
-        // In the background, so the open stays a few ms. A quit, or the
-        // store's last user letting go, cuts it short, and the next open
-        // carries on from the files still there.
+        // In the background, so the open stays a few ms. The PINCache stores
+        // of older formats go first: an app's removal of other versions no
+        // longer names them, since this store's name is of another family.
+        // A quit, or the store's last user letting go, cuts the import short,
+        // and the next open carries on from the files still there.
         __weak VibeWaveformStore *weakSelf = self;
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
-            [VibeWaveformStore removeOlderStoresUnder:root];
-            [VibeWaveformStore importFrom:legacy into:weakSelf];
-        });
+        [PINCache removeOtherAudioCacheVersionsKeeping:@[VibeWaveformStore.legacyName] rootPath:root completion:^{
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
+                [VibeWaveformStore importInto:weakSelf];
+            });
+        }];
     }
     return self;
 }
 
-- (BOOL)isImporting {
-    return self.legacyDirectory != nil;
+- (void)dealloc {
+    if (!_entries) {
+        return;
+    }
+    // Closed here, so a new open under the root waits for the folder.
+    os_unfair_lock_lock(&VibeWaveformRegistryLock);
+    [VibeWaveformClosingRoots addObject:_root];
+    os_unfair_lock_unlock(&VibeWaveformRegistryLock);
+    [_entries close];
+    os_unfair_lock_lock(&VibeWaveformRegistryLock);
+    [VibeWaveformClosingRoots removeObject:_root];
+    os_unfair_lock_unlock(&VibeWaveformRegistryLock);
 }
 
-// The PINCache stores of formats before the legacy one, which an app's
-// removal of other versions no longer names, since this store's name is of
-// another family, and an old store renamed aside that a quit left.
-+ (void)removeOlderStoresUnder:(NSString *)root {
-    NSFileManager *fileManager = NSFileManager.defaultManager;
-    NSString *family = [VibeWaveformLegacyPrefix stringByAppendingString:VibeWaveformLegacyFamily];
-    NSString *legacy = [VibeWaveformLegacyPrefix stringByAppendingString:VibeWaveformStore.legacyName];
-    for (NSString *name in [fileManager contentsOfDirectoryAtPath:root error:nil]) {
-        NSString *suffix = [name hasPrefix:family] ? [name substringFromIndex:family.length] : nil;
-        BOOL version = suffix && (suffix.length == 0
-                || [suffix rangeOfString:@"^[ _]v[0-9]+$" options:NSRegularExpressionSearch].location != NSNotFound);
-        // A folder renamed aside for removal, which a quit left.
-        BOOL aside = suffix && [suffix containsString:VibeWaveformRemovedMark];
-        if ((version || aside) && ![name isEqualToString:legacy]) {
-            [fileManager removeItemAtPath:[root stringByAppendingPathComponent:name] error:nil];
-        }
-    }
+- (BOOL)isImporting {
+    return atomic_load(&_importing);
+}
+
+// Ends the import, once: YES for the one caller that then removes the old
+// store.
+- (BOOL)endImport {
+    return atomic_exchange(&_importing, false);
 }
 
 // CH19: each file is listed where it lands, by a rename, dated by its last
 // use as PINDiskCache recorded it. A file whose key is already filed here is
-// older than that entry, and goes with the folder.
-+ (void)importFrom:(NSString *)legacy into:(__weak VibeWaveformStore *)weakStore {
-    if (!weakStore.legacyDirectory) {
+// older than that entry, and goes with the folder. The store is held only
+// for each file, so its last user letting go stops the import.
++ (void)importInto:(__weak VibeWaveformStore *)weakStore {
+    NSString *legacy = nil;
+    @autoreleasepool {
+        VibeWaveformStore *store = weakStore;
+        legacy = store.importing ? store->_legacyDirectory : nil;
+    }
+    if (!legacy) {
         return;
     }
     NSDirectoryEnumerator<NSURL *> *files = [NSFileManager.defaultManager
@@ -169,7 +158,7 @@ static atomic_bool VibeWaveformImportsHeld;
 #endif
             VibeWaveformStore *store = weakStore;
             // A Clear ended the import, or the store closed.
-            if (!store.legacyDirectory) {
+            if (!store.importing) {
                 return;
             }
             NSString *key = url.lastPathComponent.stringByRemovingPercentEncoding;
@@ -181,26 +170,17 @@ static atomic_bool VibeWaveformImportsHeld;
             }
         }
     }
-    if ([weakStore takeLegacyDirectory]) {
-        [VibeWaveformStore removeLegacyDirectory:legacy];
+    VibeWaveformStore *store = weakStore;
+    if ([store endImport]) {
+        [store.entries removeFolderAtPath:legacy];
         LogInfo(@"Waveform store: imported %lu entries from %@", (unsigned long)imported, VibeWaveformStore.legacyName);
     }
 }
 
-// Renamed aside first, so a lookup or the import that still holds the path
-// finds nothing there.
-+ (void)removeLegacyDirectory:(NSString *)legacy {
-    NSString *aside = [legacy stringByAppendingFormat:@"%@%@", VibeWaveformRemovedMark, NSUUID.UUID.UUIDString];
-    NSString *doomed = rename(legacy.fileSystemRepresentation, aside.fileSystemRepresentation) == 0 ? aside : legacy;
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
-        [NSFileManager.defaultManager removeItemAtPath:doomed error:nil];
-    });
-}
-
-// The old store's file for key, as PINDiskCache encodes a key.
+// The old store's file for key during the import, as PINDiskCache's default
+// key encoder names it.
 - (nullable NSString *)legacyPathForKey:(NSString *)key {
-    NSString *legacy = self.legacyDirectory;
-    if (!legacy) {
+    if (!self.importing) {
         return nil;
     }
     static NSCharacterSet *allowed;
@@ -209,7 +189,7 @@ static atomic_bool VibeWaveformImportsHeld;
         allowed = [[NSCharacterSet characterSetWithCharactersInString:@".:/%"] invertedSet];
     });
     NSString *name = [key stringByAddingPercentEncodingWithAllowedCharacters:allowed];
-    return name.length ? [legacy stringByAppendingPathComponent:name] : nil;
+    return name.length ? [_legacyDirectory stringByAppendingPathComponent:name] : nil;
 }
 
 // Lists the old store's entry for key under storedKey, now. NO when the old
@@ -248,20 +228,29 @@ static atomic_bool VibeWaveformImportsHeld;
 }
 
 - (BOOL)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey {
+    // The store's move replaces an entry under newKey, which this keeps.
     if ([self hasEntryForKey:newKey]) {
         return NO;
     }
     return [self.entries moveEntryFromKey:oldKey toKey:newKey] || [self adoptLegacyEntryForKey:oldKey as:newKey];
 }
 
+- (void)setByteLimit:(unsigned long long)byteLimit ageLimit:(NSTimeInterval)ageLimit {
+    self.entries.byteLimit = byteLimit;
+    self.entries.ageLimit = ageLimit;
+}
+
+- (VibeCacheUsage)usage {
+    return self.entries ? self.entries.usage : (VibeCacheUsage){};
+}
+
 - (void)removeAll {
-    NSString *legacy = [self takeLegacyDirectory];
-    if (legacy) {
-        [VibeWaveformStore removeLegacyDirectory:legacy];
-    }
     VibeCacheStore *entries = self.entries;
     if (!entries) {
         return;
+    }
+    if ([self endImport]) {
+        [entries removeFolderAtPath:_legacyDirectory];
     }
     dispatch_semaphore_t emptied = dispatch_semaphore_create(0);
     [entries removeAllWithCompletion:^{

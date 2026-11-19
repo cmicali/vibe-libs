@@ -69,6 +69,25 @@ static NSString *VibeWaveformClaimKey(id<VibePlayableItem> track) {
 // detached decode completes, persists, and turns the next request for that
 // file into a disk hit. Beyond the cap the oldest is cancelled — with the
 // active load this bounds concurrent decodes at three.
+static const NSUInteger kMaxDetachedWaveformLoads = 2;
+static const NSUInteger kMaxPendingWaveformWork = 4;
+static const NSTimeInterval kWaveformAdmissionGraceSeconds = 10.0;
+
+// The cache-key stat plus the disk lookup. Small and separate from the
+// decodes on purpose: a lookup holds its slot through its disk read, and a
+// decode is submitted from INSIDE one, so sharing a
+// scheduler lets a burst of lookups fill the pending list and reject or expire
+// the decode they themselves asked for — reported to the delegate as the file
+// failing to load, when nothing about it failed.
+static const NSUInteger kMaxRunningWaveformLookups = 2;
+
+// How long a request may sit parked on another request's path claim before the
+// UI is told it is not coming. The claim itself is not bounded — its worker may
+// be blocked in an uncancellable stat or open for the process's lifetime — but
+// the waveform view must not sit in its loading state forever waiting on it.
+// Long enough that a slow provider still lands, short enough to be an answer.
+static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
+
 // An entry's bytes: the keyed archive PINDiskCache wrote, so the import
 // lists the old files as they are.
 static NSData *_Nullable VibeWaveformArchive(CodableAudioWaveform *waveform) {
@@ -88,25 +107,6 @@ static id _Nullable VibeWaveformUnarchive(NSData *data) {
     [unarchiver finishDecoding];
     return object;
 }
-
-static const NSUInteger kMaxDetachedWaveformLoads = 2;
-static const NSUInteger kMaxPendingWaveformWork = 4;
-static const NSTimeInterval kWaveformAdmissionGraceSeconds = 10.0;
-
-// The cache-key stat plus the disk lookup. Small and separate from the
-// decodes on purpose: a lookup holds its slot through its disk read, and a
-// decode is submitted from INSIDE one, so sharing a
-// scheduler lets a burst of lookups fill the pending list and reject or expire
-// the decode they themselves asked for — reported to the delegate as the file
-// failing to load, when nothing about it failed.
-static const NSUInteger kMaxRunningWaveformLookups = 2;
-
-// How long a request may sit parked on another request's path claim before the
-// UI is told it is not coming. The claim itself is not bounded — its worker may
-// be blocked in an uncancellable stat or open for the process's lifetime — but
-// the waveform view must not sit in its loading state forever waiting on it.
-// Long enough that a slow provider still lands, short enough to be an answer.
-static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 
 @implementation AudioWaveformCache {
     __weak AudioWaveformLoader*     _currentLoader;
@@ -260,8 +260,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 
 - (void)setByteLimit:(NSUInteger)byteLimit ageLimit:(NSTimeInterval)ageLimit {
     dispatch_async(_loaderQueue, ^{
-        self->_waveformCache.entries.byteLimit = byteLimit;
-        self->_waveformCache.entries.ageLimit = ageLimit;
+        [self->_waveformCache setByteLimit:byteLimit ageLimit:ageLimit];
     });
 }
 
@@ -269,7 +268,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     // The serial queue guarantees the store exists. The store keeps the sum,
     // so this reads one row.
     dispatch_async(_loaderQueue, ^{
-        VibeCacheUsage usage = self->_waveformCache.entries.usage;
+        VibeCacheUsage usage = [self->_waveformCache usage];
         run_on_main_thread({
             completion(usage.entries, usage.bytes);
         });

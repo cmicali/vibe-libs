@@ -110,6 +110,11 @@ typedef struct {
 // and the byte limit. A store runs it on its own once a day.
 - (void)performMaintenanceWithCompletion:(nullable dispatch_block_t)completion;
 
+// Moves a folder into the store's directory at once, then removes it in the
+// background, as an import removes the store it came from. An open removes
+// one that a quit left. A folder on another volume is removed in place.
+- (void)removeFolderAtPath:(NSString *)path;
+
 // Runs the block on the store's queue after the work queued before it.
 - (void)performAfterQueuedWork:(dispatch_block_t)block;
 
