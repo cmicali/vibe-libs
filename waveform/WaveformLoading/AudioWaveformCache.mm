@@ -5,6 +5,7 @@
 
 #import "AudioWaveformCacheInternal.h"
 #import "FilePaths.h"
+#import "NSURL+Hash.h"
 #import "AudioWaveform.h"
 #import "VibeWaveformStore.h"
 #import "AudioWaveformLoader.h"
@@ -408,11 +409,16 @@ static id _Nullable VibeWaveformUnarchive(NSData *data) {
     }];
 }
 
-// On a lane's worker, for both cache readers. The store is thread-safe.
+// On a lane's worker, for both cache readers. The store is thread-safe. A
+// miss looks once under url's previous key while one may be filed (CH33).
 - (CodableAudioWaveform *)waveformInStore:(VibeWaveformStore *)store
                                    forKey:(NSString *)cacheKey
+                                      url:(nullable NSURL *)url
                                  analysis:(VibeWaveformAnalysis)analysis {
     NSData *data = [store dataForKey:cacheKey];
+    if (!data && url && store.mayHoldPreviousKeys) {
+        data = [store dataForKey:cacheKey movingFromKey:[url previousCacheKeyForKey:cacheKey]];
+    }
     CodableAudioWaveform *cachedWaveform = data ? VibeWaveformUnarchive(data) : nil;
     // The archive is read without secure coding, as PINCache wrote it, so a
     // corrupt or tampered entry with a different root class decodes cleanly
@@ -442,7 +448,7 @@ static id _Nullable VibeWaveformUnarchive(NSData *data) {
     return [_previewScheduler submitWork:^{
         NSString *cacheKey = VibeWaveformEntryKey(track);
         CodableAudioWaveform *waveform = cacheKey
-                ? [self waveformInStore:[self store] forKey:cacheKey analysis:analysis] : nil;
+                ? [self waveformInStore:[self store] forKey:cacheKey url:track.url analysis:analysis] : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
             BOOL current = generation == self->_cacheGeneration.load(std::memory_order_relaxed);
             completion(current ? waveform : nil);
@@ -632,7 +638,8 @@ static id _Nullable VibeWaveformUnarchive(NSData *data) {
   completion:(void (^)(CodableAudioWaveform *waveform, BOOL wasCached))completion
      settled:(void (^)(BOOL filed))settled {
     VibeWaveformStore *cache = [self store];
-    CodableAudioWaveform *cachedWaveform = [self waveformInStore:cache forKey:cacheKey analysis:loader.analysis];
+    CodableAudioWaveform *cachedWaveform = [self waveformInStore:cache forKey:cacheKey url:track.url
+                                                        analysis:loader.analysis];
     if (cachedWaveform) {
         // A hit finishes this loader as surely as a decode does; without the
         // mark, a detach pools it and a same-file re-request reattaches a

@@ -134,6 +134,19 @@ typedef struct {
 // one that a quit left. A folder on another volume is removed in place.
 - (void)removeFolderAtPath:(NSString *)path;
 
+// MARK: Marks
+
+// For a change of the keys a caller files under. The first call for a mark
+// records the day, and whether the store held any entry then. Answers YES
+// while an entry from before that day may still be here: the store held one,
+// and the age limit has not passed since, or there is none. An entry no one
+// reads ages out, so after it no entry under an old key can be left. Only the
+// first call reads the database. Any thread.
+- (BOOL)mayHoldEntriesFromBeforeMark:(NSString *)mark;
+// Records today as the mark's day, with entries from before it, as after an
+// import that filed its entries under the old keys.
+- (void)renewMark:(NSString *)mark;
+
 // Runs the block on the store's queue after the work queued before it.
 - (void)performAfterQueuedWork:(dispatch_block_t)block;
 

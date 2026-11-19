@@ -7,12 +7,17 @@
 #import "FilePaths.h"
 #import "VibeMacros.h"
 #include <CommonCrypto/CommonDigest.h>
+#include <ctype.h>
+#include <os/lock.h>
+#include <sys/mount.h>
 #include <sys/stat.h>
 #include <errno.h>
 #include <stdatomic.h>
 #include <string.h>
 
 static _Atomic uint64_t sCacheKeyGeneration;
+
+NSString *const VibeCacheKeyPlaceMark = @"cache key place";
 
 @implementation NSData (Hash)
 
@@ -50,6 +55,170 @@ static NSString *VibeLowercaseHex(const unsigned char *bytes, size_t length) {
 
 @end
 
+// MARK: The place
+
+// A volume a device held when it was last looked up.
+@interface VibeVolumeIdentity : NSObject
+@property (nonatomic, copy, nullable) NSString *uuid;
+@property (nonatomic, copy, nullable) NSString *mountPath;
+@property (nonatomic) uint64_t checked;
+@end
+
+@implementation VibeVolumeIdentity
+@end
+
+// How long a device's volume is trusted before it is looked up again.
+// TRAP: a device number is reused by the next volume mounted after one goes,
+// so a volume trusted for good would lend its UUID to another drive.
+static const uint64_t kVibeVolumeTrustNS = 5 * NSEC_PER_SEC;
+
+static os_unfair_lock sVolumesLock = OS_UNFAIR_LOCK_INIT;
+static NSMutableDictionary<NSNumber *, VibeVolumeIdentity *> *sVolumes;
+static VibeVolumeLookup sVolumeLookup;
+
+static void VibeLookUpVolume(NSString *path, dev_t device, NSString **uuid, NSString **mountPath) {
+    struct statfs fs;
+    if (statfs(path.fileSystemRepresentation, &fs) != 0 || (dev_t)fs.f_fsid.val[0] != device) {
+        return;
+    }
+    *mountPath = [NSString stringWithUTF8String:fs.f_mntonname];
+    NSURL *mount = [NSURL fileURLWithPath:*mountPath isDirectory:YES];
+    NSString *found = nil;
+    [mount getResourceValue:&found forKey:NSURLVolumeUUIDStringKey error:NULL];
+    *uuid = found.lowercaseString;
+}
+
+// The volume of the file at path, on its stat's device, looked up once for
+// each device a few seconds.
+static VibeVolumeIdentity *VibeVolumeOfFile(NSString *path, dev_t device) {
+    uint64_t now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+    os_unfair_lock_lock(&sVolumesLock);
+    VibeVolumeIdentity *volume = sVolumes[@(device)];
+    VibeVolumeLookup lookup = sVolumeLookup;
+    os_unfair_lock_unlock(&sVolumesLock);
+    if (volume && now - volume.checked < kVibeVolumeTrustNS) {
+        return volume;
+    }
+    NSString *uuid = nil;
+    NSString *mountPath = nil;
+    if (lookup) {
+        lookup(path, device, &uuid, &mountPath);
+    } else {
+        VibeLookUpVolume(path, device, &uuid, &mountPath);
+    }
+    volume = [[VibeVolumeIdentity alloc] init];
+    volume.uuid = uuid;
+    volume.mountPath = mountPath;
+    volume.checked = now;
+    os_unfair_lock_lock(&sVolumesLock);
+    if (!sVolumes) {
+        sVolumes = [NSMutableDictionary dictionary];
+    }
+    sVolumes[@(device)] = volume;
+    os_unfair_lock_unlock(&sVolumesLock);
+    return volume;
+}
+
+// The app's home, resolved as a key's path is, so a file under it is keyed
+// from it, as pathKey's spelling is. iOS moves the home with each install.
+static NSString *VibeResolvedHome(void) {
+    static NSString *home;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        home = [NSHomeDirectory().stringByResolvingSymlinksInPath stringByAppendingString:@"/"];
+    });
+    return home;
+}
+
+// CH32: what a key hashes for a resolved path on its stat's device.
+static NSString *VibeKeyPlace(NSString *path, dev_t device) {
+    NSString *home = VibeResolvedHome();
+    if ([path hasPrefix:home]) {
+        return [@"~/" stringByAppendingString:[path substringFromIndex:home.length]];
+    }
+    VibeVolumeIdentity *volume = VibeVolumeOfFile(path, device);
+    if (!volume.uuid) {
+        return path;
+    }
+    // A volume mounted at the root, or reached through a firmlink, as the
+    // startup disk's data volume is, keeps the whole path.
+    NSString *mount = volume.mountPath;
+    NSString *within = path;
+    if (mount.length > 1 && [path hasPrefix:[mount stringByAppendingString:@"/"]]) {
+        within = [path substringFromIndex:mount.length];
+    }
+    return [NSString stringWithFormat:@"%@:%@", volume.uuid, within];
+}
+
+static NSString *VibePlaceHash(NSString *place) {
+    return [[place dataUsingEncoding:NSUTF8StringEncoding] sha1Hex];
+}
+
+// The hash's range in a key, "<size>-<mtime_us>-<hash>" and any suffix. The
+// time may be negative, before 1970. NSNotFound when key is no cache key.
+static NSRange VibeKeyHashRange(NSString *key) {
+    static const NSUInteger kHashLength = CC_SHA1_DIGEST_LENGTH * 2;
+    NSUInteger length = key.length;
+    NSUInteger i = 0;
+    while (i < length && isdigit([key characterAtIndex:i])) {
+        i++;
+    }
+    if (i == 0 || i >= length || [key characterAtIndex:i] != '-') {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    i++;
+    if (i < length && [key characterAtIndex:i] == '-') {
+        i++;
+    }
+    NSUInteger digits = i;
+    while (i < length && isdigit([key characterAtIndex:i])) {
+        i++;
+    }
+    if (i == digits || i >= length || [key characterAtIndex:i] != '-' || length - i - 1 < kHashLength) {
+        return NSMakeRange(NSNotFound, 0);
+    }
+    return NSMakeRange(i + 1, kHashLength);
+}
+
+// The absolute paths of the places this process keyed last, by their place
+// hash, for a caller with a key and no URL. A ring of the newest.
+enum { kVibePreviousPathCount = 1024 };
+static os_unfair_lock sPreviousLock = OS_UNFAIR_LOCK_INIT;
+static NSMutableDictionary<NSString *, NSString *> *sPreviousPaths;
+static NSString *__strong sPreviousOrder[kVibePreviousPathCount];
+static NSUInteger sPreviousNext;
+
+static void VibeNotePreviousPath(NSString *hash, NSString *path) {
+    os_unfair_lock_lock(&sPreviousLock);
+    if (!sPreviousPaths) {
+        sPreviousPaths = [NSMutableDictionary dictionaryWithCapacity:kVibePreviousPathCount];
+    }
+    if (!sPreviousPaths[hash]) {
+        NSString *evicted = sPreviousOrder[sPreviousNext];
+        if (evicted) {
+            [sPreviousPaths removeObjectForKey:evicted];
+        }
+        sPreviousOrder[sPreviousNext] = hash;
+        sPreviousNext = (sPreviousNext + 1) % kVibePreviousPathCount;
+    }
+    sPreviousPaths[hash] = path;
+    os_unfair_lock_unlock(&sPreviousLock);
+}
+
+// key with its place hash replaced by the hash of path, as keys were made
+// before CH32. nil when they are equal, or key is no cache key.
+static NSString *VibePreviousKey(NSString *key, NSString *path) {
+    NSRange range = VibeKeyHashRange(key);
+    if (range.location == NSNotFound || !path) {
+        return nil;
+    }
+    NSString *previous = VibePlaceHash(path);
+    if ([[key substringWithRange:range] isEqualToString:previous]) {
+        return nil;
+    }
+    return [key stringByReplacingCharactersInRange:range withString:previous];
+}
+
 @implementation NSURL (Hash)
 
 + (uint64_t)cacheKeyGeneration {
@@ -76,6 +245,21 @@ static NSString *VibeLowercaseHex(const unsigned char *bytes, size_t length) {
     return [self cacheKeyWithStat:NULL];
 }
 
+- (nullable NSString *)previousCacheKeyForKey:(NSString *)key {
+    return VibePreviousKey(key, [self.path stringByResolvingSymlinksInPath]);
+}
+
++ (nullable NSString *)previousCacheKeyForKey:(NSString *)key {
+    NSRange range = VibeKeyHashRange(key);
+    if (range.location == NSNotFound) {
+        return nil;
+    }
+    os_unfair_lock_lock(&sPreviousLock);
+    NSString *path = sPreviousPaths[[key substringWithRange:range]];
+    os_unfair_lock_unlock(&sPreviousLock);
+    return VibePreviousKey(key, path);
+}
+
 - (nullable NSString *)cacheKeyWithStat:(struct stat *_Nullable)info {
     // A link and its target share one entry, so retagging the target
     // invalidates it.
@@ -100,8 +284,25 @@ static NSString *VibeLowercaseHex(const unsigned char *bytes, size_t length) {
     if (info) {
         *info = st;
     }
-    NSString *hex = [[path dataUsingEncoding:NSUTF8StringEncoding] sha1Hex];
+    NSString *place = VibeKeyPlace(path, st.st_dev);
+    NSString *hex = VibePlaceHash(place);
+    if (place != path) {
+        VibeNotePreviousPath(hex, path);
+    }
     return [NSString stringWithFormat:@"%llu-%lld-%@", (unsigned long long)st.st_size, mtimeUs, hex];
+}
+
+@end
+
+@implementation NSURL (HashTesting)
+
++ (void)setVolumeLookupForTesting:(VibeVolumeLookup)lookup {
+#if DEBUG
+    os_unfair_lock_lock(&sVolumesLock);
+    sVolumeLookup = [lookup copy];
+    [sVolumes removeAllObjects];
+    os_unfair_lock_unlock(&sVolumesLock);
+#endif
 }
 
 @end

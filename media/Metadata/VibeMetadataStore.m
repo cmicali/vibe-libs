@@ -116,6 +116,28 @@ id VibeMetadataUnarchive(NSData *archive, Class tagsClass) {
     return hit;
 }
 
+- (BOOL)mayHoldPreviousKeys {
+    return _import.importing || [_cacheStore mayHoldEntriesFromBeforeMark:VibeCacheKeyPlaceMark];
+}
+
+// Moves previous's entry to key, from the old stores during an import. NO
+// when previous has none, or key holds one already, which is newer.
+- (BOOL)moveEntryFromPreviousKey:(NSString *)previous toKey:(NSString *)key {
+    VibeCacheStore *store = _cacheStore;
+    if (!previous || [store hasEntryForKey:key]) {
+        return NO;
+    }
+    if (![store hasEntryForKey:previous] && ![_import importKey:previous into:self]) {
+        return NO;
+    }
+    return [store moveEntryFromKey:previous toKey:key];
+}
+
+- (VibeCacheHit *)tagsHitForKey:(NSString *)key movingFromKey:(NSString *)previous acceptingOlder:(BOOL)acceptingOlder {
+    return [self moveEntryFromPreviousKey:previous toKey:key] ? [self tagsHitForKey:key acceptingOlder:acceptingOlder]
+                                                               : nil;
+}
+
 - (NSString *)fileTags:(id<NSCoding>)tags
              thumbnail:(NSData *)thumbnail
              rendition:(NSData *)rendition
@@ -157,9 +179,12 @@ id VibeMetadataUnarchive(NSData *archive, Class tagsClass) {
 
 - (void)moveEntryOfRetaggedFileFromKey:(NSString *)oldKey toKey:(NSString *)newKey artChanged:(BOOL)artChanged {
     VibeCacheStore *store = _cacheStore;
-    // An entry only the old stores hold moves as one the store holds.
-    if (![store hasEntryForKey:oldKey]) {
-        [_import importKey:oldKey into:self];
+    // An entry only the old stores hold moves as one the store holds, and
+    // one under the old version's previous key moves to its key first. The
+    // app made oldKey just before its write, so this process knows its
+    // previous key.
+    if (![store hasEntryForKey:oldKey] && ![_import importKey:oldKey into:self] && self.mayHoldPreviousKeys) {
+        [self moveEntryFromPreviousKey:[NSURL previousCacheKeyForKey:oldKey] toKey:oldKey];
     }
     BOOL sameKey = [oldKey isEqualToString:newKey];
     if (!sameKey && [store hasEntryForKey:newKey]) {

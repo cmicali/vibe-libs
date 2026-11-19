@@ -277,6 +277,9 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
     BOOL _remakeScheduled;
     BOOL _maintenanceScheduled;
     int64_t _maintenanceDay;
+    // Each mark's day, -1 for a store that held no entry then. Under
+    // @synchronized(self).
+    NSMutableDictionary<NSString *, NSNumber *> *_marks;
     int64_t _lastWritten;
 
     // The readers. Under _poolMutex.
@@ -414,6 +417,69 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
         block();
     } else {
         dispatch_sync(_queue, block);
+    }
+}
+
+// MARK: Marks
+
+// A mark's day as the database keeps it: absent, or the day, or -1.
+static NSString *VibeCacheMarkName(NSString *mark) {
+    return [@"mark " stringByAppendingString:mark];
+}
+
+- (BOOL)mayHoldEntriesFromBeforeMark:(NSString *)mark {
+    NSNumber *day;
+    @synchronized(self) {
+        day = _marks[mark];
+    }
+    if (!day) {
+        __block int64_t recorded = -1;
+        [self syncOnQueue:^{
+            if (!self->_writer) {
+                return;
+            }
+            NSString *name = VibeCacheMarkName(mark);
+            // Day 0, in 2001, is never today, so it means none yet.
+            recorded = [self integerForMeta:name];
+            if (recorded == 0) {
+                sqlite3_stmt *stmt = [self statement:"SELECT entries FROM totals"];
+                BOOL held = sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int64(stmt, 0) > 0;
+                sqlite3_reset(stmt);
+                recorded = held ? [self today] : -1;
+                [self setInteger:recorded forMeta:name];
+            }
+        }];
+        day = @(recorded);
+        @synchronized(self) {
+            if (!_marks) {
+                _marks = [NSMutableDictionary dictionary];
+            }
+            _marks[mark] = day;
+        }
+    }
+    int64_t since = day.longLongValue;
+    if (since < 0) {
+        return NO;
+    }
+    NSTimeInterval age = self.ageLimit;
+    return age <= 0 || [self today] - since <= (int64_t)ceil(age / VibeCacheSecondsPerDay);
+}
+
+- (void)renewMark:(NSString *)mark {
+    __block int64_t today = 0;
+    [self syncOnQueue:^{
+        if (self->_writer) {
+            today = [self today];
+            [self setInteger:today forMeta:VibeCacheMarkName(mark)];
+        }
+    }];
+    if (today) {
+        @synchronized(self) {
+            if (!_marks) {
+                _marks = [NSMutableDictionary dictionary];
+            }
+            _marks[mark] = @(today);
+        }
     }
 }
 

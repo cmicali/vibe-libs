@@ -10,6 +10,7 @@
 #import "AudioTrackMetadataLoaderInternal.h"
 #import "AudioTrackMetadataCacheInternal.h"
 #import "VibeMetadataStore.h"
+#import "NSURL+Hash.h"
 #import "AudioTrackMetadata.h"
 #import "AudioTrackMetadataInternal.h"
 #import "AudioTrackArtwork.h"
@@ -60,12 +61,18 @@ static void VibeInstallArchivedArtProviders(AudioTrackMetadata *metadata,
         LogWarn(@"No cache key for %@ — loading metadata uncached", track.url.path);
         return nil;
     }
-    return [self cachedMetadataForKey:cacheKey acceptingOlder:acceptingOlder];
+    return [self cachedMetadataForKey:cacheKey url:track.url acceptingOlder:acceptingOlder];
 }
 
-- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey acceptingOlder:(BOOL)acceptingOlder {
+- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey
+                                                  url:(nullable NSURL *)url
+                                       acceptingOlder:(BOOL)acceptingOlder {
     VibeMetadataStore *store = _owner.metadataCache;
     VibeCacheHit *hit = [store tagsHitForKey:cacheKey acceptingOlder:acceptingOlder];
+    if (!hit && url && store.mayHoldPreviousKeys) {
+        hit = [store tagsHitForKey:cacheKey movingFromKey:[url previousCacheKeyForKey:cacheKey]
+                    acceptingOlder:acceptingOlder];
+    }
     if (!hit) {
         return nil;
     }

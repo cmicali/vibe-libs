@@ -8,6 +8,7 @@
 #import "PINCache+VibeAudioCache.h"
 #import "VibeLegacyCacheNames.h"
 #import "VibeMacros.h"
+#import "NSURL+Hash.h"
 
 #import <os/lock.h>
 #import <stdatomic.h>
@@ -171,6 +172,11 @@ static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
     }
     VibeWaveformStore *store = weakStore;
     if ([store endImport]) {
+        // Its entries are under previous keys, so a miss looks under those
+        // until they can have aged out (CH34).
+        if (imported > 0) {
+            [store.entries renewMark:VibeCacheKeyPlaceMark];
+        }
         [store.entries removeFolderAtPath:legacy];
         LogInfo(@"Waveform store: imported %lu entries from %@", (unsigned long)imported, VibeWaveformStore.legacyName);
     }
@@ -222,7 +228,26 @@ static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
     if ([self hasEntryForKey:newKey]) {
         return NO;
     }
-    return [self.entries moveEntryFromKey:oldKey toKey:newKey] || [self adoptLegacyEntryForKey:oldKey as:newKey];
+    if ([self.entries moveEntryFromKey:oldKey toKey:newKey] || [self adoptLegacyEntryForKey:oldKey as:newKey]) {
+        return YES;
+    }
+    // The app made oldKey just before its write, so this process knows its
+    // previous key.
+    NSString *previous = self.mayHoldPreviousKeys ? [NSURL previousCacheKeyForKey:oldKey] : nil;
+    return previous && ([self.entries moveEntryFromKey:previous toKey:newKey]
+                        || [self adoptLegacyEntryForKey:previous as:newKey]);
+}
+
+- (BOOL)mayHoldPreviousKeys {
+    return self.importing || [self.entries mayHoldEntriesFromBeforeMark:VibeCacheKeyPlaceMark];
+}
+
+- (nullable NSData *)dataForKey:(NSString *)key movingFromKey:(nullable NSString *)previous {
+    if (!previous || [self.entries hasEntryForKey:key]) {
+        return nil;
+    }
+    BOOL moved = [self.entries moveEntryFromKey:previous toKey:key] || [self adoptLegacyEntryForKey:previous as:key];
+    return moved ? [self dataForKey:key] : nil;
 }
 
 - (void)setByteLimit:(unsigned long long)byteLimit ageLimit:(NSTimeInterval)ageLimit {

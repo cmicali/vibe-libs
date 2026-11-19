@@ -5,6 +5,7 @@
 
 #import "VibeMetadataImport.h"
 #import "VibeMetadataStore.h"
+#import "NSURL+Hash.h"
 #import "VibeLegacyCacheNames.h"
 
 #import <pthread.h>
@@ -89,6 +90,7 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
                                                   options:NSDirectoryEnumerationSkipsSubdirectoryDescendants
                                                           | NSDirectoryEnumerationSkipsHiddenFiles
                                              errorHandler:nil];
+    BOOL imported = NO;
     for (NSURL *file in files) {
         if (atomic_load(&_stopped)) {
             return;
@@ -96,9 +98,14 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
         @autoreleasepool {
             NSString *key = file.lastPathComponent.stringByRemovingPercentEncoding;
             if (key.length && ![store.cacheStore hasEntryForKey:key]) {
-                [self importKey:key into:store];
+                imported = [self importKey:key into:store] || imported;
             }
         }
+    }
+    // The entries it filed are under previous keys, and used today, so a miss
+    // looks under those until they can have aged out (CH34).
+    if (imported) {
+        [store.cacheStore renewMark:VibeCacheKeyPlaceMark];
     }
     [self stopRemovingOldStores:YES];
 }
@@ -125,6 +132,10 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
     }
     pthread_mutex_unlock(&_lock);
     return imported;
+}
+
+- (BOOL)isImporting {
+    return !atomic_load(&_stopped);
 }
 
 - (void)cancel {
