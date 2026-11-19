@@ -17,6 +17,9 @@
 // share, such as a picture's archived forms.
 - (nonnull NSData *)sha256Digest;
 
+// The bytes in lowercase hex, as sha1Hex spells its digest.
+- (nonnull NSString *)lowercaseHex;
+
 @end
 
 @interface NSURL (Hash)

@@ -11,7 +11,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @protocol AudioTrackMetadataCacheDelegate;
 
-// The three stores, each with its own limits.
+// The three budgets an app sets. One store holds them all: the tags and the
+// thumbnails share one limit, their sum, and the renditions have their own
+// (setByteLimit:...).
 typedef NS_ENUM(NSInteger, VibeMetadataCacheStore) {
     VibeMetadataCacheStoreTags,
     VibeMetadataCacheStoreThumbnails,
@@ -22,12 +24,14 @@ typedef NS_ENUM(NSInteger, VibeMetadataCacheStore) {
 
 @property (nullable, weak) id <AudioTrackMetadataCacheDelegate> delegate;
 
-// The versioned store names. The tags, the 128 px row thumbnails, and the
-// display-art renditions each have a store, and each store its own budget.
+// The store's name. One store holds the tags, the 128 px row thumbnails, and
+// the display-art renditions, so all three name it. Each row carries its
+// format, so a format change keeps the name.
 + (NSString *)cacheName;
 + (NSString *)thumbnailCacheName;
 + (NSString *)displayArtCacheName;
-// All three, which an app passes to remove older stores.
+// The store's name and the PINCache stores it imports, which an app passes
+// to remove older stores. The import removes those itself once it is done.
 + (NSArray<NSString *> *)cacheNames;
 
 // The disk cache under rootPath. Nil is the user's Caches directory, which
@@ -80,18 +84,19 @@ typedef NS_ENUM(NSInteger, VibeMetadataCacheStore) {
 // track changes. Main thread only.
 - (void)setNeighborhoodTracks:(NSArray<id<AudioTrackMetadataHolder>> *)tracks;
 
-// Empties all three stores. The completion fires on the cache's internal
-// queue. A parse in flight cannot repopulate them, though its UI delivery
-// still happens.
+// Empties the store, and removes the old stores an import has not reached.
+// The completion fires on the cache's internal queue. A parse in flight
+// cannot repopulate it, though its UI delivery still happens.
 - (void)invalidateWithCompletion:(nullable dispatch_block_t)completion;
 
 // After a rewrite of a file's tags that kept its audio, as a tag edit's safe
 // write does. oldKey is the file's cacheKey (NSURL+Hash) from before the
-// write, and newKey from after it. Drops the tags filed under oldKey, so the
-// next read parses the new tags. Moves the row thumbnail and the rendition to
-// newKey, each as one rename of its file, or drops them when artChanged. An
-// entry newKey already holds is kept, and the old one goes. An absent entry
-// is no work. Equal keys, from a writer that kept the size and the date, also
+// write, and newKey from after it. Moves the file's entry to newKey with its
+// tags dropped, so the next read parses the new tags. The entry names the
+// same picture, so the row thumbnail and the rendition stay where they are,
+// unless artChanged, when the entry goes, and the picture with it if no other
+// entry names it. An entry newKey already holds is kept, and the old one
+// goes. An absent entry is no work. Equal keys, from a writer that kept the size and the date, also
 // keep a parse in flight from filing the old tags under them. Calls run in
 // the order made, on the cache's internal queue, and completion runs there.
 // TRAP: this retires no memoized key. The app calls NSURL
@@ -103,16 +108,21 @@ typedef NS_ENUM(NSInteger, VibeMetadataCacheStore) {
                               artChanged:(BOOL)artChanged
                               completion:(nullable dispatch_block_t)completion;
 
-// One store's limits, over files/DiskCache's defaults, which a store keeps
-// until its app sets others.
+// One budget's limits, over files/DiskCache's defaults, which a budget keeps
+// until its app sets others. The tags and the thumbnails share one byte
+// limit, their sum, and the renditions have their own, so art never pushes
+// out tags. Each trims by least recent use. Every row ages by the longest age
+// limit, so an app that sets nothing gets 2 GiB for the tags and thumbnails,
+// 1 GiB for the renditions, and 180 days. A budget of 0 is none: for the tags
+// or the thumbnails, it lifts their shared limit.
 // Calls run in the order made, on the cache's internal queue, once the store
 // is built. The store then trims to them in the background. Any thread.
 - (void)setByteLimit:(NSUInteger)byteLimit
             ageLimit:(NSTimeInterval)ageLimit
             forStore:(VibeMetadataCacheStore)store;
 
-// All three stores', enumerated off the calling thread; the completion runs
-// on main.
+// The store's entries and picture parts, and their bytes, a sum the store
+// keeps, so it reads one row. The completion runs on main.
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion;
 
 @end

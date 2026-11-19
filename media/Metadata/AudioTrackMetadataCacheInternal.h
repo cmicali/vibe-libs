@@ -10,7 +10,7 @@
 // Imported: a generic argument needs the real @interface.
 #import "MetadataParseCoordinator.h"
 
-@class PINCache;
+@class VibeMetadataStore;
 @class AudioTrackMetadata;
 @class AudioTrackMetadataLoader;
 
@@ -19,12 +19,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface AudioTrackMetadataCache () {
     AudioTrackMetadataLoader*   _currentLoader;
 }
-// The store, built on the cache's queue after init. A read before it exists
-// builds it or waits for it there, so every lookup and write reaches it.
-@property (nonatomic, readonly) PINCache *metadataCache;
-// The art's stores, built with it: the row thumbnails, and the renditions.
-@property (nonatomic, readonly) PINCache *thumbnailCache;
-@property (nonatomic, readonly) PINCache *displayArtCache;
+// The store, opened on the cache's queue after init. A read before it exists
+// opens it or waits for it there, so every lookup and write reaches it.
+@property (nonatomic, readonly) VibeMetadataStore *metadataCache;
 // Bumped by invalidation. A parse captures it at start, skips its write if it
 // moved and rechecks after, or a parse in flight during Clear Cache would
 // repopulate the emptied cache.

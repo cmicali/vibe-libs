@@ -54,6 +54,11 @@ typedef NS_ENUM(NSInteger, VibeMetadataReadOutcome) {
 @property (nonatomic, readonly, strong, nullable) AudioTrackMetadata *metadata;
 // Read from the disk cache, with no parse.
 @property (nonatomic, readonly) BOOL fromCache;
+// Read from a row of an older format, for a read that may not open the file.
+// A field that format lacks reads as untagged, but is unknown, so a client
+// keeps what it knew of that field. The metadata's olderFormat, so a client's
+// stand-in reader says it through its metadata.
+@property (nonatomic, readonly, getter=isOlder) BOOL older;
 // Unreadable's POSIX error.
 @property (nonatomic, readonly, strong, nullable) NSError *error;
 

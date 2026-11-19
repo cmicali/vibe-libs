@@ -9,7 +9,7 @@
 
 #import "AudioTrackMetadataLoaderInternal.h"
 #import "AudioTrackMetadataCacheInternal.h"
-#import "PINCache.h"
+#import "VibeMetadataStore.h"
 #import "AudioTrackMetadata.h"
 #import "AudioTrackMetadataInternal.h"
 #import "AudioTrackArtwork.h"
@@ -20,44 +20,37 @@
 
 #import "AudioTrackMetadataLoader+Debug.h"
 
-// A blocking read of one store's entry for a version, on a worker. A
-// departed store reads as absent.
-static AudioTrackArchivedArtProvider VibeArchivedArtReader(PINCache *store, NSString *cacheKey) {
-    __weak PINCache *weakStore = store;
+// A blocking read of one part of a picture, on a worker. A departed store
+// reads as absent.
+static AudioTrackArchivedArtProvider VibeArchivedArtReader(VibeMetadataStore *store, NSString *picture,
+                                                           BOOL rendition) {
+    __weak VibeMetadataStore *weakStore = store;
     return ^NSData *{
-        PINCache *strongStore = weakStore;
-        NSData *data = (NSData *)[strongStore.diskCache objectForKey:cacheKey];
-        // PINCache unarchives without secure coding: a wrong class is absent.
-        return [data isKindOfClass:[NSData class]] ? data : nil;
+        VibeMetadataStore *strongStore = weakStore;
+        return rendition ? [strongStore renditionOfPicture:picture] : [strongStore thumbnailOfPicture:picture];
     };
 }
 
-// An art-bearing entry's thumbnail and rendition live in the art's stores,
-// under the same version. The thumbnail decodes from its store, then from
-// the rendition. An absent rendition falls through to source extraction for
-// full art.
+// An art-bearing entry's thumbnail and rendition are its picture's, which
+// every file that embeds it shares. The thumbnail decodes from its part, then
+// from the rendition. An absent rendition falls through to source extraction
+// for full art. An entry that names no picture gets neither.
 static void VibeInstallArchivedArtProviders(AudioTrackMetadata *metadata,
-                                            AudioTrackMetadataCache *owner,
-                                            NSString *cacheKey) {
-    if (!metadata.artwork.hasEmbeddedArt) {
+                                            VibeMetadataStore *store,
+                                            NSString *_Nullable picture) {
+    if (!picture || !metadata.artwork.hasEmbeddedArt) {
         return;
     }
-    metadata.artwork.archivedThumbnailProvider = VibeArchivedArtReader(owner.thumbnailCache, cacheKey);
-    metadata.artwork.archivedDisplayArtProvider = VibeArchivedArtReader(owner.displayArtCache, cacheKey);
-}
-
-// Every store's entry for a version.
-static void VibeRemoveCachedEntry(AudioTrackMetadataCache *owner, NSString *cacheKey) {
-    [owner.metadataCache.diskCache removeObjectForKey:cacheKey];
-    [owner.thumbnailCache.diskCache removeObjectForKey:cacheKey];
-    [owner.displayArtCache.diskCache removeObjectForKey:cacheKey];
+    metadata.artwork.archivedThumbnailProvider = VibeArchivedArtReader(store, picture, NO);
+    metadata.artwork.archivedDisplayArtProvider = VibeArchivedArtReader(store, picture, YES);
 }
 
 @implementation AudioTrackMetadataLoader (Parse)
 
 // Reads file attributes and the cache, never the audio bytes. A dataless
 // file needs no download for this lookup.
-- (AudioTrackMetadata *)readCachedMetadataForTrack:(id<AudioTrackMetadataHolder>)track {
+- (AudioTrackMetadata *)readCachedMetadataForTrack:(id<AudioTrackMetadataHolder>)track
+                                    acceptingOlder:(BOOL)acceptingOlder {
     if (_cacheReader) {
         return _cacheReader(track);
     }
@@ -67,25 +60,30 @@ static void VibeRemoveCachedEntry(AudioTrackMetadataCache *owner, NSString *cach
         LogWarn(@"No cache key for %@ — loading metadata uncached", track.url.path);
         return nil;
     }
-    return [self cachedMetadataForKey:cacheKey];
+    return [self cachedMetadataForKey:cacheKey acceptingOlder:acceptingOlder];
 }
 
-- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey {
-    AudioTrackMetadataCache *owner = _owner;
-    // Bypasses PINMemoryCache: on macOS it never evicts (its pressure hooks
-    // are iOS-only), so every track ever loaded would stay pinned.
-    AudioTrackMetadata *cachedMetaData = (AudioTrackMetadata *)[owner.metadataCache.diskCache objectForKey:cacheKey];
-    // PINCache unarchives without secure coding: a wrong root class skips
-    // initWithCoder:'s validation and would crash on first use every launch.
-    if (cachedMetaData && ![cachedMetaData isKindOfClass:[AudioTrackMetadata class]]) {
-        VibeRemoveCachedEntry(owner, cacheKey);
-        cachedMetaData = nil;
-    }
-    if (!cachedMetaData) {
+- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey acceptingOlder:(BOOL)acceptingOlder {
+    VibeMetadataStore *store = _owner.metadataCache;
+    VibeCacheHit *hit = [store tagsHitForKey:cacheKey acceptingOlder:acceptingOlder];
+    if (!hit) {
         return nil;
     }
-    [cachedMetaData setCacheKey:cacheKey];
-    VibeInstallArchivedArtProviders(cachedMetaData, owner, cacheKey);
+    // A wrong root class, or an archive initWithCoder: refuses, goes, so it
+    // is not read again every launch.
+    AudioTrackMetadata *cachedMetaData = VibeMetadataUnarchive(hit.data, AudioTrackMetadata.class);
+    if (!cachedMetaData) {
+        [store removeEntryForKey:cacheKey];
+        return nil;
+    }
+    // CH17: an older row's answer names no version, so a holder takes the
+    // next answer in its place.
+    if (hit.older) {
+        [cachedMetaData setOlderFormat:YES];
+    } else {
+        [cachedMetaData setCacheKey:cacheKey];
+    }
+    VibeInstallArchivedArtProviders(cachedMetaData, store, hit.sharedName);
     return cachedMetaData;
 }
 
@@ -95,7 +93,8 @@ static void VibeRemoveCachedEntry(AudioTrackMetadataCache *owner, NSString *cach
         NSOperation *op = [NSBlockOperation blockOperationWithBlock:^{
             __typeof(self) strongSelf = weakSelf;
             if (strongSelf && !track.metadata) {
-                [strongSelf loadTrackFromDiskCache:track];
+                // It never opens the file, so an older row answers (CH17).
+                [strongSelf loadTrackFromDiskCache:track acceptingOlder:YES];
             }
         }];
         // Rows on screen.
@@ -110,7 +109,7 @@ static void VibeRemoveCachedEntry(AudioTrackMetadataCache *owner, NSString *cach
 // parsed again.
 - (BOOL)holdsCurrentMetadata:(id<AudioTrackMetadataHolder>)track {
     AudioTrackMetadata *metadata = track.metadata;
-    if (!metadata.parsedOK) {
+    if (!VibeMetadataIsSettled(metadata)) {
         return NO;
     }
     NSString *cacheKey = track.cacheKey;
@@ -118,7 +117,12 @@ static void VibeRemoveCachedEntry(AudioTrackMetadataCache *owner, NSString *cach
 }
 
 - (BOOL)loadTrackFromDiskCache:(id<AudioTrackMetadataHolder>)track {
-    AudioTrackMetadata *cachedMetaData = [self readCachedMetadataForTrack:track];
+    // The sweep may open the file, so an older row is a miss (CH16).
+    return [self loadTrackFromDiskCache:track acceptingOlder:NO];
+}
+
+- (BOOL)loadTrackFromDiskCache:(id<AudioTrackMetadataHolder>)track acceptingOlder:(BOOL)acceptingOlder {
+    AudioTrackMetadata *cachedMetaData = [self readCachedMetadataForTrack:track acceptingOlder:acceptingOlder];
     if (!cachedMetaData) {
         return NO;
     }
@@ -323,9 +327,10 @@ static void VibeRemoveCachedEntry(AudioTrackMetadataCache *owner, NSString *cach
     NSString *cacheKey = track.cacheKey;
     // A local, so every skipped write below releases it with the frame.
     NSData *displayArt = nil;
+    NSData *pictureDigest = nil;
     AudioTrackMetadata *metadata = _fileParser
             ? _fileParser(track.url)
-            : [AudioTrackMetadata metadataWithURL:track.url displayArtData:&displayArt];
+            : [AudioTrackMetadata metadataWithURL:track.url displayArtData:&displayArt pictureDigest:&pictureDigest];
     // TRAP: the version is checked here, at the parse's completion, never at
     // its start. The key was taken before the read. A placeholder's parse can
     // read from the download that installs another version, and that download
@@ -345,41 +350,40 @@ static void VibeRemoveCachedEntry(AudioTrackMetadataCache *owner, NSString *cach
     }
     [metadata setCacheKey:cacheKey];
     if (metadata.parsedOK && cacheKey) {
-        [self fileMetadata:metadata displayArt:displayArt forKey:cacheKey generation:generation];
+        [self fileMetadata:metadata displayArt:displayArt pictureDigest:pictureDigest forKey:cacheKey
+                generation:generation];
     }
     return metadata;
 }
 
 - (void)fileMetadata:(AudioTrackMetadata *)metadata
           displayArt:(nullable NSData *)displayArt
+       pictureDigest:(nullable NSData *)pictureDigest
               forKey:(NSString *)cacheKey
           generation:(uint64_t)generation {
     // A failed parse is never cached: its fallback would shadow the real
     // tags until the cache key changed. The write is synchronous so its
-    // back-pressure paces the workers; async writes back up PINDiskCache's
-    // queue. The generation is rechecked after the write because
-    // removeAllObjects can slip between check and write, and the remove
-    // keeps Clear Cache empty. Use the strong `owner`, never _owner, so
-    // the pair cannot see the cache vanish midway.
+    // back-pressure paces the workers. The generation is rechecked after the
+    // write because an invalidation can slip between check and write, and
+    // the remove keeps Clear Cache empty. Use the strong `owner`, never
+    // _owner, so the pair cannot see the cache vanish midway.
     AudioTrackMetadataCache *owner = _owner;
     if (!owner || generation != owner.cacheGeneration) {
         return;
     }
-    [owner.metadataCache.diskCache setObject:metadata forKey:cacheKey];
-    // Same write-then-recheck pair for the art, each in its own store.
-    // The parse encoded it before publication. nil when that failed, and the
-    // rendition stands in.
-    NSData *thumbnail = metadata.artwork.encodedThumbnailDataForStorage;
-    if (thumbnail) {
-        [owner.thumbnailCache.diskCache setObject:thumbnail forKey:cacheKey];
-    }
-    if (displayArt) {
-        [owner.displayArtCache.diskCache setObject:displayArt forKey:cacheKey];
-    }
+    VibeMetadataStore *store = owner.metadataCache;
+    // The parse encoded the thumbnail before publication. nil when that
+    // failed, and the rendition stands in. A part the picture has already,
+    // from another file that embeds it, is not written again.
+    NSString *picture = [store fileTags:metadata
+                              thumbnail:metadata.artwork.encodedThumbnailDataForStorage
+                              rendition:displayArt
+                            pictureName:pictureDigest ? [VibeMetadataStore nameOfPictureWithDigest:pictureDigest] : nil
+                                 forKey:cacheKey];
     if (generation != owner.cacheGeneration) {
-        VibeRemoveCachedEntry(owner, cacheKey);
+        [store removeEntryForKey:cacheKey];
     }
-    VibeInstallArchivedArtProviders(metadata, owner, cacheKey);
+    VibeInstallArchivedArtProviders(metadata, store, picture);
 }
 
 // Not gated on isCancelled: every caller won an install. The identity guard

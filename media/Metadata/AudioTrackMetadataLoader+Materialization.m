@@ -8,7 +8,7 @@
 
 #import "AudioTrackMetadataLoaderInternal.h"
 #import "AudioFileMaterializationCoordinator.h"
-#import "AudioTrackMetadata.h"
+#import "AudioTrackMetadataInternal.h"
 #import "FilePaths.h"
 #import "MetadataScanEntry.h"
 #import "MetadataScanOrderRules.h"
@@ -52,7 +52,7 @@
 // enqueue; any other track gets its own high-priority cache check, then joins
 // its file's pending record or mints one.
 - (void)prioritizeTrack:(id<AudioTrackMetadataHolder>)track {
-    if (track.metadata.parsedOK) {
+    if (VibeMetadataIsSettled(track.metadata)) {
         [self retirePriorityMarksSatisfiedByTracks:@[track]];
         return;
     }
@@ -96,7 +96,7 @@
     }
     os_unfair_lock_unlock(&_materializationLock);
     // A winner that installed before the mark existed retired nothing.
-    if (track.metadata.parsedOK) {
+    if (VibeMetadataIsSettled(track.metadata)) {
         [self finishTracks:@[track]];
         return;
     }
@@ -112,7 +112,7 @@
         if (!strongSelf || strongSelf.isCancelled) {
             return;
         }
-        if (track.metadata.parsedOK || [strongSelf loadTrackFromDiskCache:track]) {
+        if (VibeMetadataIsSettled(track.metadata) || [strongSelf loadTrackFromDiskCache:track]) {
             [strongSelf finishTracks:@[track]];
             return;
         }

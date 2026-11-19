@@ -26,17 +26,15 @@
     return self;
 }
 
-- (id)diskCache {
-    return self;
-}
-
-- (void)setObject:(id)object forKey:(NSString *)key {
+- (NSString *)fileTags:(id)tags thumbnail:(NSData *)thumbnail rendition:(NSData *)rendition
+           pictureName:(NSString *)pictureName forKey:(NSString *)key {
     @synchronized (self) {
         [_filedKeys addObject:key];
     }
+    return nil;
 }
 
-- (void)removeObjectForKey:(NSString *)key {
+- (void)removeEntryForKey:(NSString *)key {
 }
 
 - (NSArray<NSString *> *)filedKeys {

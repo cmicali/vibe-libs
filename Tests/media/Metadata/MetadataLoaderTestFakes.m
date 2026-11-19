@@ -90,6 +90,11 @@
     return nil;
 }
 
+// A parse's, never a cache-only read's older row.
+- (BOOL)isOlderFormat {
+    return NO;
+}
+
 - (id)copyWithZone:(NSZone *)zone {
     VibeLoaderTestMetadata *copy = [[[self class] allocWithZone:zone] init];
     copy.parsedOK = self.parsedOK;

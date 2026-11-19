@@ -62,6 +62,13 @@ typedef struct {
 // which a read records once a day at most.
 @property (atomic) unsigned long long byteLimit;
 @property (atomic) NSTimeInterval ageLimit;
+// One part of the shared items may have a byte limit of its own, as a cache
+// keeps its large art apart from its small entries. That part's rows count
+// against it, never against byteLimit, and its trim takes only that part's
+// rows, least recently used first, to 90% of it. So the part never pushes
+// out an entry, and the rest never push out the part. 0 is none. A later
+// call names another part in its place. The age limit counts for every row.
+- (void)setByteLimit:(unsigned long long)byteLimit ofSharedPart:(NSString *)part;
 // A blob longer than this goes to a file. 64 KiB by default.
 @property (atomic) NSUInteger inlineLimit;
 
@@ -77,6 +84,15 @@ typedef struct {
 // Writes or replaces the entry, and returns once it reads back. A write that
 // fails leaves no entry under key, so it reads as a miss.
 - (void)setData:(NSData *)data forKey:(NSString *)key format:(NSInteger)format sharedName:(nullable NSString *)sharedName;
+// The same, with the parts of the shared item sharedName that it lacks, in
+// one transaction. A part the item has is left as it is, as when another
+// entry wrote it.
+- (void)setData:(NSData *)data
+               forKey:(NSString *)key
+               format:(NSInteger)format
+           sharedName:(NSString *)sharedName
+    missingSharedParts:(NSDictionary<NSString *, NSData *> *)parts
+           partFormat:(NSInteger)partFormat;
 - (void)removeEntryForKey:(NSString *)key;
 // Lists a file another store wrote as the entry under key, for an import. A
 // file over inlineLimit is renamed into the store, and a smaller one is read
@@ -93,6 +109,9 @@ typedef struct {
 - (nullable VibeCacheHit *)sharedHitForName:(NSString *)name part:(NSString *)part acceptingFormatsUpTo:(NSInteger)format;
 - (BOOL)hasSharedItemForName:(NSString *)name part:(NSString *)part;
 - (void)setSharedData:(NSData *)data forName:(NSString *)name part:(NSString *)part format:(NSInteger)format;
+// One part of a shared item, as a trim may take it. The entries that name it
+// keep their rows.
+- (void)removeSharedItemForName:(NSString *)name part:(NSString *)part;
 
 // MARK: The whole store
 

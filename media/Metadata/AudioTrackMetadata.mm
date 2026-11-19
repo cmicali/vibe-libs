@@ -90,6 +90,7 @@ static NSSet<VibeTagField> *ExtraTagNameSet(void) {
 @property (copy, nullable, readwrite) NSNumber *soundCheckGain;
 @property (assign) BOOL parsedOK;
 @property (copy, nullable, readwrite) NSString *cacheKey;
+@property (assign, readwrite) BOOL olderFormat;
 // Never nil on a live instance. A property, not a bare ivar: written on a
 // worker and read on main, an unlocked pair TSan reports.
 @property (strong, nullable) AudioTrackArtwork *artwork;
@@ -321,6 +322,7 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
     copy.soundCheckGain = self.soundCheckGain;
     copy.parsedOK = self.parsedOK;
     copy.cacheKey = self.cacheKey;
+    copy.olderFormat = self.olderFormat;
     copy.artwork = [self.artwork copy];
     return copy;
 }
@@ -554,6 +556,12 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCode
 
 + (AudioTrackMetadata *)metadataWithURL:(NSURL *)url
                           displayArtData:(NSData *_Nullable __autoreleasing *_Nullable)displayArtData {
+    return [self metadataWithURL:url displayArtData:displayArtData pictureDigest:NULL];
+}
+
++ (AudioTrackMetadata *)metadataWithURL:(NSURL *)url
+                          displayArtData:(NSData *_Nullable __autoreleasing *_Nullable)displayArtData
+                           pictureDigest:(NSData *_Nullable __autoreleasing *_Nullable)pictureDigest {
     AudioTrackMetadata *metadata = [[AudioTrackMetadata alloc] initWithURL:url];
     // Files that embed one picture share its archived forms
     // (ArchivedArtShare.h). Both are made, since a later parse of the same
@@ -561,12 +569,13 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCode
     NSData *picture = [metadata.artwork artDataForArchivedDisplayArt];
     NSData *encodedThumbnail = nil;
     NSData *rendition = nil;
+    NSData *digest = nil;
     if (picture) {
-        VibeArchivedArtOfPicture(picture, ^(NSData **thumbnail, NSData **madeRendition) {
+        VibeArchivedArtOfPictureWithDigest(picture, ^(NSData **thumbnail, NSData **madeRendition) {
             // Encoding must not populate the display cache during a playlist scan.
             *thumbnail = [metadata encodeThumbnailDataIfNeeded];
             *madeRendition = [metadata archivedDisplayArtDataForStorage];
-        }, &encodedThumbnail, &rendition);
+        }, &encodedThumbnail, &rendition, &digest);
         [metadata.artwork storeEncodedThumbnailData:encodedThumbnail];
     }
     // With no shared thumbnail, the row's own decode runs, so a picture that
@@ -583,6 +592,9 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCode
     // write must not leave the rendition pinned on the row.
     if (displayArtData) {
         *displayArtData = rendition;
+    }
+    if (pictureDigest) {
+        *pictureDigest = digest;
     }
     [metadata.artwork discardArtData];
     return metadata;
