@@ -1034,7 +1034,7 @@ static uint8_t VibeID3v2Version(NSURL *url) {
     [frames appendData:VibeV23Text("TCON", "Deep House\0Tech House", 21)];
     NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, frames) name:@"genres.mp3"];
     XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]));
-    XCTAssertEqual([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}], VibeTagWriteChangeID3v24);
+    XCTAssertEqual(([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}]), VibeTagWriteChangeID3v24);
     XCTAssertEqual(VibeID3v2Version(url), 4);
     XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]));
     XCTAssertEqualObjects([self read:url][VibeTagFieldTitle], @[@"New"]);
@@ -1044,11 +1044,11 @@ static uint8_t VibeID3v2Version(NSURL *url) {
 // One genre, or two with ID3v1 numbers, keeps it 2.3, and says nothing.
 - (void)testSettingTwoGenresMakesAnID3v23TagID3v24 {
     NSURL *url = [self write:@"id3v23.mp3"];
-    XCTAssertEqual([self write:url changing:@{VibeTagFieldGenre: @[@"Deep House"]}], VibeTagWriteChangeNone);
+    XCTAssertEqual(([self write:url changing:@{VibeTagFieldGenre: @[@"Deep House"]}]), VibeTagWriteChangeNone);
     XCTAssertEqual(VibeID3v2Version(url), 3);
-    XCTAssertEqual([self write:url changing:@{VibeTagFieldGenre: @[@"Rock", @"Jazz"]}], VibeTagWriteChangeNone);
+    XCTAssertEqual(([self write:url changing:@{VibeTagFieldGenre: @[@"Rock", @"Jazz"]}]), VibeTagWriteChangeNone);
     XCTAssertEqual(VibeID3v2Version(url), 3);
-    XCTAssertEqual([self write:url changing:@{VibeTagFieldGenre: @[@"Deep House", @"Tech House"]}],
+    XCTAssertEqual(([self write:url changing:@{VibeTagFieldGenre: @[@"Deep House", @"Tech House"]}]),
                    VibeTagWriteChangeID3v24);
     XCTAssertEqual(VibeID3v2Version(url), 4);
     XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]));
@@ -1071,7 +1071,7 @@ static uint8_t VibeID3v2Version(NSURL *url) {
     XCTAssertEqualObjects(before[VibeTagFieldOriginalDate], @[@"1999"]);
     XCTAssertEqualObjects(before[@"PRODUCER"], @[@"Some Producer"]);
     XCTAssertEqualObjects(before[@"ENGINEER"], @[@"Some Engineer"]);
-    XCTAssertEqual([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}], VibeTagWriteChangeID3v24);
+    XCTAssertEqual(([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}]), VibeTagWriteChangeID3v24);
     XCTAssertEqual(VibeID3v2Version(url), 4);
     NSMutableDictionary *after = [[self read:url] mutableCopy];
     XCTAssertEqualObjects(after[VibeTagFieldTitle], @[@"New"]);
