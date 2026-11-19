@@ -608,6 +608,14 @@ static NSArray<VibePlaylistEntry *> *VibeEntriesBesideSheet(NSArray<VibePlaylist
     return beside;
 }
 
+// A sheet file's entries, read through the sheet handler when one is set, as
+// an embedded sheet's are. A skip, nil, reads as no entries: the sheet claims
+// no file, so its audio lists whole.
+static NSArray<VibePlaylistEntry *> *VibeHandledSheetEntries(NSURL *sheet, VibeEmbeddedSheetRead read) {
+    VibeEmbeddedSheetReadHandler handler = EmbeddedSheetReadHandler();
+    return (handler ? handler(sheet, sScanning, read) : read()) ?: @[];
+}
+
 // Reads the sheets among sheetsInOrder, in that order, against the listing
 // urls. Where two sheets name one file, the first claims it, so the order
 // must be the walk's.
@@ -635,7 +643,10 @@ static VibeWalkSheets *VibeReadWalkSheets(NSArray<NSURL *> *urls, NSArray<NSURL 
         NSMutableDictionary<NSURL *, NSNumber *> *playable = [NSMutableDictionary dictionary];
         for (NSURL *sheet in sheets) {
             NSMutableArray<VibePlaylistEntry *> *entries = [NSMutableArray array];
-            for (VibePlaylistEntry *entry in VibePlayableSheetEntries(sheet, listed, knownFiles, playable, failures)) {
+            NSArray<VibePlaylistEntry *> *sheetEntries = VibeHandledSheetEntries(sheet, ^NSArray<VibePlaylistEntry *> *{
+                return VibePlayableSheetEntries(sheet, listed, knownFiles, playable, failures);
+            });
+            for (VibePlaylistEntry *entry in sheetEntries) {
                 NSURL *cutBy = read.claimed[entry.url];
                 if (!cutBy || cutBy == sheet) {
                     [entries addObject:entry];
@@ -838,8 +849,10 @@ static NSMutableArray<NSURL *> *VibeListedAudioURLs(NSURL *dir, VibeFolderOpenSo
     if ([VibePlaylistFile isCueExtension:url.pathExtension.lowercaseString]) {
         NSArray<NSURL *> *listed = VibeListedAudioURLs(url.URLByDeletingLastPathComponent,
                                                        VibeFolderOpenSortAsReceived, nil, nil) ?: @[];
-        return VibePlayableSheetEntries(url, [NSSet setWithArray:listed], VibeKnownFiles(listed),
-                                        [NSMutableDictionary dictionary], nil);
+        return VibeHandledSheetEntries(url, ^NSArray<VibePlaylistEntry *> *{
+            return VibePlayableSheetEntries(url, [NSSet setWithArray:listed], VibeKnownFiles(listed),
+                                            [NSMutableDictionary dictionary], nil);
+        });
     }
     if ([VibePlaylistFile isM3UExtension:url.pathExtension.lowercaseString]) {
         return [self expandFileList:@[url] sortedBy:VibeFolderOpenSortAsReceived folderCount:NULL
