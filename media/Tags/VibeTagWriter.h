@@ -143,24 +143,39 @@ FOUNDATION_EXTERN BOOL VibeTagLibReadPictures(NSString *path,
                                               NSUInteger *_Nullable shownIndex,
                                               NSError *_Nullable __autoreleasing *_Nullable error);
 
+// The picture home of a file's tag: an MPEG, WAV, or AIFF file's ID3v2 tag,
+// a FLAC's picture blocks, an Ogg Vorbis or Opus file's Xiph comment, or an
+// MP4's covr item. TRAP: VibeAudioFileFormat names the codec, so FLAC in an
+// MP4 reads FLAC, and cannot say this.
+typedef NS_ENUM(NSInteger, VibeTagContainer) {
+    VibeTagContainerUnknown = 0,
+    VibeTagContainerID3v2 = 1,
+    VibeTagContainerFLAC = 2,
+    VibeTagContainerXiph = 3,
+    VibeTagContainerMP4 = 4,
+};
+
+// Whether VibeTagLibWritePictures would take `pictures` for a file of
+// `container`, by the checks it makes of the list. Each picture holds bytes
+// and a type from -1 to 20, and fits a FLAC block of under 16 MiB with its
+// MIME type and description, in every format, so a list fits any file. All
+// of them, counted as blocks, hold at most 250,000,000 bytes. In MP4 each
+// is Untyped or FrontCover. NO with InvalidImage and the reason. It reads
+// no file, so it checks the list alone, not the file's own refusals: a file
+// that is read-only, damaged, or holds what TagLib would drop is refused by
+// the write alone.
+FOUNDATION_EXTERN BOOL VibeTagLibPicturesFit(NSArray<VibeTagPicture *> *pictures, VibeTagContainer container,
+                                             NSError *_Nullable __autoreleasing *_Nullable error);
+
 // Replaces every picture in the file with `pictures`, in order, each as
 // given. An exact undo writes back what VibeTagLibReadPictures answered
 // before the edit, a snapshot taken then, since the edit's own result
 // cannot say what it took. The bytes are not checked against the type.
-// Untyped is "other" outside MP4. In MP4 a picture's type is Untyped or
-// FrontCover, its description is ignored, and a MIME type MP4 does not type
-// is written untyped. VibeTagLibPicturesFit says which lists fit, and every
-// refusal of VibeTagLibWriteTags holds.
-// media/Tags/AGENTS.md lists what the write does not keep.
-// Whether VibeTagLibWritePictures would take `pictures` for the file at
-// path, by the same checks: each picture holds 1 to 16,000,000 bytes and a
-// type from -1 to 20, all of them at most 250,000,000 bytes, and in MP4
-// each is Untyped or FrontCover. NO with InvalidImage when one fails, and
-// NoParser or TagLibThrew when the file cannot be read. It opens the file
-// for reading only. It does not ask whether the file is writable.
-FOUNDATION_EXTERN BOOL VibeTagLibPicturesFit(NSString *path, NSArray<VibeTagPicture *> *pictures,
-                                             NSError *_Nullable __autoreleasing *_Nullable error);
-
+// Untyped is "other" outside MP4. In MP4 a picture's description is
+// ignored, and a MIME type MP4 does not type is written untyped. A list
+// VibeTagLibPicturesFit refuses for the file's container is refused, and
+// every refusal of VibeTagLibWriteTags holds. media/Tags/AGENTS.md lists
+// what the write does not keep.
 FOUNDATION_EXTERN BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures,
                                                VibeTagWriteSync sync,
                                                NSError *_Nullable __autoreleasing *_Nullable error);

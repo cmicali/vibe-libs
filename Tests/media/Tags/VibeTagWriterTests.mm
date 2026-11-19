@@ -507,8 +507,32 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
     }
 }
 
+// Two front covers go in one removal, and the back cover behind them shows
+// next. In MP4, whose entries are untyped, each goes in a removal of its own.
+- (void)testARemovalTakesEveryFrontCover {
+    auto picture = [](NSData *data, VibeTagPictureType type) {
+        return [[VibeTagPicture alloc] initWithData:data mimeType:@"image/png" type:type description:nil];
+    };
+    VibeTagPicture *front = picture(VibePNG(0.1), VibeTagPictureTypeFrontCover);
+    VibeTagPicture *again = picture(VibePNG(0.3), VibeTagPictureTypeFrontCover);
+    VibeTagPicture *back = picture(VibePNG(0.5), VibeTagPictureTypeBackCover);
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        [self addPictures:@[front, again, back] to:url];
+        NSData *art = nil;
+        XCTAssertTrue(VibeTagLibReadEmbeddedArt(url.path, nil, 0, &art));
+        XCTAssertEqualObjects(art, front.data, @"%@", name);
+        NSMutableArray *shown = [NSMutableArray array];
+        for (NSData *next = [self removeCoverOf:url]; next; next = [self removeCoverOf:url]) [shown addObject:next];
+        NSArray *expected = [name.pathExtension isEqualToString:@"m4a"] ? @[again.data, back.data] : @[back.data];
+        XCTAssertEqualObjects(shown, expected, @"%@", name);
+        XCTAssertEqualObjects([self picturesOf:url shown:NULL], @[], @"%@", name);
+    }
+}
+
 // A replacement takes what shows in the same way: on a file of a back cover
-// and an "other" picture, the back cover goes, and the "other" stays.
+// and an "other" picture, the back cover goes, the new cover takes its
+// place, and the "other" stays after it, in every format.
 - (void)testAReplacementTakesWhatShows {
     VibeTagPicture *back = [[VibeTagPicture alloc] initWithData:VibePNG(0.1) mimeType:@"image/png"
                                                            type:VibeTagPictureTypeBackCover description:nil];
@@ -519,7 +543,8 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
         [self addPictures:@[back, other] to:url];
         XCTAssertTrue(VibeWriteFrontCover(url.path, VibeJPEG(0.9), @"image/jpeg", NULL), @"%@", name);
         NSArray<NSData *> *left = [[self picturesOf:url shown:NULL] valueForKey:@"data"];
-        XCTAssertEqualObjects([NSSet setWithArray:left], ([NSSet setWithArray:@[VibeJPEG(0.9), other.data]]), @"%@", name);
+        XCTAssertEqualObjects(left, (@[VibeJPEG(0.9), other.data]), @"%@: the new cover takes the back cover's place",
+                              name);
         XCTAssertEqualObjects(VibeFrontCover(url), VibeJPEG(0.9), @"%@", name);
     }
 }
@@ -614,6 +639,15 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
     }
 }
 
+// The container of each format's file in self.formats.
+static VibeTagContainer VibeContainer(NSString *name) {
+    NSDictionary<NSString *, NSNumber *> *containers = @{
+        @"mp3": @(VibeTagContainerID3v2), @"wav": @(VibeTagContainerID3v2), @"aif": @(VibeTagContainerID3v2),
+        @"flac": @(VibeTagContainerFLAC), @"ogg": @(VibeTagContainerXiph), @"opus": @(VibeTagContainerXiph),
+        @"m4a": @(VibeTagContainerMP4)};
+    return (VibeTagContainer)containers[name.pathExtension].integerValue;
+}
+
 // VibeTagLibPicturesFit answers as VibeTagLibWritePictures does, in every
 // format, on each of the write's own refusals and on lists it takes. So an
 // app can ask before an edit, and the two cannot drift.
@@ -632,13 +666,19 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
         @[picture(VibePNG(0.1), VibeTagPictureTypeBackCover)], @[picture(VibePNG(0.1), VibeTagPictureTypeOther)],
         @[picture(VibePNG(0.1), 20)], @[picture(VibePNG(0.1), 21)], @[picture(VibePNG(0.1), -2)],
         @[picture([NSData data], VibeTagPictureTypeOther)], @[picture(big, VibeTagPictureTypeOther)], many,
+        // At the byte limit, a description passes FLAC's block in every format.
+        @[[[VibeTagPicture alloc] initWithData:atLimit mimeType:@"image/png" type:VibeTagPictureTypeFrontCover
+                                   description:[@"" stringByPaddingToLength:800000 withString:@"d" startingAtIndex:0]]],
+        // An MP4 front cover as TIFF goes back untyped.
+        @[[[VibeTagPicture alloc] initWithData:VibeImageOfType(@"image/tiff", 0) mimeType:@"image/tiff"
+                                          type:VibeTagPictureTypeFrontCover description:nil]],
     ];
     for (NSString *name in self.formats) {
         for (NSArray<VibeTagPicture *> *list in lists) {
             NSURL *url = [self write:name];
             NSData *before = [NSData dataWithContentsOfURL:url];
             NSError *fitError = nil, *writeError = nil;
-            const BOOL fits = VibeTagLibPicturesFit(url.path, list, &fitError);
+            const BOOL fits = VibeTagLibPicturesFit(list, VibeContainer(name), &fitError);
             XCTAssertEqualObjects([NSData dataWithContentsOfURL:url], before, @"%@: the check writes nothing", name);
             const BOOL wrote = VibeTagLibWritePictures(url.path, list, VibeTagWriteSyncFull, &writeError);
             XCTAssertEqual(fits, wrote, @"%@ %@: %@ / %@", name, list, fitError, writeError);
@@ -1419,23 +1459,6 @@ static NSString *const kVibeLatin1Artist = @"Café Artist";
 // Run by hand, with TEST_RUNNER_VIBE_TAG_MEASURE=1: 200 writes each way, and
 // the digest against the match on a large FLAC and WAV. A copy holds the
 // same audio behind a larger tag, so its audio starts elsewhere.
-// Run by hand as the one below: 200 matches of a small FLAC and its tagged
-// copy, the cost a many-file edit pays per file.
-- (void)testMeasureSmallMatches {
-    if (!NSProcessInfo.processInfo.environment[@"VIBE_TAG_MEASURE"]) {
-        XCTSkip(@"set VIBE_TAG_MEASURE to measure");
-    }
-    NSURL *url = [self write:@"audio.flac"];
-    NSURL *copy = [_dir URLByAppendingPathComponent:@"copy.flac"];
-    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:url toURL:copy error:NULL]);
-    [self assertWrite:copy fields:@{VibeTagFieldTitle: @[@"Copy"]}];
-    for (int pass = 0; pass < 3; pass++) {
-        const CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
-        for (int i = 0; i < 200; i++) XCTAssertTrue(VibeTagLibAudioMatches(url.path, copy.path, NULL));
-        NSLog(@"VIBE_MEASURE 200 small matches pass %d: %.3f s", pass, CFAbsoluteTimeGetCurrent() - start);
-    }
-}
-
 - (void)testMeasureTheSyncAndTheMatch {
     if (!NSProcessInfo.processInfo.environment[@"VIBE_TAG_MEASURE"]) {
         XCTSkip(@"set VIBE_TAG_MEASURE to measure");
@@ -1486,6 +1509,23 @@ static NSString *const kVibeLatin1Artist = @"Café Artist";
         NSLog(@"VIBE_MEASURE %@ 2 GiB, a byte near the end: match %.3f s", kind, CFAbsoluteTimeGetCurrent() - start);
         [NSFileManager.defaultManager removeItemAtPath:a error:NULL];
         [NSFileManager.defaultManager removeItemAtPath:b error:NULL];
+    }
+}
+
+// Run by hand as the one above: 200 matches of a small FLAC and its tagged
+// copy, the cost a many-file edit pays per file.
+- (void)testMeasureSmallMatches {
+    if (!NSProcessInfo.processInfo.environment[@"VIBE_TAG_MEASURE"]) {
+        XCTSkip(@"set VIBE_TAG_MEASURE to measure");
+    }
+    NSURL *url = [self write:@"audio.flac"];
+    NSURL *copy = [_dir URLByAppendingPathComponent:@"copy.flac"];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:url toURL:copy error:NULL]);
+    [self assertWrite:copy fields:@{VibeTagFieldTitle: @[@"Copy"]}];
+    for (int pass = 0; pass < 3; pass++) {
+        const CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+        for (int i = 0; i < 200; i++) XCTAssertTrue(VibeTagLibAudioMatches(url.path, copy.path, NULL));
+        NSLog(@"VIBE_MEASURE 200 small matches pass %d: %.3f s", pass, CFAbsoluteTimeGetCurrent() - start);
     }
 }
 

@@ -58,9 +58,11 @@ struct Record {
 };
 
 // MP4's entries hold no type, so a picture fits one only when it has none,
-// or is the front cover an entry stands for.
-bool MP4HoldsPictureType(int type) {
-    return type == -1 || type == 3;
+// or is the front cover an entry stands for. The reason when it does not,
+// or empty.
+std::string MP4PictureTypeFault(int type) {
+    if (type == -1 || type == 3) return "";
+    return "MP4 holds no picture type but none or a front cover, not " + std::to_string(type);
 }
 
 // What a write does to the pictures. Cover takes the cover (CoverIndexes),
@@ -97,6 +99,18 @@ std::string Text(const TagLib::String &string) {
 constexpr NSUInteger kMaxCoverBytes = 16000000;
 // A FLAC metadata block's length is 24 bits.
 constexpr unsigned int kMaxFLACBlockBytes = 0xFFFFFF;
+
+// Whether a picture fits a FLAC block: its type, its two lengths, four
+// sizes, and its data's length are 32 bytes, then its MIME type, its
+// description in UTF-8, and its data. TRAP: FLAC's save drops a block of
+// 16 MiB or more and still succeeds.
+uint64_t FLACPictureBlockBytes(uint64_t mime, uint64_t description, uint64_t data) {
+    return 32 + mime + description + data;
+}
+
+bool FitsFLACBlock(uint64_t mime, uint64_t description, uint64_t data) {
+    return FLACPictureBlockBytes(mime, description, data) < kMaxFLACBlockBytes;
+}
 
 // A number and its total, which ID3v2, MP4, APE, and INFO hold in one frame
 // as "3/12", and a Xiph comment in two. The alias is the total's other
@@ -316,17 +330,43 @@ TagLib::ID3v2::AttachedPictureFrame *NewAPIC(const Record &record) {
     return frame;
 }
 
-// The APIC frames VibeEmbeddedPictures indexes, empty ones counted.
+// The pictures in their new order: each one kept where it was, and the
+// added ones where the first taken one was, or at the end when none was.
+template <class Picture, class Make>
+std::vector<Picture> Arrange(const std::vector<Picture> &existing, const Cover &cover, Make make,
+                             std::vector<Picture> *taken) {
+    std::vector<Picture> arranged;
+    bool added = false;
+    for (size_t index = 0; index < existing.size(); index++) {
+        if (!cover.takes(index)) {
+            arranged.push_back(existing[index]);
+            continue;
+        }
+        taken->push_back(existing[index]);
+        if (added) continue;
+        for (const Record &record : cover.add) arranged.push_back(make(record));
+        added = true;
+    }
+    if (!added) {
+        for (const Record &record : cover.add) arranged.push_back(make(record));
+    }
+    return arranged;
+}
+
+// The APIC frames VibeEmbeddedPictures indexes, empty ones counted. A tag
+// keeps no picture's place but by its order, so every APIC frame leaves and
+// comes back in the new order, after the tag's other frames.
 void ApplyID3v2Cover(TagLib::ID3v2::Tag *tag, const Cover &cover) {
     if (cover.take == Cover::Take::None) return;
-    TagLib::ID3v2::FrameList remove;
-    size_t index = 0;
+    std::vector<TagLib::ID3v2::Frame *> existing, taken;
     for (TagLib::ID3v2::Frame *frame : tag->frameList("APIC")) {
-        if (!dynamic_cast<TagLib::ID3v2::AttachedPictureFrame *>(frame)) continue;
-        if (cover.takes(index++)) remove.append(frame);
+        if (dynamic_cast<TagLib::ID3v2::AttachedPictureFrame *>(frame)) existing.push_back(frame);
     }
-    for (TagLib::ID3v2::Frame *frame : remove) tag->removeFrame(frame, true);
-    for (const Record &record : cover.add) tag->addFrame(NewAPIC(record));
+    const std::vector<TagLib::ID3v2::Frame *> arranged = Arrange<TagLib::ID3v2::Frame *>(
+            existing, cover, [](const Record &record) -> TagLib::ID3v2::Frame * { return NewAPIC(record); }, &taken);
+    for (TagLib::ID3v2::Frame *frame : existing) tag->removeFrame(frame, false);
+    for (TagLib::ID3v2::Frame *frame : taken) delete frame;
+    for (TagLib::ID3v2::Frame *frame : arranged) tag->addFrame(frame);
 }
 
 std::string FrameName(TagLib::ID3v2::Frame *frame) {
@@ -439,13 +479,13 @@ void ApplyPictureCover(Owner *owner, const Cover &cover) {
     if (cover.take == Cover::Take::None) return;
     // TRAP: never hold a copy of pictureList(). It shares the list's
     // auto-delete, so the copy deletes the pictures a second time.
-    std::vector<TagLib::FLAC::Picture *> remove;
-    size_t index = 0;
-    for (TagLib::FLAC::Picture *picture : owner->pictureList()) {
-        if (cover.takes(index++)) remove.push_back(picture);
-    }
-    for (TagLib::FLAC::Picture *picture : remove) owner->removePicture(picture, true);
-    for (const Record &record : cover.add) owner->addPicture(NewPicture(record));
+    std::vector<TagLib::FLAC::Picture *> existing, taken;
+    for (TagLib::FLAC::Picture *picture : owner->pictureList()) existing.push_back(picture);
+    const std::vector<TagLib::FLAC::Picture *> arranged = Arrange<TagLib::FLAC::Picture *>(
+            existing, cover, [](const Record &record) { return NewPicture(record); }, &taken);
+    for (TagLib::FLAC::Picture *picture : existing) owner->removePicture(picture, false);
+    for (TagLib::FLAC::Picture *picture : taken) delete picture;
+    for (TagLib::FLAC::Picture *picture : arranged) owner->addPicture(picture);
 }
 
 #pragma mark - MP4
@@ -507,26 +547,25 @@ void ApplyMP4Edits(TagLib::MP4::Tag *tag, const Edits &named) {
 // cover goes first, where the read finds it.
 void ApplyMP4Cover(TagLib::MP4::Tag *tag, const Cover &cover) {
     if (cover.take == Cover::Take::None) return;
-    TagLib::MP4::CoverArtList kept, added;
-    size_t index = 0;
-    for (const TagLib::MP4::CoverArt &art : tag->item("covr").toCoverArtList()) {
-        if (!cover.takes(index++)) kept.append(art);
-    }
     for (const Record &record : cover.add) {
-        const auto format = static_cast<TagLib::MP4::CoverArt::Format>(VibeMP4FormatOfMIMEType(record.mimeType));
         // TRAP: covr types only JPEG, PNG, GIF, and BMP. A new TIFF or WebP
         // cover would be untyped, which Apple's readers need not show. An
         // untyped picture put back as it was is no new cover.
-        if (cover.take != Cover::Take::All && format == TagLib::MP4::CoverArt::Unknown) {
+        if (cover.take != Cover::Take::All && VibeMP4FormatOfMIMEType(record.mimeType) == TagLib::MP4::CoverArt::Unknown) {
             Refuse(VibeTagWriteErrorInvalidImage, "MP4 cannot hold a " + Text(record.mimeType) + " cover");
         }
-        if (!MP4HoldsPictureType(record.type)) {
-            Refuse(VibeTagWriteErrorInvalidImage, "MP4 holds no picture type but none or a front cover");
-        }
-        added.append(TagLib::MP4::CoverArt(format, record.data));
+        const std::string fault = MP4PictureTypeFault(record.type);
+        if (!fault.empty()) Refuse(VibeTagWriteErrorInvalidImage, fault);
     }
-    TagLib::MP4::CoverArtList list = added;
-    list.append(kept);
+    std::vector<TagLib::MP4::CoverArt> existing, taken;
+    for (const TagLib::MP4::CoverArt &art : tag->item("covr").toCoverArtList()) existing.push_back(art);
+    const std::vector<TagLib::MP4::CoverArt> arranged = Arrange<TagLib::MP4::CoverArt>(
+            existing, cover, [](const Record &record) {
+                return TagLib::MP4::CoverArt(
+                        static_cast<TagLib::MP4::CoverArt::Format>(VibeMP4FormatOfMIMEType(record.mimeType)), record.data);
+            }, &taken);
+    TagLib::MP4::CoverArtList list;
+    for (const TagLib::MP4::CoverArt &art : arranged) list.append(art);
     if (list.isEmpty()) tag->removeItem("covr");
     else tag->setItem("covr", TagLib::MP4::Item(list));
 }
@@ -609,7 +648,8 @@ bool SaveFile(NSString *path, TagLib::File *file, const Edits &named, const Cove
             Refuse(VibeTagWriteErrorWouldLoseData, "the Vorbis comment would pass FLAC's 16 MiB block");
         }
         for (TagLib::FLAC::Picture *picture : flac->pictureList()) {
-            if (picture->render().size() >= kMaxFLACBlockBytes) {
+            if (!FitsFLACBlock(picture->mimeType().data(TagLib::String::UTF8).size(),
+                               picture->description().data(TagLib::String::UTF8).size(), picture->data().size())) {
                 Refuse(VibeTagWriteErrorWouldLoseData, "a picture would pass FLAC's 16 MiB block");
             }
         }
@@ -886,54 +926,53 @@ BOOL VibeTagLibReadPictures(NSString *path, NSArray<VibeTagPicture *> *__autorel
 
 namespace {
 
-// The limits VibeTagLibWritePictures checks before the file opens.
-BOOL CheckPictureLimits(NSString *path, NSArray<VibeTagPicture *> *pictures, NSError *__autoreleasing *error) {
-    NSUInteger total = 0;
+// What VibeTagLibWritePictures checks of the list before the file opens:
+// each picture holds bytes and a type from -1 to 20, fits a FLAC block in
+// every format, and all of them, counted as blocks, fit kMaxPicturesBytes.
+// With a container, its own rules too. The reason it does not fit, which
+// is always InvalidImage, or empty.
+std::string PictureListFault(NSArray<VibeTagPicture *> *pictures, VibeTagContainer container) {
+    uint64_t total = 0;
     for (VibeTagPicture *picture in pictures) {
-        if (picture.data.length == 0 || picture.data.length > kMaxCoverBytes
-                || picture.type < VibeTagPictureTypeUntyped || picture.type > 20) {
-            return Fail(error, VibeTagWriteErrorInvalidImage, path,
-                        [NSString stringWithFormat:@"A picture holds 1 to %lu bytes and a type from -1 to 20, not %@",
-                                                   (unsigned long)kMaxCoverBytes, picture]);
+        const uint64_t mime = [picture.mimeType ?: @"" lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        const uint64_t description = [picture.pictureDescription lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
+        if (picture.data.length == 0 || picture.type < VibeTagPictureTypeUntyped || picture.type > 20) {
+            return "a picture holds bytes and a type from -1 to 20, not " + std::string(picture.description.UTF8String);
         }
-        total += picture.data.length;
+        if (picture.data.length > kMaxCoverBytes || !FitsFLACBlock(mime, description, picture.data.length)) {
+            return "a picture of " + std::to_string(picture.data.length) + " bytes, with its type and description, "
+                    "would pass FLAC's 16 MiB block";
+        }
+        if (container == VibeTagContainerMP4) {
+            const std::string fault = MP4PictureTypeFault((int)picture.type);
+            if (!fault.empty()) return fault;
+        }
+        total += FLACPictureBlockBytes(mime, description, picture.data.length);
     }
     if (total > kMaxPicturesBytes) {
-        return Fail(error, VibeTagWriteErrorInvalidImage, path,
-                    [NSString stringWithFormat:@"The pictures hold %lu bytes, past %lu",
-                                               (unsigned long)total, (unsigned long)kMaxPicturesBytes]);
+        return "the pictures hold " + std::to_string(total) + " bytes, past " + std::to_string(kMaxPicturesBytes);
     }
-    return YES;
+    return "";
 }
 
 } // namespace
 
-BOOL VibeTagLibPicturesFit(NSString *path, NSArray<VibeTagPicture *> *pictures, NSError *__autoreleasing *error) {
-    if (!CheckPictureLimits(path, pictures, error)) return NO;
-    try {
-        TagLibAudioFile fileRef(path.fileSystemRepresentation, false);
-        if (fileRef.isNull()) return Fail(error, VibeTagWriteErrorNoParser, path, @"No tag parser takes the file");
-        if (dynamic_cast<TagLib::MP4::File *>(fileRef.file())) {
-            for (VibeTagPicture *picture in pictures) {
-                if (!MP4HoldsPictureType((int)picture.type)) {
-                    return Fail(error, VibeTagWriteErrorInvalidImage, path,
-                                @"MP4 holds no picture type but none or a front cover");
-                }
-            }
-        }
-        return YES;
+BOOL VibeTagLibPicturesFit(NSArray<VibeTagPicture *> *pictures, VibeTagContainer container,
+                           NSError *__autoreleasing *error) {
+    const std::string fault = PictureListFault(pictures, container);
+    if (fault.empty()) return YES;
+    if (error) {
+        *error = [NSError errorWithDomain:VibeTagWriteErrorDomain code:VibeTagWriteErrorInvalidImage
+                                 userInfo:@{NSLocalizedDescriptionKey: @(fault.c_str())}];
     }
-    catch (const std::exception &e) {
-        return Fail(error, VibeTagWriteErrorTagLibThrew, path, [NSString stringWithFormat:@"TagLib threw: %s", e.what()]);
-    }
-    catch (...) {
-        return Fail(error, VibeTagWriteErrorTagLibThrew, path, @"TagLib threw");
-    }
+    return NO;
 }
 
 BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures, VibeTagWriteSync sync,
                              NSError *__autoreleasing *error) {
-    if (!CheckPictureLimits(path, pictures, error)) return NO;
+    // The container's own rules wait for the parse, in the save.
+    const std::string fault = PictureListFault(pictures, VibeTagContainerUnknown);
+    if (!fault.empty()) return Fail(error, VibeTagWriteErrorInvalidImage, path, @(fault.c_str()));
     // The barrier: an allocation that fails is an error, not an abort.
     try {
         Cover cover;
