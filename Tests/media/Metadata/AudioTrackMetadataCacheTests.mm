@@ -20,6 +20,7 @@
 #import "VibeTestFileDates.h"
 #import "AudioTrackMetadataCache+Debug.h"
 #import "LegacyCacheFixtures.h"
+#import "PINCache+VibeAudioCache.h"
 #import "VibeMetadataImport.h"
 #import "VibeMetadataStore.h"
 #import "VibeTestNegativeWindow.h"
