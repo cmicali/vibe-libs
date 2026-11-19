@@ -31,7 +31,7 @@ typedef NS_ERROR_ENUM(VibeTagWriteErrorDomain, VibeTagWriteError) {
     // picture VibeTagLibWritePictures was given is past its limits.
     VibeTagWriteErrorInvalidImage = 5,
     // The format cannot hold a value as given, as MP4 holds no BPM but a
-    // whole number, and ID3v2.3 no original date but a year.
+    // whole number. An ID3v2.3 tag that cannot becomes 2.4 instead.
     VibeTagWriteErrorUnsupportedValue = 6,
     // TagLib threw. The file may be part written.
     VibeTagWriteErrorTagLibThrew = 7,
@@ -41,8 +41,8 @@ typedef NS_ERROR_ENUM(VibeTagWriteErrorDomain, VibeTagWriteError) {
     // An ID3v2 frame is compressed or encrypted, which TagLib cannot rewrite.
     VibeTagWriteErrorUnsupportedFrame = 9,
     // The save would drop or change what the edit does not name: a frame
-    // TagLib discards, an ID3v2.3 genre, an MP4 item TagLib could not parse,
-    // or a FLAC's ID3 tags. media/Tags/AGENTS.md lists each.
+    // TagLib discards, an MP4 item TagLib could not parse, or a FLAC's ID3
+    // tags. media/Tags/AGENTS.md lists each.
     VibeTagWriteErrorWouldLoseData = 10,
     // VibeTagLibAudioMatches found the two files' audio differs.
     VibeTagWriteErrorAudioDiffers = 11,
@@ -70,6 +70,17 @@ typedef NS_ENUM(NSInteger, VibeTagWriteSync) {
     VibeTagWriteSyncBarrier = 1,
 };
 
+// What a write did beyond the edit it was asked for, so an app can say so.
+// ID3v2UpgradedTo24: the file's ID3v2 tag was 2.2 or 2.3 and is now 2.4. A
+// 2.2 tag always is, since TagLib cannot write 2.2. A 2.3 tag is when its
+// 2.3 render would not read back what it holds after the edit: its genres,
+// its dates, or a frame it holds twice (media/Tags/AGENTS.md, ID3v2.3). The
+// upgrade is permanent: an undo, even back to one genre, leaves it 2.4.
+typedef NS_OPTIONS(NSUInteger, VibeTagWriteChanges) {
+    VibeTagWriteChangeNone = 0,
+    VibeTagWriteChangeID3v2UpgradedTo24 = 1 << 0,
+};
+
 // Values per field. An empty array, or one of empty strings, removes the
 // field. A field not named keeps what it holds.
 typedef NSDictionary<VibeTagField, NSArray<NSString *> *> VibeTagFieldValues;
@@ -79,7 +90,11 @@ typedef NSDictionary<VibeTagField, NSArray<NSString *> *> VibeTagFieldValues;
 // refusal is checked before the first write, so NO leaves the file's bytes
 // unchanged, except with SaveFailed or TagLibThrew. YES means every write
 // succeeded, the file's size is the one they imply, and it was flushed as
-// `sync` says.
+// `sync` says. `changes`, when given, is set to what the write did beyond
+// the edit. On a refusal it is None, since nothing was written. On
+// SaveFailed or TagLibThrew it says what may be on disk, since the file may
+// be part written. An ID3v2 tag keeps its version, except as
+// VibeTagWriteChanges says.
 //
 // The cover is every front cover, or when the file has none, the one
 // picture the art read shows, whatever its type. A cover write takes it and
@@ -90,7 +105,7 @@ typedef NSDictionary<VibeTagField, NSArray<NSString *> *> VibeTagFieldValues;
 // A picture that never showed stays, whatever its type.
 FOUNDATION_EXTERN BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *_Nullable fields, BOOL changeCover,
                                            NSData *_Nullable coverData, NSString *_Nullable coverMIMEType,
-                                           VibeTagWriteSync sync,
+                                           VibeTagWriteSync sync, VibeTagWriteChanges *_Nullable changes,
                                            NSError *_Nullable __autoreleasing *_Nullable error);
 
 // The cover types a write takes: image/jpeg, image/png, image/gif,
@@ -174,10 +189,10 @@ FOUNDATION_EXTERN BOOL VibeTagLibPicturesFit(NSArray<VibeTagPicture *> *pictures
 // Untyped is "other" outside MP4. In MP4 a picture's description is
 // ignored, and a MIME type MP4 does not type is written untyped. A list
 // VibeTagLibPicturesFit refuses for the file's container is refused, and
-// every refusal of VibeTagLibWriteTags holds. media/Tags/AGENTS.md lists
-// what the write does not keep.
+// every refusal of VibeTagLibWriteTags holds, and `changes` says what it
+// says there. media/Tags/AGENTS.md lists what the write does not keep.
 FOUNDATION_EXTERN BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures,
-                                               VibeTagWriteSync sync,
+                                               VibeTagWriteSync sync, VibeTagWriteChanges *_Nullable changes,
                                                NSError *_Nullable __autoreleasing *_Nullable error);
 
 // The file's fields as TagLib's property map reads them, keys upper case. A

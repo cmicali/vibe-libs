@@ -9,6 +9,7 @@
 #import "VibeMacros.h"
 
 #include <algorithm>
+#include <memory>
 #include <stdexcept>
 #include <aifffile.h>
 #include <apetag.h>
@@ -31,6 +32,7 @@
 #pragma clang diagnostic ignored "-Wdocumentation-html"
 #include <textidentificationframe.h>
 #pragma clang diagnostic pop
+#include <tbytevectorstream.h>
 #include <tpropertymap.h>
 #include <vorbisfile.h>
 #include <wavfile.h>
@@ -277,27 +279,6 @@ bool FrameHoldsKey(TagLib::ID3v2::Frame *frame, const TagLib::String &key) {
     return TagLib::ID3v2::Frame::frameIDToKey(frame->frameID()) == key;
 }
 
-// ID3v2.3's TYER, TDAT, and TIME hold a date to the minute.
-bool V3HoldsDate(const TagLib::String &date) {
-    const unsigned int size = date.size();
-    return size == 4 || size == 10 || size == 16;
-}
-
-void CheckID3v2Values(const Edits &ops, TagLib::ID3v2::Version version) {
-    if (version != TagLib::ID3v2::v3) return;
-    for (const auto &[key, values] : ops) {
-        if (values.isEmpty()) continue;
-        if (key == "DATE" && !V3HoldsDate(First(values))) {
-            Refuse(VibeTagWriteErrorUnsupportedValue,
-                   "ID3v2.3 holds a date as YYYY, YYYY-MM-DD, or YYYY-MM-DDTHH:MM, not " + Text(First(values)));
-        }
-        if (key == "ORIGINALDATE" && First(values).size() != 4) {
-            Refuse(VibeTagWriteErrorUnsupportedValue,
-                   "ID3v2.3 holds the original date's year alone, not " + Text(First(values)));
-        }
-    }
-}
-
 // Removes each frame that holds a key, then adds the key's frame. TIPL and
 // TMCL hold several keys, and none of the edited fields.
 void ApplyID3v2Ops(TagLib::ID3v2::Tag *tag, const Edits &ops, TagLib::ID3v2::Version version) {
@@ -391,13 +372,14 @@ void CheckID3v2Frames(TagLib::ID3v2::Tag *tag) {
 // TSIZ, and TDAT, and ID3v2.2's CRM, EQU, LNK, RVA, TIM, TSI, and TDA. A
 // TDAT or TIME it merged into the date is kept by the date. Its
 // ID3v2.3 render drops ID3v2.4's ASPI, EQU2, RVA2, SEEK, SIGN, TDRL, TDTG,
-// TMOO, TPRO, and TSST. TRAP: its ID3v2.3 render keeps one genre with no
-// ID3v1 number, so two such genres refuse.
+// TMOO, TPRO, and TSST. Those that hold a property make a 2.3 tag 2.4
+// first (V3ReadsBack), so only the rest reach this refusal.
 void CheckID3v2Render(TagLib::ID3v2::Tag *tag, TagLib::ID3v2::Version version) {
     static const char *const kV4Only[] = {"ASPI", "EQU2", "RVA2", "SEEK", "SIGN", "TDRL", "TDTG", "TMOO",
                                           "TPRO", "TSST"};
-    // TagLib's parse merges ID3v2.3's TDAT and TIME into a TDRC of a year
-    // alone, leaving them marked. Merged, they are no loss.
+    // TagLib's parse merges ID3v2.3's TDAT into the one TDRC when it holds a
+    // year alone, and TIME too when TDAT merged, leaving them marked.
+    // Merged, they are no loss.
     const TagLib::ID3v2::FrameList &dates = tag->frameList("TDRC");
     const unsigned int date = dates.isEmpty() ? 0 : dates.front()->toString().size();
     for (TagLib::ID3v2::Frame *frame : tag->frameList()) {
@@ -410,43 +392,57 @@ void CheckID3v2Render(TagLib::ID3v2::Tag *tag, TagLib::ID3v2::Version version) {
         if (dropped) {
             Refuse(VibeTagWriteErrorWouldLoseData, "TagLib would drop the ID3v2 frame " + FrameName(frame));
         }
-        if (version == TagLib::ID3v2::v3 && id == "TCON") {
-            auto genre = dynamic_cast<TagLib::ID3v2::TextIdentificationFrame *>(frame);
-            const TagLib::StringList genres = genre ? genre->fieldList() : TagLib::StringList();
-            int unnumbered = 0;
-            for (const TagLib::String &value : genres) {
-                bool ok = false;
-                const int number = value.toInt(&ok);
-                const bool numbered = (ok && number >= 0 && number <= 255) || value == "RX" || value == "CR";
-                if (!numbered && (genres.size() == 1 || TagLib::ID3v1::genreIndex(value) == 255)) unnumbered++;
-            }
-            if (unnumbered > 1) {
-                Refuse(VibeTagWriteErrorWouldLoseData, "ID3v2.3 keeps only one genre without an ID3v1 number");
-            }
-        }
     }
 }
 
-TagLib::ID3v2::Version VersionToKeep(TagLib::ID3v2::Tag *tag, bool existed) {
-    return existed && tag->header()->majorVersion() == 3 ? TagLib::ID3v2::v3 : TagLib::ID3v2::v4;
+// A file over a stream, so TagLib's ID3v2 parse can read a tag from bytes.
+class BytesFile : public TagLib::File {
+public:
+    explicit BytesFile(TagLib::IOStream *stream) : TagLib::File(stream) {}
+    TagLib::Tag *tag() const override { return nullptr; }
+    TagLib::AudioProperties *audioProperties() const override { return nullptr; }
+    bool save() override { return false; }
+};
+
+// The one rule for ID3v2.3: a 2.3 tag is written as 2.4 when its 2.3 render
+// would not read back what the tag holds after the edit. The render is
+// parsed again, as any reader would, and its properties compared. So it
+// catches each way the 2.3 render loses: its genres, whose names or order
+// change (TagLib keeps one genre without an ID3v1 number, puts numbered
+// ones first, and renames some by their number), its dates, which it cuts
+// to a year, a day, or a minute, a time it drops after TagLib's own merge,
+// and a frame it holds twice, of which it keeps one. ID3v2.4 holds them all.
+bool V3ReadsBack(TagLib::ID3v2::Tag *tag) {
+    TagLib::ByteVectorStream stream(tag->render(TagLib::ID3v2::v3));
+    BytesFile file(&stream);
+    const TagLib::ID3v2::Tag reparsed(&file, 0);
+    return reparsed.properties() == tag->properties();
 }
 
 // The ID3v2 edit an MPEG, WAV, or AIFF file shares. TRAP: TagLib reads the
 // first tag that is not empty, so a new or empty ID3v2 tag holding one
 // field would hide every field of an ID3v1, APE, or INFO tag beside it. It
 // first takes the fields the file reads today.
+//
+// An existing tag keeps its version, but a 2.2 tag, which TagLib cannot
+// write, and a 2.3 tag V3ReadsBack refuses become 2.4, and *upgraded says
+// so. TagLib's parse already holds a 2.3 tag as 2.4 frames, so the 2.4
+// render keeps what the 2.3 one would. The frames both drop stay refused
+// (CheckID3v2Render).
 TagLib::ID3v2::Version ApplyID3v2Edits(TagLib::ID3v2::Tag *tag, bool existed, TagLib::File *file,
-                                       const Edits &named, const Cover &cover) {
+                                       const Edits &named, const Cover &cover, bool *upgraded) {
     CheckID3v2Frames(tag);
-    const TagLib::ID3v2::Version version = VersionToKeep(tag, existed);
+    const unsigned int major = existed ? tag->header()->majorVersion() : 4;
+    TagLib::ID3v2::Version version = major == 3 ? TagLib::ID3v2::v3 : TagLib::ID3v2::v4;
     if (!existed || tag->isEmpty()) {
         const TagLib::PropertyMap current = file->properties();
         if (!current.isEmpty()) tag->setProperties(current);
     }
     const Edits ops = Resolve(named, tag->properties(), Style::Folded, true);
-    CheckID3v2Values(ops, version);
     ApplyID3v2Ops(tag, ops, version);
     ApplyID3v2Cover(tag, cover);
+    if (version == TagLib::ID3v2::v3 && !V3ReadsBack(tag)) version = TagLib::ID3v2::v4;
+    *upgraded = existed && major < 4 && version == TagLib::ID3v2::v4;
     CheckID3v2Render(tag, version);
     return version;
 }
@@ -611,12 +607,12 @@ std::vector<size_t> CoverIndexes(TagLib::File *file) {
     return taken;
 }
 
-bool SaveFile(NSString *path, TagLib::File *file, const Edits &named, const Cover &asked) {
+bool SaveFile(NSString *path, TagLib::File *file, const Edits &named, const Cover &asked, bool *upgraded) {
     Cover cover = asked;
     if (cover.take == Cover::Take::Cover) cover.taken = CoverIndexes(file);
     if (auto mpeg = dynamic_cast<TagLib::MPEG::File *>(file)) {
         const bool hadID3v2 = mpeg->hasID3v2Tag(), hadAPE = mpeg->hasAPETag(), hadID3v1 = mpeg->hasID3v1Tag();
-        const TagLib::ID3v2::Version version = ApplyID3v2Edits(mpeg->ID3v2Tag(true), hadID3v2, file, named, cover);
+        const TagLib::ID3v2::Version version = ApplyID3v2Edits(mpeg->ID3v2Tag(true), hadID3v2, file, named, cover, upgraded);
         int tags = TagLib::MPEG::File::ID3v2;
         if (hadAPE && ApplyByPropertyMap(mpeg->APETag(), named, Style::Folded)) tags |= TagLib::MPEG::File::APE;
         if (hadID3v1 && ApplyByPropertyMap(mpeg->ID3v1Tag(), named, Style::ID3v1)) tags |= TagLib::MPEG::File::ID3v1;
@@ -624,14 +620,14 @@ bool SaveFile(NSString *path, TagLib::File *file, const Edits &named, const Cove
     }
     if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
         const bool hadInfo = wav->hasInfoTag();
-        const TagLib::ID3v2::Version version = ApplyID3v2Edits(wav->ID3v2Tag(), wav->hasID3v2Tag(), file, named, cover);
+        const TagLib::ID3v2::Version version = ApplyID3v2Edits(wav->ID3v2Tag(), wav->hasID3v2Tag(), file, named, cover, upgraded);
         int tags = TagLib::RIFF::WAV::File::ID3v2;
         // TRAP: an INFO chunk is rewritten only when the edit changes it.
         if (hadInfo && ApplyByPropertyMap(wav->InfoTag(), named, Style::Folded)) tags |= TagLib::RIFF::WAV::File::Info;
         return wav->save(static_cast<TagLib::RIFF::WAV::File::TagTypes>(tags), TagLib::File::StripNone, version);
     }
     if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
-        return aiff->save(ApplyID3v2Edits(aiff->tag(), aiff->hasID3v2Tag(), file, named, cover));
+        return aiff->save(ApplyID3v2Edits(aiff->tag(), aiff->hasID3v2Tag(), file, named, cover, upgraded));
     }
     if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
         // TRAP: FLAC's save renders its ID3v2 tag as 2.4, and copies the ID3
@@ -744,11 +740,20 @@ NSSet<NSString *> *EditedFields(void) {
 constexpr NSUInteger kMaxPicturesBytes = 250000000;
 
 BOOL WriteFile(NSString *path, const Edits &edits, const Cover &cover, VibeTagWriteSync sync,
-               NSError *__autoreleasing *error) {
+               VibeTagWriteChanges *changes, NSError *__autoreleasing *error) {
+    // Outlives the try, so a failure part way can say whether an upgraded
+    // tag may be on disk.
+    std::unique_ptr<TagLibAudioFile> opened;
+    bool upgraded = false;
+    auto reportUpgrade = [&] {
+        auto written = opened ? dynamic_cast<VibeCheckedFileStream *>(opened->stream()) : nullptr;
+        if (changes && upgraded && written && written->wrote()) *changes |= VibeTagWriteChangeID3v2UpgradedTo24;
+    };
     // The barrier: no C++ exception leaves this call.
     try {
         const VibeInfoEncodingScope infoEncoding;
-        TagLibAudioFile fileRef(path.fileSystemRepresentation, false, nil, 0, true);
+        opened = std::make_unique<TagLibAudioFile>(path.fileSystemRepresentation, false, nil, 0, true);
+        TagLibAudioFile &fileRef = *opened;
         auto stream = dynamic_cast<VibeCheckedFileStream *>(fileRef.stream());
         if (!stream || !fileRef.streamIsOpen()) {
             return Fail(error, VibeTagWriteErrorOpenFailed, path, @"The file could not be opened");
@@ -768,22 +773,26 @@ BOOL WriteFile(NSString *path, const Edits &edits, const Cover &cover, VibeTagWr
         if (!stream->failure().empty()) {
             Refuse(VibeTagWriteErrorSaveFailed, "the file could not be read: " + stream->failure());
         }
-        const bool saved = SaveFile(path, fileRef.file(), edits, cover);
+        const bool saved = SaveFile(path, fileRef.file(), edits, cover, &upgraded);
         const bool finished = stream->finish(sync == VibeTagWriteSyncBarrier ? VibeCheckedFileStream::Sync::Barrier
                                                                               : VibeCheckedFileStream::Sync::Full);
         if (!saved || !finished) {
             Refuse(VibeTagWriteErrorSaveFailed,
                    stream->failure().empty() ? "TagLib could not save the file" : stream->failure());
         }
+        reportUpgrade();
         return YES;
     }
     catch (const Refusal &refusal) {
+        reportUpgrade();
         return Fail(error, refusal.code, path, @(refusal.reason.c_str()) ?: @"The write was refused");
     }
     catch (const std::exception &e) {
+        reportUpgrade();
         return Fail(error, VibeTagWriteErrorTagLibThrew, path, [NSString stringWithFormat:@"TagLib threw: %s", e.what()]);
     }
     catch (...) {
+        reportUpgrade();
         return Fail(error, VibeTagWriteErrorTagLibThrew, path, @"TagLib threw");
     }
 }
@@ -791,7 +800,9 @@ BOOL WriteFile(NSString *path, const Edits &edits, const Cover &cover, VibeTagWr
 } // namespace
 
 BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *fields, BOOL changeCover, NSData *coverData,
-                         NSString *coverMIMEType, VibeTagWriteSync sync, NSError *__autoreleasing *error) {
+                         NSString *coverMIMEType, VibeTagWriteSync sync, VibeTagWriteChanges *changes,
+                         NSError *__autoreleasing *error) {
+    if (changes) *changes = VibeTagWriteChangeNone;
     Edits edits;
     for (NSString *key in fields) {
         NSString *field = key.uppercaseString;
@@ -828,7 +839,7 @@ BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *fields, BOOL change
             cover.add.push_back(record);
         }
     }
-    return WriteFile(path, edits, cover, sync, error);
+    return WriteFile(path, edits, cover, sync, changes, error);
 }
 
 NSArray<NSString *> *VibeTagCoverMIMETypes(void) {
@@ -969,7 +980,8 @@ BOOL VibeTagLibPicturesFit(NSArray<VibeTagPicture *> *pictures, VibeTagContainer
 }
 
 BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures, VibeTagWriteSync sync,
-                             NSError *__autoreleasing *error) {
+                             VibeTagWriteChanges *changes, NSError *__autoreleasing *error) {
+    if (changes) *changes = VibeTagWriteChangeNone;
     // The container's own rules wait for the parse, in the save.
     const std::string fault = PictureListFault(pictures, VibeTagContainerUnknown);
     if (!fault.empty()) return Fail(error, VibeTagWriteErrorInvalidImage, path, @(fault.c_str()));
@@ -989,7 +1001,7 @@ BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures
             record.colorCount = (int)std::min<NSUInteger>(picture.colorCount, INT_MAX);
             cover.add.push_back(record);
         }
-        return WriteFile(path, Edits(), cover, sync, error);
+        return WriteFile(path, Edits(), cover, sync, changes, error);
     }
     catch (const std::bad_alloc &) {
         return Fail(error, VibeTagWriteErrorSaveFailed, path, @"The pictures ran out of memory before the write");
