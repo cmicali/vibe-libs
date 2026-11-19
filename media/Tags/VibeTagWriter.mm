@@ -267,8 +267,12 @@ bool ApplyByPropertyMap(TagLib::Tag *tag, const Edits &named, Style style) {
 
 // Frame::asProperties is protected, but the text, TXXX, and comment frames
 // that hold every edited field make theirs public. Another frame holds the
-// key its ID maps to.
+// key its ID maps to. A null frame holds no key. No frame list holds one,
+// but the static analyzer reads the casts below as saying one could come.
 bool FrameHoldsKey(TagLib::ID3v2::Frame *frame, const TagLib::String &key) {
+    if (!frame) {
+        return false;
+    }
     if (auto comment = dynamic_cast<TagLib::ID3v2::CommentsFrame *>(frame)) {
         return comment->asProperties().contains(key);
     }
