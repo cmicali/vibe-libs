@@ -87,6 +87,9 @@ typedef struct {
 - (nullable VibeCacheHit *)sharedHitForName:(NSString *)name part:(NSString *)part acceptingFormatsUpTo:(NSInteger)format;
 - (BOOL)hasSharedItemForName:(NSString *)name part:(NSString *)part;
 - (void)setSharedData:(NSData *)data forName:(NSString *)name part:(NSString *)part format:(NSInteger)format;
+// One part of a shared item, as a trim may take it. The entries that name it
+// keep their rows.
+- (void)removeSharedItemForName:(NSString *)name part:(NSString *)part;
 
 // MARK: The whole store
 

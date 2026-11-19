@@ -40,7 +40,8 @@ extern const NSTimeInterval VibeAudioCacheDefaultAgeLimit;
 
 // Removes, off the calling thread, every store under rootPath, nil for the
 // user's caches, whose name is a current name's apart from its version suffix
-// (" v8", "_v7") and is not that name. A name with no suffix is a version too.
+// (" v8", "_v7") and is none of the current names. A name with no suffix is a
+// version too.
 // So a version bump needs no edit at the call site. An app calls it once at
 // launch with every store name it opens. The completion runs on the queue
 // that removed them.

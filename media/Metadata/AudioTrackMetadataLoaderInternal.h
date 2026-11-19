@@ -115,13 +115,17 @@ NS_ASSUME_NONNULL_BEGIN
                 userInitiated:(BOOL)userInitiatedParse;
 - (void)finishTracks:(NSArray<id<AudioTrackMetadataHolder>> *)tracks;
 - (void)settleTracks:(NSArray<id<AudioTrackMetadataHolder>> *)tracks withMetadata:(AudioTrackMetadata *)metadata;
-// The store's entry for a version, with its rendition's provider installed.
-// nil on a miss. Reads no audio.
-- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey;
-// Files a successful parse under its version, unless the cache was
-// invalidated since generation was taken.
+// A cache-only read, which never opens the file, so an older row answers.
+- (BOOL)loadTrackFromDiskCache:(id<AudioTrackMetadataHolder>)track acceptingOlder:(BOOL)acceptingOlder;
+// The store's entry for a version, with its picture's providers installed.
+// nil on a miss. An older row is a miss unless acceptingOlder, and then its
+// answer is marked older and names no version. Reads no audio.
+- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey acceptingOlder:(BOOL)acceptingOlder;
+// Files a successful parse under its version, naming its picture by the
+// digest, unless the cache was invalidated since generation was taken.
 - (void)fileMetadata:(AudioTrackMetadata *)metadata
           displayArt:(nullable NSData *)displayArt
+       pictureDigest:(nullable NSData *)pictureDigest
               forKey:(NSString *)cacheKey
           generation:(uint64_t)generation;
 

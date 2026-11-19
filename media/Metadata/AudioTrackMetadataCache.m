@@ -10,42 +10,17 @@
 #import "AudioTrackMetadataLoader.h"
 #import "AudioFileMaterializationCoordinator.h"
 #import "AudioLoadingConfiguration.h"
-#import "PINCache.h"
-#import "PINCache+VibeAudioCache.h"
-#import "AudioTrackMetadata.h"
+#import "VibeMetadataStore.h"
+#import "VibeMetadataImport.h"
+#import "AudioTrackMetadataInternal.h"
 #import "MetadataParseCoordinator.h"
 #import "AudioTrackMetadataCache+Debug.h"
-
-// The three stores, built together and published at once, so a reader sees
-// all of them or none. Each has its own budget, so art never pushes tags
-// out, and a rendition never pushes out a row's thumbnail.
-@interface VibeMetadataStores : NSObject
-@property (nonatomic, readonly) PINCache *tags;
-@property (nonatomic, readonly) PINCache *thumbnails;
-@property (nonatomic, readonly) PINCache *displayArt;
-@property (nonatomic, readonly) NSArray<PINCache *> *all;
-@end
-
-@implementation VibeMetadataStores
-
-- (instancetype)initWithRootPath:(NSString *)rootPath {
-    self = [super init];
-    if (self) {
-        _thumbnails = [PINCache audioCacheWithName:AudioTrackMetadataCache.thumbnailCacheName rootPath:rootPath];
-        _displayArt = [PINCache audioCacheWithName:AudioTrackMetadataCache.displayArtCacheName rootPath:rootPath];
-        _tags = [PINCache audioCacheWithName:AudioTrackMetadataCache.cacheName rootPath:rootPath];
-        _all = @[_tags, _thumbnails, _displayArt];
-    }
-    return self;
-}
-
-@end
 
 @interface AudioTrackMetadataCache ()
 // Set on the cache's queue, read per track from the loader's workers. Its
 // accessors take _storesLock, not an atomic property's lock, which is
 // libobjc's own, and which Thread Sanitizer can't see.
-@property (nonatomic, strong, nullable) VibeMetadataStores *stores;
+@property (nonatomic, strong, nullable) VibeMetadataStore *stores;
 @property (nonatomic, readonly) AudioLoadingConfiguration *loadingConfiguration;
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration;
 - (void)setNeighborhoodURLs:(nullable NSArray<NSURL *> *)urls;
@@ -68,17 +43,17 @@
     __weak id<AudioTrackMetadataHolder> _lastPrioritizedTrack;
     AudioLoadingConfiguration   *_loadingConfiguration;
     os_unfair_lock              _storesLock;
-    VibeMetadataStores          *_stores;
+    VibeMetadataStore           *_stores;
 }
 
-- (nullable VibeMetadataStores *)stores {
+- (nullable VibeMetadataStore *)stores {
     os_unfair_lock_lock(&_storesLock);
-    VibeMetadataStores *stores = _stores;
+    VibeMetadataStore *stores = _stores;
     os_unfair_lock_unlock(&_storesLock);
     return stores;
 }
 
-- (void)setStores:(nullable VibeMetadataStores *)stores {
+- (void)setStores:(nullable VibeMetadataStore *)stores {
     os_unfair_lock_lock(&_storesLock);
     _stores = stores;
     os_unfair_lock_unlock(&_storesLock);
@@ -89,35 +64,25 @@
 }
 
 + (NSString *)cacheName {
-    // The archive-format version: bump it whenever the archived fields, the
-    // rendition or their meaning change, or stale entries live until their
-    // cache key changes.
-    // TRAP: an entry from before the tag fields (v7) must be a miss. It
-    // decodes cleanly, with every field it lacks absent. So a hit would say
-    // "untagged" for an album or a gain the file carries, until the file
-    // changes. A new store name makes every old entry a miss, at the cost of
-    // one parse of each file.
-    // v9 moved the thumbnail out of the entry, into its own store, so art
-    // never pushes tags out of their budget.
-    // v10 added the comment, the grouping, the label, and the bit depth.
-    // An entry that names an MP4's kind MP4 without kindByCodec is a miss of
-    // its own (AudioTrackMetadata's initWithCoder:), so that change kept v10.
-    // v11 added the extra tags: the catalog number, the conductor, the
-    // remixer, the lyricist, the mood, the language, the copyright, the
-    // original date, and the four sort names.
-    return @"Audio Track Metadata v11";
+    // One store holds the tags, the thumbnails, and the renditions. Each row
+    // carries its format (VibeMetadataTagsFormat), so a format change keeps
+    // the store's name and every entry in it.
+    return VibeMetadataStoreName;
 }
 
 + (NSString *)thumbnailCacheName {
-    return @"Audio Track Thumbnails v1";
+    return VibeMetadataStoreName;
 }
 
 + (NSString *)displayArtCacheName {
-    return @"Audio Track Display Art v1";
+    return VibeMetadataStoreName;
 }
 
 + (NSArray<NSString *> *)cacheNames {
-    return @[self.cacheName, self.thumbnailCacheName, self.displayArtCacheName];
+    // With the PINCache stores the store imports, so an app's launch removal
+    // keeps them until the import removes them itself, and still removes the
+    // versions before them.
+    return [@[self.cacheName] arrayByAddingObjectsFromArray:VibeMetadataImport.oldStoreNames];
 }
 
 - (instancetype)init {
@@ -133,10 +98,8 @@
         _rootPath = [rootPath copy];
         _cacheQueue = dispatch_queue_create("vibe-libs.metadata.cache",
                 dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_UTILITY, 0));
-        // Off main: constructing on main boosts PINCache's init-time disk scan
-        // to user-initiated, which priority-inverts against the utility
-        // workers. A load before this lands builds or waits for it
-        // (metadataCache).
+        // Off main: the store's open takes a few milliseconds of disk work.
+        // A load before this lands builds or waits for it (metadataCache).
         dispatch_async(_cacheQueue, ^{
             [self storesOnQueue];
         });
@@ -144,25 +107,29 @@
     return self;
 }
 
-// On _cacheQueue. The first block to ask builds the stores, so nothing
+- (void)dealloc {
+    [_stores checkIn];
+}
+
+// On _cacheQueue. The first block to ask builds the store, so nothing
 // depends on which block the queue runs first. A block on the queue calls
 // this, never storesBuilt, whose dispatch_sync would deadlock there.
-- (VibeMetadataStores *)storesOnQueue {
-    VibeMetadataStores *stores = self.stores;
+- (VibeMetadataStore *)storesOnQueue {
+    VibeMetadataStore *stores = self.stores;
     if (!stores) {
-        stores = [[VibeMetadataStores alloc] initWithRootPath:_rootPath];
+        stores = [VibeMetadataStore checkOutStoreUnderRootPath:_rootPath];
         self.stores = stores;
     }
     return stores;
 }
 
-// The stores, built or waited for. dispatch_sync lends the reader's QoS to
+// The store, built or waited for. dispatch_sync lends the reader's QoS to
 // the queue, and so to the build. A group wait lends none. A block wait
 // allows one waiter, and several workers may wait here at once.
-- (VibeMetadataStores *)storesBuilt {
-    VibeMetadataStores *stores = self.stores;
+- (VibeMetadataStore *)storesBuilt {
+    VibeMetadataStore *stores = self.stores;
     if (!stores) {
-        __block VibeMetadataStores *built = nil;
+        __block VibeMetadataStore *built = nil;
         dispatch_sync(_cacheQueue, ^{
             built = [self storesOnQueue];
         });
@@ -171,16 +138,8 @@
     return stores;
 }
 
-- (PINCache *)metadataCache {
-    return self.storesBuilt.tags;
-}
-
-- (PINCache *)thumbnailCache {
-    return self.storesBuilt.thumbnails;
-}
-
-- (PINCache *)displayArtCache {
-    return self.storesBuilt.displayArt;
+- (VibeMetadataStore *)metadataCache {
+    return self.storesBuilt;
 }
 
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration {
@@ -195,9 +154,7 @@
 - (void)invalidateWithCompletion:(dispatch_block_t)completion {
     dispatch_async(_cacheQueue, ^{
         atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
-        for (PINCache *store in [self storesOnQueue].all) {
-            [store removeAllObjects];
-        }
+        [[self storesOnQueue] removeAll];
         if (completion) {
             completion();
         }
@@ -215,23 +172,13 @@
     // interleave. A parse of the old version that files after this lands
     // files under a key no stat gives again.
     dispatch_async(_cacheQueue, ^{
-        VibeMetadataStores *stores = [self storesOnQueue];
         if ([oldKey isEqualToString:newKey]) {
             // TRAP: the key names the new tags as well as the old, so a parse
             // begun before the write would file the old ones under it for
             // good. The bump keeps every parse in flight from filing.
             atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
         }
-        [stores.tags.diskCache removeObjectForKey:oldKey];
-        for (PINCache *art in @[stores.thumbnails, stores.displayArt]) {
-            if (artChanged || ![art.diskCache moveObjectForKey:oldKey toKey:newKey]) {
-                // Refused: the keys are equal, the new key holds an entry, or
-                // there is none. Equal keys keep unchanged art.
-                if (artChanged || ![oldKey isEqualToString:newKey]) {
-                    [art.diskCache removeObjectForKey:oldKey];
-                }
-            }
-        }
+        [[self storesOnQueue] moveEntryOfRetaggedFileFromKey:oldKey toKey:newKey artChanged:artChanged];
         if (completion) {
             completion();
         }
@@ -242,27 +189,18 @@
             ageLimit:(NSTimeInterval)ageLimit
             forStore:(VibeMetadataCacheStore)store {
     dispatch_async(_cacheQueue, ^{
-        VibeMetadataStores *stores = [self storesOnQueue];
-        PINCache *cache = nil;
-        switch (store) {
-            case VibeMetadataCacheStoreTags:
-                cache = stores.tags;
-                break;
-            case VibeMetadataCacheStoreThumbnails:
-                cache = stores.thumbnails;
-                break;
-            case VibeMetadataCacheStoreDisplayArt:
-                cache = stores.displayArt;
-                break;
-        }
-        cache.diskCache.byteLimit = byteLimit;
-        cache.diskCache.ageLimit = ageLimit;
+        // The enum's cases name the budgets, in the same order.
+        [[self storesOnQueue] setByteLimit:byteLimit ageLimit:ageLimit forBudget:(VibeMetadataStoreBudget)store];
     });
 }
 
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
     dispatch_async(_cacheQueue, ^{
-        [PINCache audioDiskUsageOfCaches:[self storesOnQueue].all completion:completion];
+        // A sum the store keeps, so it reads one row.
+        VibeCacheUsage usage = [[self storesOnQueue] usage];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            completion(usage.entries + usage.sharedItems, usage.bytes);
+        });
     });
 }
 
@@ -286,7 +224,7 @@
     // replaces a pre-sweep single-track loader. Before load:, so stage 1
     // dedupes against it.
     id<AudioTrackMetadataHolder> priorityTrack = _lastPrioritizedTrack;
-    if (priorityTrack && !priorityTrack.metadata.parsedOK) {
+    if (priorityTrack && !VibeMetadataIsSettled(priorityTrack.metadata)) {
         [loader prioritizeTrack:priorityTrack];
     }
     [loader load:tracks];
@@ -349,7 +287,7 @@
 }
 
 - (void)loadMetadataNow:(id<AudioTrackMetadataHolder>)track {
-    if (!track || track.metadata.parsedOK) {
+    if (!track || VibeMetadataIsSettled(track.metadata)) {
         return;
     }
     _lastPrioritizedTrack = track;

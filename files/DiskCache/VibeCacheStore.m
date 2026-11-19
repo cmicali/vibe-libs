@@ -1054,6 +1054,17 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
     }];
 }
 
+- (void)removeSharedItemForName:(NSString *)name part:(NSString *)part {
+    if (!name || !part) {
+        return;
+    }
+    [self syncOnQueue:^{
+        if (self->_writer) {
+            [self removeRowOfKey:nil name:name part:part];
+        }
+    }];
+}
+
 - (BOOL)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey {
     if (!oldKey || !newKey) {
         return NO;

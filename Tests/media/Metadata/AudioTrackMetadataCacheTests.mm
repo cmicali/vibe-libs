@@ -20,6 +20,8 @@
 #import "VibeTestFileDates.h"
 #import "AudioTrackMetadataCache+Debug.h"
 #import "PINCache+VibeAudioCache.h"
+#import "VibeMetadataImport.h"
+#import "VibeMetadataStore.h"
 #import "VibeTestNegativeWindow.h"
 
 @interface AudioTrackMetadataCacheTests : XCTestCase
@@ -39,6 +41,7 @@
 }
 
 - (void)tearDown {
+    [VibeMetadataImport setStartDelayForTesting:10];
     [NSFileManager.defaultManager removeItemAtURL:_dir error:NULL];
     [super tearDown];
 }
@@ -62,19 +65,15 @@
     dispatch_semaphore_t building = dispatch_semaphore_create(0);
     dispatch_semaphore_t gate = dispatch_semaphore_create(0);
     dispatch_semaphore_t returned = dispatch_semaphore_create(0);
-    SEL selector = @selector(audioCacheWithName:rootPath:);
-    Method method = class_getClassMethod(PINCache.class, selector);
+    SEL selector = @selector(checkOutStoreUnderRootPath:);
+    Method method = class_getClassMethod(VibeMetadataStore.class, selector);
     IMP original = method_getImplementation(method);
-    IMP held = imp_implementationWithBlock(^PINCache *(Class cls, NSString *name, NSString *rootPath) {
-        // Only the tag store's build is held. The art's stores build first.
-        if (![name isEqualToString:AudioTrackMetadataCache.cacheName]) {
-            return ((PINCache *(*)(Class, SEL, NSString *, NSString *))original)(cls, selector, name, rootPath);
-        }
+    IMP held = imp_implementationWithBlock(^VibeMetadataStore *(Class cls, NSString *rootPath) {
         dispatch_semaphore_signal(building);
         dispatch_semaphore_wait(gate, dispatch_time(DISPATCH_TIME_NOW,
                                                     (int64_t)(VIBE_TEST_GATE_TIMEOUT * NSEC_PER_SEC)));
-        PINCache *store = ((PINCache *(*)(Class, SEL, NSString *, NSString *))original)(cls, selector, name,
-                                                                                         rootPath);
+        VibeMetadataStore *store = ((VibeMetadataStore *(*)(Class, SEL, NSString *))original)(cls, selector,
+                                                                                              rootPath);
         dispatch_semaphore_signal(returned);
         return store;
     });
@@ -158,7 +157,7 @@
     XCTAssertEqualObjects([read.metadata extraTag:VibeTagFieldCatalogNumber], @"CAT-0042");
 }
 
-#pragma mark - The art's stores
+#pragma mark - Art by its picture
 
 // A tagged file with a picture of the rendition's size, so the rendition is
 // the picture's bytes.
@@ -185,7 +184,7 @@
     return answer;
 }
 
-// One store, opened apart from the cache, as a reader of its files.
+// One of the PINCache stores of the releases before, opened as they were.
 - (PINCache *)store:(NSString *)name under:(NSString *)root {
     return [PINCache audioCacheWithName:name rootPath:root];
 }
@@ -199,9 +198,20 @@
     return thumbnail;
 }
 
-// The tags, the thumbnail, and the rendition each go in their own store, so
-// each has its own budget, and art never pushes tags out.
-- (void)testArtIsFiledInStoresOfItsOwn {
+// The tags' entry for the file under key, as the store holds it.
+- (nullable AudioTrackMetadata *)filedTagsIn:(AudioTrackMetadataCache *)cache key:(NSString *)key {
+    VibeCacheHit *hit = [cache.metadataCache tagsHitForKey:key acceptingOlder:YES];
+    return hit ? VibeMetadataUnarchive(hit.data, AudioTrackMetadata.class) : nil;
+}
+
+// The name of the picture the entry under key names.
+- (nullable NSString *)pictureIn:(AudioTrackMetadataCache *)cache key:(NSString *)key {
+    return [cache.metadataCache.cacheStore hitForKey:key acceptingFormatsUpTo:VibeMetadataTagsFormat].sharedName;
+}
+
+// The tags go in the file's entry, and the thumbnail and the rendition in
+// its picture, named by the SHA-256 of the picture's bytes (CH8).
+- (void)testArtIsFiledUnderItsPicture {
     NSURL *url = [self fileWithArt];
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
@@ -211,28 +221,28 @@
     NSString *key = answer.cacheKey;
     XCTAssertNotNil(key);
 
-    AudioTrackMetadata *filed =
-            (AudioTrackMetadata *)[[self store:AudioTrackMetadataCache.cacheName under:root].diskCache objectForKey:key];
+    AudioTrackMetadata *filed = [self filedTagsIn:cache key:key];
     XCTAssertEqualObjects(filed.title, kVibeTagTitle);
     XCTAssertTrue(filed.artwork.hasEmbeddedArt, @"the entry says the file has art");
     XCTAssertNil(filed.artwork.encodedThumbnailDataForStorage, @"the entry holds no art");
-    NSData *thumbnail =
-            (NSData *)[[self store:AudioTrackMetadataCache.thumbnailCacheName under:root].diskCache objectForKey:key];
+    NSData *picture = VibeImageOfColor(600, 1, 0, 0, UTTypeJPEG);
+    NSString *name = [self pictureIn:cache key:key];
+    XCTAssertEqualObjects(name, [VibeMetadataStore nameOfPictureWithDigest:picture.sha256Digest]);
+    NSData *thumbnail = [cache.metadataCache thumbnailOfPicture:name];
     CGSize size = VibeEncodedImagePixelSize(thumbnail);
     XCTAssertEqual(MAX(size.width, size.height), kVibeThumbnailArtDimension);
-    NSData *rendition =
-            (NSData *)[[self store:AudioTrackMetadataCache.displayArtCacheName under:root].diskCache objectForKey:key];
-    XCTAssertEqualObjects(rendition, VibeImageOfColor(600, 1, 0, 0, UTTypeJPEG));
+    XCTAssertEqualObjects([cache.metadataCache renditionOfPicture:name], picture);
 }
 
-// A hit holds no art bytes. Its row thumbnail decodes from the thumbnail
-// store, with the rendition gone, and never reads the file.
-- (void)testAHitDecodesItsThumbnailFromTheThumbnailStore {
+// A hit holds no art bytes. Its row thumbnail decodes from the picture's
+// thumbnail, with the rendition gone, and never reads the file.
+- (void)testAHitDecodesItsThumbnailFromThePicturesThumbnail {
     NSURL *url = [self fileWithArt];
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
-    NSString *key = [self read:url through:[[AudioTrackMetadataCache alloc] initWithRootPath:root]
-                        policy:VibeMetadataReadPolicyLocal].cacheKey;
-    [[self store:AudioTrackMetadataCache.displayArtCacheName under:root].diskCache removeObjectForKey:key];
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    NSString *key = [self read:url through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
+    [cache.metadataCache.cacheStore removeSharedItemForName:[self pictureIn:cache key:key]
+                                                       part:VibeMetadataStore.renditionPart];
 
     AudioTrackMetadataCache *reopened = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
     VibeMetadataReadResult *hit = [self read:url through:reopened policy:VibeMetadataReadPolicyCacheOnly];
@@ -240,7 +250,7 @@
     XCTAssertTrue(hit.fromCache);
     XCTAssertNil(hit.metadata.artwork.encodedThumbnailDataForStorage);
     NSImage *thumbnail = [self thumbnailOf:hit.metadata];
-    XCTAssertNotNil(thumbnail, @"the thumbnail store's bytes");
+    XCTAssertNotNil(thumbnail, @"the picture's thumbnail");
     XCTAssertNotNil(hit.metadata.artwork.archivedThumbnailProvider, @"a read that found bytes keeps its provider");
 }
 
@@ -249,9 +259,10 @@
 - (void)testAHitWhoseThumbnailIsGoneDecodesFromTheRendition {
     NSURL *url = [self fileWithArt];
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
-    NSString *key = [self read:url through:[[AudioTrackMetadataCache alloc] initWithRootPath:root]
-                        policy:VibeMetadataReadPolicyLocal].cacheKey;
-    [[self store:AudioTrackMetadataCache.thumbnailCacheName under:root].diskCache removeObjectForKey:key];
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    NSString *key = [self read:url through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
+    [cache.metadataCache.cacheStore removeSharedItemForName:[self pictureIn:cache key:key]
+                                                       part:VibeMetadataStore.thumbnailPart];
 
     AudioTrackMetadataCache *reopened = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
     VibeMetadataReadResult *hit = [self read:url through:reopened policy:VibeMetadataReadPolicyCacheOnly];
@@ -260,31 +271,40 @@
     XCTAssertNil(hit.metadata.artwork.archivedThumbnailProvider);
 }
 
-// An app sets each store's limits over the defaults. A store it sets nothing
-// for keeps them.
+// An app sets each budget over the defaults. The one store's byte limit is
+// their sum, and its age limit the longest. A budget it sets nothing for
+// keeps the defaults.
 - (void)testAnAppSetsEachStoresLimits {
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    VibeCacheStore *store = cache.metadataCache.cacheStore;
+    XCTAssertEqual(store.byteLimit, 3 * VibeCacheStore.defaultByteLimit, @"an app that sets nothing");
+    XCTAssertEqual(store.ageLimit, VibeCacheStore.defaultAgeLimit);
     [cache setByteLimit:3 * 1024 * 1024 ageLimit:30 * 86400.0 forStore:VibeMetadataCacheStoreThumbnails];
     [cache setByteLimit:4 * 1024 * 1024 ageLimit:60 * 86400.0 forStore:VibeMetadataCacheStoreDisplayArt];
-    PINDiskCache *tags = cache.metadataCache.diskCache;
-    PINDiskCache *thumbnails = cache.thumbnailCache.diskCache;
-    PINDiskCache *displayArt = cache.displayArtCache.diskCache;
     // The setters run on the cache's queue, which the usage count runs after.
-    XCTestExpectation *counted = [self expectationWithDescription:@"counted"];
-    [cache diskUsageWithCompletion:^(NSUInteger fileCount, unsigned long long totalBytes) {
-        [counted fulfill];
-    }];
-    [self waitForExpectations:@[counted] timeout:VIBE_TEST_HANG_TIMEOUT];
-    XCTAssertEqual(thumbnails.byteLimit, 3u * 1024 * 1024);
-    XCTAssertEqual(thumbnails.ageLimit, 30 * 86400.0);
-    XCTAssertEqual(displayArt.byteLimit, 4u * 1024 * 1024);
-    XCTAssertEqual(displayArt.ageLimit, 60 * 86400.0);
-    XCTAssertEqual(tags.byteLimit, VibeAudioCacheDefaultByteLimit);
-    XCTAssertEqual(tags.ageLimit, VibeAudioCacheDefaultAgeLimit);
+    void (^settle)(void) = ^{
+        XCTestExpectation *counted = [self expectationWithDescription:@"counted"];
+        [cache diskUsageWithCompletion:^(NSUInteger fileCount, unsigned long long totalBytes) {
+            [counted fulfill];
+        }];
+        [self waitForExpectations:@[counted] timeout:VIBE_TEST_HANG_TIMEOUT];
+    };
+    settle();
+    XCTAssertEqual(store.byteLimit, VibeCacheStore.defaultByteLimit + 7u * 1024 * 1024);
+    XCTAssertEqual(store.ageLimit, VibeCacheStore.defaultAgeLimit, @"the tags' default is the longest");
+    [cache setByteLimit:5 * 1024 * 1024 ageLimit:90 * 86400.0 forStore:VibeMetadataCacheStoreTags];
+    settle();
+    XCTAssertEqual(store.byteLimit, 12u * 1024 * 1024);
+    XCTAssertEqual(store.ageLimit, 90 * 86400.0);
+    [cache setByteLimit:0 ageLimit:0 forStore:VibeMetadataCacheStoreTags];
+    settle();
+    XCTAssertEqual(store.byteLimit, 0u, @"a budget of none lifts the store's limit");
+    XCTAssertEqual(store.ageLimit, 0.0);
 }
 
-// The disk usage counts all three stores, and an invalidation empties them.
+// The disk usage counts the entry and the picture's two parts, and an
+// invalidation empties the store.
 - (void)testUsageCountsAndInvalidationEmptiesEveryStore {
     NSURL *url = [self fileWithArt];
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
@@ -354,24 +374,25 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
     NSString *oldKey = [self read:url through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
     XCTAssertNotNil(oldKey);
-    NSData *rendition = (NSData *)[[self store:AudioTrackMetadataCache.displayArtCacheName under:root].diskCache
-            objectForKey:oldKey];
+    NSString *picture = [self pictureIn:cache key:oldKey];
+    NSData *rendition = [cache.metadataCache renditionOfPicture:picture];
     XCTAssertNotNil(rendition);
+    VibeCacheUsage before = cache.metadataCache.usage;
 
     SafeRetitle(url, @"Edited Title", nil);
     NSString *newKey = url.cacheKey;
     XCTAssertNotEqualObjects(newKey, oldKey);
     [self moveIn:cache from:oldKey to:newKey artChanged:NO];
 
-    PINCache *tags = [self store:AudioTrackMetadataCache.cacheName under:root];
-    PINCache *thumbnails = [self store:AudioTrackMetadataCache.thumbnailCacheName under:root];
-    PINCache *displayArt = [self store:AudioTrackMetadataCache.displayArtCacheName under:root];
-    XCTAssertNil([tags.diskCache objectForKey:oldKey]);
-    XCTAssertNil([tags.diskCache objectForKey:newKey]);
-    XCTAssertNil([thumbnails.diskCache objectForKey:oldKey]);
-    XCTAssertNotNil([thumbnails.diskCache objectForKey:newKey], @"the thumbnail moved");
-    XCTAssertNil([displayArt.diskCache objectForKey:oldKey]);
-    XCTAssertEqualObjects([displayArt.diskCache objectForKey:newKey], rendition, @"the rendition moved");
+    XCTAssertNil([self filedTagsIn:cache key:oldKey]);
+    XCTAssertNil([self filedTagsIn:cache key:newKey], @"the tags were dropped");
+    XCTAssertFalse([cache.metadataCache.cacheStore hasEntryForKey:oldKey]);
+    XCTAssertEqualObjects([self pictureIn:cache key:newKey], picture, @"the new key names the same picture");
+    XCTAssertNotNil([cache.metadataCache thumbnailOfPicture:picture], @"the thumbnail stayed");
+    XCTAssertEqualObjects([cache.metadataCache renditionOfPicture:picture], rendition, @"the rendition stayed");
+    VibeCacheUsage after = cache.metadataCache.usage;
+    XCTAssertEqual(after.entries, before.entries);
+    XCTAssertEqual(after.sharedItems, before.sharedItems, @"no art moved or was written");
 
     VibeMetadataReadResult *read = [self read:url through:cache policy:VibeMetadataReadPolicyLocal];
     XCTAssertFalse(read.fromCache);
@@ -381,6 +402,7 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     VibeMetadataReadResult *hit = [self read:url through:cache policy:VibeMetadataReadPolicyCacheOnly];
     XCTAssertTrue(hit.fromCache);
     XCTAssertEqualObjects(hit.metadata.title, @"Edited Title");
+    XCTAssertEqualObjects([self pictureIn:cache key:newKey], picture);
 }
 
 // A rewrite that changed the art drops the old art rather than move it, so
@@ -390,20 +412,21 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
     NSString *oldKey = [self read:url through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
+    NSString *red = [self pictureIn:cache key:oldKey];
     NSData *blue = VibeImageOfColor(600, 0, 0, 1, UTTypeJPEG);
     SafeRetitle(url, @"Edited Title", blue);
     NSString *newKey = url.cacheKey;
     [self moveIn:cache from:oldKey to:newKey artChanged:YES];
 
-    PINCache *thumbnails = [self store:AudioTrackMetadataCache.thumbnailCacheName under:root];
-    PINCache *displayArt = [self store:AudioTrackMetadataCache.displayArtCacheName under:root];
     for (NSString *key in @[oldKey, newKey]) {
-        XCTAssertNil([thumbnails.diskCache objectForKey:key]);
-        XCTAssertNil([displayArt.diskCache objectForKey:key]);
+        XCTAssertFalse([cache.metadataCache.cacheStore hasEntryForKey:key]);
     }
+    XCTAssertNil([cache.metadataCache thumbnailOfPicture:red], @"no entry names the old picture, so it went");
+    XCTAssertNil([cache.metadataCache renditionOfPicture:red]);
     VibeMetadataReadResult *read = [self read:url through:cache policy:VibeMetadataReadPolicyLocal];
     XCTAssertEqualObjects(read.metadata.title, @"Edited Title");
-    XCTAssertEqualObjects([displayArt.diskCache objectForKey:newKey], blue, @"the parse files the new art");
+    XCTAssertEqualObjects([cache.metadataCache renditionOfPicture:[self pictureIn:cache key:newKey]], blue,
+                          @"the parse files the new art");
 }
 
 // A move of a key with no entries does nothing to the new key's.
@@ -418,26 +441,27 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     XCTAssertEqualObjects(hit.metadata.title, kVibeTagTitle);
 }
 
-// Different art under both keys: the move keeps the new key's, and the old
-// key's goes.
+// Different art under both keys: the move keeps the new key's entry, and
+// the old key's goes, with the picture no entry names any more.
 - (void)testAMoveOntoAnEntryKeepsTheNewKeysEntry {
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
-    [self read:[self fileWithArt] through:cache policy:VibeMetadataReadPolicyCacheOnly];
-    NSArray<NSString *> *names = @[AudioTrackMetadataCache.thumbnailCacheName,
-                                   AudioTrackMetadataCache.displayArtCacheName];
-    for (NSString *name in names) {
-        PINCache *store = [self store:name under:root];
-        [store.diskCache setObject:[@"old" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"1-1-old"];
-        [store.diskCache setObject:[@"new" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"2-2-new"];
-    }
+    VibeMetadataStore *store = cache.metadataCache;
+    NSData *older = [@"old" dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *newer = [@"new" dataUsingEncoding:NSUTF8StringEncoding];
+    NSString *oldPicture = [store fileTags:@"old tags" thumbnail:older rendition:older pictureName:@"old-picture"
+                                    forKey:@"1-1-old"];
+    NSString *newPicture = [store fileTags:@"new tags" thumbnail:newer rendition:newer pictureName:@"new-picture"
+                                    forKey:@"2-2-new"];
     [self moveIn:cache from:@"1-1-old" to:@"2-2-new" artChanged:NO];
-    for (NSString *name in names) {
-        PINCache *store = [self store:name under:root];
-        XCTAssertNil([store.diskCache objectForKey:@"1-1-old"], @"%@", name);
-        XCTAssertEqualObjects([store.diskCache objectForKey:@"2-2-new"],
-                              [@"new" dataUsingEncoding:NSUTF8StringEncoding], @"%@", name);
-    }
+    XCTAssertFalse([store.cacheStore hasEntryForKey:@"1-1-old"]);
+    XCTAssertNil([store thumbnailOfPicture:oldPicture]);
+    XCTAssertNil([store renditionOfPicture:oldPicture]);
+    XCTAssertEqualObjects(VibeMetadataUnarchive([store tagsHitForKey:@"2-2-new" acceptingOlder:NO].data,
+                                                NSString.class), @"new tags");
+    XCTAssertEqualObjects([self pictureIn:cache key:@"2-2-new"], newPicture);
+    XCTAssertEqualObjects([store thumbnailOfPicture:newPicture], newer);
+    XCTAssertEqualObjects([store renditionOfPicture:newPicture], newer);
 }
 
 // A writer that kept the size and the date leaves the key as it was. A
@@ -478,11 +502,262 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     [self waitForExpectations:@[done] timeout:VIBE_TEST_HANG_TIMEOUT];
     XCTAssertEqual(held.outcome, VibeMetadataReadOutcomeRead);
 
-    XCTAssertNil([[self store:AudioTrackMetadataCache.cacheName under:root].diskCache objectForKey:key],
-                 @"the held parse filed nothing");
+    XCTAssertNil([self filedTagsIn:cache key:key], @"the held parse filed nothing");
     VibeMetadataReadResult *again = [self read:url through:cache policy:VibeMetadataReadPolicyLocal];
     XCTAssertFalse(again.fromCache);
     XCTAssertEqual(parses, 2u);
+}
+
+#pragma mark - Formats
+
+// The file's tags as a row of the format before the current one, under its
+// key, as a store keeps them after a format bump.
+- (NSString *)fileOlderRowOf:(NSURL *)url in:(AudioTrackMetadataCache *)cache {
+    NSString *key = url.cacheKey;
+    AudioTrackMetadata *tags = [AudioTrackMetadata metadataWithURL:url displayArtData:NULL];
+    [cache.metadataCache.cacheStore setData:VibeMetadataArchive(tags) forKey:key
+                                     format:VibeMetadataTagsFormat - 1 sharedName:nil];
+    return key;
+}
+
+// An older row is a miss for a read that may open the file, which parses it
+// and replaces the row (CH16).
+- (void)testAnOlderRowIsAMissForAReadThatMayOpenTheFile {
+    NSURL *url = VibeWriteTagFixture(_dir, VibeTagFixtureFLAC, nil, NULL);
+    AudioTrackMetadataCache *cache =
+            [[AudioTrackMetadataCache alloc] initWithRootPath:[_dir URLByAppendingPathComponent:@"cache"].path];
+    NSString *key = [self fileOlderRowOf:url in:cache];
+    VibeMetadataReadResult *read = [self read:url through:cache policy:VibeMetadataReadPolicyLocal];
+    XCTAssertEqual(read.outcome, VibeMetadataReadOutcomeRead);
+    XCTAssertFalse(read.fromCache, @"the older row was not read");
+    XCTAssertFalse(read.older);
+    XCTAssertEqualObjects(read.metadata.cacheKey, key);
+    XCTAssertEqual([cache.metadataCache.cacheStore hitForKey:key acceptingFormatsUpTo:VibeMetadataTagsFormat].format,
+                   VibeMetadataTagsFormat, @"the parse replaced the row");
+}
+
+// A read that may not open the file answers from an older row, marked older,
+// with no version, so the fields it lacks are unknown (CH17).
+- (void)testAnOlderRowAnswersACacheOnlyReadMarkedOlder {
+    NSURL *url = VibeWriteTagFixture(_dir, VibeTagFixtureFLAC, nil, NULL);
+    AudioTrackMetadataCache *cache =
+            [[AudioTrackMetadataCache alloc] initWithRootPath:[_dir URLByAppendingPathComponent:@"cache"].path];
+    NSString *key = [self fileOlderRowOf:url in:cache];
+    VibeMetadataReadResult *read = [self read:url through:cache policy:VibeMetadataReadPolicyCacheOnly];
+    XCTAssertEqual(read.outcome, VibeMetadataReadOutcomeRead);
+    XCTAssertTrue(read.fromCache);
+    XCTAssertTrue(read.older);
+    XCTAssertEqualObjects(read.cacheKey, key, @"the result names the version it looked up");
+    XCTAssertTrue(read.metadata.olderFormat);
+    XCTAssertNil(read.metadata.cacheKey, @"the answer names no version");
+    XCTAssertEqualObjects(read.metadata.title, kVibeTagTitle);
+}
+
+// A row's older answer is installed by a cache-only load, and the next load
+// that may open the file replaces it in the holder.
+- (void)testAHolderTakesTheNextAnswerInPlaceOfAnOlderOne {
+    NSURL *url = VibeWriteTagFixture(_dir, VibeTagFixtureFLAC, nil, NULL);
+    AudioTrackMetadataCache *cache =
+            [[AudioTrackMetadataCache alloc] initWithRootPath:[_dir URLByAppendingPathComponent:@"cache"].path];
+    NSString *key = [self fileOlderRowOf:url in:cache];
+    VibeMetadataLoaderDelegate *delegate = [[VibeMetadataLoaderDelegate alloc] init];
+    cache.delegate = delegate;
+    VibeLoaderTestTrack *track = [VibeLoaderTestTrack withURL:url];
+    [cache loadCachedMetadata:@[track]];
+    XCTAssertTrue([self waitFor:^BOOL { return delegate.deliveredTracks.count > 0; } within:VIBE_TEST_HANG_TIMEOUT]);
+    XCTAssertTrue(track.metadata.olderFormat);
+    XCTAssertEqualObjects(track.metadata.title, kVibeTagTitle);
+
+    [cache loadMetadata:@[track]];
+    XCTAssertTrue([self waitFor:^BOOL { return delegate.deliveredTracks.count > 1; } within:VIBE_TEST_HANG_TIMEOUT],
+                  @"the parse replaced the older answer");
+    XCTAssertFalse(track.metadata.olderFormat);
+    XCTAssertEqualObjects(track.metadata.cacheKey, key);
+    XCTAssertEqualObjects([track.metadata extraTag:VibeTagFieldCatalogNumber], @"CAT-0042");
+    cache.delegate = nil;
+}
+
+#pragma mark - One copy of each picture
+
+// Two files that embed one picture keep one thumbnail and one rendition.
+- (void)testFilesThatEmbedOnePictureKeepOneCopy {
+    NSData *red = VibeImageOfColor(600, 1, 0, 0, UTTypeJPEG);
+    NSURL *first = VibeWriteTagFixture(_dir, VibeTagFixtureMP3ID3v24, red, NULL);
+    NSURL *second = VibeWriteTagFixture(_dir, VibeTagFixtureMP3ID3v23, red, NULL);
+    AudioTrackMetadataCache *cache =
+            [[AudioTrackMetadataCache alloc] initWithRootPath:[_dir URLByAppendingPathComponent:@"cache"].path];
+    NSString *firstKey = [self read:first through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
+    NSString *secondKey = [self read:second through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
+    XCTAssertEqualObjects([self pictureIn:cache key:firstKey], [self pictureIn:cache key:secondKey]);
+    VibeCacheUsage usage = cache.metadataCache.usage;
+    XCTAssertEqual(usage.entries, 2u);
+    XCTAssertEqual(usage.sharedItems, 2u, @"one thumbnail and one rendition");
+    for (NSURL *url in @[first, second]) {
+        VibeMetadataReadResult *hit = [self read:url through:cache policy:VibeMetadataReadPolicyCacheOnly];
+        XCTAssertTrue(hit.fromCache);
+        XCTAssertNotNil([self thumbnailOf:hit.metadata]);
+    }
+}
+
+// A picture stays while an entry names it, and goes with the last (CH11).
+// Its entries then read as art that is not cached.
+- (void)testAPictureGoesWhenNoEntryNamesIt {
+    NSData *red = VibeImageOfColor(600, 1, 0, 0, UTTypeJPEG);
+    NSURL *first = VibeWriteTagFixture(_dir, VibeTagFixtureMP3ID3v24, red, NULL);
+    NSURL *second = VibeWriteTagFixture(_dir, VibeTagFixtureMP3ID3v23, red, NULL);
+    AudioTrackMetadataCache *cache =
+            [[AudioTrackMetadataCache alloc] initWithRootPath:[_dir URLByAppendingPathComponent:@"cache"].path];
+    NSString *firstKey = [self read:first through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
+    NSString *secondKey = [self read:second through:cache policy:VibeMetadataReadPolicyLocal].cacheKey;
+    NSString *picture = [self pictureIn:cache key:firstKey];
+    VibeMetadataStore *store = cache.metadataCache;
+    [store removeEntryForKey:firstKey];
+    XCTAssertNotNil([store renditionOfPicture:picture], @"the second file still names it");
+    [store.cacheStore removeSharedItemForName:picture part:VibeMetadataStore.thumbnailPart];
+    VibeMetadataReadResult *hit = [self read:second through:cache policy:VibeMetadataReadPolicyCacheOnly];
+    XCTAssertTrue(hit.metadata.hasEmbeddedArt);
+    XCTAssertNotNil([self thumbnailOf:hit.metadata], @"a trimmed thumbnail decodes from the rendition");
+    [store removeEntryForKey:secondKey];
+    XCTAssertNil([store renditionOfPicture:picture]);
+    XCTAssertEqual(store.usage.sharedItems, 0u);
+}
+
+#pragma mark - The import
+
+// The PINCache stores of the releases before, filled as their cache filed a
+// parse: the tags under the file's key, and its thumbnail and rendition each
+// in its own store under the same key. Two files embed one picture, and one
+// embeds none.
+- (NSArray<NSURL *> *)fillOldStoresUnder:(NSString *)root {
+    NSData *red = VibeImageOfColor(600, 1, 0, 0, UTTypeJPEG);
+    NSArray<NSURL *> *urls = @[VibeWriteTagFixture(_dir, VibeTagFixtureMP3ID3v24, red, NULL),
+                               VibeWriteTagFixture(_dir, VibeTagFixtureMP3ID3v23, red, NULL),
+                               VibeWriteTagFixture(_dir, VibeTagFixtureWAVID3, nil, NULL)];
+    NSArray<NSString *> *names = VibeMetadataImport.oldStoreNames;
+    @autoreleasepool {
+        PINCache *tags = [self store:names[0] under:root];
+        PINCache *thumbnails = [self store:names[1] under:root];
+        PINCache *renditions = [self store:names[2] under:root];
+        for (NSURL *url in urls) {
+            NSData *rendition = nil;
+            AudioTrackMetadata *metadata = [AudioTrackMetadata metadataWithURL:url displayArtData:&rendition];
+            [tags.diskCache setObject:metadata forKey:url.cacheKey];
+            NSData *thumbnail = metadata.artwork.encodedThumbnailDataForStorage;
+            if (thumbnail) {
+                [thumbnails.diskCache setObject:thumbnail forKey:url.cacheKey];
+            }
+            if (rendition) {
+                [renditions.diskCache setObject:rendition forKey:url.cacheKey];
+            }
+        }
+    }
+    return urls;
+}
+
+- (BOOL)oldStoresAreUnder:(NSString *)root {
+    for (NSString *name in VibeMetadataImport.oldStoreNames) {
+        NSString *folder = [root stringByAppendingPathComponent:[@"com.pinterest.PINDiskCache." stringByAppendingString:name]];
+        if ([NSFileManager.defaultManager fileExistsAtPath:folder]) {
+            return YES;
+        }
+    }
+    return NO;
+}
+
+- (void)waitForTheImportOf:(VibeMetadataStore *)store {
+    XCTestExpectation *imported = [self expectationWithDescription:@"imported"];
+    [store performAfterImportForTesting:^{
+        [imported fulfill];
+    }];
+    [self waitForExpectations:@[imported] timeout:VIBE_TEST_HANG_TIMEOUT];
+}
+
+// Every entry of each old store reads back the same, the files that embed
+// one picture keep one copy of it, and the old stores are gone at the end.
+- (void)testTheImportBringsEveryEntryOverThenRemovesTheOldStores {
+    NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
+    NSArray<NSURL *> *urls = [self fillOldStoresUnder:root];
+    [VibeMetadataImport setStartDelayForTesting:0];
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    [self waitForTheImportOf:cache.metadataCache];
+    XCTAssertFalse([self oldStoresAreUnder:root]);
+    VibeCacheUsage usage = cache.metadataCache.usage;
+    XCTAssertEqual(usage.entries, 3u);
+    XCTAssertEqual(usage.sharedItems, 2u, @"one picture's thumbnail and rendition");
+    NSData *red = VibeImageOfColor(600, 1, 0, 0, UTTypeJPEG);
+    for (NSURL *url in urls) {
+        VibeMetadataReadResult *hit = [self read:url through:cache policy:VibeMetadataReadPolicyCacheOnly];
+        XCTAssertEqual(hit.outcome, VibeMetadataReadOutcomeRead, @"%@", url.lastPathComponent);
+        XCTAssertTrue(hit.fromCache);
+        XCTAssertFalse(hit.older);
+        XCTAssertEqualObjects(hit.metadata.title, kVibeTagTitle);
+        XCTAssertEqualObjects(hit.metadata.album, [AudioTrackMetadata metadataWithURL:url displayArtData:NULL].album);
+        if (url != urls.lastObject) {
+            XCTAssertTrue(hit.metadata.hasEmbeddedArt);
+            XCTAssertEqualObjects([cache.metadataCache renditionOfPicture:[self pictureIn:cache key:hit.cacheKey]], red);
+            XCTAssertNotNil([self thumbnailOf:hit.metadata]);
+        } else {
+            XCTAssertFalse(hit.metadata.hasEmbeddedArt);
+            XCTAssertNil([self pictureIn:cache key:hit.cacheKey]);
+        }
+    }
+}
+
+// A miss before the import reaches its entry looks in the old store, and
+// brings the entry over, so the file is not parsed.
+- (void)testAMissDuringTheImportFindsTheOldEntry {
+    NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
+    NSArray<NSURL *> *urls = [self fillOldStoresUnder:root];
+    [VibeMetadataImport setStartDelayForTesting:-1];
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    __block NSUInteger parses = 0;
+    [cache debugSetReadingFileParser:^AudioTrackMetadata *(NSURL *url) {
+        parses++;
+        return [AudioTrackMetadata metadataWithURL:url displayArtData:NULL];
+    }];
+    VibeMetadataReadResult *hit = [self read:urls.firstObject through:cache policy:VibeMetadataReadPolicyLocal];
+    XCTAssertTrue(hit.fromCache);
+    XCTAssertEqual(parses, 0u);
+    XCTAssertEqualObjects(hit.metadata.title, kVibeTagTitle);
+    XCTAssertNotNil([self thumbnailOf:hit.metadata]);
+    XCTAssertEqual(cache.metadataCache.usage.entries, 1u);
+    XCTAssertTrue([self oldStoresAreUnder:root], @"the bulk import has not run");
+}
+
+// An import cut short goes on at the next open, past what it brought over.
+- (void)testAnImportCutShortGoesOnAtTheNextOpen {
+    NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
+    NSArray<NSURL *> *urls = [self fillOldStoresUnder:root];
+    [VibeMetadataImport setStartDelayForTesting:-1];
+    VibeMetadataStore *first = [VibeMetadataStore checkOutStoreUnderRootPath:root];
+    XCTAssertNotNil([first tagsHitForKey:urls.firstObject.cacheKey acceptingOlder:NO]);
+    [first checkIn];
+    XCTAssertTrue([self oldStoresAreUnder:root]);
+
+    [VibeMetadataImport setStartDelayForTesting:0];
+    VibeMetadataStore *second = [VibeMetadataStore checkOutStoreUnderRootPath:root];
+    XCTAssertNotEqual(first, second, @"the first closed");
+    [self waitForTheImportOf:second];
+    XCTAssertEqual(second.usage.entries, 3u);
+    XCTAssertFalse([self oldStoresAreUnder:root]);
+    [second checkIn];
+}
+
+// A Clear during the import removes the old stores too, so nothing comes
+// back from them.
+- (void)testAClearDuringTheImportRemovesTheOldStores {
+    NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
+    NSArray<NSURL *> *urls = [self fillOldStoresUnder:root];
+    [VibeMetadataImport setStartDelayForTesting:-1];
+    AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
+    XCTestExpectation *emptied = [self expectationWithDescription:@"emptied"];
+    [cache invalidateWithCompletion:^{
+        [emptied fulfill];
+    }];
+    [self waitForExpectations:@[emptied] timeout:VIBE_TEST_HANG_TIMEOUT];
+    XCTAssertFalse([self oldStoresAreUnder:root]);
+    XCTAssertEqual([self read:urls.firstObject through:cache policy:VibeMetadataReadPolicyCacheOnly].outcome,
+                   VibeMetadataReadOutcomeCacheMiss);
 }
 
 @end

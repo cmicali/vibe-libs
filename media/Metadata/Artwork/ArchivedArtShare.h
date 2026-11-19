@@ -20,6 +20,13 @@ FOUNDATION_EXPORT void VibeArchivedArtOfPicture(NSData *picture,
                                                 VibeArchivedArtMaker make,
                                                 NSData *_Nullable *_Nonnull thumbnail,
                                                 NSData *_Nullable *_Nonnull rendition);
+// The same, with the SHA-256 of the picture's bytes, by which the disk cache
+// names the picture.
+FOUNDATION_EXPORT void VibeArchivedArtOfPictureWithDigest(NSData *picture,
+                                                          VibeArchivedArtMaker make,
+                                                          NSData *_Nullable *_Nonnull thumbnail,
+                                                          NSData *_Nullable *_Nonnull rendition,
+                                                          NSData *_Nonnull *_Nullable digest);
 
 // How many pictures' forms it keeps, by a digest of their bytes. It empties
 // 30 s after its last use, and iOS empties it on a memory warning.

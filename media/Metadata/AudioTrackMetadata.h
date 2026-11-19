@@ -125,6 +125,12 @@ FOUNDATION_EXPORT NSArray<VibeTagField> *VibeMetadataExtraTagNames(void);
 // the cache entry is filed under it. nil when the file had no key.
 @property (copy, nullable, readonly) NSString *cacheKey;
 
+// YES when a cache-only read answered from a row of an older format. A field
+// that format lacks reads as untagged, but is unknown. Its cacheKey is nil,
+// so a holder installs the next answer in its place, and the next read that
+// may open the file parses it again.
+@property (readonly, getter=isOlderFormat) BOOL olderFormat;
+
 // Non-blocking: already-decoded art or nil, never a decode.
 - (nullable VibeImage *)cachedArt;
 

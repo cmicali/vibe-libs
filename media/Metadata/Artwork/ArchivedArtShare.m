@@ -74,7 +74,18 @@ void VibeArchivedArtOfPicture(NSData *picture,
                               VibeArchivedArtMaker make,
                               NSData *_Nullable *_Nonnull thumbnail,
                               NSData *_Nullable *_Nonnull rendition) {
+    VibeArchivedArtOfPictureWithDigest(picture, make, thumbnail, rendition, NULL);
+}
+
+void VibeArchivedArtOfPictureWithDigest(NSData *picture,
+                                        VibeArchivedArtMaker make,
+                                        NSData *_Nullable *_Nonnull thumbnail,
+                                        NSData *_Nullable *_Nonnull rendition,
+                                        NSData *_Nonnull *_Nullable digestOut) {
     NSData *digest = picture.sha256Digest;
+    if (digestOut) {
+        *digestOut = digest;
+    }
     BOOL maker = NO;
     os_unfair_lock_lock(&sLock);
     if (!sEntries) {

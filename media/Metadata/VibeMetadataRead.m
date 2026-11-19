@@ -26,4 +26,8 @@
     return self;
 }
 
+- (BOOL)isOlder {
+    return _metadata.olderFormat;
+}
+
 @end

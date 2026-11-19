@@ -986,6 +986,18 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
     XCTAssertEqualObjects(self.remaining, [NSSet setWithArray:kept]);
 }
 
+// Two kept names of one family both stay, as a store and the older one it
+// imports do, and the family's other versions go.
+- (void)testKeepsEveryCurrentNameOfOneFamily {
+    NSArray<NSString *> *kept = @[@"com.pinterest.PINDiskCache.Audio Track Metadata",
+                                  @"com.pinterest.PINDiskCache.Audio Track Metadata v11"];
+    [self makeStores:[kept arrayByAddingObject:@"com.pinterest.PINDiskCache.Audio Track Metadata v10"]];
+
+    [self removeOtherVersionsKeeping:@[@"Audio Track Metadata", @"Audio Track Metadata v11"] under:_root];
+
+    XCTAssertEqualObjects(self.remaining, [NSSet setWithArray:kept]);
+}
+
 // The store audioCacheWithName: makes is the one the rule keeps.
 - (void)testTheRuleKeepsTheStoreItsHelperMakes {
     PINCache *cache = [PINCache audioCacheWithName:@"store_v3" rootPath:_root];

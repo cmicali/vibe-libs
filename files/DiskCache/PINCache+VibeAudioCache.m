@@ -73,6 +73,12 @@ static NSString *VibeAudioCacheFamily(NSString *name) {
                     continue;
                 }
                 NSString *name = [entry substringFromIndex:prefix.length];
+                // A name the list keeps stays, though another kept name
+                // shares its family, as a store and the older one it imports
+                // do.
+                if ([current containsObject:name]) {
+                    continue;
+                }
                 for (NSString *keep in current) {
                     if (![name isEqualToString:keep]
                             && [VibeAudioCacheFamily(name) isEqualToString:VibeAudioCacheFamily(keep)]) {

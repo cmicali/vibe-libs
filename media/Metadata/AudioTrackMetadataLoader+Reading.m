@@ -85,14 +85,20 @@
     if (!cacheKey) {
         return [self answerFor:url outcome:VibeMetadataReadOutcomeMissing cacheKey:nil metadata:nil error:nil];
     }
-    AudioTrackMetadata *cached = [self cachedMetadataForKey:cacheKey];
-    if (cached) {
+    AudioTrackMetadata *cached = [self cachedMetadataForKey:cacheKey acceptingOlder:YES];
+    if (cached && !cached.olderFormat) {
         return [[VibeMetadataReadResult alloc] initWithURL:url outcome:VibeMetadataReadOutcomeRead
                                                   cacheKey:cacheKey metadata:cached fromCache:YES error:nil];
     }
-    // A remote placeholder answers dataless too.
+    // A remote placeholder answers dataless too. A read that may not open the
+    // file takes an older row's answer, marked older (CH17). One that may
+    // parses the file again (CH16).
     if (policy == VibeMetadataReadPolicyCacheOnly || [PlaceholderFiles isDatalessFile:url]) {
-        return [self answerFor:url outcome:VibeMetadataReadOutcomeCacheMiss cacheKey:cacheKey metadata:nil error:nil];
+        return cached ? [[VibeMetadataReadResult alloc] initWithURL:url outcome:VibeMetadataReadOutcomeRead
+                                                           cacheKey:cacheKey metadata:cached fromCache:YES
+                                                              error:nil]
+                      : [self answerFor:url outcome:VibeMetadataReadOutcomeCacheMiss cacheKey:cacheKey metadata:nil
+                                  error:nil];
     }
     // The open alone tells an unreadable file from one that is not audio.
     // TRAP: only a regular file reaches the parse. The parse reopens the path
@@ -119,12 +125,16 @@
     // the cache.
     uint64_t generation = _owner.cacheGeneration;
     __block NSData *displayArt = nil;
+    __block NSData *pictureDigest = nil;
     __block AudioTrackMetadata *metadata = nil;
     VibeWithoutMaterializing(@"a tag read", ^{
         NSData *art = nil;
+        NSData *digest = nil;
         metadata = self->_fileParser ? self->_fileParser(url)
-                                     : [AudioTrackMetadata metadataWithURL:url displayArtData:&art];
+                                     : [AudioTrackMetadata metadataWithURL:url displayArtData:&art
+                                                             pictureDigest:&digest];
         displayArt = art;
+        pictureDigest = digest;
     });
     // TRAP: checked at the parse's completion, as the sweep's is. Its bytes
     // may be either version's, so it is neither filed nor answered as Read.
@@ -142,7 +152,8 @@
         return [self answerFor:url outcome:VibeMetadataReadOutcomeNotParsed cacheKey:cacheKey metadata:metadata
                          error:nil];
     }
-    [self fileMetadata:metadata displayArt:displayArt forKey:cacheKey generation:generation];
+    [self fileMetadata:metadata displayArt:displayArt pictureDigest:pictureDigest forKey:cacheKey
+            generation:generation];
     return [[VibeMetadataReadResult alloc] initWithURL:url outcome:VibeMetadataReadOutcomeRead cacheKey:cacheKey
                                               metadata:metadata fromCache:NO error:nil];
 }
