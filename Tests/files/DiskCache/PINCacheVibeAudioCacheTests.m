@@ -5,9 +5,109 @@
 //
 
 #import <XCTest/XCTest.h>
+#import <os/lock.h>
 #import <stdatomic.h>
 
 #import "PINCache+VibeAudioCache.h"
+
+// A point a store's launch count stops at, through PINDiskCache's seam, until
+// the test lets it go on. It stops every store of its name there once.
+@interface VibeCountHold : NSObject
+@property (nonatomic, readonly) NSString *name;
+@property (nonatomic, readonly) VibePINDiskCacheCountStage stage;
+@property (nonatomic, readonly, nullable) NSString *key;
+@end
+
+@implementation VibeCountHold {
+    NSCondition *_condition;
+    NSUInteger _held;
+    BOOL _released;
+    NSHashTable *_stopped;
+}
+
+- (instancetype)initWithName:(NSString *)name stage:(VibePINDiskCacheCountStage)stage key:(nullable NSString *)key {
+    if ((self = [super init])) {
+        _name = [name copy];
+        _stage = stage;
+        _key = [key copy];
+        _condition = [[NSCondition alloc] init];
+        _stopped = [NSHashTable weakObjectsHashTable];
+    }
+    return self;
+}
+
+- (void)stopCache:(PINDiskCache *)cache stage:(VibePINDiskCacheCountStage)stage key:(nullable NSString *)key {
+    if (stage != _stage || ![cache.name isEqualToString:_name] || (_key && ![key isEqualToString:_key])) {
+        return;
+    }
+    [_condition lock];
+    if (![_stopped containsObject:cache]) {
+        [_stopped addObject:cache];
+        _held++;
+        [_condition broadcast];
+        // Twice the hang timeout, so a change that waits for the count
+        // fails its own wait first.
+        NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:2 * VIBE_TEST_HANG_TIMEOUT];
+        while (!_released && [_condition waitUntilDate:deadline]) {
+        }
+    }
+    [_condition unlock];
+}
+
+- (BOOL)waitUntilHeld:(NSUInteger)count {
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    [_condition lock];
+    while (_held < count && [_condition waitUntilDate:deadline]) {
+    }
+    BOOL held = _held >= count;
+    [_condition unlock];
+    return held;
+}
+
+- (void)letGo {
+    [_condition lock];
+    _released = YES;
+    [_condition broadcast];
+    [_condition unlock];
+}
+
+@end
+
+static os_unfair_lock VibeHoldsLock = OS_UNFAIR_LOCK_INIT;
+static NSMutableArray<VibeCountHold *> *VibeHolds;
+
+static void VibeCountSeam(PINDiskCache *cache, VibePINDiskCacheCountStage stage, NSString *key) {
+    os_unfair_lock_lock(&VibeHoldsLock);
+    NSArray<VibeCountHold *> *holds = [VibeHolds copy];
+    os_unfair_lock_unlock(&VibeHoldsLock);
+    for (VibeCountHold *hold in holds) {
+        [hold stopCache:cache stage:stage key:key];
+    }
+}
+
+// A hold on the store's count at a stage, and at a key for a file's stage.
+static VibeCountHold *VibeHoldCount(NSString *name, VibePINDiskCacheCountStage stage, NSString *key) {
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        VibeHolds = [NSMutableArray array];
+        __atomic_store_n(&VibePINDiskCacheCountSeamFunction, &VibeCountSeam, __ATOMIC_RELEASE);
+    });
+    VibeCountHold *hold = [[VibeCountHold alloc] initWithName:name stage:stage key:key];
+    os_unfair_lock_lock(&VibeHoldsLock);
+    [VibeHolds addObject:hold];
+    os_unfair_lock_unlock(&VibeHoldsLock);
+    return hold;
+}
+
+static void VibeLetGoOfEveryCount(void) {
+    os_unfair_lock_lock(&VibeHoldsLock);
+    NSArray<VibeCountHold *> *holds = [VibeHolds copy];
+    [VibeHolds removeAllObjects];
+    os_unfair_lock_unlock(&VibeHoldsLock);
+    for (VibeCountHold *hold in holds) {
+        [hold letGo];
+    }
+}
 
 @interface PINCacheVibeAudioCacheTests : XCTestCase
 @end
@@ -22,6 +122,7 @@
 }
 
 - (void)tearDown {
+    VibeLetGoOfEveryCount();
     [NSFileManager.defaultManager removeItemAtPath:_root error:nil];
     [super tearDown];
 }
@@ -531,6 +632,219 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
         [counted fulfill];
     }];
     [self waitForExpectations:@[counted] timeout:VIBE_TEST_HANG_TIMEOUT];
+}
+
+#pragma mark - Changes during the launch's count
+
+// A store of entries k0 to k9, each 10,000 bytes, closed, for a store opened
+// again over it to count.
+- (void)makeStoreOfTenEntries:(NSString *)name {
+    PINDiskCache *first = [PINCache audioCacheWithName:name rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    for (NSUInteger i = 0; i < 10; i++) {
+        [first setObject:[NSMutableData dataWithLength:10000] forKey:[NSString stringWithFormat:@"k%lu", (unsigned long)i]];
+    }
+}
+
+// Once the count is done, the byte count is the files' bytes, and a store
+// opened fresh over them counts the same.
+- (void)assertSettled:(PINDiskCache *)cache {
+    VibeWaitForDiskState(cache);
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+    PINDiskCache *fresh = [PINCache audioCacheWithName:cache.name rootPath:_root].diskCache;
+    VibeWaitForDiskState(fresh);
+    XCTAssertEqual(fresh.byteCount, cache.byteCount);
+}
+
+// A write, a removal, a move, and a hit answer while the launch's count is
+// held, where a write and a removal once waited for it.
+- (void)testChangesAnswerWhileTheCountIsHeld {
+    [self makeStoreOfTenEntries:@"held"];
+    VibeCountHold *hold = VibeHoldCount(@"held", VibePINDiskCacheCountStageStart, nil);
+    PINCache *store = [PINCache audioCacheWithName:@"held" rootPath:_root];
+    PINDiskCache *cache = store.diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    __block NSData *hit = nil;
+    BOOL answered = VibeFinishesElsewhere(^{
+        [cache setObject:[NSMutableData dataWithLength:30000] forKey:@"new"];
+        [cache setObject:[NSMutableData dataWithLength:30000] forKey:@"k1"];
+        [cache removeObjectForKey:@"k2"];
+        [cache moveObjectForKey:@"k3" toKey:@"moved"];
+        hit = (NSData *)[cache objectForKey:@"k4"];
+    });
+    XCTAssertTrue(answered, @"a change waited for the count");
+    XCTAssertEqual(hit.length, 10000u);
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+    XCTAssertNil([cache objectForKey:@"k2"]);
+    XCTAssertEqual([(NSData *)[cache objectForKey:@"moved"] length], 10000u);
+    XCTestExpectation *counted = [self expectationWithDescription:@"counted"];
+    [store audioDiskUsageWithCompletion:^(NSUInteger fileCount, unsigned long long totalBytes) {
+        XCTAssertEqual(fileCount, 10u);
+        [counted fulfill];
+    }];
+    [self waitForExpectations:@[counted] timeout:VIBE_TEST_HANG_TIMEOUT];
+}
+
+// A key written after the count listed it, before it counts it, is skipped
+// then, as its listed size is the old file's. One key's file name is
+// percent-encoded, as the count and a change must name it alike.
+- (void)testAKeyWrittenDuringTheCountIsSkippedWhenTheCountMeetsIt {
+    [self makeStoreOfTenEntries:@"met"];
+    NSString *encoded = @"a key: 50%/b";
+    PINDiskCache *first = [PINCache audioCacheWithName:@"met" rootPath:_root].diskCache;
+    [first setObject:[NSMutableData dataWithLength:10000] forKey:encoded];
+    VibeWaitForDiskState(first);
+    first = nil;
+    VibeCountHold *hold = VibeHoldCount(@"met", VibePINDiskCacheCountStageFile, encoded);
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"met" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    [cache setObject:[NSMutableData dataWithLength:90000] forKey:@"k5"];
+    [cache setObject:[NSMutableData dataWithLength:90000] forKey:encoded];
+    XCTAssertEqual([(NSData *)[cache objectForKey:encoded] length], 90000u);
+    [cache setObject:[NSMutableData dataWithLength:20000] forKey:@"new"];
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+    XCTAssertEqual([(NSData *)[cache objectForKey:@"k5"] length], 90000u);
+}
+
+// A key removed before the count reaches it, whether listed already or not,
+// and one removed after, each leave the bytes of the files left.
+- (void)testAKeyRemovedBeforeTheCountReachesIt {
+    [self makeStoreOfTenEntries:@"removed before"];
+    VibeCountHold *hold = VibeHoldCount(@"removed before", VibePINDiskCacheCountStageFile, @"k5");
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"removed before" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    [cache removeObjectForKey:@"k5"];
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+    XCTAssertFalse([cache containsObjectForKey:@"k5"]);
+}
+
+- (void)testAKeyRemovedBeforeTheCountListsIt {
+    [self makeStoreOfTenEntries:@"removed unlisted"];
+    VibeCountHold *hold = VibeHoldCount(@"removed unlisted", VibePINDiskCacheCountStageStart, nil);
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"removed unlisted" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    [cache removeObjectForKey:@"k5"];
+    [cache removeObjectForKey:@"k6"];
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+}
+
+- (void)testAKeyRemovedAfterTheCountReachedIt {
+    [self makeStoreOfTenEntries:@"removed after"];
+    VibeCountHold *hold = VibeHoldCount(@"removed after", VibePINDiskCacheCountStageEnd, nil);
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"removed after" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    [cache removeObjectForKey:@"k5"];
+    [cache setObject:[NSMutableData dataWithLength:30000] forKey:@"k6"];
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache), @"the count had every file");
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+}
+
+// A write that takes the store over its limit during the count fires a trim,
+// which waits for the count, then cuts the store under the limit.
+- (void)testATrimFiredDuringTheCountCutsOnceItIsDone {
+    [self makeStoreOfTenEntries:@"trimmed"];
+    VibeCountHold *hold = VibeHoldCount(@"trimmed", VibePINDiskCacheCountStageEnd, nil);
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"trimmed" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    // TRAP: the shared limit is set on the store's queue, so it goes first.
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (cache.byteLimit != 1024u * 1024u * 1024u && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.01];
+    }
+    NSUInteger limit = VibeAllocatedBytes(cache) / 2;
+    cache.byteLimit = limit;
+    while (cache.byteLimit != limit && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.01];
+    }
+    XCTAssertEqual(cache.byteLimit, limit);
+    [cache setObject:[NSMutableData dataWithLength:10000] forKey:@"new"];
+    VibeLetGoOfEveryCount();
+    deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (cache.byteCount > limit && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.01];
+    }
+    XCTAssertLessThanOrEqual(cache.byteCount, limit);
+    XCTAssertTrue([cache containsObjectForKey:@"new"], @"the newest stayed");
+    [self assertSettled:cache];
+}
+
+// An old entry moved during the count, whose new name the count then skips,
+// still lowers the date the age limit's trim reads, so it ages out.
+- (void)testAnOldEntryMovedDuringTheCountStillAgesOut {
+    [self makeStoreOfTenEntries:@"aged move"];
+    // With no store open, whose age limit's trim would remove it first.
+    NSString *k0 = [[_root stringByAppendingPathComponent:[PINDiskCachePrefix stringByAppendingString:@".aged move"]]
+                    stringByAppendingPathComponent:@"k0"];
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 200]}
+                                                 ofItemAtPath:k0 error:nil]);
+    VibeCountHold *hold = VibeHoldCount(@"aged move", VibePINDiskCacheCountStageStart, nil);
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"aged move" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    XCTAssertTrue([cache moveObjectForKey:@"k0" toKey:@"old"]);
+    VibeLetGoOfEveryCount();
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while ([cache containsObjectForKey:@"old"] && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.05];
+    }
+    XCTAssertFalse([cache containsObjectForKey:@"old"]);
+    XCTAssertTrue([cache containsObjectForKey:@"k1"]);
+    [self assertSettled:cache];
+}
+
+// Moves during the count, as Metadata's after a tag rewrite: one listed but
+// not counted, one counted, and one refused, keep the bytes with the files.
+- (void)testMovesDuringTheCountKeepTheirBytes {
+    [self makeStoreOfTenEntries:@"moves"];
+    VibeCountHold *listed = VibeHoldCount(@"moves", VibePINDiskCacheCountStageFile, @"k5");
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"moves" rootPath:_root].diskCache;
+    XCTAssertTrue([listed waitUntilHeld:1]);
+    VibeCountHold *end = VibeHoldCount(@"moves", VibePINDiskCacheCountStageEnd, nil);
+    XCTAssertTrue([cache moveObjectForKey:@"k5" toKey:@"m5"]);
+    XCTAssertFalse([cache moveObjectForKey:@"k3" toKey:@"k4"], @"a taken key");
+    [cache removeObjectForKey:@"k7"];
+    [listed letGo];
+    XCTAssertTrue([end waitUntilHeld:1]);
+    XCTAssertTrue([cache moveObjectForKey:@"k0" toKey:@"m0"]);
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+    XCTAssertEqual([(NSData *)[cache objectForKey:@"m5"] length], 10000u);
+    XCTAssertEqual([(NSData *)[cache objectForKey:@"m0"] length], 10000u);
+}
+
+// Two stores on one folder, each changed while both counts are held before
+// they list it, each count the files the other left.
+- (void)testTwoStoresOnOneFolderEachCountTheOthersFiles {
+    [self makeStoreOfTenEntries:@"shared"];
+    VibeCountHold *hold = VibeHoldCount(@"shared", VibePINDiskCacheCountStageStart, nil);
+    PINDiskCache *one = [PINCache audioCacheWithName:@"shared" rootPath:_root].diskCache;
+    PINDiskCache *two = [PINCache audioCacheWithName:@"shared" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:2]);
+    [one setObject:[NSMutableData dataWithLength:20000] forKey:@"one"];
+    [one removeObjectForKey:@"k1"];
+    [two setObject:[NSMutableData dataWithLength:30000] forKey:@"two"];
+    [two removeObjectForKey:@"k2"];
+    VibeLetGoOfEveryCount();
+    [self assertSettled:one];
+    [self assertSettled:two];
+}
+
+// Removing every entry during the count stops it: the files it would list
+// are gone, and a write after counts once.
+- (void)testRemovingEveryEntryDuringTheCountStopsIt {
+    [self makeStoreOfTenEntries:@"wiped during"];
+    VibeCountHold *hold = VibeHoldCount(@"wiped during", VibePINDiskCacheCountStageFile, nil);
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"wiped during" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    [cache removeAllObjects];
+    [cache setObject:[NSMutableData dataWithLength:20000] forKey:@"new"];
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+    XCTAssertTrue([cache containsObjectForKey:@"new"]);
 }
 
 #pragma mark - Other versions' stores
