@@ -81,14 +81,13 @@ typedef NSDictionary<VibeTagField, NSArray<NSString *> *> VibeTagFieldValues;
 // succeeded, the file's size is the one they imply, and it was flushed as
 // `sync` says.
 //
-// The cover is the pictures the art read shows: every front cover and every
-// picture typed "other", MP4's untyped entries among them, or when the file
-// has none, the one picture the read shows. A cover write takes those and
+// The cover is every front cover, or when the file has none, the one
+// picture the art read shows, whatever its type. A cover write takes it and
 // adds a front cover. coverMIMEType is one of VibeTagCoverMIMETypes(), the
 // bytes' signature must match it, and the image must be whole. MP4 refuses
 // TIFF and WebP. With coverData nil, the cover is removed: each removal
 // takes what shows, so a second removal takes the next picture that shows.
-// A back cover, a booklet page, or an artist photo that never showed stays.
+// A picture that never showed stays, whatever its type.
 FOUNDATION_EXTERN BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *_Nullable fields, BOOL changeCover,
                                            NSData *_Nullable coverData, NSString *_Nullable coverMIMEType,
                                            VibeTagWriteSync sync,
@@ -107,7 +106,8 @@ typedef NS_ENUM(NSInteger, VibeTagPictureType) {
     VibeTagPictureTypeBackCover = 4,
 };
 
-// One embedded picture as its tag stores it.
+// One embedded picture as its tag stores it. A value: isEqual: and hash
+// cover every field.
 @interface VibeTagPicture : NSObject
 
 - (instancetype)init NS_UNAVAILABLE;
@@ -147,12 +147,20 @@ FOUNDATION_EXTERN BOOL VibeTagLibReadPictures(NSString *path,
 // given. An exact undo writes back what VibeTagLibReadPictures answered
 // before the edit, a snapshot taken then, since the edit's own result
 // cannot say what it took. The bytes are not checked against the type.
-// Untyped is "other" outside MP4. In MP4 the type and description are
-// ignored, and a MIME type MP4 does not type is written untyped. Each
-// picture holds 1 to 16,000,000 bytes and a type from -1 to 20, and all of
-// them at most 250,000,000 bytes, or the call fails with InvalidImage
-// before the file opens. Every refusal of VibeTagLibWriteTags holds.
+// Untyped is "other" outside MP4. In MP4 a picture's type is Untyped or
+// FrontCover, its description is ignored, and a MIME type MP4 does not type
+// is written untyped. VibeTagLibPicturesFit says which lists fit, and every
+// refusal of VibeTagLibWriteTags holds.
 // media/Tags/AGENTS.md lists what the write does not keep.
+// Whether VibeTagLibWritePictures would take `pictures` for the file at
+// path, by the same checks: each picture holds 1 to 16,000,000 bytes and a
+// type from -1 to 20, all of them at most 250,000,000 bytes, and in MP4
+// each is Untyped or FrontCover. NO with InvalidImage when one fails, and
+// NoParser or TagLibThrew when the file cannot be read. It opens the file
+// for reading only. It does not ask whether the file is writable.
+FOUNDATION_EXTERN BOOL VibeTagLibPicturesFit(NSString *path, NSArray<VibeTagPicture *> *pictures,
+                                             NSError *_Nullable __autoreleasing *_Nullable error);
+
 FOUNDATION_EXTERN BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures,
                                                VibeTagWriteSync sync,
                                                NSError *_Nullable __autoreleasing *_Nullable error);
@@ -179,7 +187,8 @@ FOUNDATION_EXTERN NSData *_Nullable VibeTagLibAudioDigest(NSString *path,
 
 // Whether two files hold the same audio, as their digests would say,
 // compared byte by byte without hashing. It finds each file's audio as the
-// digest does, reads both with pread into two 1 MiB buffers, uncached, and
+// digest does, reads both with pread into two buffers of at most 1 MiB,
+// uninitialized and uncached, and
 // stops at the first difference. NO with AudioDiffers when they differ,
 // SameFile when both paths name one file, and the digest's errors.
 FOUNDATION_EXTERN BOOL VibeTagLibAudioMatches(NSString *pathA, NSString *pathB,

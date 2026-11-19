@@ -50,10 +50,18 @@ using Edits = TagLib::Map<TagLib::String, TagLib::StringList>;
 struct Record {
     TagLib::ByteVector data;
     TagLib::String mimeType;
+    // ID3v2's numbering, or -1 for an MP4 entry's none, which the typed
+    // formats write as "other" (0).
     int type = 3;
     TagLib::String description;
     int width = 0, height = 0, colorDepth = 0, colorCount = 0;
 };
+
+// MP4's entries hold no type, so a picture fits one only when it has none,
+// or is the front cover an entry stands for.
+bool MP4HoldsPictureType(int type) {
+    return type == -1 || type == 3;
+}
 
 // What a write does to the pictures. Cover takes the cover (CoverIndexes),
 // All takes every picture. Then `add` goes in, in order. A cover write adds
@@ -302,7 +310,7 @@ TagLib::ID3v2::AttachedPictureFrame *NewAPIC(const Record &record) {
     auto frame = new TagLib::ID3v2::AttachedPictureFrame();
     frame->setTextEncoding(TagLib::String::UTF8);
     frame->setMimeType(record.mimeType);
-    frame->setType(static_cast<TagLib::ID3v2::AttachedPictureFrame::Type>(record.type));
+    frame->setType(static_cast<TagLib::ID3v2::AttachedPictureFrame::Type>(std::max(record.type, 0)));
     frame->setDescription(record.description);
     frame->setPicture(record.data);
     return frame;
@@ -414,7 +422,7 @@ void ApplyXiphEdits(TagLib::Ogg::XiphComment *tag, const Edits &named) {
 
 TagLib::FLAC::Picture *NewPicture(const Record &record) {
     auto picture = new TagLib::FLAC::Picture();
-    picture->setType(static_cast<TagLib::FLAC::Picture::Type>(record.type));
+    picture->setType(static_cast<TagLib::FLAC::Picture::Type>(std::max(record.type, 0)));
     picture->setMimeType(record.mimeType);
     picture->setDescription(record.description);
     picture->setWidth(record.width);
@@ -512,6 +520,9 @@ void ApplyMP4Cover(TagLib::MP4::Tag *tag, const Cover &cover) {
         if (cover.take != Cover::Take::All && format == TagLib::MP4::CoverArt::Unknown) {
             Refuse(VibeTagWriteErrorInvalidImage, "MP4 cannot hold a " + Text(record.mimeType) + " cover");
         }
+        if (!MP4HoldsPictureType(record.type)) {
+            Refuse(VibeTagWriteErrorInvalidImage, "MP4 holds no picture type but none or a front cover");
+        }
         added.append(TagLib::MP4::CoverArt(format, record.data));
     }
     TagLib::MP4::CoverArtList list = added;
@@ -546,15 +557,15 @@ void CheckMP4ItemsSurvive(NSString *path, TagLib::MP4::Tag *tag) {
 
 #pragma mark - Per file
 
-// The pictures a cover write or removal takes: every front cover and every
-// "other" picture, MP4's untyped ones among them. When the file has none,
-// the one the art read shows. So each takes what shows, and never a back
-// cover or a booklet page the user did not see.
+// The pictures a cover write or removal takes: every front cover, or when
+// the file has none, the one picture the art read shows, whatever its
+// type. So the picture the user sees is always the one taken, and a
+// picture that never showed is never taken.
 std::vector<size_t> CoverIndexes(TagLib::File *file) {
     const std::vector<VibeEmbeddedPicture> pictures = VibeEmbeddedPictures(file);
     std::vector<size_t> taken;
     for (const VibeEmbeddedPicture &picture : pictures) {
-        if (picture.type == 3 || picture.type == 0 || picture.type == -1) taken.push_back(picture.index);
+        if (picture.type == 3) taken.push_back(picture.index);
     }
     const size_t shown = VibeShownPicture(pictures);
     if (taken.empty() && shown != SIZE_MAX) taken.push_back(pictures[shown].index);
@@ -824,7 +835,12 @@ NSArray<NSString *> *VibeTagCoverMIMETypes(void) {
 }
 
 - (NSUInteger)hash {
-    return _data.hash ^ (NSUInteger)_type;
+    NSUInteger hash = _data.hash;
+    for (NSUInteger part : {_mimeType.hash, (NSUInteger)_type, _pictureDescription.hash, _width, _height, _colorDepth,
+                            _colorCount}) {
+        hash = hash * 31 + part;
+    }
+    return hash;
 }
 
 - (NSString *)description {
@@ -868,8 +884,10 @@ BOOL VibeTagLibReadPictures(NSString *path, NSArray<VibeTagPicture *> *__autorel
     return YES;
 }
 
-BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures, VibeTagWriteSync sync,
-                             NSError *__autoreleasing *error) {
+namespace {
+
+// The limits VibeTagLibWritePictures checks before the file opens.
+BOOL CheckPictureLimits(NSString *path, NSArray<VibeTagPicture *> *pictures, NSError *__autoreleasing *error) {
     NSUInteger total = 0;
     for (VibeTagPicture *picture in pictures) {
         if (picture.data.length == 0 || picture.data.length > kMaxCoverBytes
@@ -885,6 +903,37 @@ BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures
                     [NSString stringWithFormat:@"The pictures hold %lu bytes, past %lu",
                                                (unsigned long)total, (unsigned long)kMaxPicturesBytes]);
     }
+    return YES;
+}
+
+} // namespace
+
+BOOL VibeTagLibPicturesFit(NSString *path, NSArray<VibeTagPicture *> *pictures, NSError *__autoreleasing *error) {
+    if (!CheckPictureLimits(path, pictures, error)) return NO;
+    try {
+        TagLibAudioFile fileRef(path.fileSystemRepresentation, false);
+        if (fileRef.isNull()) return Fail(error, VibeTagWriteErrorNoParser, path, @"No tag parser takes the file");
+        if (dynamic_cast<TagLib::MP4::File *>(fileRef.file())) {
+            for (VibeTagPicture *picture in pictures) {
+                if (!MP4HoldsPictureType((int)picture.type)) {
+                    return Fail(error, VibeTagWriteErrorInvalidImage, path,
+                                @"MP4 holds no picture type but none or a front cover");
+                }
+            }
+        }
+        return YES;
+    }
+    catch (const std::exception &e) {
+        return Fail(error, VibeTagWriteErrorTagLibThrew, path, [NSString stringWithFormat:@"TagLib threw: %s", e.what()]);
+    }
+    catch (...) {
+        return Fail(error, VibeTagWriteErrorTagLibThrew, path, @"TagLib threw");
+    }
+}
+
+BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures, VibeTagWriteSync sync,
+                             NSError *__autoreleasing *error) {
+    if (!CheckPictureLimits(path, pictures, error)) return NO;
     // The barrier: an allocation that fails is an error, not an abort.
     try {
         Cover cover;
@@ -893,7 +942,7 @@ BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures
             Record record;
             record.data = TagLib::ByteVector((const char *)picture.data.bytes, (unsigned int)picture.data.length);
             record.mimeType = TL(picture.mimeType ?: @"");
-            record.type = picture.type == VibeTagPictureTypeUntyped ? (int)VibeTagPictureTypeOther : (int)picture.type;
+            record.type = (int)picture.type;
             record.description = TL(picture.pictureDescription);
             record.width = (int)std::min<NSUInteger>(picture.width, INT_MAX);
             record.height = (int)std::min<NSUInteger>(picture.height, INT_MAX);

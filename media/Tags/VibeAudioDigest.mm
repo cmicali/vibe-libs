@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <algorithm>
+#include <memory>
 #include <new>
 #include <vector>
 
@@ -542,20 +543,20 @@ BOOL Walk(OpenFile &file, Bytes &bytes, Sink &sink, NSError *__autoreleasing *er
 // A stretch of a recorded stream: the walk's own bytes, or the file's read
 // into `buffer`. false when the read came back short.
 bool Stretch(const OpenFile &file, const Recorder &recorder, const Recorder::Span &span, uint64_t offset,
-             uint64_t length, std::vector<uint8_t> &buffer, const uint8_t **out) {
+             uint64_t length, uint8_t *buffer, const uint8_t **out) {
     if (span.owned) {
         *out = recorder.owned.data() + span.at + offset;
         return true;
     }
     uint64_t done = 0;
     while (done < length) {
-        const ssize_t count = pread(file.fd(), buffer.data() + done, (size_t)(length - done),
+        const ssize_t count = pread(file.fd(), buffer + done, (size_t)(length - done),
                                     (off_t)(span.at + offset + done));
         if (count < 0 && errno == EINTR) continue;
         if (count <= 0) return false;
         done += (uint64_t)count;
     }
-    *out = buffer.data();
+    *out = buffer;
     return true;
 }
 
@@ -586,15 +587,19 @@ BOOL Matches(NSString *pathA, NSString *pathB, NSError *__autoreleasing *error) 
     if (!Walk(a, bytesA, spansA, error) || !Walk(b, bytesB, spansB, error)) return NO;
     // Streams of two lengths differ, so a cut tail costs no read.
     if (spansA.total != spansB.total) return Differs(pathA, pathB, std::min(spansA.total, spansB.total), error);
-    std::vector<uint8_t> bufferA(kCompareBuffer), bufferB(kCompareBuffer);
+    // Uninitialized, and no larger than the audio: each byte is read in
+    // before it is compared, and zeroing 2 MiB cost a small file's match
+    // most of its time.
+    const uint64_t bufferSize = std::max<uint64_t>(1, std::min(kCompareBuffer, spansA.total));
+    std::unique_ptr<uint8_t[]> bufferA(new uint8_t[bufferSize]), bufferB(new uint8_t[bufferSize]);
     size_t i = 0, j = 0;
     uint64_t inA = 0, inB = 0, at = 0;
     while (i < spansA.spans.size() && j < spansB.spans.size()) {
         const Recorder::Span &spanA = spansA.spans[i], &spanB = spansB.spans[j];
-        const uint64_t take = std::min({spanA.length - inA, spanB.length - inB, kCompareBuffer});
+        const uint64_t take = std::min({spanA.length - inA, spanB.length - inB, bufferSize});
         const uint8_t *pa = nullptr, *pb = nullptr;
-        if (!Stretch(a, spansA, spanA, inA, take, bufferA, &pa)) return Changed(a, error);
-        if (!Stretch(b, spansB, spanB, inB, take, bufferB, &pb)) return Changed(b, error);
+        if (!Stretch(a, spansA, spanA, inA, take, bufferA.get(), &pa)) return Changed(a, error);
+        if (!Stretch(b, spansB, spanB, inB, take, bufferB.get(), &pb)) return Changed(b, error);
         if (memcmp(pa, pb, (size_t)take) != 0) {
             uint64_t k = 0;
             while (pa[k] == pb[k]) k++;
