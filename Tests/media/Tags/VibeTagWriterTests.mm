@@ -1145,10 +1145,12 @@ static NSData *VibeText(const char *text) {
     XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], @[@"Deep House"]);
 }
 
-// A WAV's and an AIFF's ID3v2.3 chunk upgrade as an MP3's tag does.
+// A WAV's and an AIFF's ID3v2.3 chunk upgrade as an MP3's tag does. TagLib's
+// own 2.3 save would keep one genre, so it saves one with a bar where the
+// NUL between two goes, and the bar becomes the NUL in place.
 - (void)testAWAVAndAnAIFFUpgradeToo {
     TagLib::PropertyMap genres;
-    genres.insert("GENRE", TagLib::StringList("Deep House").append("Tech House"));
+    genres.insert("GENRE", TagLib::StringList("Deep House|Tech House"));
     for (NSString *name in @[@"audio.wav", @"audio.aif"]) {
         NSURL *url = [self write:name];
         if ([name hasSuffix:@"wav"]) {
@@ -1161,6 +1163,13 @@ static NSData *VibeText(const char *text) {
             file.tag()->setProperties(genres);
             XCTAssertTrue(file.save(TagLib::ID3v2::v3));
         }
+        NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:url];
+        const NSRange bar = [bytes rangeOfData:[@"House|Tech" dataUsingEncoding:NSASCIIStringEncoding] options:0
+                                         range:NSMakeRange(0, bytes.length)];
+        XCTAssertNotEqual(bar.location, (NSUInteger)NSNotFound, @"%@", name);
+        ((uint8_t *)bytes.mutableBytes)[bar.location + 5] = 0;
+        XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+        XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]), @"%@", name);
         auto version = [&]() -> unsigned int {
             TagLibAudioFile ref(url.fileSystemRepresentation, false);
             if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(ref.file())) return wav->ID3v2Tag()->header()->majorVersion();
