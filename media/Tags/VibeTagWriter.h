@@ -188,8 +188,8 @@ FOUNDATION_EXTERN NSData *_Nullable VibeTagLibAudioDigest(NSString *path,
 // Whether two files hold the same audio, as their digests would say,
 // compared byte by byte without hashing. It finds each file's audio as the
 // digest does, reads both with pread into two buffers of at most 1 MiB,
-// uninitialized and uncached, and
-// stops at the first difference. NO with AudioDiffers when they differ,
+// uninitialized and uncached, and stops at the first difference. NO with
+// AudioDiffers when they differ,
 // SameFile when both paths name one file, and the digest's errors.
 FOUNDATION_EXTERN BOOL VibeTagLibAudioMatches(NSString *pathA, NSString *pathB,
                                               NSError *_Nullable __autoreleasing *_Nullable error);

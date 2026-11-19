@@ -660,7 +660,7 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
     VibeTagPicture *same = make([VibePNG(0.1) mutableCopy], [@"image/png" mutableCopy], 3, [@"Front" mutableCopy], 8);
     XCTAssertEqualObjects(one, same);
     XCTAssertEqual(one.hash, same.hash);
-    XCTAssertEqual([NSSet setWithArray:@[one, same]].count, 1u);
+    XCTAssertEqual(([NSSet setWithArray:@[one, same]].count), 1u);
     for (VibeTagPicture *other in @[make(VibePNG(0.2), @"image/png", 3, @"Front", 8),
                                     make(VibePNG(0.1), @"image/jpeg", 3, @"Front", 8),
                                     make(VibePNG(0.1), nil, 3, @"Front", 8),
