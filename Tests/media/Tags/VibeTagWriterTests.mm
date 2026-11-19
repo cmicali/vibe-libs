@@ -1334,6 +1334,23 @@ static NSString *const kVibeLatin1Artist = @"Café Artist";
 // Run by hand, with TEST_RUNNER_VIBE_TAG_MEASURE=1: 200 writes each way, and
 // the digest against the match on a large FLAC and WAV. A copy holds the
 // same audio behind a larger tag, so its audio starts elsewhere.
+// Run by hand as the one below: 200 matches of a small FLAC and its tagged
+// copy, the cost a many-file edit pays per file.
+- (void)testMeasureSmallMatches {
+    if (!NSProcessInfo.processInfo.environment[@"VIBE_TAG_MEASURE"]) {
+        XCTSkip(@"set VIBE_TAG_MEASURE to measure");
+    }
+    NSURL *url = [self write:@"audio.flac"];
+    NSURL *copy = [_dir URLByAppendingPathComponent:@"copy.flac"];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:url toURL:copy error:NULL]);
+    [self assertWrite:copy fields:@{VibeTagFieldTitle: @[@"Copy"]}];
+    for (int pass = 0; pass < 3; pass++) {
+        const CFAbsoluteTime start = CFAbsoluteTimeGetCurrent();
+        for (int i = 0; i < 200; i++) XCTAssertTrue(VibeTagLibAudioMatches(url.path, copy.path, NULL));
+        NSLog(@"VIBE_MEASURE 200 small matches pass %d: %.3f s", pass, CFAbsoluteTimeGetCurrent() - start);
+    }
+}
+
 - (void)testMeasureTheSyncAndTheMatch {
     if (!NSProcessInfo.processInfo.environment[@"VIBE_TAG_MEASURE"]) {
         XCTSkip(@"set VIBE_TAG_MEASURE to measure");
