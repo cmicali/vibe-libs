@@ -31,7 +31,7 @@ typedef NS_ERROR_ENUM(VibeTagWriteErrorDomain, VibeTagWriteError) {
     // picture VibeTagLibWritePictures was given is past its limits.
     VibeTagWriteErrorInvalidImage = 5,
     // The format cannot hold a value as given, as MP4 holds no BPM but a
-    // whole number, and ID3v2.3 no original date but a year.
+    // whole number. An ID3v2.3 tag that cannot becomes 2.4 instead.
     VibeTagWriteErrorUnsupportedValue = 6,
     // TagLib threw. The file may be part written.
     VibeTagWriteErrorTagLibThrew = 7,
@@ -71,11 +71,14 @@ typedef NS_ENUM(NSInteger, VibeTagWriteSync) {
 };
 
 // What a write did beyond the edit it was asked for, so an app can say so.
-// ID3v24: an ID3v2.3 tag was written as ID3v2.4, since its genres after the
-// edit were two or more without ID3v1 numbers, which 2.3 cannot keep.
+// ID3v2UpgradedTo24: the file's ID3v2 tag was 2.2 or 2.3 and is now 2.4. A
+// 2.2 tag always is, since TagLib cannot write 2.2. A 2.3 tag is when its
+// 2.3 render would not read back what it holds after the edit: its genres,
+// its dates, or a frame it holds twice (media/Tags/AGENTS.md, ID3v2.3). The
+// upgrade is permanent: an undo, even back to one genre, leaves it 2.4.
 typedef NS_OPTIONS(NSUInteger, VibeTagWriteChanges) {
     VibeTagWriteChangeNone = 0,
-    VibeTagWriteChangeID3v24 = 1 << 0,
+    VibeTagWriteChangeID3v2UpgradedTo24 = 1 << 0,
 };
 
 // Values per field. An empty array, or one of empty strings, removes the
@@ -88,8 +91,10 @@ typedef NSDictionary<VibeTagField, NSArray<NSString *> *> VibeTagFieldValues;
 // unchanged, except with SaveFailed or TagLibThrew. YES means every write
 // succeeded, the file's size is the one they imply, and it was flushed as
 // `sync` says. `changes`, when given, is set to what the write did beyond
-// the edit, None on a failure. An ID3v2 tag keeps its version, except that
-// a 2.3 tag whose genres would be lost is written as 2.4.
+// the edit. On a refusal it is None, since nothing was written. On
+// SaveFailed or TagLibThrew it says what may be on disk, since the file may
+// be part written. An ID3v2 tag keeps its version, except as
+// VibeTagWriteChanges says.
 //
 // The cover is every front cover, or when the file has none, the one
 // picture the art read shows, whatever its type. A cover write takes it and

@@ -110,6 +110,18 @@ static NSArray *VibeSavedCover(NSURL *url) {
     return @[pictures[shown].data, pictures[shown].imageMIMEType ?: NSNull.null];
 }
 
+// A frame of ID3v2.3 text, Latin-1, from `length` bytes that may hold NULs.
+static NSData *VibeV23Text(const char *name, const char *text, size_t length) {
+    NSMutableData *body = [NSMutableData dataWithLength:1];
+    [body appendBytes:text length:length];
+    return VibeID3v2Frame(name, 3, (uint32_t)body.length, 0, body);
+}
+
+// The ID3v2 tag's major version, its file's fourth byte.
+static uint8_t VibeID3v2Version(NSURL *url) {
+    return ((const uint8_t *)[NSData dataWithContentsOfURL:url].bytes)[3];
+}
+
 #pragma mark - The fields
 
 // A value for every edited field, as each format reads it back.
@@ -983,12 +995,16 @@ static VibeTagContainer VibeContainer(NSString *name) {
 
 #pragma mark - ID3v2
 
-// ID3v2.3 holds a year as the original date, and a date to the minute.
-- (void)testID3v23RefusesADateItCannotHold {
-    NSURL *url = [self write:@"id3v23.mp3"];
-    [self assertFailure:url code:VibeTagWriteErrorUnsupportedValue
-                 fields:@{VibeTagFieldOriginalDate: @[@"1999-05-01"]}];
-    [self assertFailure:url code:VibeTagWriteErrorUnsupportedValue fields:@{VibeTagFieldDate: @[@"2001-02"]}];
+// ID3v2.3 holds a date as a year, a day, or a minute, and the original date
+// as a year, so an edit setting one the 2.3 render would cut makes the tag
+// 2.4, which keeps it whole. Before, the edit was refused.
+- (void)testAnID3v23DateItCannotHoldMakesItID3v24 {
+    for (NSDictionary *edit in @[@{VibeTagFieldOriginalDate: @[@"1999-05-01"]}, @{VibeTagFieldDate: @[@"2001-02"]}]) {
+        NSURL *url = [self write:@"id3v23.mp3"];
+        XCTAssertEqual(([self write:url changing:edit]), VibeTagWriteChangeID3v2UpgradedTo24, @"%@", edit);
+        XCTAssertEqual(VibeID3v2Version(url), 4);
+        for (NSString *key in edit) XCTAssertEqualObjects([self read:url][key], edit[key]);
+    }
 }
 
 - (NSURL *)mp3WithTag:(NSData *)tag name:(NSString *)name {
@@ -1004,18 +1020,6 @@ static NSData *VibeText(const char *text) {
     NSMutableData *body = [NSMutableData dataWithLength:1];
     [body appendBytes:text length:strlen(text)];
     return body;
-}
-
-// A frame of ID3v2.3 text, Latin-1, from `length` bytes that may hold NULs.
-static NSData *VibeV23Text(const char *name, const char *text, size_t length) {
-    NSMutableData *body = [NSMutableData dataWithLength:1];
-    [body appendBytes:text length:length];
-    return VibeID3v2Frame(name, 3, (uint32_t)body.length, 0, body);
-}
-
-// The ID3v2 tag's major version, its file's fourth byte.
-static uint8_t VibeID3v2Version(NSURL *url) {
-    return ((const uint8_t *)[NSData dataWithContentsOfURL:url].bytes)[3];
 }
 
 - (VibeTagWriteChanges)write:(NSURL *)url changing:(VibeTagFieldValues *)fields {
@@ -1034,7 +1038,7 @@ static uint8_t VibeID3v2Version(NSURL *url) {
     [frames appendData:VibeV23Text("TCON", "Deep House\0Tech House", 21)];
     NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, frames) name:@"genres.mp3"];
     XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]));
-    XCTAssertEqual(([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}]), VibeTagWriteChangeID3v24);
+    XCTAssertEqual(([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}]), VibeTagWriteChangeID3v2UpgradedTo24);
     XCTAssertEqual(VibeID3v2Version(url), 4);
     XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]));
     XCTAssertEqualObjects([self read:url][VibeTagFieldTitle], @[@"New"]);
@@ -1049,7 +1053,7 @@ static uint8_t VibeID3v2Version(NSURL *url) {
     XCTAssertEqual(([self write:url changing:@{VibeTagFieldGenre: @[@"Rock", @"Jazz"]}]), VibeTagWriteChangeNone);
     XCTAssertEqual(VibeID3v2Version(url), 3);
     XCTAssertEqual(([self write:url changing:@{VibeTagFieldGenre: @[@"Deep House", @"Tech House"]}]),
-                   VibeTagWriteChangeID3v24);
+                   VibeTagWriteChangeID3v2UpgradedTo24);
     XCTAssertEqual(VibeID3v2Version(url), 4);
     XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]));
 }
@@ -1072,7 +1076,7 @@ static uint8_t VibeID3v2Version(NSURL *url) {
     XCTAssertEqualObjects(before[VibeTagFieldOriginalDate], @[@"1999"]);
     XCTAssertEqualObjects(before[@"PRODUCER"], @[@"Some Producer"]);
     XCTAssertEqualObjects(before[@"ENGINEER"], @[@"Some Engineer"]);
-    XCTAssertEqual(([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}]), VibeTagWriteChangeID3v24);
+    XCTAssertEqual(([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}]), VibeTagWriteChangeID3v2UpgradedTo24);
     XCTAssertEqual(VibeID3v2Version(url), 4);
     NSMutableDictionary *after = [[self read:url] mutableCopy];
     XCTAssertEqualObjects(after[VibeTagFieldTitle], @[@"New"]);
@@ -1083,6 +1087,123 @@ static uint8_t VibeID3v2Version(NSURL *url) {
     for (const char *frame : {"TDRC", "TDOR", "TIPL"}) {
         XCTAssertFalse(file.ID3v2Tag()->frameList(frame).isEmpty(), @"%s", frame);
     }
+}
+
+// A 2.3 tag of `frames` that a title edit makes 2.4, keeping every other
+// field as it read before.
+- (void)assertTitleEditUpgrades:(NSData *)frames name:(NSString *)name {
+    NSMutableData *all = [VibeV23Text("TIT2", "Title", 5) mutableCopy];
+    [all appendData:frames];
+    NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, all) name:name];
+    NSMutableDictionary *before = [[self read:url] mutableCopy];
+    XCTAssertEqual(([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}]), VibeTagWriteChangeID3v2UpgradedTo24,
+                   @"%@", name);
+    XCTAssertEqual(VibeID3v2Version(url), 4, @"%@", name);
+    NSMutableDictionary *after = [[self read:url] mutableCopy];
+    XCTAssertEqualObjects(after[VibeTagFieldTitle], @[@"New"], @"%@", name);
+    [before removeObjectForKey:VibeTagFieldTitle];
+    [after removeObjectForKey:VibeTagFieldTitle];
+    XCTAssertEqualObjects(after, before, @"%@: every other field reads as before", name);
+}
+
+// TRAP: TagLib's 2.3 render keeps the last of two TCON frames, and the last
+// of two TDRC frames, which a 2.3 tag of TYER and TDRC parses as. So a title
+// edit made 2.3 lost a genre or a date, with no refusal. It upgrades.
+- (void)testAFrameHeldTwiceUpgrades {
+    NSMutableData *genres = [VibeV23Text("TCON", "Deep House", 10) mutableCopy];
+    [genres appendData:VibeV23Text("TCON", "Tech House", 10)];
+    [self assertTitleEditUpgrades:genres name:@"two-tcon.mp3"];
+    NSMutableData *dates = [VibeV23Text("TYER", "2001", 4) mutableCopy];
+    [dates appendData:VibeV23Text("TDRC", "2002", 4)];
+    [self assertTitleEditUpgrades:dates name:@"two-tdrc.mp3"];
+}
+
+// TRAP: TagLib's 2.3 render writes some genre names as their ID3v1 number,
+// which reads back as the number's own name, and puts numbered genres
+// first. So "Hardcore" read back "Hardcore Techno", and "Deep House" and
+// "Rock" read back reversed. Each upgrades.
+- (void)testAGenreThe23RenderChangesUpgrades {
+    [self assertTitleEditUpgrades:VibeV23Text("TCON", "Hardcore\0Deep House", 19) name:@"renamed.mp3"];
+    [self assertTitleEditUpgrades:VibeV23Text("TCON", "Deep House\0Rock", 15) name:@"reordered.mp3"];
+    [self assertTitleEditUpgrades:VibeV23Text("TCON", "(17)Deep House\0Tech House", 25) name:@"mixed.mp3"];
+}
+
+// TRAP: TagLib's 2.3 render writes the original date as a TORY of its year
+// alone, so a TORY of a full day was cut. It upgrades.
+- (void)testAnOriginalDateThe23RenderCutsUpgrades {
+    [self assertTitleEditUpgrades:VibeV23Text("TORY", "1999-05-12", 10) name:@"tory.mp3"];
+}
+
+// Two genres reduced to one fit 2.3, which the tag keeps, and the write
+// reports no change.
+- (void)testReducingToOneGenreStaysID3v23 {
+    NSMutableData *frames = [VibeV23Text("TIT2", "Title", 5) mutableCopy];
+    [frames appendData:VibeV23Text("TCON", "Deep House\0Tech House", 21)];
+    NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, frames) name:@"one-genre.mp3"];
+    XCTAssertEqual(([self write:url changing:@{VibeTagFieldGenre: @[@"Deep House"]}]), VibeTagWriteChangeNone);
+    XCTAssertEqual(VibeID3v2Version(url), 3);
+    XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], @[@"Deep House"]);
+}
+
+// A WAV's and an AIFF's ID3v2.3 chunk upgrade as an MP3's tag does.
+- (void)testAWAVAndAnAIFFUpgradeToo {
+    TagLib::PropertyMap genres;
+    genres.insert("GENRE", TagLib::StringList("Deep House").append("Tech House"));
+    for (NSString *name in @[@"audio.wav", @"audio.aif"]) {
+        NSURL *url = [self write:name];
+        if ([name hasSuffix:@"wav"]) {
+            TagLib::RIFF::WAV::File file(url.fileSystemRepresentation);
+            file.ID3v2Tag()->setProperties(genres);
+            XCTAssertTrue(file.save(TagLib::RIFF::WAV::File::ID3v2, TagLib::File::StripNone, TagLib::ID3v2::v3));
+        }
+        else {
+            TagLib::RIFF::AIFF::File file(url.fileSystemRepresentation);
+            file.tag()->setProperties(genres);
+            XCTAssertTrue(file.save(TagLib::ID3v2::v3));
+        }
+        auto version = [&]() -> unsigned int {
+            TagLibAudioFile ref(url.fileSystemRepresentation, false);
+            if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(ref.file())) return wav->ID3v2Tag()->header()->majorVersion();
+            if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(ref.file())) return aiff->tag()->header()->majorVersion();
+            return 0;
+        };
+        XCTAssertEqual(version(), 3u, @"%@", name);
+        XCTAssertEqual(([self write:url changing:@{VibeTagFieldTitle: @[@"New"]}]), VibeTagWriteChangeID3v2UpgradedTo24,
+                       @"%@", name);
+        XCTAssertEqual(version(), 4u, @"%@", name);
+        XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]), @"%@", name);
+    }
+}
+
+// A picture write runs the same rule and reports it.
+- (void)testAPictureWriteUpgrades {
+    NSMutableData *frames = [VibeV23Text("TIT2", "Title", 5) mutableCopy];
+    [frames appendData:VibeV23Text("TCON", "Deep House\0Tech House", 21)];
+    NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, frames) name:@"pictures.mp3"];
+    VibeTagWriteChanges changes = VibeTagWriteChangeNone;
+    NSError *error = nil;
+    VibeTagPicture *front = [[VibeTagPicture alloc] initWithData:VibePNG(0.4) mimeType:@"image/png"
+                                                            type:VibeTagPictureTypeFrontCover description:nil];
+    XCTAssertTrue(VibeTagLibWritePictures(url.path, @[front], VibeTagWriteSyncFull, &changes, &error), @"%@", error);
+    XCTAssertEqual(changes, VibeTagWriteChangeID3v2UpgradedTo24);
+    XCTAssertEqual(VibeID3v2Version(url), 4);
+    XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]));
+}
+
+// A refusal writes nothing, so it reports no change, whatever the caller's
+// variable held.
+- (void)testARefusalReportsNoChange {
+    NSData *rvad = [NSData dataWithBytes:"\x03\x10\x00\x10\x00\x10\x00\x00\x00\x00" length:10];
+    NSMutableData *frames = [VibeV23Text("TIT2", "Title", 5) mutableCopy];
+    [frames appendData:VibeV23Text("TCON", "Deep House\0Tech House", 21)];
+    [frames appendData:VibeID3v2Frame("RVAD", 3, (uint32_t)rvad.length, 0, rvad)];
+    NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, frames) name:@"refused.mp3"];
+    VibeTagWriteChanges changes = (VibeTagWriteChanges)~0u;
+    NSError *error = nil;
+    XCTAssertFalse(VibeTagLibWriteTags(url.path, @{VibeTagFieldTitle: @[@"New"]}, NO, nil, nil, VibeTagWriteSyncFull,
+                                       &changes, &error));
+    XCTAssertEqual(error.code, VibeTagWriteErrorWouldLoseData);
+    XCTAssertEqual(changes, VibeTagWriteChangeNone);
 }
 
 // A frame a save drops is still refused, upgrade or not: two genres and
