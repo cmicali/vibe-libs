@@ -167,7 +167,10 @@ PIN_SUBCLASSING_RESTRICTED
  The maximum number of seconds an object is allowed to exist in the cache. Setting this to a value
  greater than `0.0` will start a recurring GCD timer with the same period that calls <trimToDate:>.
  Setting it back to `0.0` will stop the timer. Defaults to 30 days.
- 
+
+ Vibe: outside a TTL cache, an object's age counts from its last use, the date a hit moves, never from its write.
+ A TTL cache's objects still age from their creation.
+
  */
 @property (assign) NSTimeInterval ageLimit;
 

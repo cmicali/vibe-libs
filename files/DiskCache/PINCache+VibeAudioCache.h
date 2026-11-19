@@ -13,9 +13,15 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// The terms a store gets unless its app sets others: 1 GiB on disk, and 180
+// days from an entry's last use. An app sets a store's own through the piece
+// that keeps it, on the store's diskCache, as byteLimit and ageLimit.
+extern const NSUInteger VibeAudioCacheDefaultByteLimit;
+extern const NSTimeInterval VibeAudioCacheDefaultAgeLimit;
+
 @interface PINCache (VibeAudioCache)
 
-// A store with the shared byte and age limits applied. Both stores then read
+// A store with the default byte and age limits applied. Both stores then read
 // and write diskCache directly, because on macOS PINMemoryCache never evicts —
 // costLimit needs per-entry costs, disk hits repopulate at cost 0, and its
 // memory-pressure hooks are iOS-only — so it would pin every entry ever loaded

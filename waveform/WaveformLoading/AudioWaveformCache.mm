@@ -246,6 +246,13 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     return YES;
 }
 
+- (void)setByteLimit:(NSUInteger)byteLimit ageLimit:(NSTimeInterval)ageLimit {
+    dispatch_async(_loaderQueue, ^{
+        self->_waveformCache.diskCache.byteLimit = byteLimit;
+        self->_waveformCache.diskCache.ageLimit = ageLimit;
+    });
+}
+
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
     // The serial queue guarantees the cache exists and keeps the blocking
     // enumeration off the caller's thread.
@@ -665,6 +672,10 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         // PINDiskCache. The waveform is valid whatever the persist below
         // decides.
         completion(waveform, NO);
+        if (loader.resultsOnly) {
+            settled(NO);
+            return;
+        }
         // Cache even when cancelled: a completed decode is worth keeping for
         // the next play of this track. It is skipped when an invalidate
         // arrived after this decode started, since the write would repopulate
@@ -749,12 +760,29 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 
 - (VibeWaveformScanToken *)scanWaveformForTrack:(id<VibePlayableItem>)track
                                      completion:(void (^)(BOOL))completion {
+    return [self scanTrack:track resultsOnly:NO completion:completion];
+}
+
+- (VibeWaveformScanToken *)scanResultsForTrack:(id<VibePlayableItem>)track
+                                    completion:(void (^)(BOOL))completion {
+    return [self scanTrack:track resultsOnly:YES completion:completion];
+}
+
+- (VibeWaveformScanToken *)scanTrack:(id<VibePlayableItem>)track
+                         resultsOnly:(BOOL)resultsOnly
+                          completion:(void (^)(BOOL))completion {
     VibeWaveformScanToken *scan = [[VibeWaveformScanToken alloc] initPrivate];
     scan.cache = self;
     scan.track = track;
     scan.key = VibeWaveformClaimKey(track);
-    // On main, as a load asks it.
-    scan.analysis = self.analysisProvider ? self.analysisProvider() : (VibeWaveformAnalysis){};
+    // On main, as a load asks it. Results alone need no bands, which only a
+    // waveform shows.
+    VibeWaveformAnalysis analysis = self.analysisProvider ? self.analysisProvider() : (VibeWaveformAnalysis){};
+    if (resultsOnly) {
+        analysis.bands = NO;
+    }
+    scan.analysis = analysis;
+    scan.resultsOnly = resultsOnly;
     scan.completion = completion;
     AudioFileMaterializationCoordinator *coordinator = self.materializationCoordinator;
     dispatch_async(_scanQueue, ^{
@@ -834,6 +862,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 - (void)startScan:(VibeWaveformScanToken *)scan {
     AudioWaveformLoader *loader = [[AudioWaveformLoader alloc] init];
     loader.analysis = scan.analysis;
+    loader.resultsOnly = scan.resultsOnly;
     // Detached for its whole life, so it builds no progressive snapshots.
     [loader detach];
     __weak AudioWaveformCache *weakSelf = self;
@@ -896,7 +925,9 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
                     [self deliverResults:waveform forTrack:scan.track];
                 }
                 if (completion) {
-                    completion(filed);
+                    // Results alone are done once they came, from an entry
+                    // or a decode.
+                    completion(scan.resultsOnly ? waveform != nil : filed);
                 }
             });
         }

@@ -283,11 +283,12 @@ static NSUInteger PINDiskCacheTrimTarget(NSUInteger byteLimit)
 @property (assign, nonatomic) pthread_cond_t diskStateKnownCondition;
 @property (assign, nonatomic) BOOL diskStateKnown;
 @property (assign, nonatomic) BOOL writingProtectionOptionSet;
-// Vibe: for a cache that keeps no records, a date no entry was made before,
-// in seconds since the reference date: the launch's count lowers it, as the
-// records the mode drops do, and a write's entry is newer. The age limit's
-// trim lists nothing while it is not past.
-@property (assign, nonatomic) NSTimeInterval oldestCreation;
+// Vibe: for a cache that keeps no records, a date no entry was last used
+// before, in seconds since the reference date: the launch's count lowers it,
+// as the records the mode drops do. A write's entry is newer, and a hit only
+// moves an entry's date later. The age limit's trim lists nothing while it is
+// not past.
+@property (assign, nonatomic) NSTimeInterval oldestUse;
 @end
 
 @implementation PINDiskCache
@@ -487,7 +488,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
         
         _metadata = [[NSMutableDictionary alloc] init];
         _diskStateKnown = NO;
-        _oldestCreation = DBL_MAX; // Vibe: no entry yet
+        _oldestUse = DBL_MAX; // Vibe: no entry yet
         _countedFiles.counting = YES; // Vibe: the launch's count runs
       
         _cacheURL = [[self class] cacheURLWithRootPath:rootPath prefix:_prefix name:_name];
@@ -787,12 +788,12 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
 }
 
 // Vibe: for a cache that keeps no records, every entry's record, or with a
-// date, each made before it, from a listing made once the disk state is
+// date, each last used before it, from a listing made once the disk state is
 // known, so the byte count a sweep changes is whole, and before the sweep
 // takes the lock, which the listing would hold for long. It enumerates a
 // thousand files to a pool. nil for a cache that keeps records, which waits
 // for nothing, as upstream's sweeps did not.
-- (nullable NSDictionary<NSString *, PINDiskCacheMetadata *> *)recordsListedForSweepMadeBefore:(nullable NSDate *)date
+- (nullable NSDictionary<NSString *, PINDiskCacheMetadata *> *)recordsListedForSweepUsedBefore:(nullable NSDate *)date
 {
     if (!self.recordsOnDemand) {
         return nil;
@@ -818,7 +819,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
                     break;
                 }
                 PINDiskCacheMetadata *record = [self recordOfFileURL:fileURL];
-                if (!record || (date && record.createdDate && [record.createdDate compare:date] != NSOrderedAscending)) {
+                if (!record || (date && record.lastModifiedDate && [record.lastModifiedDate compare:date] != NSOrderedAscending)) {
                     continue;
                 }
                 NSString *key = [self keyForEncodedFileURL:fileURL];
@@ -833,7 +834,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
 
 - (nullable NSDictionary<NSString *, PINDiskCacheMetadata *> *)recordsListedForSweep
 {
-    return [self recordsListedForSweepMadeBefore:nil];
+    return [self recordsListedForSweepUsedBefore:nil];
 }
 
 // Vibe: whether the cache is over the size, once its disk state is known.
@@ -875,7 +876,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
         // The records it drops lower the oldest date, for the files the
         // launch's count read before the mode.
         for (PINDiskCacheMetadata *record in _metadata.objectEnumerator) {
-            _oldestCreation = MIN(_oldestCreation, record.createdDate ? record.createdDate.timeIntervalSinceReferenceDate : 0);
+            _oldestUse = MIN(_oldestUse, record.lastModifiedDate ? record.lastModifiedDate.timeIntervalSinceReferenceDate : 0);
         }
         // A launch's count still running skips the files its records were of.
         if (_countedFiles.counting) {
@@ -989,7 +990,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     PINDiskCacheMetadata *record = [self _locked_recordForKey:key];
     if (record) {
         self.byteCount = _byteCount + record.size.unsignedIntegerValue; // atomic
-        _oldestCreation = MIN(_oldestCreation, record.createdDate ? record.createdDate.timeIntervalSinceReferenceDate : 0);
+        _oldestUse = MIN(_oldestUse, record.lastModifiedDate ? record.lastModifiedDate.timeIntervalSinceReferenceDate : 0);
     }
 }
 
@@ -1034,9 +1035,9 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
                     // values may be older than the change. One the set could
                     // not store is counted, as changes wait from then on.
                     if (PINDiskCacheFileSetAdd(&_countedFiles, PINDiskCacheFileNameHash(fileURL.lastPathComponent)) != PINDiskCacheFileSetPresent) {
-                        NSDate *created = nil;
-                        [fileURL getResourceValue:&created forKey:NSURLCreationDateKey error:NULL];
-                        _oldestCreation = MIN(_oldestCreation, created ? created.timeIntervalSinceReferenceDate : 0);
+                        NSDate *used = nil;
+                        [fileURL getResourceValue:&used forKey:NSURLContentModificationDateKey error:NULL];
+                        _oldestUse = MIN(_oldestUse, used ? used.timeIntervalSinceReferenceDate : 0);
                         self.byteCount = _byteCount + [self _locked_initializeDiskPropertiesForFile:fileURL fileKey:fileKey]; // atomic
                     }
                 } else if (_metadata[fileKey] == nil) {
@@ -1188,6 +1189,13 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
 // or since a hit read a file that won't decode, keeps its entry.
 - (BOOL)removeFileAndExecuteBlocksForKey:(NSString *)key madeAt:(nullable NSDate *)createdDate
 {
+    return [self removeFileAndExecuteBlocksForKey:key madeAt:createdDate usedAt:nil];
+}
+
+// Vibe: with a last use too, the file goes only while it was last used then,
+// so a hit that re-dated it since the age limit's listing keeps its entry.
+- (BOOL)removeFileAndExecuteBlocksForKey:(NSString *)key madeAt:(nullable NSDate *)createdDate usedAt:(nullable NSDate *)lastModifiedDate
+{
     NSURL *fileURL = [self encodedFileURLForKey:key];
     if (!fileURL) {
         return NO;
@@ -1211,7 +1219,8 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
 
         // Vibe: its size, read before the file goes, for a cache that keeps no records.
         PINDiskCacheMetadata *record = [self _locked_recordForKey:key];
-        if (createdDate && !PINDiskCacheSameFileDate(record.createdDate, createdDate)) {
+        if ((createdDate && !PINDiskCacheSameFileDate(record.createdDate, createdDate))
+                || (lastModifiedDate && !PINDiskCacheSameFileDate(record.lastModifiedDate, lastModifiedDate))) {
             [self unlock];
             return NO;
         }
@@ -1353,35 +1362,45 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     }
 }
 
+// Vibe: outside a TTL cache, an entry's age counts from its last use, the
+// date a hit moves, never from its write, as the class's notes say: "All
+// access to the cache is dated". A TTL cache's entries still age from their
+// creation.
+static NSDate *PINDiskCacheAgeDate(PINDiskCacheMetadata *record, BOOL ttlCache)
+{
+    return ttlCache ? record.createdDate : record.lastModifiedDate;
+}
+
 - (void)trimDiskToDate:(NSDate *)trimDate
 {
     // Vibe: the records kept, or listed now, unless no entry is that old.
     if (self.recordsOnDemand) {
         [self lockAndWaitForKnownState];
-            BOOL nothingOlder = _oldestCreation >= trimDate.timeIntervalSinceReferenceDate;
+            BOOL nothingOlder = _oldestUse >= trimDate.timeIntervalSinceReferenceDate;
         [self unlock];
         if (nothingOlder) {
             return;
         }
     }
-    NSDictionary<NSString *, PINDiskCacheMetadata *> *listed = [self recordsListedForSweepMadeBefore:trimDate];
-    NSComparator byCreatedDate = ^NSComparisonResult(PINDiskCacheMetadata * _Nonnull obj1, PINDiskCacheMetadata * _Nonnull obj2) {
-        return PINDiskCacheCompareDates(obj1.createdDate, obj2.createdDate); // Vibe: nil-safe
+    BOOL ttlCache = self->_ttlCache;
+    NSDictionary<NSString *, PINDiskCacheMetadata *> *listed = [self recordsListedForSweepUsedBefore:trimDate];
+    NSComparator byAgeDate = ^NSComparisonResult(PINDiskCacheMetadata * _Nonnull obj1, PINDiskCacheMetadata * _Nonnull obj2) {
+        return PINDiskCacheCompareDates(PINDiskCacheAgeDate(obj1, ttlCache), PINDiskCacheAgeDate(obj2, ttlCache)); // Vibe: nil-safe
     };
     // Vibe: a listing is the sweep's own, so it is sorted before the lock.
-    NSArray *listedSorted = [listed keysSortedByValueUsingComparator:byCreatedDate];
+    NSArray *listedSorted = [listed keysSortedByValueUsingComparator:byAgeDate];
     [self lockForWriting];
         NSDictionary<NSString *, PINDiskCacheMetadata *> *records = listed ?: (_recordsOnDemand ? @{} : _metadata);
-        NSArray *keysSortedByCreatedDate = listedSorted ?: [records keysSortedByValueUsingComparator:byCreatedDate];
+        NSArray *keysSortedByAgeDate = listedSorted ?: [records keysSortedByValueUsingComparator:byAgeDate];
     
         NSMutableArray *keysToRemove = [[NSMutableArray alloc] init];
         
-        for (NSString *key in keysSortedByCreatedDate) { // oldest files first
-            NSDate *createdDate = records[key].createdDate;
-            if (!createdDate || records[key].ageLimit > 0.0)
+        for (NSString *key in keysSortedByAgeDate) { // oldest files first
+            NSDate *ageDate = PINDiskCacheAgeDate(records[key], ttlCache);
+            if (!ageDate || records[key].ageLimit > 0.0)
                 continue;
             
-            if ([createdDate compare:trimDate] == NSOrderedAscending) { // older than trim date
+            if ([ageDate compare:trimDate] == NSOrderedAscending) { // older than trim date
                 [keysToRemove addObject:key];
             } else {
                 break;
@@ -1392,14 +1411,15 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     BOOL removedEvery = YES;
     for (NSString *key in keysToRemove) {
         // Vibe: a removal that failed leaves its file, unless it was gone.
-        if (![self removeFileAndExecuteBlocksForKey:key madeAt:listed[key].createdDate] && [self _recordForKeyUnlocked:key]) {
+        if (![self removeFileAndExecuteBlocksForKey:key madeAt:listed[key].createdDate usedAt:listed[key].lastModifiedDate]
+                && [self _recordForKeyUnlocked:key]) {
             removedEvery = NO;
         }
     }
-    // Vibe: every entry made before the date is gone, so none older is left.
+    // Vibe: every entry last used before the date is gone, so none older is left.
     if (listed && removedEvery) {
         [self lock];
-            _oldestCreation = MAX(_oldestCreation, trimDate.timeIntervalSinceReferenceDate);
+            _oldestUse = MAX(_oldestUse, trimDate.timeIntervalSinceReferenceDate);
         [self unlock];
     }
 }
@@ -2066,7 +2086,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
         
         [self->_metadata removeAllObjects];
         self.byteCount = 0; // atomic
-        self->_oldestCreation = DBL_MAX; // Vibe: no entry is left.
+        self->_oldestUse = DBL_MAX; // Vibe: no entry is left.
         // Vibe: and a launch's count still running stops, since the files it
         // would list are the ones this removed.
         PINDiskCacheFileSetEnd(&self->_countedFiles);
@@ -2256,13 +2276,21 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
 
 - (void)setByteLimit:(NSUInteger)byteLimit
 {
+    // Vibe: set at once, and the trim reads the limit it runs under, as the
+    // queue is concurrent (AGENTS.md). An unchanged limit trims nothing new.
+    [self lock];
+        BOOL unchanged = _byteLimit == byteLimit;
+        _byteLimit = byteLimit;
+    [self unlock];
+    if (unchanged)
+        return;
     [self.operationQueue scheduleOperation:^{
         [self lock];
-            self->_byteLimit = byteLimit;
+            NSUInteger limit = self->_byteLimit;
         [self unlock];
         
-        if (byteLimit > 0)
-            [self trimDiskToSizeByEvictionStrategy:byteLimit];
+        if (limit > 0)
+            [self trimDiskToSizeByEvictionStrategy:limit];
     } withPriority:PINOperationQueuePriorityHigh];
 }
 
@@ -2279,15 +2307,17 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
 
 - (void)setAgeLimit:(NSTimeInterval)ageLimit
 {
+    // Vibe: set at once, as the byte limit is. An unchanged limit starts no
+    // second trim and timer.
+    [self lock];
+        BOOL unchanged = _ageLimit == ageLimit;
+        _ageLimit = ageLimit;
+    [self unlock];
+    if (unchanged)
+        return;
     [self.operationQueue scheduleOperation:^{
-        [self lock];
-            self->_ageLimit = ageLimit;
-        [self unlock];
-        
-        [self.operationQueue scheduleOperation:^{
-            [self trimToAgeLimitRecursively];
-        } withPriority:PINOperationQueuePriorityLow];
-    } withPriority:PINOperationQueuePriorityHigh];
+        [self trimToAgeLimitRecursively];
+    } withPriority:PINOperationQueuePriorityLow];
 }
 
 - (BOOL)isTTLCache
