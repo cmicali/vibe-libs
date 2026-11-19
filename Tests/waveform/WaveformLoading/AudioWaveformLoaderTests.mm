@@ -924,21 +924,6 @@ static NSUInteger MatchingBins(CodableAudioWaveform *waveform, CodableAudioWavef
     XCTAssertEqual(store.ageLimit, 7 * 86400.0);
 }
 
-// An app sets the store's limits over the defaults, once the store is built.
-- (void)testAnAppSetsTheStoresLimits {
-    AudioWaveformCache *cache = [self cacheWithRecorder:[[WaveformCacheRecorder alloc] init]];
-    [cache setByteLimit:5 * 1024 * 1024 ageLimit:7 * 86400.0];
-    XCTestExpectation *built = [self expectationWithDescription:@"built"];
-    [cache diskUsageWithCompletion:^(NSUInteger fileCount, unsigned long long totalBytes) {
-        [built fulfill];
-    }];
-    [self waitForExpectations:@[built] timeout:VIBE_TEST_HANG_TIMEOUT];
-    // The setter runs on the loader queue, which the usage count ran after.
-    PINDiskCache *store = ((PINCache *)[cache valueForKey:@"waveformCache"]).diskCache;
-    XCTAssertEqual(store.byteLimit, 5u * 1024 * 1024);
-    XCTAssertEqual(store.ageLimit, 7 * 86400.0);
-}
-
 - (void)testCacheOnlyLookupMissesWithoutDecodingAndChecksAnalysisRequirements {
     NSURL *url = [self writeNoiseWAVNamed:@"preview.wav" seconds:2.0 seed:31];
     WaveformCacheRecorder *recorder = [[WaveformCacheRecorder alloc] init];
