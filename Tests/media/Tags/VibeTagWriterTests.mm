@@ -1163,11 +1163,21 @@ static NSData *VibeText(const char *text) {
             file.tag()->setProperties(genres);
             XCTAssertTrue(file.save(TagLib::ID3v2::v3));
         }
+        // TagLib writes the text as Latin-1 or UTF-16, so the bar is one
+        // byte or two.
         NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:url];
-        const NSRange bar = [bytes rangeOfData:[@"House|Tech" dataUsingEncoding:NSASCIIStringEncoding] options:0
-                                         range:NSMakeRange(0, bytes.length)];
-        XCTAssertNotEqual(bar.location, (NSUInteger)NSNotFound, @"%@", name);
-        ((uint8_t *)bytes.mutableBytes)[bar.location + 5] = 0;
+        BOOL patched = NO;
+        for (NSNumber *encoding in @[@(NSISOLatin1StringEncoding), @(NSUTF16LittleEndianStringEncoding),
+                                     @(NSUTF16BigEndianStringEncoding)]) {
+            NSData *text = [@"House|Tech" dataUsingEncoding:encoding.unsignedIntegerValue];
+            const NSRange found = [bytes rangeOfData:text options:0 range:NSMakeRange(0, bytes.length)];
+            if (found.location == NSNotFound) continue;
+            const NSUInteger width = text.length / 10;
+            memset((uint8_t *)bytes.mutableBytes + found.location + 5 * width, 0, width);
+            patched = YES;
+            break;
+        }
+        XCTAssertTrue(patched, @"%@", name);
         XCTAssertTrue([bytes writeToURL:url atomically:YES]);
         XCTAssertEqualObjects([self read:url][VibeTagFieldGenre], (@[@"Deep House", @"Tech House"]), @"%@", name);
         auto version = [&]() -> unsigned int {
