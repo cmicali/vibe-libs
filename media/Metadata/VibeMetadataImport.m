@@ -5,7 +5,7 @@
 
 #import "VibeMetadataImport.h"
 #import "VibeMetadataStore.h"
-#import "PINDiskCache.h"
+#import "VibeLegacyCacheNames.h"
 
 #import <pthread.h>
 #import <stdatomic.h>
@@ -37,14 +37,9 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
     return @[@"Audio Track Metadata v11", @"Audio Track Thumbnails v1", @"Audio Track Display Art v1"];
 }
 
-// PINDiskCache names a store's folder "<prefix>.<name>".
-+ (NSString *)folderOf:(NSString *)name under:(NSString *)root {
-    return [root stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@", PINDiskCachePrefix, name]];
-}
-
 + (instancetype)importUnderRootPath:(NSString *)root {
     for (NSString *name in self.oldStoreNames) {
-        if ([NSFileManager.defaultManager fileExistsAtPath:[self folderOf:name under:root]]) {
+        if ([NSFileManager.defaultManager fileExistsAtPath:VibeLegacyCacheFolder(root, name)]) {
             return [[self alloc] initWithRoot:root];
         }
     }
@@ -54,9 +49,9 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
 - (instancetype)initWithRoot:(NSString *)root {
     if ((self = [super init])) {
         NSArray<NSString *> *names = VibeMetadataImport.oldStoreNames;
-        _tags = [VibeMetadataImport folderOf:names[0] under:root];
-        _thumbnails = [VibeMetadataImport folderOf:names[1] under:root];
-        _renditions = [VibeMetadataImport folderOf:names[2] under:root];
+        _tags = VibeLegacyCacheFolder(root, names[0]);
+        _thumbnails = VibeLegacyCacheFolder(root, names[1]);
+        _renditions = VibeLegacyCacheFolder(root, names[2]);
         _queue = dispatch_queue_create("vibe-libs.metadata.import",
                 dispatch_queue_attr_make_with_qos_class(DISPATCH_QUEUE_SERIAL, QOS_CLASS_BACKGROUND, 0));
         _running = dispatch_group_create();
@@ -112,13 +107,7 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
     if (!key.length || atomic_load(&_stopped)) {
         return NO;
     }
-    // As PINDiskCache's key encoder names the file.
-    static NSCharacterSet *allowed;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        allowed = [NSCharacterSet characterSetWithCharactersInString:@".:/%"].invertedSet;
-    });
-    NSString *name = [key stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+    NSString *name = VibeLegacyCacheFileName(key);
     NSData *tags = name ? [NSData dataWithContentsOfFile:[_tags stringByAppendingPathComponent:name]] : nil;
     if (!tags) {
         return NO;

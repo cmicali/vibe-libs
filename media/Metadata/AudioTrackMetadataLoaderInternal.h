@@ -22,7 +22,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 @interface AudioTrackMetadataLoader () {
-    // Re-read at use: the owner builds its PINCache asynchronously, and an
+    // Re-read at use: the owner builds its store asynchronously, and an
     // early snapshot would freeze nil for the loader's life.
     __weak AudioTrackMetadataCache* _owner;
     NSOperationQueue* _queue;

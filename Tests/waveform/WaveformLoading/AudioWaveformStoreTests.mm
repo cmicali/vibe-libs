@@ -14,8 +14,7 @@
 #import "AudioWaveform.h"
 #import "AudioWaveformCache.h"
 #import "AudioWaveformCacheInternal.h"
-#import "PINCache+VibeAudioCache.h"
-#import "PINDiskCache.h"
+#import "LegacyCacheFixtures.h"
 #import "VibeTestTrack.h"
 #import "VibeWaveformStore.h"
 #import "WaveformLoadingTestSupport.h"
@@ -67,8 +66,7 @@
 }
 
 - (NSString *)legacyUnder:(NSString *)root {
-    return [root stringByAppendingPathComponent:
-            [NSString stringWithFormat:@"%@.%@", PINDiskCachePrefix, VibeWaveformStore.legacyName]];
+    return VibeLegacyCacheFolder(root, VibeWaveformStore.legacyName);
 }
 
 - (VibeTestTrack *)trackNamed:(NSString *)name seed:(uint32_t)seed {
@@ -84,15 +82,13 @@
     StoreTestRecorder *recorder = [StoreTestRecorder new];
     AudioWaveformCache *decoder = [[AudioWaveformCache alloc] initWithRootPath:[self rootNamed:@"decoder"]];
     decoder.delegate = recorder;
-    PINCache *legacy = [PINCache audioCacheWithName:VibeWaveformStore.legacyName rootPath:root];
     NSMutableDictionary<NSString *, NSData *> *files = [NSMutableDictionary dictionary];
     for (VibeTestTrack *track in tracks) {
         NSUInteger before = recorder.complete.count;
         [decoder loadWaveformForTrack:track];
         XCTAssertTrue(WaveformSpinUntil(^BOOL { return recorder.complete.count > before; }));
         NSString *key = VibeWaveformEntryKey(track);
-        [legacy.diskCache setObject:recorder.complete.lastObject forKey:key];
-        NSData *bytes = [NSData dataWithContentsOfURL:[legacy.diskCache fileURLForKey:key]];
+        NSData *bytes = VibeWriteLegacyCacheEntry(root, VibeWaveformStore.legacyName, key, recorder.complete.lastObject);
         XCTAssertGreaterThan(bytes.length, 0u);
         files[key] = bytes;
     }

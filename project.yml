@@ -971,38 +971,6 @@ targets:
     platform: iOS
     templates: [VibeLibsTaglib]
 
-  PINCacheTests:
-    type: bundle.unit-test
-    platform: macOS
-    templates: [VibeLibsPINCache]
-    sources:
-      - path: Tests/third_party/PINCache
-        excludes: ["**/*.md"]
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES
-
-  PINCache-iOS:
-    type: library.static
-    platform: iOS
-    templates: [VibeLibsPINCache]
-
-  PINOperationTests:
-    type: bundle.unit-test
-    platform: macOS
-    templates: [VibeLibsPINOperation]
-    sources:
-      - path: Tests/third_party/PINOperation
-        excludes: ["**/*.md"]
-    settings:
-      base:
-        GENERATE_INFOPLIST_FILE: YES
-
-  PINOperation-iOS:
-    type: library.static
-    platform: iOS
-    templates: [VibeLibsPINOperation]
-
   R8brainTests:
     type: bundle.unit-test
     platform: macOS
@@ -1180,10 +1148,6 @@ schemes:
         iOSDriver: all
         TaglibTests: [test]
         Taglib-iOS: all
-        PINCacheTests: [test]
-        PINCache-iOS: all
-        PINOperationTests: [test]
-        PINOperation-iOS: all
         R8brainTests: [test]
         R8brain-iOS: all
         DrMp3Tests: [test]
@@ -1204,5 +1168,5 @@ schemes:
                 MetadataTests, PlayQueueTests, PlaylistsTests, FolderScanTests, WaveformTests, WaveformLoadingTests,
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
                 SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, DebugVerbsTests,
-                TaglibTests, PINCacheTests, PINOperationTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
+                TaglibTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
                 OggTests, VorbisTests, SparkleTests]

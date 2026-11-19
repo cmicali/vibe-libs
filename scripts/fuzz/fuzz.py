@@ -130,7 +130,7 @@ def resolve(spec, name):
     for n in listed(spec, name):
         for entry in spec[n].get("sources", []):
             for file, flags in expand(entry):
-                # A narrower entry's flags win, as PINDiskCache.m's do.
+                # A narrower entry's flags win over a folder's.
                 if file not in sources or flags:
                     sources[file] = flags
         paths = spec[n].get("settings", {}).get("base", {}).get("HEADER_SEARCH_PATHS", [])

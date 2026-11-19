@@ -142,10 +142,10 @@ targetTemplates:
           - "$(VIBE_LIBS_ROOT)/files/FileLoading/Claim"
           - "$(VIBE_LIBS_ROOT)/files/FileLoading/Transfer"
 
-  # The PINCache category, and the store over the system's SQLite, which it
-  # links by flag.
+  # The store over the system's SQLite, which it links by flag, and the
+  # removal of the stores the releases before it left.
   VibeLibsDiskCache:
-    templates: [VibeLibsCommon, VibeLibsPINCache]
+    templates: [VibeLibsCommon]
     sources:
       - path: files/DiskCache
         excludes: ["**/*.md", "${excludedPlatform}/**"]
@@ -153,6 +153,11 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/files/DiskCache"]
         OTHER_LDFLAGS: ["$(inherited)", "-lsqlite3"]
+
+  # Empty, and kept for its name alone: apps list it from when PINCache was
+  # vendored here, and a template an app names must exist. PINCache is gone,
+  # and VibeLibsDiskCache holds what replaced it (files/DiskCache/AGENTS.md).
+  VibeLibsPINCache: {}
 
   # Ranged HTTP transfers: a download streamed into a file, a ranged read,
   # and a probe of the first bytes. Foundation only. The fake of ranged
@@ -259,8 +264,8 @@ targetTemplates:
   # alone. It lists AudioTypes for the playable item and the format names,
   # Decode for the fallback's handle, Tags for the TagLib parse, DiskCache for
   # the store, FileLoading for the materialization and the ranged read,
-  # Graphics for the image helpers, and TagLib and PINCache, whose own headers
-  # the parse and the cache read. Its seams compile in every configuration.
+  # Graphics for the image helpers, and TagLib, whose own headers the parse
+  # reads. Its seams compile in every configuration.
   # Each wraps its body in #if DEBUG, so a release build ships none of it.
   #
   # Its Objective-C++ sources include TagLib's headers, so an app builds C++
@@ -272,7 +277,7 @@ targetTemplates:
   # template after them, as it would VibeLibsTags.
   VibeLibsMetadata:
     templates: [VibeLibsCommon, VibeLibsAudioTypes, VibeLibsDecode, VibeLibsTags, VibeLibsDiskCache,
-                VibeLibsFileLoading, VibeLibsGraphics, VibeLibsTaglib, VibeLibsPINCache]
+                VibeLibsFileLoading, VibeLibsGraphics, VibeLibsTaglib]
     sources:
       - path: media/Metadata
         excludes: ["**/*.md", "${excludedPlatform}/**"]
@@ -355,15 +360,14 @@ targetTemplates:
   # cached on disk and shared between requests. It opens files through
   # Decode's handle and FileLoading's materializer, reads the CUE window math
   # and the playable-item protocol from AudioTypes, and files entries through
-  # DiskCache's SQLite store. It reads PINCache's names only to import the
-  # store before it. Its seams compile in every configuration. Each
+  # DiskCache's SQLite store. Its seams compile in every configuration. Each
   # wraps its body in #if DEBUG, so a release build ships none of it.
   #
   # TRAP: an app that also takes VibeLibsTaglib lists this template first, as
   # it would VibeLibsDecode, which this one lists.
   VibeLibsWaveformLoading:
     templates: [VibeLibsCommon, VibeLibsWaveform, VibeLibsAudioTypes, VibeLibsDecode, VibeLibsDiskCache,
-                VibeLibsFileLoading, VibeLibsPINCache]
+                VibeLibsFileLoading]
     sources:
       - path: waveform/WaveformLoading
         excludes: ["**/*.md", "${excludedPlatform}/**"]
@@ -565,8 +569,8 @@ targetTemplates:
   # Each template carries the compiler flags its library builds with, so an
   # app needs none of its own. None of these sources is analyzed. The license,
   # privacy, and filter-table files stay out of an app's bundle. A template
-  # whose headers an app spells with the library's directory, as <ogg/ogg.h>,
-  # <PINCache/PINCache.h>, and "dr_flac/dr_flac.h" are, also searches
+  # whose headers an app spells with the library's directory, as <ogg/ogg.h>
+  # and "dr_flac/dr_flac.h" are, also searches
   # third_party/ itself.
 
   # A subset of TagLib 2.3.2. Its files include each other by name, so every
@@ -603,38 +607,6 @@ targetTemplates:
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/vorbis"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/opus"
-
-  # PINDiskCache.m builds with ARC exceptions on, as the pod's
-  # ARC-exception-safe subspec did.
-  VibeLibsPINCache:
-    templates: [VibeLibsPINOperation]
-    sources:
-      - path: third_party/PINCache
-        excludes: ["**/*.md", "**/*.txt", "**/*.xcprivacy", "PINDiskCache.m"]
-        compilerFlags: *third-party-flags
-      - path: third_party/PINCache/PINDiskCache.m
-        compilerFlags:
-          - "-fobjc-arc-exceptions"
-          - "-Xclang"
-          - "-analyzer-disable-all-checks"
-    settings:
-      base:
-        HEADER_SEARCH_PATHS:
-          - "$(inherited)"
-          - "$(VIBE_LIBS_ROOT)/third_party"
-          - "$(VIBE_LIBS_ROOT)/third_party/PINCache"
-
-  VibeLibsPINOperation:
-    sources:
-      - path: third_party/PINOperation
-        excludes: ["**/*.md", "**/*.txt", "**/*.xcprivacy"]
-        compilerFlags: *third-party-flags
-    settings:
-      base:
-        HEADER_SEARCH_PATHS:
-          - "$(inherited)"
-          - "$(VIBE_LIBS_ROOT)/third_party"
-          - "$(VIBE_LIBS_ROOT)/third_party/PINOperation"
 
   # Header-only but for upstream's C entry points, DLL/r8bsrc.cpp, and its FFT.
   # Optimized in every configuration, since at -O0 it costs many times its
