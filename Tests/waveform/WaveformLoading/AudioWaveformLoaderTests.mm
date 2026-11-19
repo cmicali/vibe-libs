@@ -23,6 +23,7 @@
 #import "CloudFileMaterializer.h"
 #import "NSURL+Hash.h"
 #import "PINCache+VibeAudioCache.h"
+#import "VibeWaveformStore.h"
 #import "VibeReadAheadScript.h"
 #import "VibeTestTrack.h"
 #import "WaveformLoadingTestSupport.h"
@@ -599,19 +600,9 @@ static NSUInteger DescriptorsOpenOn(NSString *path) {
 
 static const time_t kStreamModified = 1700000000;
 
-// A 16-bit stereo WAV of nonperiodic noise, so a bin read from the wrong
-// offset never matches the reference's.
 - (NSURL *)writeNoiseWAVNamed:(NSString *)name seconds:(double)seconds seed:(uint32_t)seed {
-    uint32_t frames = (uint32_t)(44100.0 * seconds);
-    NSMutableData *samples = [NSMutableData dataWithLength:(NSUInteger)frames * 4];
-    int16_t *out = (int16_t *)samples.mutableBytes;
-    uint32_t state = seed;
-    for (NSUInteger i = 0; i < (NSUInteger)frames * 2; i++) {
-        state = state * 1664525u + 1013904223u;
-        out[i] = (int16_t)(sin((double)i * 0.00071) * 16000.0 + (double)(int16_t)(state >> 16) * 0.4);
-    }
-    NSURL *url = [_tempDirectory URLByAppendingPathComponent:name];
-    XCTAssertNotNil(VibeWriteWAV(url, samples, 44100, 2, 16, frames * 4));
+    NSURL *url = VibeWriteNoiseWAV([_tempDirectory URLByAppendingPathComponent:name], seconds, seed);
+    XCTAssertNotNil(url);
     return url;
 }
 
@@ -898,12 +889,14 @@ static NSUInteger MatchingBins(CodableAudioWaveform *waveform, CodableAudioWavef
     return cache;
 }
 
-// The store's name carries its version as DiskCache's removal reads it, so a
-// format bump removes the old store and keeps the current one.
+// The store's name is of another family than the PINCache stores', so an
+// app's removal of other versions, given it, removes none of them: the old
+// store is the import's to bring over and remove.
 - (void)testTheStoreNameFollowsTheVersionRule {
     NSString *root = [_tempDirectory URLByAppendingPathComponent:@"stores"].path;
-    NSString *current = [@"com.pinterest.PINDiskCache." stringByAppendingString:AudioWaveformCache.cacheName];
-    for (NSString *store in @[current, @"com.pinterest.PINDiskCache.audio_waveform_cache_v1"]) {
+    NSArray<NSString *> *stores = @[AudioWaveformCache.cacheName, @"com.pinterest.PINDiskCache.audio_waveform_cache_v1",
+                                    @"com.pinterest.PINDiskCache.audio_waveform_cache_v7"];
+    for (NSString *store in stores) {
         XCTAssertTrue([NSFileManager.defaultManager createDirectoryAtPath:[root stringByAppendingPathComponent:store]
                                               withIntermediateDirectories:YES attributes:nil error:nil]);
     }
@@ -912,7 +905,8 @@ static NSUInteger MatchingBins(CodableAudioWaveform *waveform, CodableAudioWavef
         [removed fulfill];
     }];
     [self waitForExpectations:@[removed] timeout:VIBE_TEST_HANG_TIMEOUT];
-    XCTAssertEqualObjects([NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:nil], @[current]);
+    NSArray<NSString *> *kept = [NSFileManager.defaultManager contentsOfDirectoryAtPath:root error:nil];
+    XCTAssertEqualObjects([kept sortedArrayUsingSelector:@selector(compare:)], [stores sortedArrayUsingSelector:@selector(compare:)]);
 }
 
 // An app sets the store's limits over the defaults, once the store is built.
@@ -925,7 +919,7 @@ static NSUInteger MatchingBins(CodableAudioWaveform *waveform, CodableAudioWavef
     }];
     [self waitForExpectations:@[built] timeout:VIBE_TEST_HANG_TIMEOUT];
     // The setter runs on the loader queue, which the usage count ran after.
-    PINDiskCache *store = ((PINCache *)[cache valueForKey:@"waveformCache"]).diskCache;
+    VibeCacheStore *store = ((VibeWaveformStore *)[cache valueForKey:@"waveformCache"]).entries;
     XCTAssertEqual(store.byteLimit, 5u * 1024 * 1024);
     XCTAssertEqual(store.ageLimit, 7 * 86400.0);
 }

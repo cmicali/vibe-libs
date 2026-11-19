@@ -78,6 +78,12 @@ typedef struct {
 // fails leaves no entry under key, so it reads as a miss.
 - (void)setData:(NSData *)data forKey:(NSString *)key format:(NSInteger)format sharedName:(nullable NSString *)sharedName;
 - (void)removeEntryForKey:(NSString *)key;
+// Lists a file another store wrote as the entry under key, for an import. A
+// file over inlineLimit is renamed into the store, and a smaller one is read
+// into its row and then removed. lastUse, nil for now, dates the entry for
+// the limits. NO, leaving the file, when key already holds an entry, or the
+// file can't be read or renamed, as from another volume.
+- (BOOL)adoptFileAtPath:(NSString *)path forKey:(NSString *)key format:(NSInteger)format lastUse:(nullable NSDate *)lastUse;
 // Moves the entry to newKey, replacing any there. NO when oldKey has none.
 - (BOOL)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey;
 
@@ -103,6 +109,11 @@ typedef struct {
 // The daily work, run now: the age limit, the shared items no entry names,
 // and the byte limit. A store runs it on its own once a day.
 - (void)performMaintenanceWithCompletion:(nullable dispatch_block_t)completion;
+
+// Moves a folder into the store's directory at once, then removes it in the
+// background, as an import removes the store it came from. An open removes
+// one that a quit left. A folder on another volume is removed in place.
+- (void)removeFolderAtPath:(NSString *)path;
 
 // Runs the block on the store's queue after the work queued before it.
 - (void)performAfterQueuedWork:(dispatch_block_t)block;

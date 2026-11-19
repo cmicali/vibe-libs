@@ -9,7 +9,7 @@
 
 #import "AudioWaveformCacheInternal.h"
 #import "AudioWaveform.h"
-#import "PINCache.h"
+#import "VibeWaveformStore.h"
 #import "AudioWaveformLoader.h"
 #import "AudioWorkScheduler.h"
 #import "HelperMacros.h"
@@ -137,8 +137,8 @@ static std::atomic<double> sDebugDecodeSeconds{0};
             return;
         }
         dispatch_sync(self->_loaderQueue, ^{
-            BOOL present = [self->_waveformCache.diskCache containsObjectForKey:cacheKey];
-            [self->_waveformCache.diskCache removeObjectForKey:cacheKey];
+            BOOL present = [self->_waveformCache hasEntryForKey:cacheKey];
+            [self->_waveformCache removeEntryForKey:cacheKey];
             run_on_main_thread({ if (completion) completion(present); });
         });
     } failureQueue:dispatch_get_main_queue()

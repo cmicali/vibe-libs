@@ -14,7 +14,7 @@
 @class AudioWorkScheduler;
 @class AudioWaveformLoader;
 @class CodableAudioWaveform;
-@class PINCache;
+@class VibeWaveformStore;
 @class VibeWaveformLoadClaim;
 @class VibeWaveformScanToken;
 
@@ -53,7 +53,7 @@ static inline NSString *_Nullable VibeWaveformEntryKey(id<VibePlayableItem> trac
     // decode slot.
     AudioWorkScheduler              *_detailScheduler;
     AudioWorkScheduler              *_decodeScheduler;
-    PINCache*                       _waveformCache;
+    VibeWaveformStore               *_waveformCache;
     // The scans. All but the count are confined to _scanQueue.
     dispatch_queue_t                _scanQueue;
     // The scan's stat and lookup, then its decode. The cache's line, not this

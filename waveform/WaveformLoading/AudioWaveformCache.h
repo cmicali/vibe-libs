@@ -42,9 +42,9 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 // first scan, on main.
 @property (null_resettable, nonatomic, strong) AudioFileMaterializationCoordinator *materializationCoordinator;
 
-// The PINCache store name, derived from the entry format version; see the
-// implementation. It is the single source for init and for anything that
-// reports the name, such as a debug report.
+// The store's directory name under the root. The entry's format is on each
+// row, so the name stays the same across formats. It is the single source
+// for init and for anything that reports the name, such as a debug report.
 + (NSString *)cacheName;
 
 // The store under rootPath rather than the user's caches: the tests' own.
@@ -82,8 +82,10 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 // built. The store then trims to them in the background. Any thread.
 - (void)setByteLimit:(NSUInteger)byteLimit ageLimit:(NSTimeInterval)ageLimit;
 
-// The backing store's entry count and total bytes on disk, enumerated off the
-// calling thread; the completion runs on the main thread.
+// The backing store's entry count and total bytes on disk, a sum the store
+// keeps, read off the calling thread; the completion runs on the main thread.
+// During the import of the store before it, the entries not yet brought over
+// are not counted.
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion;
 
 // Both main thread only, like the delegate deliveries they gate.
