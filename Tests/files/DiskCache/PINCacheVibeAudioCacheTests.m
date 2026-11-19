@@ -127,17 +127,13 @@ static void VibeLetGoOfEveryCount(void) {
     [super tearDown];
 }
 
-// TRAP: PINDiskCache sets each limit on its own queue, so a read right after
-// the store is made can still see the default.
+// A store has its limits as soon as it is made.
 - (void)testAStoreUnderARootHasTheSharedLimits {
     PINCache *cache = [PINCache audioCacheWithName:@"limits" rootPath:_root];
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
-    while ((cache.diskCache.byteLimit != 1024u * 1024u * 1024u || cache.diskCache.ageLimit != 180.0 * 24 * 60 * 60)
-            && deadline.timeIntervalSinceNow > 0) {
-        [NSThread sleepForTimeInterval:0.01];
-    }
     XCTAssertEqual(cache.diskCache.byteLimit, 1024u * 1024u * 1024u);
     XCTAssertEqual(cache.diskCache.ageLimit, 180.0 * 24 * 60 * 60);
+    XCTAssertEqual(VibeAudioCacheDefaultByteLimit, 1024u * 1024u * 1024u);
+    XCTAssertEqual(VibeAudioCacheDefaultAgeLimit, 180.0 * 24 * 60 * 60);
     XCTAssertTrue([cache.diskCache.cacheURL.path hasPrefix:_root], @"%@", cache.diskCache.cacheURL.path);
 }
 
@@ -168,6 +164,24 @@ static void VibeWaitForDiskState(PINDiskCache *cache) {
     [cache enumerateObjectsWithBlock:^(NSString *key, NSURL *fileURL, BOOL *stop) {
         *stop = YES;
     }];
+}
+
+// An entry's file, found with no hit, which would re-date it.
+static NSString *VibeEntryPath(PINDiskCache *cache, NSString *key) {
+    return [cache.cacheURL URLByAppendingPathComponent:key isDirectory:NO].path;
+}
+
+// Waits until a hit's re-date, which runs on the store's queue, has moved
+// the entry's date to now, and returns that date.
+static NSDate *VibeWaitForReDate(PINDiskCache *cache, NSString *key) {
+    NSDate *(^used)(void) = ^NSDate *(void) {
+        return [NSFileManager.defaultManager attributesOfItemAtPath:VibeEntryPath(cache, key) error:nil].fileModificationDate;
+    };
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while ([used() timeIntervalSinceNow] < -60 && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.01];
+    }
+    return used();
 }
 
 // The bytes the store's files take on disk, as it counts them.
@@ -281,12 +295,12 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
 
 // A trim to a date removes the entries made before it, by their files'
 // creation dates, as a store opened again finds them.
-- (void)testATrimToADateRemovesTheEntriesMadeBefore {
+- (void)testATrimToADateRemovesTheEntriesLastUsedBefore {
     PINDiskCache *first = [PINCache audioCacheWithName:@"dated" rootPath:_root].diskCache;
     VibeWaitForDiskState(first);
     [first setObject:[NSMutableData dataWithLength:1000] forKey:@"old"];
     [first setObject:[NSMutableData dataWithLength:1000] forKey:@"new"];
-    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
                                                  ofItemAtPath:[first fileURLForKey:@"old"].path error:nil]);
     first = nil;
     PINDiskCache *cache = [PINCache audioCacheWithName:@"dated" rootPath:_root].diskCache;
@@ -296,14 +310,14 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
     XCTAssertTrue([cache containsObjectForKey:@"new"]);
 }
 
-// A store that has seen no entry made before a date lists nothing to trim
-// to it: an entry made older behind its back stays, until a reopening reads
+// A store that has seen no entry last used before a date lists nothing to
+// trim to it: an entry made older behind its back stays, until a reopening reads
 // its date and trims it.
 - (void)testATrimToADateListsNothingWhenNothingIsThatOld {
     PINDiskCache *cache = [PINCache audioCacheWithName:@"recent" rootPath:_root].diskCache;
     VibeWaitForDiskState(cache);
     [cache setObject:[NSMutableData dataWithLength:1000] forKey:@"one"];
-    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
                                                  ofItemAtPath:[cache fileURLForKey:@"one"].path error:nil]);
     NSDate *trimDate = [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 50];
     [cache trimToDate:trimDate];
@@ -315,13 +329,73 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
     XCTAssertFalse([again containsObjectForKey:@"one"]);
 }
 
+// The age limit counts from an entry's last use, never from its write: an
+// entry written long ago and read since stays, and one nobody read goes.
+- (void)testAnEntryReadSinceItsWriteDoesNotAgeOut {
+    PINDiskCache *first = [PINCache audioCacheWithName:@"read since" rootPath:_root].diskCache;
+    VibeWaitForDiskState(first);
+    for (NSString *key in @[@"read", @"unread"]) {
+        [first setObject:[NSMutableData dataWithLength:1000] forKey:key];
+        // The creation date first, since a modification date before it
+        // moves it back too.
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 300]}
+                                                     ofItemAtPath:VibeEntryPath(first, key) error:nil]);
+    }
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 10]}
+                                                 ofItemAtPath:VibeEntryPath(first, @"read") error:nil]);
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 250]}
+                                                 ofItemAtPath:VibeEntryPath(first, @"unread") error:nil]);
+    first = nil;
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"read since" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    [cache trimToDate:[NSDate dateWithTimeIntervalSinceNow:-86400.0 * 180]];
+    XCTAssertTrue([cache containsObjectForKey:@"read"]);
+    XCTAssertFalse([cache containsObjectForKey:@"unread"]);
+    XCTAssertEqual(cache.byteCount, VibeAllocatedBytes(cache));
+}
+
+// A hit is a use: it re-dates an old entry, so the next launch's age trim
+// keeps it, and removes the entry nobody read.
+- (void)testAHitKeepsAnOldEntryFromAgingOut {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"hit keeps" rootPath:_root].diskCache;
+    VibeWaitForDiskState(cache);
+    for (NSString *key in @[@"hit", @"missed"]) {
+        [cache setObject:[NSMutableData dataWithLength:1000] forKey:key];
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 200]}
+                                                     ofItemAtPath:VibeEntryPath(cache, key) error:nil]);
+    }
+    XCTAssertNotNil([cache objectForKey:@"hit"]);
+    XCTAssertGreaterThan([VibeWaitForReDate(cache, @"hit") timeIntervalSinceNow], -60);
+    cache = nil;
+    PINDiskCache *again = [PINCache audioCacheWithName:@"hit keeps" rootPath:_root].diskCache;
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while ([again containsObjectForKey:@"missed"] && deadline.timeIntervalSinceNow > 0) {
+        [NSThread sleepForTimeInterval:0.05];
+    }
+    XCTAssertFalse([again containsObjectForKey:@"missed"]);
+    XCTAssertTrue([again containsObjectForKey:@"hit"]);
+}
+
+// A limit is set at once, so the latest wins, whatever order the store's
+// concurrent queue runs the setters' trims in.
+- (void)testTheLatestLimitWinsAtOnce {
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"latest" rootPath:_root].diskCache;
+    cache.byteLimit = 2 * 1024 * 1024;
+    cache.ageLimit = 86400.0;
+    XCTAssertEqual(cache.byteLimit, 2u * 1024 * 1024);
+    XCTAssertEqual(cache.ageLimit, 86400.0);
+    VibeWaitForDiskState(cache);
+    XCTAssertEqual(cache.byteLimit, 2u * 1024 * 1024, @"no earlier setter's operation sets it back");
+    XCTAssertEqual(cache.ageLimit, 86400.0);
+}
+
 // A plain store that read its records before the mode keeps their dates in
 // the bound the mode drops them for, so an old one is still trimmed.
 - (void)testRecordsDroppedForTheModeKeepTheirDates {
     PINDiskCache *first = [[PINCache alloc] initWithName:@"dropped" rootPath:_root].diskCache;
     VibeWaitForDiskState(first);
     [first setObject:[NSMutableData dataWithLength:1000] forKey:@"old"];
-    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 100]}
                                                  ofItemAtPath:[first fileURLForKey:@"old"].path error:nil]);
     first = nil;
     PINDiskCache *plain = [[PINCache alloc] initWithName:@"dropped" rootPath:_root].diskCache;
@@ -376,7 +450,7 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
     }
     NSDate *made = [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 200];
     for (NSString *key in @[@"old one", @"old two"]) {
-        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: made}
+        XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: made}
                                                      ofItemAtPath:[first fileURLForKey:key].path error:nil]);
     }
     first = nil;
@@ -415,11 +489,6 @@ static NSUInteger VibeAllocatedBytes(PINDiskCache *cache) {
 }
 
 #pragma mark - The lock
-
-// An entry's file, found with no hit, which would re-date it.
-static NSString *VibeEntryPath(PINDiskCache *cache, NSString *key) {
-    return [cache.cacheURL URLByAppendingPathComponent:key isDirectory:NO].path;
-}
 
 // Runs work on another thread and reports whether it finished in time.
 static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
@@ -464,16 +533,9 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
                                                      ofItemAtPath:VibeEntryPath(cache, key) error:nil]);
         XCTAssertNotNil([cache objectForKey:key]);
     }
-    // The re-date runs on the store's queue.
-    NSDate *(^modified)(NSString *) = ^NSDate *(NSString *key) {
-        return [NSFileManager.defaultManager attributesOfItemAtPath:VibeEntryPath(cache, key) error:nil].fileModificationDate;
-    };
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
-    while ([modified(@"old") timeIntervalSinceNow] < -60 && deadline.timeIntervalSinceNow > 0) {
-        [NSThread sleepForTimeInterval:0.01];
-    }
-    XCTAssertGreaterThan([modified(@"old") timeIntervalSinceNow], -60);
-    XCTAssertEqualWithAccuracy([modified(@"recent") timeIntervalSinceDate:anHour], 0, 1);
+    XCTAssertGreaterThan([VibeWaitForReDate(cache, @"old") timeIntervalSinceNow], -60);
+    XCTAssertEqualWithAccuracy([[NSFileManager.defaultManager attributesOfItemAtPath:VibeEntryPath(cache, @"recent") error:nil].fileModificationDate
+                                   timeIntervalSinceDate:anHour], 0, 1);
 }
 
 // Hits that race writes over their key and its removal each see a whole
@@ -791,20 +853,12 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
     VibeCountHold *hold = VibeHoldCount(@"trimmed", VibePINDiskCacheCountStageEnd, nil);
     PINDiskCache *cache = [PINCache audioCacheWithName:@"trimmed" rootPath:_root].diskCache;
     XCTAssertTrue([hold waitUntilHeld:1]);
-    // TRAP: the shared limit is set on the store's queue, so it goes first.
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
-    while (cache.byteLimit != 1024u * 1024u * 1024u && deadline.timeIntervalSinceNow > 0) {
-        [NSThread sleepForTimeInterval:0.01];
-    }
     NSUInteger limit = VibeAllocatedBytes(cache) / 2;
     cache.byteLimit = limit;
-    while (cache.byteLimit != limit && deadline.timeIntervalSinceNow > 0) {
-        [NSThread sleepForTimeInterval:0.01];
-    }
     XCTAssertEqual(cache.byteLimit, limit);
     [cache setObject:[NSMutableData dataWithLength:10000] forKey:@"new"];
     VibeLetGoOfEveryCount();
-    deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
     while (cache.byteCount > limit && deadline.timeIntervalSinceNow > 0) {
         [NSThread sleepForTimeInterval:0.01];
     }
@@ -821,7 +875,7 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
     // With no store open, whose age limit's trim would remove it first.
     NSString *k0 = [[_root stringByAppendingPathComponent:[PINDiskCachePrefix stringByAppendingString:@".aged move"]]
                     stringByAppendingPathComponent:@"k0"];
-    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileCreationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 200]}
+    XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSinceNow:-86400.0 * 200]}
                                                  ofItemAtPath:k0 error:nil]);
     VibeCountHold *hold = VibeHoldCount(@"aged move", VibePINDiskCacheCountStageStart, nil);
     PINDiskCache *cache = [PINCache audioCacheWithName:@"aged move" rootPath:_root].diskCache;

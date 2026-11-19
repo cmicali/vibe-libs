@@ -76,6 +76,12 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 - (void)moveEntriesToNewKeys:(NSDictionary<NSString *, NSString *> *)newKeysByOldKey
                   completion:(nullable dispatch_block_t)completion;
 
+// The store's limits, over files/DiskCache's defaults, which it keeps until
+// its app sets others. Calls
+// run in the order made, on the cache's loader queue, once the store is
+// built. The store then trims to them in the background. Any thread.
+- (void)setByteLimit:(NSUInteger)byteLimit ageLimit:(NSTimeInterval)ageLimit;
+
 // The backing store's entry count and total bytes on disk, enumerated off the
 // calling thread; the completion runs on the main thread.
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion;
@@ -112,6 +118,13 @@ typedef VibeWaveformAnalysis (^VibeWaveformAnalysisProvider)(void);
 // entry is on disk. This piece's AGENTS.md has the rest.
 - (VibeWaveformScanToken *)scanWaveformForTrack:(id<VibePlayableItem>)track
                                      completion:(void (^)(BOOL filed))completion;
+
+// A scan for its observers' results alone, in the same line as the scans
+// above. A decode files no entry and splits no bands. A file whose entry is
+// filed answers from it, with no decode. The results reach the delegate as a
+// scan's do. analyzed says whether they came, from an entry or a decode.
+- (VibeWaveformScanToken *)scanResultsForTrack:(id<VibePlayableItem>)track
+                                    completion:(void (^)(BOOL analyzed))completion;
 
 // Supersedes the in-flight load: no further waveform deliveries until the
 // next loadWaveformForTrack:. The decode is NOT aborted: it detaches, runs to

@@ -9,11 +9,11 @@
 // Each store has its own budget. A waveform entry grows with its track, about
 // 50 KiB a minute and double that with bands. Metadata and display-art sizes
 // depend on the file.
-static const NSUInteger kAudioCacheByteLimit = 1024 * 1024 * 1024;
+const NSUInteger VibeAudioCacheDefaultByteLimit = 1024 * 1024 * 1024;
 
-// Changed file identities can orphan entries. Untouched entries age out
+// Changed file identities can orphan entries. Entries nobody reads age out
 // instead of holding the byte budget forever.
-static const NSTimeInterval kAudioCacheAgeLimit = 6 * (30 * (24 * 60 * 60)); // 180 days
+const NSTimeInterval VibeAudioCacheDefaultAgeLimit = 6 * (30 * (24 * 60 * 60)); // 180 days
 
 // The name without its version suffix.
 static NSString *VibeAudioCacheFamily(NSString *name) {
@@ -29,8 +29,8 @@ static NSString *VibeAudioCacheFamily(NSString *name) {
     // would keep about 40 MB, so it keeps none (files/DiskCache's AGENTS.md).
     // First, so the limits' trims see it.
     cache.diskCache.recordsOnDemand = YES;
-    cache.diskCache.byteLimit = kAudioCacheByteLimit;
-    cache.diskCache.ageLimit = kAudioCacheAgeLimit;
+    cache.diskCache.byteLimit = VibeAudioCacheDefaultByteLimit;
+    cache.diskCache.ageLimit = VibeAudioCacheDefaultAgeLimit;
     return cache;
 }
 
