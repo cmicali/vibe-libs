@@ -1067,7 +1067,8 @@ static uint8_t VibeID3v2Version(NSURL *url) {
     [frames appendData:VibeV23Text("IPLS", "producer\0Some Producer\0engineer\0Some Engineer", 46)];
     NSURL *url = [self mp3WithTag:VibeID3v2Tag(3, 0, frames) name:@"dates.mp3"];
     NSMutableDictionary *before = [[self read:url] mutableCopy];
-    XCTAssertEqualObjects(before[VibeTagFieldDate], @[@"2001-02-03T12:05"]);
+    // TagLib's merge of TYER, TDAT, and TIME spells the time after a space.
+    XCTAssertEqualObjects(before[VibeTagFieldDate], @[@"2001-02-03 12:05"]);
     XCTAssertEqualObjects(before[VibeTagFieldOriginalDate], @[@"1999"]);
     XCTAssertEqualObjects(before[@"PRODUCER"], @[@"Some Producer"]);
     XCTAssertEqualObjects(before[@"ENGINEER"], @[@"Some Engineer"]);
