@@ -6,7 +6,6 @@
 #import "VibeWaveformStore.h"
 #import "AudioWaveform.h"
 #import "PINCache+VibeAudioCache.h"
-#import "PINDiskCache.h"
 #import "VibeMacros.h"
 
 #import <os/lock.h>
@@ -85,7 +84,7 @@ static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
             return self;
         }
         NSString *legacy = [root stringByAppendingPathComponent:
-                [NSString stringWithFormat:@"%@.%@", PINDiskCachePrefix, VibeWaveformStore.legacyName]];
+                [NSString stringWithFormat:@"%@.%@", VibeAudioCacheLegacyPrefix, VibeWaveformStore.legacyName]];
         BOOL isDirectory = NO;
         if ([NSFileManager.defaultManager fileExistsAtPath:legacy isDirectory:&isDirectory] && isDirectory) {
             _legacyDirectory = legacy;
@@ -177,19 +176,10 @@ static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
     }
 }
 
-// The old store's file for key during the import, as PINDiskCache's default
-// key encoder names it.
+// The old store's file for key during the import.
 - (nullable NSString *)legacyPathForKey:(NSString *)key {
-    if (!self.importing) {
-        return nil;
-    }
-    static NSCharacterSet *allowed;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        allowed = [[NSCharacterSet characterSetWithCharactersInString:@".:/%"] invertedSet];
-    });
-    NSString *name = [key stringByAddingPercentEncodingWithAllowedCharacters:allowed];
-    return name.length ? [_legacyDirectory stringByAppendingPathComponent:name] : nil;
+    NSString *name = self.importing ? VibeAudioCacheLegacyFileName(key) : nil;
+    return name ? [_legacyDirectory stringByAppendingPathComponent:name] : nil;
 }
 
 // Lists the old store's entry for key under storedKey, now. NO when the old

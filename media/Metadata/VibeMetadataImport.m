@@ -5,7 +5,7 @@
 
 #import "VibeMetadataImport.h"
 #import "VibeMetadataStore.h"
-#import "PINDiskCache.h"
+#import "PINCache+VibeAudioCache.h"
 
 #import <pthread.h>
 #import <stdatomic.h>
@@ -37,9 +37,9 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
     return @[@"Audio Track Metadata v11", @"Audio Track Thumbnails v1", @"Audio Track Display Art v1"];
 }
 
-// PINDiskCache names a store's folder "<prefix>.<name>".
+// PINDiskCache named a store's folder "<prefix>.<name>".
 + (NSString *)folderOf:(NSString *)name under:(NSString *)root {
-    return [root stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@", PINDiskCachePrefix, name]];
+    return [root stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@", VibeAudioCacheLegacyPrefix, name]];
 }
 
 + (instancetype)importUnderRootPath:(NSString *)root {
@@ -112,13 +112,7 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
     if (!key.length || atomic_load(&_stopped)) {
         return NO;
     }
-    // As PINDiskCache's key encoder names the file.
-    static NSCharacterSet *allowed;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        allowed = [NSCharacterSet characterSetWithCharactersInString:@".:/%"].invertedSet;
-    });
-    NSString *name = [key stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+    NSString *name = VibeAudioCacheLegacyFileName(key);
     NSData *tags = name ? [NSData dataWithContentsOfFile:[_tags stringByAppendingPathComponent:name]] : nil;
     if (!tags) {
         return NO;

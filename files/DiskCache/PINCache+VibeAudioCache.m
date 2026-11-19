@@ -4,16 +4,20 @@
 //
 
 #import "PINCache+VibeAudioCache.h"
-#import "HelperMacros.h"
 
-// Each store has its own budget. A waveform entry grows with its track, about
-// 50 KiB a minute and double that with bands. Metadata and display-art sizes
-// depend on the file.
-const NSUInteger VibeAudioCacheDefaultByteLimit = 1024 * 1024 * 1024;
+const NSTimeInterval VibeAudioCacheDefaultAgeLimit = 180 * 24 * 60 * 60;
 
-// Changed file identities can orphan entries. Entries nobody reads age out
-// instead of holding the byte budget forever.
-const NSTimeInterval VibeAudioCacheDefaultAgeLimit = 6 * (30 * (24 * 60 * 60)); // 180 days
+NSString *const VibeAudioCacheLegacyPrefix = @"com.pinterest.PINDiskCache";
+
+NSString *VibeAudioCacheLegacyFileName(NSString *key) {
+    static NSCharacterSet *allowed;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        allowed = [NSCharacterSet characterSetWithCharactersInString:@".:/%"].invertedSet;
+    });
+    NSString *name = [key stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+    return name.length ? name : nil;
+}
 
 // The name without its version suffix.
 static NSString *VibeAudioCacheFamily(NSString *name) {
@@ -21,41 +25,7 @@ static NSString *VibeAudioCacheFamily(NSString *name) {
     return suffix.location == NSNotFound ? name : [name substringToIndex:suffix.location];
 }
 
-@implementation PINCache (VibeAudioCache)
-
-+ (PINCache *)audioCacheWithName:(NSString *)name rootPath:(NSString *)rootPath {
-    PINCache *cache = rootPath ? [[PINCache alloc] initWithName:name rootPath:rootPath] : [[PINCache alloc] initWithName:name];
-    // The byte limit lets a store hold about 250,000 entries, whose records
-    // would keep about 40 MB, so it keeps none (files/DiskCache's AGENTS.md).
-    // First, so the limits' trims see it.
-    cache.diskCache.recordsOnDemand = YES;
-    cache.diskCache.byteLimit = VibeAudioCacheDefaultByteLimit;
-    cache.diskCache.ageLimit = VibeAudioCacheDefaultAgeLimit;
-    return cache;
-}
-
-- (void)audioDiskUsageWithCompletion:(void (^)(NSUInteger fileCount,
-                                               unsigned long long totalBytes))completion {
-    [PINCache audioDiskUsageOfCaches:@[self] completion:completion];
-}
-
-+ (void)audioDiskUsageOfCaches:(NSArray<PINCache *> *)caches
-                    completion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
-    __block NSUInteger count = 0;
-    __block unsigned long long bytes = 0;
-    for (PINCache *cache in caches) {
-        [cache.diskCache enumerateObjectsWithBlock:^(NSString *key, NSURL *fileURL, BOOL *stop) {
-            count++;
-            NSNumber *size = nil;
-            if ([fileURL getResourceValue:&size forKey:NSURLFileSizeKey error:nil]) {
-                bytes += size.unsignedLongLongValue;
-            }
-        }];
-    }
-    run_on_main_thread({
-        completion(count, bytes);
-    });
-}
+@implementation PINCache
 
 + (void)removeOtherAudioCacheVersionsKeeping:(NSArray<NSString *> *)currentNames
                                     rootPath:(NSString *)rootPath
@@ -65,20 +35,13 @@ static NSString *VibeAudioCacheFamily(NSString *name) {
         NSString *root = rootPath
                 ?: NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
         NSFileManager *fileManager = NSFileManager.defaultManager;
-        // PINDiskCache names each store's directory "<prefix>.<name>".
-        NSString *prefix = [PINDiskCachePrefix stringByAppendingString:@"."];
+        NSString *prefix = [VibeAudioCacheLegacyPrefix stringByAppendingString:@"."];
         if (root) {
             for (NSString *entry in [fileManager contentsOfDirectoryAtPath:root error:nil]) {
                 if (![entry hasPrefix:prefix]) {
                     continue;
                 }
                 NSString *name = [entry substringFromIndex:prefix.length];
-                // A name the list keeps stays, though another kept name
-                // shares its family, as a store and the older one it imports
-                // do.
-                if ([current containsObject:name]) {
-                    continue;
-                }
                 for (NSString *keep in current) {
                     if (![name isEqualToString:keep]
                             && [VibeAudioCacheFamily(name) isEqualToString:VibeAudioCacheFamily(keep)]) {

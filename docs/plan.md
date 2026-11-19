@@ -86,7 +86,7 @@ vibe-libs/
 │   │                    a file while it downloads, read-ahead on network mounts, progress, the
 │   │                    transfer registry, one shared download and open per file, and the
 │   │                    fake cloud
-│   ├── DiskCache ●      a bounded disk cache over PINCache, and one over SQLite
+│   ├── DiskCache ●      a bounded disk cache over SQLite
 │   ├── HTTP             ranged HTTP transfers, and a fake of ranged serving
 │   ├── RemoteFiles      a local placeholder for a file on a server, fetched by range
 │   ├── ShareLinks       Dropbox, Google Drive and iCloud share links turned into direct URLs,
@@ -160,7 +160,7 @@ vibe-libs/
 │
 ├── tools/strings ●      the strings registry's extraction and catalog checks, configured per app
 │
-├── third_party/         taglib/ ●  dr_mp3/ ●  dr_flac/ ●  dr_wav/ ●  r8brain/ ●  PINCache/ ●  PINOperation/ ●
+├── third_party/         taglib/ ●  dr_mp3/ ●  dr_flac/ ●  dr_wav/ ●  r8brain/ ●
 │                        ogg/ ●  vorbis/ ●  Sparkle/
 │
 └── Tests/               one directory per piece, mirroring the tree; Support/, the
@@ -181,7 +181,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | core/Common | nothing |
 | core/Graphics | nothing |
 | files/FileLoading | audio/AudioTypes |
-| files/DiskCache | third_party/PINCache |
+| files/DiskCache | nothing but the system's SQLite |
 | files/HTTP | nothing |
 | files/RemoteFiles | files/FileLoading, files/HTTP, audio/Decode |
 | files/ShareLinks | files/HTTP |
@@ -195,13 +195,13 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | audio/OutputDevices | nothing |
 | audio/Player | audio/AudioTypes, audio/DSP, audio/Decode, audio/FX, audio/Meter, audio/OutputDevices, files/FileLoading |
 | media/Tags | audio/AudioTypes, third_party/taglib |
-| media/Metadata | audio/AudioTypes, audio/Decode, media/Tags, files/DiskCache, files/FileLoading, core/Graphics, third_party/taglib, third_party/PINCache |
+| media/Metadata | audio/AudioTypes, audio/Decode, media/Tags, files/DiskCache, files/FileLoading, core/Graphics, third_party/taglib |
 | media/PlayQueue | nothing: its entries are opaque objects (seam 19) |
 | media/Playlists | audio/AudioTypes |
 | media/FolderScan | audio/AudioTypes, files/FileLoading, media/Playlists |
 | waveform/Waveform | nothing but Accelerate and Compression |
 | waveform/WaveformStyles | waveform/Waveform, core/Graphics |
-| waveform/WaveformLoading | waveform/Waveform, audio/AudioTypes, audio/Decode, files/DiskCache, files/FileLoading, third_party/PINCache |
+| waveform/WaveformLoading | waveform/Waveform, audio/AudioTypes, audio/Decode, files/DiskCache, files/FileLoading |
 | waveform/WaveformView | waveform/WaveformStyles, waveform/Waveform, ui/Controls, core/Graphics |
 | ui/Controls | core/Graphics |
 | ui/SettingsWindow | ui/Controls, core/Graphics, macOS only |
@@ -214,7 +214,6 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | dev/DebugVerbs | dev/DebugChannel, core/Graphics |
 | dev/iOSDriver | nothing, iOS only |
 | tools/strings | nothing: it is scripts |
-| third_party/PINCache | third_party/PINOperation |
 | third_party/vorbis | third_party/ogg |
 | third_party/Sparkle | nothing, macOS only |
 | every other third_party piece | nothing |

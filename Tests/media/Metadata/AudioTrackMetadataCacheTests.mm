@@ -19,8 +19,7 @@
 #import "NSURL+Hash.h"
 #import "VibeTestFileDates.h"
 #import "AudioTrackMetadataCache+Debug.h"
-#import "PINCache+VibeAudioCache.h"
-#import "PINDiskCache.h"
+#import "LegacyCacheFixtures.h"
 #import "VibeMetadataImport.h"
 #import "VibeMetadataStore.h"
 #import "VibeTestNegativeWindow.h"
@@ -148,8 +147,8 @@
     // An entry of the store before the extra tags is never read: the file
     // parses again, and its new tags are read.
     NSURL *url = VibeWriteTagFixture(_dir, VibeTagFixtureFLAC, nil, NULL);
-    PINCache *v10 = [self store:@"Audio Track Metadata v10" under:root];
-    [v10.diskCache setObject:[AudioTrackMetadata metadataWithURL:url displayArtData:NULL] forKey:url.cacheKey];
+    XCTAssertNotNil(VibeWriteLegacyCacheEntry(root, @"Audio Track Metadata v10", url.cacheKey,
+                                              [AudioTrackMetadata metadataWithURL:url displayArtData:NULL]));
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];
     XCTAssertEqual([self read:url through:cache policy:VibeMetadataReadPolicyCacheOnly].outcome,
                    VibeMetadataReadOutcomeCacheMiss);
@@ -183,11 +182,6 @@
                    }];
     [self waitForExpectations:@[done] timeout:VIBE_TEST_HANG_TIMEOUT];
     return answer;
-}
-
-// One of the PINCache stores of the releases before, opened as they were.
-- (PINCache *)store:(NSString *)name under:(NSString *)root {
-    return [PINCache audioCacheWithName:name rootPath:root];
 }
 
 - (nullable NSImage *)thumbnailOf:(AudioTrackMetadata *)metadata {
@@ -664,21 +658,16 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
                                VibeWriteTagFixture(_dir, VibeTagFixtureMP3ID3v23, red, NULL),
                                VibeWriteTagFixture(_dir, VibeTagFixtureWAVID3, nil, NULL)];
     NSArray<NSString *> *names = VibeMetadataImport.oldStoreNames;
-    @autoreleasepool {
-        PINCache *tags = [self store:names[0] under:root];
-        PINCache *thumbnails = [self store:names[1] under:root];
-        PINCache *renditions = [self store:names[2] under:root];
-        for (NSURL *url in urls) {
-            NSData *rendition = nil;
-            AudioTrackMetadata *metadata = [AudioTrackMetadata metadataWithURL:url displayArtData:&rendition];
-            [tags.diskCache setObject:metadata forKey:url.cacheKey];
-            NSData *thumbnail = metadata.artwork.encodedThumbnailDataForStorage;
-            if (thumbnail) {
-                [thumbnails.diskCache setObject:thumbnail forKey:url.cacheKey];
-            }
-            if (rendition) {
-                [renditions.diskCache setObject:rendition forKey:url.cacheKey];
-            }
+    for (NSURL *url in urls) {
+        NSData *rendition = nil;
+        AudioTrackMetadata *metadata = [AudioTrackMetadata metadataWithURL:url displayArtData:&rendition];
+        XCTAssertNotNil(VibeWriteLegacyCacheEntry(root, names[0], url.cacheKey, metadata));
+        NSData *thumbnail = metadata.artwork.encodedThumbnailDataForStorage;
+        if (thumbnail) {
+            XCTAssertNotNil(VibeWriteLegacyCacheEntry(root, names[1], url.cacheKey, thumbnail));
+        }
+        if (rendition) {
+            XCTAssertNotNil(VibeWriteLegacyCacheEntry(root, names[2], url.cacheKey, rendition));
         }
     }
     return urls;
@@ -686,8 +675,7 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
 
 - (BOOL)oldStoresAreUnder:(NSString *)root {
     for (NSString *name in VibeMetadataImport.oldStoreNames) {
-        NSString *folder = [root stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@", PINDiskCachePrefix, name]];
-        if ([NSFileManager.defaultManager fileExistsAtPath:folder]) {
+        if ([NSFileManager.defaultManager fileExistsAtPath:VibeLegacyCacheFolder(root, name)]) {
             return YES;
         }
     }

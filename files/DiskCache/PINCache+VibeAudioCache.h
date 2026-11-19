@@ -2,49 +2,39 @@
 //  PINCache+VibeAudioCache.h
 //  vibe-libs
 //
-//  The disk-cache policy shared by the app's PINDiskCache-backed stores, such
-//  as its tag cache and its waveform cache. One home stops the policies
-//  drifting: each keys off the same file identity, through NSURL+Hash, and
-//  their entries should live and die on the same terms.
+//  What is left of the PINCache stores the releases before VibeCacheStore
+//  kept: their names, and the removal of the ones a format change left. The
+//  header keeps its name, and PINCache stays a class with that one method,
+//  so an app's launch builds as it did. PINCache itself is no longer here.
 //
 
 #import <Foundation/Foundation.h>
-#import "PINCache.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-// The terms a store gets unless its app sets others: 1 GiB on disk, and 180
-// days from an entry's last use. An app sets a store's own through the piece
-// that keeps it, on the store's diskCache, as byteLimit and ageLimit.
-extern const NSUInteger VibeAudioCacheDefaultByteLimit;
+// 180 days, the age limit an app passes to a cache's setByteLimit:ageLimit:
+// when it keeps the default age. VibeCacheStore.defaultAgeLimit is the same.
 extern const NSTimeInterval VibeAudioCacheDefaultAgeLimit;
 
-@interface PINCache (VibeAudioCache)
+// The prefix of every PINCache store's folder, "<prefix>.<name>", which an
+// import reads its old store by.
+extern NSString *const VibeAudioCacheLegacyPrefix;
 
-// A store with the default byte and age limits applied. Both stores then read
-// and write diskCache directly, because on macOS PINMemoryCache never evicts —
-// costLimit needs per-entry costs, disk hits repopulate at cost 0, and its
-// memory-pressure hooks are iOS-only — so it would pin every entry ever loaded
-// for the app's lifetime. Under rootPath, nil for the user's caches.
-+ (PINCache *)audioCacheWithName:(NSString *)name rootPath:(nullable NSString *)rootPath;
+// The file a PINCache store kept key in, as its key encoder named it.
+FOUNDATION_EXPORT NSString *_Nullable VibeAudioCacheLegacyFileName(NSString *key);
 
-// Entry count and total bytes on disk. The enumeration blocks, so call it on
-// the store's own serial queue; the completion is dispatched to the main thread.
-- (void)audioDiskUsageWithCompletion:(void (^)(NSUInteger fileCount,
-                                               unsigned long long totalBytes))completion;
+@interface PINCache : NSObject
 
-// The same counts, summed over several stores, for a piece that keeps more
-// than one. The same blocking and the same completion.
-+ (void)audioDiskUsageOfCaches:(NSArray<PINCache *> *)caches
-                    completion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
 
-// Removes, off the calling thread, every store under rootPath, nil for the
-// user's caches, whose name is a current name's apart from its version suffix
-// (" v8", "_v7") and is none of the current names. A name with no suffix is a
-// version too.
-// So a version bump needs no edit at the call site. An app calls it once at
-// launch with every store name it opens. The completion runs on the queue
-// that removed them.
+// Removes, off the calling thread, every PINCache store under rootPath, nil
+// for the user's caches, whose name is a current name's apart from its
+// version suffix (" v8", "_v7") and is not that name. A name with no suffix
+// is a version too. An app calls it once at launch with every store name its
+// caches give, and a cache whose import reads an old store names that store,
+// so it stays until the import ends. The completion runs on the queue that
+// removed them.
 + (void)removeOtherAudioCacheVersionsKeeping:(NSArray<NSString *> *)currentNames
                                     rootPath:(nullable NSString *)rootPath
                                   completion:(nullable dispatch_block_t)completion;

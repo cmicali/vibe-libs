@@ -8,8 +8,6 @@ vibe-libs is licensed under Apache 2.0 (see `LICENSE`). Each library under `thir
 | --- | --- | --- |
 | TagLib | `third_party/taglib/` | Mozilla Public License 1.1 (see the election below) |
 | UTF8-CPP | `third_party/taglib/toolkit/utf8-cpp.*` | Boost-style permissive |
-| PINCache | `third_party/PINCache/` | Apache License 2.0; modified |
-| PINOperation | `third_party/PINOperation/` | Apache License 2.0; modified |
 | r8brain-free-src | `third_party/r8brain/` | MIT |
 | PFFFT (double) | `third_party/r8brain/fft/` | FFTPACK (BSD-style) |
 | dr_mp3 | `third_party/dr_mp3/` | MIT No Attribution (or public domain, at the recipient's choice); modified |
@@ -49,16 +47,6 @@ copyright notice and license text be retained, which the vendored files do.
 Their small changes are listed in `third_party/taglib/CHANGES.md`.
 
 Copyright 2006 Nemanja Trifunovic.
-
-## PINCache and PINOperation
-
-Copyright (c) 2015 Pinterest. All rights reserved.
-Copyright (c) 2013 Tumblr, Inc.
-
-Licensed under the Apache License, Version 2.0. The source copies include the full text at `third_party/PINCache/LICENSE.txt` and
-`third_party/PINOperation/LICENSE.txt`. vibe-libs modifies `PINCache/PINDiskCache.m` and
-`PINOperation/PINOperationQueue.m`. Each change is marked `Vibe:` in its file
-(each piece's `AGENTS.md`).
 
 ## r8brain-free-src
 

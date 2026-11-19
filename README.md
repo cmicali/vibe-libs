@@ -6,14 +6,14 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first forty-six pieces are here.** Each came from Vibe. The ten under `third_party/` are the libraries Vibe vendored. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first forty-four pieces are here.** Each came from Vibe. The eight under `third_party/` are libraries Vibe vendored. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |
 | `core/Common` | Logging, diagnostics, path and file helpers, file identity, the disk key, and work lanes. |
 | `core/Graphics` | Image, color, and font helpers, the typography slots, and the Dock tile. |
 | `files/FileLoading` | Local, iCloud, and network-share files, read even while they download, and a fake cloud for tests. |
-| `files/DiskCache` | A bounded disk cache, over PINCache or over SQLite. |
+| `files/DiskCache` | A bounded disk cache over SQLite, and the removal of the stores the releases before it left. |
 | `files/HTTP` | Ranged HTTP transfers. |
 | `files/RemoteFiles` | A local placeholder for a file on a server, fetched by range. |
 | `files/ShareLinks` | The rules for opening a web link, share-link rewrites, iCloud Drive's lookup, and a fake web server. |
@@ -51,8 +51,6 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `third_party/dr_flac` | dr_flac, which decodes FLAC. |
 | `third_party/dr_wav` | dr_wav, which decodes WAV, W64, RF64, and AIFF. |
 | `third_party/r8brain` | r8brain-free-src, the resampler. |
-| `third_party/PINCache` | PINCache, the cache under DiskCache. |
-| `third_party/PINOperation` | PINOperation, PINCache's queues. |
 | `third_party/ogg` | libogg's page reader. |
 | `third_party/vorbis` | libvorbis, which decodes Ogg Vorbis. |
 | `third_party/Sparkle` | Sparkle, the prebuilt updater framework. macOS only. |

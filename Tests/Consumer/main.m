@@ -65,7 +65,7 @@
 #import "AudioLevelMeter.h"
 #import "AudioVarispeed.h"
 #import "CueWindowMath.h"
-#import "PINCache+VibeAudioCache.h"
+#import "VibeCacheStore.h"
 #import "NSURL+Hash.h"
 #import "PlatformColor.h"
 #import "VibePlaylist.h"
@@ -755,17 +755,18 @@ int main(void) {
             stringByAppendingPathComponent:NSUUID.UUID.UUIDString] isDirectory:YES];
     [NSFileManager.defaultManager createDirectoryAtURL:directory withIntermediateDirectories:YES
                                             attributes:nil error:NULL];
-    PINCache *cache = [PINCache audioCacheWithName:@"consumer" rootPath:directory.path];
-    [cache.diskCache setObject:@"entry" forKey:@"key"];
+    VibeCacheStore *cache = [VibeCacheStore storeWithName:@"consumer" rootPath:directory.path];
+    [cache setData:[@"entry" dataUsingEncoding:NSUTF8StringEncoding] forKey:@"key" format:1 sharedName:nil];
     __block NSUInteger entries = 0;
     __block BOOL counted = NO;
-    [cache audioDiskUsageWithCompletion:^(NSUInteger fileCount, unsigned long long totalBytes) {
-        entries = fileCount;
+    [cache usageWithCompletion:^(VibeCacheUsage usage) {
+        entries = usage.entries;
         counted = YES;
     }];
     BOOL cached = Settles(^BOOL { return counted; }) && entries == 1
-            && [cache.diskCache.cacheURL.path hasPrefix:directory.path]
-            && [(NSString *)[cache.diskCache objectForKey:@"key"] isEqual:@"entry"];
+            && [cache.directory hasPrefix:directory.path]
+            && [[cache hitForKey:@"key" format:1].data isEqual:[@"entry" dataUsingEncoding:NSUTF8StringEncoding]];
+    [cache close];
     [NSFileManager.defaultManager removeItemAtURL:directory error:NULL];
     if (!cached) {
         fprintf(stderr, "consumer: the disk cache holds %lu entries\n", (unsigned long)entries);
