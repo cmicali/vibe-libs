@@ -966,64 +966,134 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
 // MARK: Writes
 
 - (void)setData:(NSData *)data forKey:(NSString *)key format:(NSInteger)format sharedName:(nullable NSString *)sharedName {
-    [self writeData:data key:key name:nil part:nil format:format sharedName:sharedName];
+    if (data && key) {
+        [self writeKey:key data:data format:format sharedName:sharedName parts:nil partFormat:0 missingOnly:NO];
+    }
+}
+
+- (void)setData:(NSData *)data
+               forKey:(NSString *)key
+               format:(NSInteger)format
+           sharedName:(NSString *)sharedName
+    missingSharedParts:(NSDictionary<NSString *, NSData *> *)parts
+           partFormat:(NSInteger)partFormat {
+    if (data && key) {
+        [self writeKey:key data:data format:format sharedName:sharedName parts:sharedName ? parts : nil
+            partFormat:partFormat missingOnly:YES];
+    }
 }
 
 - (void)setSharedData:(NSData *)data forName:(NSString *)name part:(NSString *)part format:(NSInteger)format {
-    [self writeData:data key:nil name:name part:part format:format sharedName:nil];
+    if (data && name && part) {
+        [self writeKey:nil data:nil format:0 sharedName:name parts:@{part: data} partFormat:format missingOnly:NO];
+    }
 }
 
-- (void)writeData:(NSData *)data
-              key:(nullable NSString *)key
-             name:(nullable NSString *)name
-             part:(nullable NSString *)part
-           format:(NSInteger)format
-       sharedName:(nullable NSString *)sharedName {
-    if (!data || (!key && !(name && part))) {
-        return;
-    }
-    BOOL toFile = data.length > self.inlineLimit;
+// Writes the entry under key, if any, and the parts of the shared item
+// sharedName, in one transaction. With missingOnly, a part the item has is
+// left as it is. A failed write leaves none of its rows, so each reads as a
+// miss. Queue only, through syncOnQueue.
+- (void)writeKey:(nullable NSString *)key
+            data:(nullable NSData *)data
+          format:(NSInteger)format
+      sharedName:(nullable NSString *)sharedName
+           parts:(nullable NSDictionary<NSString *, NSData *> *)parts
+      partFormat:(NSInteger)partFormat
+     missingOnly:(BOOL)missingOnly {
+    NSUInteger inlineLimit = self.inlineLimit;
     [self syncOnQueue:^{
         if (!self->_writer) {
             return;
         }
-        NSString *file = toFile ? [self writeFileForData:data] : nil;
-        BOOL written = (!toFile || file) && [self transaction:^BOOL {
-            sqlite3_stmt *stmt;
+        NSMutableArray<NSString *> *partNames = [NSMutableArray array];
+        for (NSString *part in parts) {
+            if (missingOnly) {
+                sqlite3_stmt *has = [self statement:"SELECT 1 FROM shared WHERE name = ?1 AND part = ?2"];
+                VibeCacheBindText(has, 1, sharedName);
+                VibeCacheBindText(has, 2, part);
+                BOOL present = sqlite3_step(has) == SQLITE_ROW;
+                sqlite3_reset(has);
+                if (present) {
+                    continue;
+                }
+            }
+            [partNames addObject:part];
+        }
+        // A large blob's file is written before the transaction, listed as
+        // pending, and the transaction takes it off the list.
+        NSMutableArray<NSString *> *files = [NSMutableArray array];
+        NSString *(^fileFor)(NSData *) = ^NSString *(NSData *blob) {
+            if (blob.length <= inlineLimit) {
+                return (NSString *)NSNull.null;
+            }
+            NSString *file = [self writeFileForData:blob];
+            if (file) {
+                [files addObject:file];
+            }
+            return file;
+        };
+        NSString *entryFile = key ? fileFor(data) : nil;
+        NSMutableArray<NSString *> *partFiles = [NSMutableArray array];
+        BOOL filed = !key || entryFile;
+        for (NSString *part in partNames) {
+            NSString *file = filed ? fileFor(parts[part]) : nil;
+            filed = filed && file;
+            if (file) {
+                [partFiles addObject:file];
+            }
+        }
+        BOOL written = filed && [self transaction:^BOOL {
+            int64_t today = [self today];
+            BOOL (^bindAndRun)(sqlite3_stmt *, NSData *, NSString *, NSInteger) =
+                    ^BOOL(sqlite3_stmt *stmt, NSData *blob, NSString *file, NSInteger rowFormat) {
+                BOOL toFile = ![file isEqual:NSNull.null];
+                sqlite3_bind_int64(stmt, 2, rowFormat);
+                if (toFile) {
+                    sqlite3_bind_null(stmt, 4);
+                } else {
+                    sqlite3_bind_blob64(stmt, 4, blob.bytes ?: "", blob.length, SQLITE_STATIC);
+                }
+                VibeCacheBindText(stmt, 5, toFile ? file : nil);
+                sqlite3_bind_int64(stmt, 6, (sqlite3_int64)blob.length);
+                sqlite3_bind_int64(stmt, 7, today);
+                return [self run:stmt];
+            };
             if (key) {
-                stmt = [self statement:VibeCacheUpsertEntry];
+                sqlite3_stmt *stmt = [self statement:VibeCacheUpsertEntry];
                 VibeCacheBindText(stmt, 1, key);
                 VibeCacheBindText(stmt, 3, sharedName);
-            } else {
-                stmt = [self statement:VibeCacheUpsertShared];
-                VibeCacheBindText(stmt, 1, name);
-                VibeCacheBindText(stmt, 8, part);
+                if (!bindAndRun(stmt, data, entryFile, format)) {
+                    return NO;
+                }
             }
-            sqlite3_bind_int64(stmt, 2, format);
-            if (file) {
-                sqlite3_bind_null(stmt, 4);
-            } else {
-                sqlite3_bind_blob64(stmt, 4, data.bytes ?: "", data.length, SQLITE_STATIC);
-            }
-            VibeCacheBindText(stmt, 5, file);
-            sqlite3_bind_int64(stmt, 6, (sqlite3_int64)data.length);
-            sqlite3_bind_int64(stmt, 7, [self today]);
-            if (![self run:stmt]) {
-                return NO;
-            }
-            if (!file) {
-                return YES;
+            for (NSUInteger i = 0; i < partNames.count; i++) {
+                sqlite3_stmt *stmt = [self statement:VibeCacheUpsertShared];
+                VibeCacheBindText(stmt, 1, sharedName);
+                VibeCacheBindText(stmt, 8, partNames[i]);
+                if (!bindAndRun(stmt, parts[partNames[i]], partFiles[i], partFormat)) {
+                    return NO;
+                }
             }
             sqlite3_stmt *listed = [self statement:"DELETE FROM pending WHERE file = ?1"];
-            VibeCacheBindText(listed, 1, file);
-            return [self run:listed];
+            for (NSString *file in files) {
+                VibeCacheBindText(listed, 1, file);
+                if (![self run:listed]) {
+                    return NO;
+                }
+            }
+            return YES;
         }];
         if (!written) {
-            // A failed write leaves no entry, so the old one can't answer.
-            if (file) {
+            // A failed write leaves no row, so an old one can't answer.
+            for (NSString *file in files) {
                 [self dropWrittenFile:file];
             }
-            [self removeRowOfKey:key name:name part:part];
+            if (key) {
+                [self removeRowOfKey:key name:nil part:nil];
+            }
+            for (NSString *part in partNames) {
+                [self removeRowOfKey:nil name:sharedName part:part];
+            }
             return;
         }
         [self afterWrite];

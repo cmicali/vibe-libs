@@ -18,9 +18,9 @@
 
 @interface AudioTrackMetadataCache ()
 // Set on the cache's queue, read per track from the loader's workers. Its
-// accessors take _storesLock, not an atomic property's lock, which is
+// accessors take _storeLock, not an atomic property's lock, which is
 // libobjc's own, and which Thread Sanitizer can't see.
-@property (nonatomic, strong, nullable) VibeMetadataStore *stores;
+@property (nonatomic, strong, nullable) VibeMetadataStore *store;
 @property (nonatomic, readonly) AudioLoadingConfiguration *loadingConfiguration;
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration;
 - (void)setNeighborhoodURLs:(nullable NSArray<NSURL *> *)urls;
@@ -42,21 +42,21 @@
     // Weak: never pins a departed playlist's track.
     __weak id<AudioTrackMetadataHolder> _lastPrioritizedTrack;
     AudioLoadingConfiguration   *_loadingConfiguration;
-    os_unfair_lock              _storesLock;
-    VibeMetadataStore           *_stores;
+    os_unfair_lock              _storeLock;
+    VibeMetadataStore           *_store;
 }
 
-- (nullable VibeMetadataStore *)stores {
-    os_unfair_lock_lock(&_storesLock);
-    VibeMetadataStore *stores = _stores;
-    os_unfair_lock_unlock(&_storesLock);
-    return stores;
+- (nullable VibeMetadataStore *)store {
+    os_unfair_lock_lock(&_storeLock);
+    VibeMetadataStore *store = _store;
+    os_unfair_lock_unlock(&_storeLock);
+    return store;
 }
 
-- (void)setStores:(nullable VibeMetadataStore *)stores {
-    os_unfair_lock_lock(&_storesLock);
-    _stores = stores;
-    os_unfair_lock_unlock(&_storesLock);
+- (void)setStore:(nullable VibeMetadataStore *)store {
+    os_unfair_lock_lock(&_storeLock);
+    _store = store;
+    os_unfair_lock_unlock(&_storeLock);
 }
 
 - (uint64_t)cacheGeneration {
@@ -101,45 +101,41 @@
         // Off main: the store's open takes a few milliseconds of disk work.
         // A load before this lands builds or waits for it (metadataCache).
         dispatch_async(_cacheQueue, ^{
-            [self storesOnQueue];
+            [self storeOnQueue];
         });
     }
     return self;
 }
 
 - (void)dealloc {
-    [_stores checkIn];
+    [_store checkIn];
 }
 
 // On _cacheQueue. The first block to ask builds the store, so nothing
 // depends on which block the queue runs first. A block on the queue calls
-// this, never storesBuilt, whose dispatch_sync would deadlock there.
-- (VibeMetadataStore *)storesOnQueue {
-    VibeMetadataStore *stores = self.stores;
-    if (!stores) {
-        stores = [VibeMetadataStore checkOutStoreUnderRootPath:_rootPath];
-        self.stores = stores;
+// this, never metadataCache, whose dispatch_sync would deadlock there.
+- (VibeMetadataStore *)storeOnQueue {
+    VibeMetadataStore *store = self.store;
+    if (!store) {
+        store = [VibeMetadataStore checkOutStoreUnderRootPath:_rootPath];
+        self.store = store;
     }
-    return stores;
+    return store;
 }
 
 // The store, built or waited for. dispatch_sync lends the reader's QoS to
 // the queue, and so to the build. A group wait lends none. A block wait
 // allows one waiter, and several workers may wait here at once.
-- (VibeMetadataStore *)storesBuilt {
-    VibeMetadataStore *stores = self.stores;
-    if (!stores) {
+- (VibeMetadataStore *)metadataCache {
+    VibeMetadataStore *store = self.store;
+    if (!store) {
         __block VibeMetadataStore *built = nil;
         dispatch_sync(_cacheQueue, ^{
-            built = [self storesOnQueue];
+            built = [self storeOnQueue];
         });
-        stores = built;
+        store = built;
     }
-    return stores;
-}
-
-- (VibeMetadataStore *)metadataCache {
-    return self.storesBuilt;
+    return store;
 }
 
 - (void)applyLoadingConfiguration:(AudioLoadingConfiguration *)loadingConfiguration {
@@ -154,7 +150,7 @@
 - (void)invalidateWithCompletion:(dispatch_block_t)completion {
     dispatch_async(_cacheQueue, ^{
         atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
-        [[self storesOnQueue] removeAll];
+        [[self storeOnQueue] removeAll];
         if (completion) {
             completion();
         }
@@ -178,7 +174,7 @@
             // good. The bump keeps every parse in flight from filing.
             atomic_fetch_add_explicit(&self->_cacheGeneration, 1, memory_order_relaxed);
         }
-        [[self storesOnQueue] moveEntryOfRetaggedFileFromKey:oldKey toKey:newKey artChanged:artChanged];
+        [[self storeOnQueue] moveEntryOfRetaggedFileFromKey:oldKey toKey:newKey artChanged:artChanged];
         if (completion) {
             completion();
         }
@@ -189,15 +185,14 @@
             ageLimit:(NSTimeInterval)ageLimit
             forStore:(VibeMetadataCacheStore)store {
     dispatch_async(_cacheQueue, ^{
-        // The enum's cases name the budgets, in the same order.
-        [[self storesOnQueue] setByteLimit:byteLimit ageLimit:ageLimit forBudget:(VibeMetadataStoreBudget)store];
+        [[self storeOnQueue] setByteLimit:byteLimit ageLimit:ageLimit forBudget:store];
     });
 }
 
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
     dispatch_async(_cacheQueue, ^{
         // A sum the store keeps, so it reads one row.
-        VibeCacheUsage usage = [[self storesOnQueue] usage];
+        VibeCacheUsage usage = [[self storeOnQueue] usage];
         dispatch_async(dispatch_get_main_queue(), ^{
             completion(usage.entries + usage.sharedItems, usage.bytes);
         });

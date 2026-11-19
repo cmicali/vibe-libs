@@ -20,6 +20,7 @@
 #import "VibeTestFileDates.h"
 #import "AudioTrackMetadataCache+Debug.h"
 #import "PINCache+VibeAudioCache.h"
+#import "PINDiskCache.h"
 #import "VibeMetadataImport.h"
 #import "VibeMetadataStore.h"
 #import "VibeTestNegativeWindow.h"
@@ -656,7 +657,7 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
 
 - (BOOL)oldStoresAreUnder:(NSString *)root {
     for (NSString *name in VibeMetadataImport.oldStoreNames) {
-        NSString *folder = [root stringByAppendingPathComponent:[@"com.pinterest.PINDiskCache." stringByAppendingString:name]];
+        NSString *folder = [root stringByAppendingPathComponent:[NSString stringWithFormat:@"%@.%@", PINDiskCachePrefix, name]];
         if ([NSFileManager.defaultManager fileExistsAtPath:folder]) {
             return YES;
         }

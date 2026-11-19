@@ -49,9 +49,9 @@ id VibeMetadataUnarchive(NSData *archive, Class tagsClass) {
     NSString *_directory;
     NSUInteger _checkouts;  // under sRegistryLock
     VibeMetadataImport *_import;
-    // The budgets, under @synchronized(self).
-    unsigned long long _byteLimits[3];
-    NSTimeInterval _ageLimits[3];
+    // The budgets, by VibeMetadataCacheStore, under @synchronized(self).
+    unsigned long long _byteLimits[VibeMetadataCacheStoreDisplayArt + 1];
+    NSTimeInterval _ageLimits[VibeMetadataCacheStoreDisplayArt + 1];
 }
 
 + (VibeMetadataStore *)checkOutStoreUnderRootPath:(NSString *)rootPath {
@@ -78,7 +78,7 @@ id VibeMetadataUnarchive(NSData *archive, Class tagsClass) {
     if ((self = [super init])) {
         _directory = [directory copy];
         _cacheStore = directory ? [[VibeCacheStore alloc] initWithDirectory:directory] : nil;
-        for (int budget = 0; budget < 3; budget++) {
+        for (int budget = 0; budget <= VibeMetadataCacheStoreDisplayArt; budget++) {
             _byteLimits[budget] = VibeCacheStore.defaultByteLimit;
             _ageLimits[budget] = VibeCacheStore.defaultAgeLimit;
         }
@@ -139,15 +139,15 @@ id VibeMetadataUnarchive(NSData *archive, Class tagsClass) {
     if (!name && (rendition || thumbnail)) {
         name = [VibeMetadataStore nameOfPictureWithDigest:(rendition ?: thumbnail).sha256Digest];
     }
-    // The entry first, so the parts it names are never an item no entry
-    // names, which the daily work would sweep.
-    [store setData:archive forKey:key format:VibeMetadataTagsFormat sharedName:name];
-    if (thumbnail && ![store hasSharedItemForName:name part:VibeMetadataThumbnailPart]) {
-        [store setSharedData:thumbnail forName:name part:VibeMetadataThumbnailPart format:VibeMetadataArtFormat];
+    if (!name) {
+        [store setData:archive forKey:key format:VibeMetadataTagsFormat sharedName:nil];
+        return nil;
     }
-    if (rendition && ![store hasSharedItemForName:name part:VibeMetadataRenditionPart]) {
-        [store setSharedData:rendition forName:name part:VibeMetadataRenditionPart format:VibeMetadataArtFormat];
-    }
+    NSMutableDictionary<NSString *, NSData *> *parts = [NSMutableDictionary dictionary];
+    parts[VibeMetadataThumbnailPart] = thumbnail;
+    parts[VibeMetadataRenditionPart] = rendition;
+    [store setData:archive forKey:key format:VibeMetadataTagsFormat sharedName:name missingSharedParts:parts
+        partFormat:VibeMetadataArtFormat];
     return name;
 }
 
@@ -189,24 +189,15 @@ id VibeMetadataUnarchive(NSData *archive, Class tagsClass) {
 }
 
 + (NSString *)nameOfPictureWithDigest:(NSData *)digest {
-    static const char hex[] = "0123456789abcdef";
-    const uint8_t *bytes = digest.bytes;
-    NSUInteger length = digest.length;
-    char *text = malloc(length * 2);
-    for (NSUInteger i = 0; i < length; i++) {
-        text[2 * i] = hex[bytes[i] >> 4];
-        text[2 * i + 1] = hex[bytes[i] & 0xf];
-    }
-    return [[NSString alloc] initWithBytesNoCopy:text length:length * 2 encoding:NSASCIIStringEncoding
-                                    freeWhenDone:YES];
+    return digest.lowercaseHex;
 }
 
 // MARK: The whole store
 
 - (void)setByteLimit:(unsigned long long)byteLimit
             ageLimit:(NSTimeInterval)ageLimit
-           forBudget:(VibeMetadataStoreBudget)budget {
-    if (budget < VibeMetadataStoreBudgetTags || budget > VibeMetadataStoreBudgetDisplayArt) {
+           forBudget:(VibeMetadataCacheStore)budget {
+    if (budget < VibeMetadataCacheStoreTags || budget > VibeMetadataCacheStoreDisplayArt) {
         return;
     }
     @synchronized (self) {
@@ -220,7 +211,7 @@ id VibeMetadataUnarchive(NSData *archive, Class tagsClass) {
     unsigned long long bytes = 0;
     NSTimeInterval age = 0;
     BOOL anyBytes = YES, anyAge = YES;
-    for (int budget = 0; budget < 3; budget++) {
+    for (int budget = 0; budget <= VibeMetadataCacheStoreDisplayArt; budget++) {
         anyBytes = anyBytes && _byteLimits[budget] > 0;
         anyAge = anyAge && _ageLimits[budget] > 0;
         bytes += _byteLimits[budget];

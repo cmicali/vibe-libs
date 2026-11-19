@@ -86,19 +86,17 @@
         return [self answerFor:url outcome:VibeMetadataReadOutcomeMissing cacheKey:nil metadata:nil error:nil];
     }
     AudioTrackMetadata *cached = [self cachedMetadataForKey:cacheKey acceptingOlder:YES];
-    if (cached && !cached.olderFormat) {
-        return [[VibeMetadataReadResult alloc] initWithURL:url outcome:VibeMetadataReadOutcomeRead
-                                                  cacheKey:cacheKey metadata:cached fromCache:YES error:nil];
-    }
     // A remote placeholder answers dataless too. A read that may not open the
     // file takes an older row's answer, marked older (CH17). One that may
     // parses the file again (CH16).
-    if (policy == VibeMetadataReadPolicyCacheOnly || [PlaceholderFiles isDatalessFile:url]) {
-        return cached ? [[VibeMetadataReadResult alloc] initWithURL:url outcome:VibeMetadataReadOutcomeRead
-                                                           cacheKey:cacheKey metadata:cached fromCache:YES
-                                                              error:nil]
-                      : [self answerFor:url outcome:VibeMetadataReadOutcomeCacheMiss cacheKey:cacheKey metadata:nil
-                                  error:nil];
+    BOOL current = cached && !cached.olderFormat;
+    BOOL cacheOnly = !current && (policy == VibeMetadataReadPolicyCacheOnly || [PlaceholderFiles isDatalessFile:url]);
+    if (current || (cached && cacheOnly)) {
+        return [[VibeMetadataReadResult alloc] initWithURL:url outcome:VibeMetadataReadOutcomeRead
+                                                  cacheKey:cacheKey metadata:cached fromCache:YES error:nil];
+    }
+    if (cacheOnly) {
+        return [self answerFor:url outcome:VibeMetadataReadOutcomeCacheMiss cacheKey:cacheKey metadata:nil error:nil];
     }
     // The open alone tells an unreadable file from one that is not audio.
     // TRAP: only a regular file reaches the parse. The parse reopens the path

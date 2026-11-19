@@ -17,16 +17,29 @@ static _Atomic uint64_t sCacheKeyGeneration;
 @implementation NSData (Hash)
 
 // A stack buffer: this runs once per track on the scan workers.
-- (NSString *)sha1Hex {
+static NSString *VibeLowercaseHex(const unsigned char *bytes, size_t length) {
     static const char kHexDigits[] = "0123456789abcdef";
+    char buffer[128];
+    char *hex = length * 2 <= sizeof buffer ? buffer : malloc(length * 2);
+    for (size_t i = 0; i < length; i++) {
+        hex[i * 2] = kHexDigits[bytes[i] >> 4];
+        hex[i * 2 + 1] = kHexDigits[bytes[i] & 0x0F];
+    }
+    NSString *text = [[NSString alloc] initWithBytes:hex length:length * 2 encoding:NSASCIIStringEncoding];
+    if (hex != buffer) {
+        free(hex);
+    }
+    return text;
+}
+
+- (NSString *)sha1Hex {
     unsigned char digest[CC_SHA1_DIGEST_LENGTH];
     CC_SHA1(self.bytes, (CC_LONG)self.length, digest);
-    char hex[CC_SHA1_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_SHA1_DIGEST_LENGTH; i++) {
-        hex[i * 2] = kHexDigits[digest[i] >> 4];
-        hex[i * 2 + 1] = kHexDigits[digest[i] & 0x0F];
-    }
-    return [[NSString alloc] initWithBytes:hex length:sizeof(hex) encoding:NSASCIIStringEncoding];
+    return VibeLowercaseHex(digest, sizeof digest);
+}
+
+- (NSString *)lowercaseHex {
+    return VibeLowercaseHex(self.bytes, self.length);
 }
 
 - (NSData *)sha256Digest {

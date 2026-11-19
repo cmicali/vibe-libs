@@ -15,6 +15,7 @@
 
 #import <Foundation/Foundation.h>
 #import "VibeCacheStore.h"
+#import "AudioTrackMetadataCache.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -27,13 +28,6 @@ FOUNDATION_EXPORT const NSInteger VibeMetadataTagsFormat;
 FOUNDATION_EXPORT const NSInteger VibeMetadataArtFormat;
 // The store's directory under the root.
 FOUNDATION_EXPORT NSString *const VibeMetadataStoreName;
-
-// The three budgets an app sets, which the one store sums.
-typedef NS_ENUM(NSInteger, VibeMetadataStoreBudget) {
-    VibeMetadataStoreBudgetTags,
-    VibeMetadataStoreBudgetThumbnails,
-    VibeMetadataStoreBudgetDisplayArt,
-};
 
 // The tags' archive, PINDiskCache's own: an insecure keyed archive, so the
 // import copies the old store's bytes as they are.
@@ -64,9 +58,11 @@ FOUNDATION_EXPORT id _Nullable VibeMetadataUnarchive(NSData *archive, Class tags
 // looks in the old stores first, and imports what it finds.
 - (nullable VibeCacheHit *)tagsHitForKey:(NSString *)key acceptingOlder:(BOOL)acceptingOlder;
 
-// Files the tags' archive under key, naming the picture. A part the picture
-// already has is not written again. A thumbnail or a rendition with no name
-// is named by its own digest. Returns the name the entry names, or nil.
+// Files the tags' archive under key, naming the picture, in one transaction.
+// A part the picture already has is not written again. With no name, the
+// picture is named by the digest of the rendition, or of the thumbnail with
+// none, as the import names it: a rendition is the picture's bytes, or a
+// fixed downscale of them. Returns the name the entry names, or nil.
 - (nullable NSString *)fileTags:(id<NSCoding>)tags
                       thumbnail:(nullable NSData *)thumbnail
                       rendition:(nullable NSData *)rendition
@@ -93,7 +89,7 @@ FOUNDATION_EXPORT id _Nullable VibeMetadataUnarchive(NSData *archive, Class tags
 
 - (nullable NSData *)thumbnailOfPicture:(NSString *)name;
 - (nullable NSData *)renditionOfPicture:(NSString *)name;
-// The lowercase hex SHA-256 of a picture's bytes, its name.
+// A picture's name: the lowercase hex of the SHA-256 of its bytes.
 + (NSString *)nameOfPictureWithDigest:(NSData *)digest;
 
 // MARK: The whole store
@@ -102,7 +98,7 @@ FOUNDATION_EXPORT id _Nullable VibeMetadataUnarchive(NSData *archive, Class tags
 // age limit the longest. 0 is none, so a budget of 0 lifts the store's limit.
 - (void)setByteLimit:(unsigned long long)byteLimit
             ageLimit:(NSTimeInterval)ageLimit
-           forBudget:(VibeMetadataStoreBudget)budget;
+           forBudget:(VibeMetadataCacheStore)budget;
 
 - (VibeCacheUsage)usage;
 

@@ -77,6 +77,15 @@ typedef struct {
 // Writes or replaces the entry, and returns once it reads back. A write that
 // fails leaves no entry under key, so it reads as a miss.
 - (void)setData:(NSData *)data forKey:(NSString *)key format:(NSInteger)format sharedName:(nullable NSString *)sharedName;
+// The same, with the parts of the shared item sharedName that it lacks, in
+// one transaction. A part the item has is left as it is, as when another
+// entry wrote it.
+- (void)setData:(NSData *)data
+               forKey:(NSString *)key
+               format:(NSInteger)format
+           sharedName:(NSString *)sharedName
+    missingSharedParts:(NSDictionary<NSString *, NSData *> *)parts
+           partFormat:(NSInteger)partFormat;
 - (void)removeEntryForKey:(NSString *)key;
 // Moves the entry to newKey, replacing any there. NO when oldKey has none.
 - (BOOL)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey;

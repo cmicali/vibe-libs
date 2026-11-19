@@ -8,22 +8,16 @@
 #import "PINDiskCache.h"
 
 #import <pthread.h>
+#import <stdatomic.h>
 
 // After an open, so a launch does none of it.
 static const NSTimeInterval VibeMetadataImportDefaultDelay = 10;
 static NSTimeInterval sStartDelay = VibeMetadataImportDefaultDelay;
 
-// The files one autorelease pool takes.
-static const NSUInteger VibeMetadataImportBatch = 256;
-
-// The bytes PINDiskCache archived: an insecure keyed archive of NSData.
+// The bytes PINDiskCache archived in one of the art's stores.
 static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
     NSData *archive = [NSData dataWithContentsOfFile:path];
-    if (!archive) {
-        return nil;
-    }
-    NSData *data = [NSKeyedUnarchiver unarchivedObjectOfClass:NSData.class fromData:archive error:NULL];
-    return [data isKindOfClass:NSData.class] ? data : nil;
+    return archive ? VibeMetadataUnarchive(archive, NSData.class) : nil;
 }
 
 @implementation VibeMetadataImport {
@@ -32,9 +26,11 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
     NSString *_renditions;
     dispatch_queue_t _queue;
     dispatch_group_t _running;
-    // Held across one key's import, so a stop never lands inside one.
+    // Held across one key's write, so a stop never lands inside one.
     pthread_mutex_t _lock;
-    BOOL _stopped;  // under _lock
+    // Set under _lock. Read without it first, so a miss pays nothing once
+    // the import has ended.
+    atomic_bool _stopped;
 }
 
 + (NSArray<NSString *> *)oldStoreNames {
@@ -89,13 +85,6 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
     });
 }
 
-- (BOOL)isStopped {
-    pthread_mutex_lock(&_lock);
-    BOOL stopped = _stopped;
-    pthread_mutex_unlock(&_lock);
-    return stopped;
-}
-
 // Every entry the tag store holds that the new store doesn't, in the order
 // the folder lists them. Art with no tags is left, since no read reaches it.
 - (void)runInto:(VibeMetadataStore *)store {
@@ -105,22 +94,14 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
                                                   options:NSDirectoryEnumerationSkipsSubdirectoryDescendants
                                                           | NSDirectoryEnumerationSkipsHiddenFiles
                                              errorHandler:nil];
-    BOOL listed = NO;
-    while (!listed) {
+    for (NSURL *file in files) {
+        if (atomic_load(&_stopped)) {
+            return;
+        }
         @autoreleasepool {
-            for (NSUInteger i = 0; i < VibeMetadataImportBatch; i++) {
-                NSURL *file = files.nextObject;
-                if (!file) {
-                    listed = YES;
-                    break;
-                }
-                if (self.isStopped) {
-                    return;
-                }
-                NSString *key = file.lastPathComponent.stringByRemovingPercentEncoding;
-                if (key.length && ![store.cacheStore hasEntryForKey:key]) {
-                    [self importKey:key into:store];
-                }
+            NSString *key = file.lastPathComponent.stringByRemovingPercentEncoding;
+            if (key.length && ![store.cacheStore hasEntryForKey:key]) {
+                [self importKey:key into:store];
             }
         }
     }
@@ -128,7 +109,7 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
 }
 
 - (BOOL)importKey:(NSString *)key into:(VibeMetadataStore *)store {
-    if (!key.length) {
+    if (!key.length || atomic_load(&_stopped)) {
         return NO;
     }
     // As PINDiskCache's key encoder names the file.
@@ -138,20 +119,20 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
         allowed = [NSCharacterSet characterSetWithCharactersInString:@".:/%"].invertedSet;
     });
     NSString *name = [key stringByAddingPercentEncodingWithAllowedCharacters:allowed];
+    NSData *tags = name ? [NSData dataWithContentsOfFile:[_tags stringByAppendingPathComponent:name]] : nil;
+    if (!tags) {
+        return NO;
+    }
+    NSData *thumbnail = VibeUnarchivedArt([_thumbnails stringByAppendingPathComponent:name]);
+    NSData *rendition = VibeUnarchivedArt([_renditions stringByAppendingPathComponent:name]);
+    // Two imports of one key, a miss's and the bulk's, write the same bytes.
     BOOL imported = NO;
     pthread_mutex_lock(&_lock);
-    if (!_stopped && name) {
-        NSData *tags = [NSData dataWithContentsOfFile:[_tags stringByAppendingPathComponent:name]];
-        if (tags) {
-            // The tags' bytes are the same archive the new store keeps, so
-            // they are copied as they are, and decoded only when read.
-            [store fileArchive:tags
-                     thumbnail:VibeUnarchivedArt([_thumbnails stringByAppendingPathComponent:name])
-                     rendition:VibeUnarchivedArt([_renditions stringByAppendingPathComponent:name])
-                   pictureName:nil
-                        forKey:key];
-            imported = YES;
-        }
+    if (!atomic_load(&_stopped)) {
+        // The tags' bytes are the same archive the new store keeps, so they
+        // are copied as they are, and decoded only when read.
+        [store fileArchive:tags thumbnail:thumbnail rendition:rendition pictureName:nil forKey:key];
+        imported = YES;
     }
     pthread_mutex_unlock(&_lock);
     return imported;
@@ -167,7 +148,7 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
 
 - (void)stopRemovingOldStores:(BOOL)remove {
     pthread_mutex_lock(&_lock);
-    _stopped = YES;
+    atomic_store(&_stopped, true);
     pthread_mutex_unlock(&_lock);
     if (!remove) {
         return;

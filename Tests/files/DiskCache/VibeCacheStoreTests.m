@@ -423,6 +423,23 @@ static NSString *VibeTestKey(NSUInteger i) {
 
 // MARK: Shared items
 
+// One part goes, with its file, as a trim may take it. The other part and
+// the entry that names the item stay.
+- (void)testAPartOfASharedItemIsRemovedAlone {
+    [self.store setSharedData:VibeTestData(9000, 1) forName:@"sha" part:@"thumb" format:1];
+    [self.store setSharedData:VibeTestData(114 * 1024, 2) forName:@"sha" part:@"display" format:1];
+    [self.store setData:VibeTestData(900, 1) forKey:@"a" format:1 sharedName:@"sha"];
+    [self.store removeSharedItemForName:@"sha" part:@"display"];
+    XCTAssertNil([self.store sharedHitForName:@"sha" part:@"display" format:1]);
+    XCTAssertEqual(self.fileNames.count, 0u);
+    XCTAssertNotNil([self.store sharedHitForName:@"sha" part:@"thumb" format:1]);
+    XCTAssertEqualObjects([self.store hitForKey:@"a" format:1].sharedName, @"sha");
+    VibeCacheUsage usage = self.store.usage;
+    XCTAssertEqual(usage.entries, 1u);
+    XCTAssertEqual(usage.sharedItems, 1u);
+    XCTAssertEqual(usage.bytes, 9900u);
+}
+
 - (void)testTwoEntriesShareOneItem {
     NSData *thumb = VibeTestData(9000, 1);
     NSData *rendition = VibeTestData(114 * 1024, 2);
