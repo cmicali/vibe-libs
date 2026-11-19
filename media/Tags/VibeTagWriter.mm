@@ -372,8 +372,8 @@ void CheckID3v2Frames(TagLib::ID3v2::Tag *tag) {
 // TSIZ, and TDAT, and ID3v2.2's CRM, EQU, LNK, RVA, TIM, TSI, and TDA. A
 // TDAT or TIME it merged into the date is kept by the date. Its
 // ID3v2.3 render drops ID3v2.4's ASPI, EQU2, RVA2, SEEK, SIGN, TDRL, TDTG,
-// TMOO, TPRO, and TSST. TRAP: its ID3v2.3 render keeps one genre with no
-// ID3v1 number, so two such genres refuse.
+// TMOO, TPRO, and TSST. Those that hold a property make a 2.3 tag 2.4
+// first (V3ReadsBack), so only the rest reach this refusal.
 void CheckID3v2Render(TagLib::ID3v2::Tag *tag, TagLib::ID3v2::Version version) {
     static const char *const kV4Only[] = {"ASPI", "EQU2", "RVA2", "SEEK", "SIGN", "TDRL", "TDTG", "TMOO",
                                           "TPRO", "TSST"};

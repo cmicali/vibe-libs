@@ -189,8 +189,8 @@ FOUNDATION_EXTERN BOOL VibeTagLibPicturesFit(NSArray<VibeTagPicture *> *pictures
 // Untyped is "other" outside MP4. In MP4 a picture's description is
 // ignored, and a MIME type MP4 does not type is written untyped. A list
 // VibeTagLibPicturesFit refuses for the file's container is refused, and
-// every refusal of VibeTagLibWriteTags holds. media/Tags/AGENTS.md lists
-// what the write does not keep.
+// every refusal of VibeTagLibWriteTags holds, and `changes` says what it
+// says there. media/Tags/AGENTS.md lists what the write does not keep.
 FOUNDATION_EXTERN BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures,
                                                VibeTagWriteSync sync, VibeTagWriteChanges *_Nullable changes,
                                                NSError *_Nullable __autoreleasing *_Nullable error);
