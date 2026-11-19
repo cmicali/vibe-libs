@@ -443,8 +443,11 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
 // MARK: Days
 
 - (int64_t)today {
-    return (int64_t)floor(CFAbsoluteTimeGetCurrent() / VibeCacheSecondsPerDay)
-        + atomic_load_explicit(&_dayOffset, memory_order_relaxed);
+    return [self dayOfTime:CFAbsoluteTimeGetCurrent()];
+}
+
+- (int64_t)dayOfTime:(CFAbsoluteTime)time {
+    return (int64_t)floor(time / VibeCacheSecondsPerDay) + atomic_load_explicit(&_dayOffset, memory_order_relaxed);
 }
 
 // MARK: The writer
@@ -539,16 +542,21 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
     for (NSString *suffix in @[@"", @"-wal", @"-shm"]) {
         [fm removeItemAtPath:[_databasePath stringByAppendingString:suffix] error:NULL];
     }
+    [self removeFolderAtPath:_filesPath];
+    [fm createDirectoryAtPath:_filesPath withIntermediateDirectories:YES attributes:nil error:NULL];
+}
+
+- (void)removeFolderAtPath:(NSString *)path {
+    NSFileManager *fm = NSFileManager.defaultManager;
     NSString *removed = [_directory stringByAppendingPathComponent:
         [VibeCacheRemovedPrefix stringByAppendingString:NSUUID.UUID.UUIDString]];
-    if ([fm moveItemAtPath:_filesPath toPath:removed error:NULL]) {
+    if ([fm moveItemAtPath:path toPath:removed error:NULL]) {
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_BACKGROUND, 0), ^{
             [NSFileManager.defaultManager removeItemAtPath:removed error:NULL];
         });
     } else {
-        [fm removeItemAtPath:_filesPath error:NULL];
+        [fm removeItemAtPath:path error:NULL];
     }
-    [fm createDirectoryAtPath:_filesPath withIntermediateDirectories:YES attributes:nil error:NULL];
 }
 
 - (void)removeLeftFolders {
@@ -682,16 +690,22 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
 
 // MARK: Files
 
-// Lists a new file as pending, then writes it. So a crash at any point leaves
-// a file an open removes, never one no row lists.
-- (nullable NSString *)writeFileForData:(NSData *)data {
+// A new file's name, listed as pending before anything is on disk under it.
+- (nullable NSString *)listNewFile {
     uint8_t bytes[8];
     arc4random_buf(bytes, sizeof bytes);
     NSString *file = [NSString stringWithFormat:@"%02x%02x%02x%02x%02x%02x%02x%02x", bytes[0], bytes[1], bytes[2],
                                                 bytes[3], bytes[4], bytes[5], bytes[6], bytes[7]];
     sqlite3_stmt *stmt = [self statement:"INSERT OR REPLACE INTO pending VALUES (?1, 0)"];
     VibeCacheBindText(stmt, 1, file);
-    if (![self run:stmt]) {
+    return [self run:stmt] ? file : nil;
+}
+
+// Lists a new file as pending, then writes it. So a crash at any point leaves
+// a file an open removes, never one no row lists.
+- (nullable NSString *)writeFileForData:(NSData *)data {
+    NSString *file = [self listNewFile];
+    if (!file) {
         return nil;
     }
     const char *path = [self pathOfFile:file].fileSystemRepresentation;
@@ -735,22 +749,30 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
         return nil;
     }
     struct stat info;
-    NSMutableData *data = nil;
-    if (fstat(fd, &info) == 0 && info.st_size == size) {
-        data = [NSMutableData dataWithLength:(NSUInteger)size];
-        uint8_t *cursor = data.mutableBytes;
+    NSData *data = nil;
+    BOOL sized = fstat(fd, &info) == 0 && info.st_size == size;
+    // Into a buffer that is not zeroed first, since every byte is read over.
+    uint8_t *buffer = sized ? malloc(MAX((size_t)size, 1)) : NULL;
+    if (buffer) {
+        uint8_t *cursor = buffer;
         size_t remaining = (size_t)size;
-        while (data && remaining > 0) {
+        BOOL complete = YES;
+        while (remaining > 0) {
             ssize_t count = read(fd, cursor, remaining);
             if (count < 0 && errno == EINTR) {
                 continue;
             }
             if (count <= 0) {
-                data = nil;
+                complete = NO;
                 break;
             }
             cursor += count;
             remaining -= (size_t)count;
+        }
+        if (complete) {
+            data = [NSData dataWithBytesNoCopy:buffer length:(NSUInteger)size freeWhenDone:YES];
+        } else {
+            free(buffer);
         }
     }
     close(fd);
@@ -1099,34 +1121,19 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
         }
         BOOL written = filed && [self transaction:^BOOL {
             int64_t today = [self today];
-            BOOL (^bindAndRun)(sqlite3_stmt *, NSData *, NSString *, NSInteger) =
-                    ^BOOL(sqlite3_stmt *stmt, NSData *blob, NSString *file, NSInteger rowFormat) {
-                BOOL toFile = ![file isEqual:NSNull.null];
-                sqlite3_bind_int64(stmt, 2, rowFormat);
-                if (toFile) {
-                    sqlite3_bind_null(stmt, 4);
-                } else {
-                    sqlite3_bind_blob64(stmt, 4, blob.bytes ?: "", blob.length, SQLITE_STATIC);
-                }
-                VibeCacheBindText(stmt, 5, toFile ? file : nil);
-                sqlite3_bind_int64(stmt, 6, (sqlite3_int64)blob.length);
-                sqlite3_bind_int64(stmt, 7, today);
-                sqlite3_bind_int64(stmt, 10, [self nextWritten]);
-                return [self run:stmt];
+            NSString *(^fileOrNil)(NSString *) = ^NSString *(NSString *file) {
+                return [file isEqual:NSNull.null] ? nil : file;
             };
-            if (key) {
-                sqlite3_stmt *stmt = [self statement:VibeCacheUpsertEntry];
-                VibeCacheBindKey(stmt, key);
-                VibeCacheBindText(stmt, 3, sharedName);
-                if (!bindAndRun(stmt, data, entryFile, format)) {
-                    return NO;
-                }
+            if (key && ![self upsertRowForKey:key name:nil part:nil format:format sharedName:sharedName
+                                          data:fileOrNil(entryFile) ? nil : data file:fileOrNil(entryFile)
+                                          size:data.length used:today]) {
+                return NO;
             }
             for (NSUInteger i = 0; i < partNames.count; i++) {
-                sqlite3_stmt *stmt = [self statement:VibeCacheUpsertShared];
-                VibeCacheBindText(stmt, 1, sharedName);
-                VibeCacheBindText(stmt, 8, partNames[i]);
-                if (!bindAndRun(stmt, parts[partNames[i]], partFiles[i], partFormat)) {
+                NSData *blob = parts[partNames[i]];
+                NSString *file = fileOrNil(partFiles[i]);
+                if (![self upsertRowForKey:nil name:sharedName part:partNames[i] format:partFormat sharedName:nil
+                                      data:file ? nil : blob file:file size:blob.length used:today]) {
                     return NO;
                 }
             }
@@ -1154,6 +1161,111 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
         }
         [self afterWrite];
     }];
+}
+
+// Writes one row, in a transaction that also takes its file off the pending
+// list. Queue only.
+- (BOOL)writeRowForKey:(nullable NSString *)key
+                  name:(nullable NSString *)name
+                  part:(nullable NSString *)part
+                format:(NSInteger)format
+            sharedName:(nullable NSString *)sharedName
+                  data:(nullable NSData *)data
+                  file:(nullable NSString *)file
+                  size:(NSUInteger)size
+                  used:(int64_t)used {
+    return [self transaction:^BOOL {
+        if (![self upsertRowForKey:key name:name part:part format:format sharedName:sharedName data:data
+                              file:file size:size used:used]) {
+            return NO;
+        }
+        if (!file) {
+            return YES;
+        }
+        sqlite3_stmt *listed = [self statement:"DELETE FROM pending WHERE file = ?1"];
+        VibeCacheBindText(listed, 1, file);
+        return [self run:listed];
+    }];
+}
+
+// Writes or replaces one row, an entry under key or a shared item's part, with
+// its blob in the row or its file's name. Inside a transaction. Queue only.
+- (BOOL)upsertRowForKey:(nullable NSString *)key
+                   name:(nullable NSString *)name
+                   part:(nullable NSString *)part
+                 format:(NSInteger)format
+             sharedName:(nullable NSString *)sharedName
+                   data:(nullable NSData *)data
+                   file:(nullable NSString *)file
+                   size:(NSUInteger)size
+                   used:(int64_t)used {
+    sqlite3_stmt *stmt = [self statement:key ? VibeCacheUpsertEntry : VibeCacheUpsertShared];
+    if (key) {
+        VibeCacheBindKey(stmt, key);
+        VibeCacheBindText(stmt, 3, sharedName);
+    } else {
+        VibeCacheBindText(stmt, 1, name);
+        VibeCacheBindText(stmt, 8, part);
+    }
+    sqlite3_bind_int64(stmt, 2, format);
+    if (file) {
+        sqlite3_bind_null(stmt, 4);
+    } else {
+        sqlite3_bind_blob64(stmt, 4, data.bytes ?: "", data.length, SQLITE_STATIC);
+    }
+    VibeCacheBindText(stmt, 5, file);
+    sqlite3_bind_int64(stmt, 6, (sqlite3_int64)size);
+    sqlite3_bind_int64(stmt, 7, used);
+    sqlite3_bind_int64(stmt, 10, [self nextWritten]);
+    return [self run:stmt];
+}
+
+- (BOOL)adoptFileAtPath:(NSString *)path forKey:(NSString *)key format:(NSInteger)format lastUse:(nullable NSDate *)lastUse {
+    struct stat info;
+    if (!path || !key || stat(path.fileSystemRepresentation, &info) != 0 || !S_ISREG(info.st_mode)) {
+        return NO;
+    }
+    __block BOOL adopted = NO;
+    [self syncOnQueue:^{
+        if (!self->_writer) {
+            return;
+        }
+        // An entry already there is newer than the file.
+        sqlite3_stmt *has = [self statement:"SELECT 1 FROM entries WHERE id = ?9 AND key = ?1"];
+        VibeCacheBindKey(has, key);
+        BOOL present = sqlite3_step(has) == SQLITE_ROW;
+        sqlite3_reset(has);
+        if (present) {
+            return;
+        }
+        int64_t today = [self today];
+        int64_t used = lastUse ? MIN(today, [self dayOfTime:lastUse.timeIntervalSinceReferenceDate]) : today;
+        NSUInteger size = (NSUInteger)info.st_size;
+        // A small file goes into its row, as a write's would, and a large one
+        // is renamed into Files. Listed first, so a crash after the rename
+        // leaves a file the next open removes.
+        NSData *data = size <= self.inlineLimit ? VibeCacheReadFile(path, info.st_size) : nil;
+        NSString *file = data ? nil : [self listNewFile];
+        if (file && rename(path.fileSystemRepresentation, [self pathOfFile:file].fileSystemRepresentation) != 0) {
+            [self dropWrittenFile:file];
+            file = nil;
+        }
+        if (!data && !file) {
+            return;
+        }
+        adopted = [self writeRowForKey:key name:nil part:nil format:format sharedName:nil data:data file:file
+                                  size:size used:used];
+        if (!adopted && file) {
+            [self dropWrittenFile:file];
+        }
+        if (adopted && data) {
+            unlink(path.fileSystemRepresentation);
+        }
+        if (adopted) {
+            [self afterWrite];
+        }
+    }];
+    return adopted;
 }
 
 // Removes one row. The triggers list its file and the shared item it was the

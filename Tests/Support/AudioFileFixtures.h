@@ -70,6 +70,21 @@ static inline NSURL *VibeWriteWAV(NSURL *url, NSData *samples, uint32_t rate, ui
     return [wav writeToURL:url atomically:YES] ? url : nil;
 }
 
+// A 16-bit stereo 44.1 kHz WAV of nonperiodic noise over a sine, a different
+// one for each seed, so a bin read from the wrong offset never matches the
+// reference's.
+static inline NSURL *VibeWriteNoiseWAV(NSURL *url, double seconds, uint32_t seed) {
+    uint32_t frames = (uint32_t)(44100.0 * seconds);
+    NSMutableData *samples = [NSMutableData dataWithLength:(NSUInteger)frames * 4];
+    int16_t *out = (int16_t *)samples.mutableBytes;
+    uint32_t state = seed;
+    for (NSUInteger i = 0; i < (NSUInteger)frames * 2; i++) {
+        state = state * 1664525u + 1013904223u;
+        out[i] = (int16_t)(sin((double)i * 0.00071) * 16000.0 + (double)(int16_t)(state >> 16) * 0.4);
+    }
+    return VibeWriteWAV(url, samples, 44100, 2, 16, frames * 4);
+}
+
 // A little-endian (sowt) AIFF-C of integer `samples` as a WAV stores them,
 // `bits` per sample: the coding CoreAudio's parser describes as 16-bit
 // whatever COMM says.

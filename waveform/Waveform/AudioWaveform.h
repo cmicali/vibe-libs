@@ -36,11 +36,10 @@ static inline const float* AudioWaveformMonoMix(const float* buffer, float* scra
 // time, read through its pyramid.
 typedef wavecore::Summary AudioWaveform;
 
-// The entry-format version. It is encoded in every archive and embedded in the
-// disk cache's name, since AudioWaveformCache derives
-// "audio_waveform_cache_v<N>" from it, so both invalidation mechanisms move
-// together. Bump it to invalidate every cached entry, as after a format
-// change. A changed observer needs no bump: it takes a new identifier
+// The entry-format version. It is encoded in every archive and kept on each
+// entry's row in AudioWaveformCache's store, so a row of another format is a
+// miss and a decode replaces it. Bump it to invalidate every cached entry, as
+// after a format change. A changed observer needs no bump: it takes a new identifier
 // (AudioWaveformObserver.h). Mismatched entries simply regenerate.
 extern const int kCodableAudioWaveformVersion;
 

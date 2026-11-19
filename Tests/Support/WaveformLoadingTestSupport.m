@@ -4,6 +4,7 @@
 //
 
 #import "WaveformLoadingTestSupport.h"
+#import "AudioWaveformCache+Debug.h"
 #import "NSURL+Hash.h"
 #import "AudioFileMaterializationCoordinatorInternal.h"
 
@@ -54,6 +55,16 @@ BOOL WaveformEventuallyCached(AudioWaveformCache *cache, id<VibePlayableItem> tr
     });
     cache.delegate = delegate;
     return found;
+}
+
+BOOL WaveformWasCached(AudioWaveformCache *cache, id<VibePlayableItem> track) {
+    __block BOOL answered = NO, cached = NO;
+    [cache cacheWaveformForTrack:track completion:^(BOOL ok, BOOL wasCached, NSDictionary *results) {
+        cached = ok && wasCached;
+        answered = YES;
+    }];
+    WaveformSpinUntil(^BOOL { return answered; });
+    return cached;
 }
 
 @implementation WaveformMemoizingTrack {
