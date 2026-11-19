@@ -677,4 +677,26 @@ typedef void (^PINDiskCacheBlock)(PINDiskCache *cache);
 - (void)trimToSizeByDateAsync:(NSUInteger)byteCount completion:(nullable PINCacheBlock)block DEPRECATED_MSG_ATTRIBUTE("Use trimToSizeByEvictionStrategyAsync:completion: instead");
 @end
 
+#pragma mark - Vibe: a test seam
+
+/**
+ Vibe: where a cache's launch count stands when it calls the seam.
+ */
+typedef NS_ENUM(NSInteger, VibePINDiskCacheCountStage) {
+    /** Before it lists the directory, with no key. */
+    VibePINDiskCacheCountStageStart,
+    /** Before it counts a file it listed, with the file's key. */
+    VibePINDiskCacheCountStageFile,
+    /** After it counted the last file, before its disk state is known, with no key. */
+    VibePINDiskCacheCountStageEnd,
+};
+
+typedef void (*VibePINDiskCacheCountSeam)(PINDiskCache *cache, VibePINDiskCacheCountStage stage, NSString * _Nullable key);
+
+/**
+ Vibe: for tests only, a function each launch count calls on its own thread, with no lock held, so a test can hold the
+ count at a known point. NULL in an app. Set it with __atomic_store_n.
+ */
+extern VibePINDiskCacheCountSeam _Nullable VibePINDiskCacheCountSeamFunction;
+
 NS_ASSUME_NONNULL_END

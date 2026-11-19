@@ -395,12 +395,13 @@ static NSString *Retouch(NSURL *url) {
 
 // One batch's moves, then the retirement the app makes once they land.
 - (void)move:(NSDictionary<NSString *, NSString *> *)newKeysByOldKey {
-    __block BOOL moved = NO;
+    // An expectation, since the completion runs on the cache's queue.
+    XCTestExpectation *moved = [self expectationWithDescription:@"moved"];
     [_cache moveEntriesToNewKeys:newKeysByOldKey completion:^{
         [NSURL invalidateMemoizedCacheKeys];
-        moved = YES;
+        [moved fulfill];
     }];
-    XCTAssertTrue([self eventually:^BOOL { return moved; }]);
+    [self waitForExpectations:@[moved] timeout:VIBE_TEST_HANG_TIMEOUT];
 }
 
 // The whole file's entry and a cue row's move in one call, so a load after
