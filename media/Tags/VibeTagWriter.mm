@@ -656,7 +656,9 @@ bool IsWhole(NSString *mime, const uint8_t *b, size_t length) {
     if ([mime isEqualToString:@"image/jpeg"]) return endsWith("\xFF\xD9", 2, 32);
     // IEND's chunk ends in its CRC, AE 42 60 82, which no zero trims.
     if ([mime isEqualToString:@"image/png"]) return endsWith("IEND\xAE\x42\x60\x82", 8, 32);
-    if ([mime isEqualToString:@"image/gif"]) return endsWith("\x3B", 1, 32);
+    // TRAP: 0x3B is common in LZW data, so a GIF's trailer must be its last
+    // byte, past the block terminator's zero.
+    if ([mime isEqualToString:@"image/gif"]) return endsWith("\x3B", 1, 0);
     if ([mime isEqualToString:@"image/bmp"]) {
         if (length < 18) return false;
         const uint32_t header = LE32(b + 14);
