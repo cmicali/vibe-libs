@@ -1054,7 +1054,10 @@ static NSString *const kVibeLatin1Artist = @"Café Artist";
         NSMutableData *zeros = [shorter mutableCopy];
         [zeros increaseLengthBy:3];
         [cut addObject:@[shorter, mime]];
-        if (![mime isEqualToString:@"image/webp"]) [cut addObject:@[zeros, mime]];
+        // BMP and WebP end in no marker, so zeros there are pixels.
+        if (![mime isEqualToString:@"image/webp"] && ![mime isEqualToString:@"image/bmp"]) {
+            [cut addObject:@[zeros, mime]];
+        }
     }
     NSMutableData *bmp = [VibeImageOfType(@"image/bmp", 0) mutableCopy];
     ((uint8_t *)bmp.mutableBytes)[14] = 99;
