@@ -686,10 +686,50 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
     [self waitForExpectations:@[counted] timeout:VIBE_TEST_HANG_TIMEOUT];
 }
 
-// A key written after the count listed it, before it counts it, is skipped
-// then, as its listed size is the old file's. One key's file name is
-// percent-encoded, as the count and a change must name it alike.
-- (void)testAKeyWrittenDuringTheCountIsSkippedWhenTheCountMeetsIt {
+// Changes made before the count lists the store, to files it then lists. The
+// count must skip each such file: else a new key's bytes count twice, and an
+// overwritten key's new size counts twice too, since the old size it replaced
+// was never counted. One new key's file name is percent-encoded, as the count
+// and a change must name a file alike.
+- (void)testANewKeyWrittenBeforeTheCountListsItIsSkippedByTheCount {
+    [self makeStoreOfTenEntries:@"new before"];
+    VibeCountHold *hold = VibeHoldCount(@"new before", VibePINDiskCacheCountStageStart, nil);
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"new before" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    [cache setObject:[NSMutableData dataWithLength:20000] forKey:@"new"];
+    [cache setObject:[NSMutableData dataWithLength:30000] forKey:@"a key: 50%/b"];
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+}
+
+- (void)testAKeyOverwrittenBeforeTheCountListsItIsSkippedByTheCount {
+    [self makeStoreOfTenEntries:@"overwritten before"];
+    VibeCountHold *hold = VibeHoldCount(@"overwritten before", VibePINDiskCacheCountStageStart, nil);
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"overwritten before" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    [cache setObject:[NSMutableData dataWithLength:90000] forKey:@"k5"];
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+    XCTAssertEqual([(NSData *)[cache objectForKey:@"k5"] length], 90000u);
+}
+
+// A move before the count lists the store: the count meets only the new name,
+// and the bytes go with the file.
+- (void)testAMoveBeforeTheCountListsItsNewNameKeepsItsBytes {
+    [self makeStoreOfTenEntries:@"moved before"];
+    VibeCountHold *hold = VibeHoldCount(@"moved before", VibePINDiskCacheCountStageStart, nil);
+    PINDiskCache *cache = [PINCache audioCacheWithName:@"moved before" rootPath:_root].diskCache;
+    XCTAssertTrue([hold waitUntilHeld:1]);
+    XCTAssertTrue([cache moveObjectForKey:@"k3" toKey:@"m3"]);
+    VibeLetGoOfEveryCount();
+    [self assertSettled:cache];
+    XCTAssertEqual([(NSData *)[cache objectForKey:@"m3"] length], 10000u);
+}
+
+// Keys written after the count listed them, before it counts them, leave the
+// right total, as their listed sizes are the old files'. One key's file name
+// is percent-encoded.
+- (void)testAKeyWrittenAfterTheCountListedItLeavesTheRightTotal {
     [self makeStoreOfTenEntries:@"met"];
     NSString *encoded = @"a key: 50%/b";
     PINDiskCache *first = [PINCache audioCacheWithName:@"met" rootPath:_root].diskCache;
@@ -773,8 +813,9 @@ static BOOL VibeFinishesElsewhere(dispatch_block_t work) {
     [self assertSettled:cache];
 }
 
-// An old entry moved during the count, whose new name the count then skips,
-// still lowers the date the age limit's trim reads, so it ages out.
+// An old entry moved before the count lists the store still ages out. The
+// count skips its new name, so the move itself lowers the date the age
+// limit's trim reads.
 - (void)testAnOldEntryMovedDuringTheCountStillAgesOut {
     [self makeStoreOfTenEntries:@"aged move"];
     // With no store open, whose age limit's trim would remove it first.

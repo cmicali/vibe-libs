@@ -152,14 +152,24 @@ static void PINDiskCacheCallCountSeam(PINDiskCache *cache, VibePINDiskCacheCount
 // launch's count runs: each the count added, and each a write, a removal, or
 // a move settled first. So a change goes on during the count, and the count
 // skips each file it settled. A set of 64-bit hashes of file names, open
-// addressed, about 4 MB at 250,000 entries, where a set of the names would
-// hold about 25 MB. TRAP: two names whose hashes collide, under once in 10^8
-// launches at 250,000 entries, leave one file's bytes uncounted until a launch.
+// addressed and kept at most half full: 4 MB of slots up to 262,144 files,
+// which a full store of 4 KB files reaches, then 8 MB, and for a moment while
+// it grows both. A set of the names would hold about 25 MB. TRAP: two names
+// whose hashes collide, under once in 10^8 launches at 262,144 files, leave
+// one file's bytes uncounted until a launch.
 typedef struct {
     uint64_t *slots; // 0 is an empty slot
     size_t capacity; // a power of two, or 0
     size_t count;
+    BOOL counting; // the launch's count runs
+    BOOL full; // a hash could not be stored, so changes wait for the count
 } PINDiskCacheFileSet;
+
+typedef NS_ENUM(NSInteger, PINDiskCacheFileSetResult) {
+    PINDiskCacheFileSetAdded,
+    PINDiskCacheFileSetPresent,
+    PINDiskCacheFileSetUnstored, // the set could not grow
+};
 
 static uint64_t PINDiskCacheFileNameHash(NSString *fileName)
 {
@@ -187,22 +197,27 @@ static void PINDiskCacheFileSetPlace(uint64_t *slots, size_t capacity, uint64_t 
     slots[slot] = hash;
 }
 
-// Adds the file's hash, and returns whether it was not there yet.
-static BOOL PINDiskCacheFileSetAdd(PINDiskCacheFileSet *set, uint64_t hash)
+// Adds the file's hash. A set that could not grow marks itself full, and
+// stores nothing more, so the cache's changes wait for the count from then on.
+static PINDiskCacheFileSetResult PINDiskCacheFileSetAdd(PINDiskCacheFileSet *set, uint64_t hash)
 {
     if (set->capacity) {
         for (size_t slot = PINDiskCacheFileSetSlot(hash, set->capacity); set->slots[slot] != 0;
              slot = (slot + 1) & (set->capacity - 1)) {
             if (set->slots[slot] == hash) {
-                return NO;
+                return PINDiskCacheFileSetPresent;
             }
         }
+    }
+    if (set->full) {
+        return PINDiskCacheFileSetUnstored;
     }
     if ((set->count + 1) * 2 > set->capacity) {
         size_t capacity = set->capacity ? set->capacity * 2 : 1024;
         uint64_t *slots = calloc(capacity, sizeof(uint64_t));
         if (!slots) {
-            return YES; // counted, though the set can't hold it
+            set->full = YES;
+            return PINDiskCacheFileSetUnstored;
         }
         for (size_t slot = 0; slot < set->capacity; slot++) {
             if (set->slots[slot] != 0) {
@@ -215,15 +230,14 @@ static BOOL PINDiskCacheFileSetAdd(PINDiskCacheFileSet *set, uint64_t hash)
     }
     PINDiskCacheFileSetPlace(set->slots, set->capacity, hash);
     set->count++;
-    return YES;
+    return PINDiskCacheFileSetAdded;
 }
 
-static void PINDiskCacheFileSetFree(PINDiskCacheFileSet *set)
+// The count is done, or every entry was removed during it.
+static void PINDiskCacheFileSetEnd(PINDiskCacheFileSet *set)
 {
-    if (set) {
-        free(set->slots);
-        free(set);
-    }
+    free(set->slots);
+    *set = (PINDiskCacheFileSet){0};
 }
 
 // Vibe: an automatic trim cuts to 90% of the limit, not to just under it, so
@@ -254,8 +268,8 @@ static NSUInteger PINDiskCacheTrimTarget(NSUInteger byteLimit)
     PINDiskCacheKeyDecoderBlock _keyDecoder;
 
     // Vibe: the files accounted for while the launch's count runs, under the
-    // lock. NULL once it is done, or once every entry was removed during it.
-    PINDiskCacheFileSet *_countedFiles;
+    // lock. Held by value, so making it cannot fail.
+    PINDiskCacheFileSet _countedFiles;
 }
 
 @property (assign, nonatomic) pthread_mutex_t mutex;
@@ -311,7 +325,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     NSCAssert(result == 0, @"Failed to destroy lock in PINDiskCache %p. Code: %d", (void *)self, result);
     pthread_cond_destroy(&_diskWritableCondition);
     pthread_cond_destroy(&_diskStateKnownCondition);
-    PINDiskCacheFileSetFree(_countedFiles); // Vibe
+    free(_countedFiles.slots); // Vibe
 }
 
 - (instancetype)init
@@ -474,7 +488,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
         _metadata = [[NSMutableDictionary alloc] init];
         _diskStateKnown = NO;
         _oldestCreation = DBL_MAX; // Vibe: no entry yet
-        _countedFiles = calloc(1, sizeof(PINDiskCacheFileSet)); // Vibe: the launch's count runs
+        _countedFiles.counting = YES; // Vibe: the launch's count runs
       
         _cacheURL = [[self class] cacheURLWithRootPath:rootPath prefix:_prefix name:_name];
         
@@ -864,9 +878,9 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
             _oldestCreation = MIN(_oldestCreation, record.createdDate ? record.createdDate.timeIntervalSinceReferenceDate : 0);
         }
         // A launch's count still running skips the files its records were of.
-        if (_countedFiles) {
+        if (_countedFiles.counting) {
             for (NSString *key in _metadata) {
-                PINDiskCacheFileSetAdd(_countedFiles, [self fileNameHashForKey:key]);
+                PINDiskCacheFileSetAdd(&_countedFiles, [self fileNameHashForKey:key]);
             }
         }
         [_metadata removeAllObjects];
@@ -942,7 +956,9 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     return [fileSize unsignedIntegerValue];
 }
 
-// Vibe: the hash the launch's count gives the key's file.
+// Vibe: the hash the launch's count gives the key's file. TRAP: it hashes the
+// name as written, so keys that differ only in case, one file on a
+// case-insensitive volume, would each count it.
 - (uint64_t)fileNameHashForKey:(NSString *)key
 {
     return PINDiskCacheFileNameHash([self encodedFileURLForKey:key].lastPathComponent);
@@ -953,9 +969,21 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
 // count or an earlier change accounted for the key's file, its bytes are
 // added now, and the count then skips it. The change then adjusts the byte
 // count as it would once the count is done, so it never waits for the count.
+// A set that could not grow settles nothing more: the change waits for the
+// count, as every change once did, so no file goes uncounted or counts twice.
 - (void)_locked_settleKeyDuringCount:(NSString *)key
 {
-    if (!_countedFiles || !_recordsOnDemand || !PINDiskCacheFileSetAdd(_countedFiles, [self fileNameHashForKey:key])) {
+    if (!_countedFiles.counting || !_recordsOnDemand) {
+        return;
+    }
+    PINDiskCacheFileSetResult result = PINDiskCacheFileSetAdd(&_countedFiles, [self fileNameHashForKey:key]);
+    if (result == PINDiskCacheFileSetPresent) {
+        return;
+    }
+    if (result == PINDiskCacheFileSetUnstored) {
+        while (_diskStateKnown == NO) {
+            pthread_cond_wait(&_diskStateKnownCondition, &_mutex);
+        }
         return;
     }
     PINDiskCacheMetadata *record = [self _locked_recordForKey:key];
@@ -996,15 +1024,16 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
                 // Continually grab and release lock while processing files to avoid contention
                 [self lock];
                 // Vibe: every entry was removed, so none it lists is left.
-                if (!_countedFiles) {
+                if (!_countedFiles.counting) {
                     [self unlock];
                     more = NO;
                     break;
                 }
                 if (_recordsOnDemand) {
                     // Vibe: a file a change settled is skipped, as its listed
-                    // values may be older than the change.
-                    if (PINDiskCacheFileSetAdd(_countedFiles, PINDiskCacheFileNameHash(fileURL.lastPathComponent))) {
+                    // values may be older than the change. One the set could
+                    // not store is counted, as changes wait from then on.
+                    if (PINDiskCacheFileSetAdd(&_countedFiles, PINDiskCacheFileNameHash(fileURL.lastPathComponent)) != PINDiskCacheFileSetPresent) {
                         NSDate *created = nil;
                         [fileURL getResourceValue:&created forKey:NSURLCreationDateKey error:NULL];
                         _oldestCreation = MIN(_oldestCreation, created ? created.timeIntervalSinceReferenceDate : 0);
@@ -1020,8 +1049,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
     PINDiskCacheCallCountSeam(self, VibePINDiskCacheCountStageEnd, nil);
     
     [self lock];
-        PINDiskCacheFileSetFree(_countedFiles); // Vibe: the count is done.
-        _countedFiles = NULL;
+        PINDiskCacheFileSetEnd(&_countedFiles); // Vibe: the count is done.
     
         if (self->_byteLimit > 0 && self->_byteCount > self->_byteLimit)
             [self trimToSizeByEvictionStrategyAsync:PINDiskCacheTrimTarget(self->_byteLimit) completion:nil];
@@ -2041,8 +2069,7 @@ static BOOL PINDiskCacheKeepsNoRecords(PINDiskCache *cache)
         self->_oldestCreation = DBL_MAX; // Vibe: no entry is left.
         // Vibe: and a launch's count still running stops, since the files it
         // would list are the ones this removed.
-        PINDiskCacheFileSetFree(self->_countedFiles);
-        self->_countedFiles = NULL;
+        PINDiskCacheFileSetEnd(&self->_countedFiles);
     
         PINCacheBlock didRemoveAllObjectsBlock = self->_didRemoveAllObjectsBlock;
         if (didRemoveAllObjectsBlock) {
