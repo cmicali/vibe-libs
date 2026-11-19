@@ -41,8 +41,8 @@ typedef NS_ERROR_ENUM(VibeTagWriteErrorDomain, VibeTagWriteError) {
     // An ID3v2 frame is compressed or encrypted, which TagLib cannot rewrite.
     VibeTagWriteErrorUnsupportedFrame = 9,
     // The save would drop or change what the edit does not name: a frame
-    // TagLib discards, an ID3v2.3 genre, an MP4 item TagLib could not parse,
-    // or a FLAC's ID3 tags. media/Tags/AGENTS.md lists each.
+    // TagLib discards, an MP4 item TagLib could not parse, or a FLAC's ID3
+    // tags. media/Tags/AGENTS.md lists each.
     VibeTagWriteErrorWouldLoseData = 10,
     // VibeTagLibAudioMatches found the two files' audio differs.
     VibeTagWriteErrorAudioDiffers = 11,
@@ -70,6 +70,14 @@ typedef NS_ENUM(NSInteger, VibeTagWriteSync) {
     VibeTagWriteSyncBarrier = 1,
 };
 
+// What a write did beyond the edit it was asked for, so an app can say so.
+// ID3v24: an ID3v2.3 tag was written as ID3v2.4, since its genres after the
+// edit were two or more without ID3v1 numbers, which 2.3 cannot keep.
+typedef NS_OPTIONS(NSUInteger, VibeTagWriteChanges) {
+    VibeTagWriteChangeNone = 0,
+    VibeTagWriteChangeID3v24 = 1 << 0,
+};
+
 // Values per field. An empty array, or one of empty strings, removes the
 // field. A field not named keeps what it holds.
 typedef NSDictionary<VibeTagField, NSArray<NSString *> *> VibeTagFieldValues;
@@ -79,7 +87,9 @@ typedef NSDictionary<VibeTagField, NSArray<NSString *> *> VibeTagFieldValues;
 // refusal is checked before the first write, so NO leaves the file's bytes
 // unchanged, except with SaveFailed or TagLibThrew. YES means every write
 // succeeded, the file's size is the one they imply, and it was flushed as
-// `sync` says.
+// `sync` says. `changes`, when given, is set to what the write did beyond
+// the edit, None on a failure. An ID3v2 tag keeps its version, except that
+// a 2.3 tag whose genres would be lost is written as 2.4.
 //
 // The cover is every front cover, or when the file has none, the one
 // picture the art read shows, whatever its type. A cover write takes it and
@@ -90,7 +100,7 @@ typedef NSDictionary<VibeTagField, NSArray<NSString *> *> VibeTagFieldValues;
 // A picture that never showed stays, whatever its type.
 FOUNDATION_EXTERN BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *_Nullable fields, BOOL changeCover,
                                            NSData *_Nullable coverData, NSString *_Nullable coverMIMEType,
-                                           VibeTagWriteSync sync,
+                                           VibeTagWriteSync sync, VibeTagWriteChanges *_Nullable changes,
                                            NSError *_Nullable __autoreleasing *_Nullable error);
 
 // The cover types a write takes: image/jpeg, image/png, image/gif,
@@ -177,7 +187,7 @@ FOUNDATION_EXTERN BOOL VibeTagLibPicturesFit(NSArray<VibeTagPicture *> *pictures
 // every refusal of VibeTagLibWriteTags holds. media/Tags/AGENTS.md lists
 // what the write does not keep.
 FOUNDATION_EXTERN BOOL VibeTagLibWritePictures(NSString *path, NSArray<VibeTagPicture *> *pictures,
-                                               VibeTagWriteSync sync,
+                                               VibeTagWriteSync sync, VibeTagWriteChanges *_Nullable changes,
                                                NSError *_Nullable __autoreleasing *_Nullable error);
 
 // The file's fields as TagLib's property map reads them, keys upper case. A
