@@ -13,7 +13,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `core/Common` | Logging, diagnostics, path and file helpers, file identity, the disk key, and work lanes. |
 | `core/Graphics` | Image, color, and font helpers, the typography slots, and the Dock tile. |
 | `files/FileLoading` | Local, iCloud, and network-share files, read even while they download, and a fake cloud for tests. |
-| `files/DiskCache` | A bounded disk cache. |
+| `files/DiskCache` | A bounded disk cache, over PINCache or over SQLite. |
 | `files/HTTP` | Ranged HTTP transfers. |
 | `files/RemoteFiles` | A local placeholder for a file on a server, fetched by range. |
 | `files/ShareLinks` | The rules for opening a web link, share-link rewrites, iCloud Drive's lookup, and a fake web server. |

@@ -86,7 +86,7 @@ vibe-libs/
 │   │                    a file while it downloads, read-ahead on network mounts, progress, the
 │   │                    transfer registry, one shared download and open per file, and the
 │   │                    fake cloud
-│   ├── DiskCache ●      a bounded disk cache over PINCache
+│   ├── DiskCache ●      a bounded disk cache over PINCache, and one over SQLite
 │   ├── HTTP             ranged HTTP transfers, and a fake of ranged serving
 │   ├── RemoteFiles      a local placeholder for a file on a server, fetched by range
 │   ├── ShareLinks       Dropbox, Google Drive and iCloud share links turned into direct URLs,

@@ -98,6 +98,19 @@ static const char *const VibeCacheSchema =
     "  WHEN OLD.file IS NOT NULL AND OLD.file IS NOT NEW.file BEGIN"
     "  INSERT OR REPLACE INTO pending VALUES (OLD.file, 1); END;";
 
+// The statements a write runs, which an open prepares ahead of the first.
+static const char *const VibeCacheUpsertEntry =
+    "INSERT INTO entries(key, format, shared, data, file, size, used) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) "
+    "ON CONFLICT(key) DO UPDATE SET format = excluded.format, shared = excluded.shared, "
+    "data = excluded.data, file = excluded.file, size = excluded.size, used = excluded.used";
+static const char *const VibeCacheUpsertShared =
+    "INSERT INTO shared(name, part, format, data, file, size, used) VALUES (?1, ?8, ?2, ?4, ?5, ?6, ?7) "
+    "ON CONFLICT(name, part) DO UPDATE SET format = excluded.format, "
+    "data = excluded.data, file = excluded.file, size = excluded.size, used = excluded.used";
+static const char *const VibeCacheRemoveEntry = "DELETE FROM entries WHERE key = ?1";
+static const char *const VibeCacheDoomedFiles = "SELECT file FROM pending WHERE doomed = 1";
+static const char *const VibeCacheTotalBytes = "SELECT bytes FROM totals";
+
 static void VibeCacheBindText(sqlite3_stmt *stmt, int index, NSString *_Nullable text) {
     // Every statement steps before the string's buffer goes, so no copy.
     if (text) {
@@ -297,6 +310,19 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
     [self removePendingFiles:NO];
     [self removeLeftFolders];
     [self scheduleMaintenance];
+    // The first write would otherwise prepare its statements and make the
+    // journal, about 2 ms, so the queue does both now.
+    dispatch_async(_queue, ^{
+        if (self->_writer) {
+            for (NSValue *sql in @[[NSValue valueWithPointer:VibeCacheUpsertEntry],
+                                   [NSValue valueWithPointer:VibeCacheUpsertShared],
+                                   [NSValue valueWithPointer:VibeCacheRemoveEntry],
+                                   [NSValue valueWithPointer:VibeCacheTotalBytes]]) {
+                [self statement:sql.pointerValue];
+            }
+            [self setInteger:[self today] forMeta:@"opened"];
+        }
+    });
     return self;
 }
 
@@ -476,7 +502,7 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
 // Removes the files listed in pending, the doomed ones alone or, at an open,
 // every one: no committed row names any of them.
 - (void)removePendingFiles:(BOOL)doomedOnly {
-    sqlite3_stmt *list = doomedOnly ? [self statement:"SELECT file FROM pending WHERE doomed = 1"]
+    sqlite3_stmt *list = doomedOnly ? [self statement:VibeCacheDoomedFiles]
                                     : [self statement:"SELECT file FROM pending"];
     BOOL any = NO;
     while (sqlite3_step(list) == SQLITE_ROW) {
@@ -584,7 +610,7 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
 }
 
 - (unsigned long long)bytesOnQueue {
-    sqlite3_stmt *stmt = [self statement:"SELECT bytes FROM totals"];
+    sqlite3_stmt *stmt = [self statement:VibeCacheTotalBytes];
     sqlite3_int64 bytes = sqlite3_step(stmt) == SQLITE_ROW ? sqlite3_column_int64(stmt, 0) : 0;
     sqlite3_reset(stmt);
     return bytes > 0 ? (unsigned long long)bytes : 0;
@@ -965,17 +991,11 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
         BOOL written = (!toFile || file) && [self transaction:^BOOL {
             sqlite3_stmt *stmt;
             if (key) {
-                stmt = [self statement:
-                    "INSERT INTO entries(key, format, shared, data, file, size, used) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7) "
-                    "ON CONFLICT(key) DO UPDATE SET format = excluded.format, shared = excluded.shared, "
-                    "data = excluded.data, file = excluded.file, size = excluded.size, used = excluded.used"];
+                stmt = [self statement:VibeCacheUpsertEntry];
                 VibeCacheBindText(stmt, 1, key);
                 VibeCacheBindText(stmt, 3, sharedName);
             } else {
-                stmt = [self statement:
-                    "INSERT INTO shared(name, part, format, data, file, size, used) VALUES (?1, ?8, ?2, ?4, ?5, ?6, ?7) "
-                    "ON CONFLICT(name, part) DO UPDATE SET format = excluded.format, "
-                    "data = excluded.data, file = excluded.file, size = excluded.size, used = excluded.used"];
+                stmt = [self statement:VibeCacheUpsertShared];
                 VibeCacheBindText(stmt, 1, name);
                 VibeCacheBindText(stmt, 8, part);
             }
@@ -1013,7 +1033,7 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
 // Removes one row. The triggers list its file and the shared item it was the
 // last to name. Queue only.
 - (void)removeRowOfKey:(nullable NSString *)key name:(nullable NSString *)name part:(nullable NSString *)part {
-    sqlite3_stmt *stmt = key ? [self statement:"DELETE FROM entries WHERE key = ?1"]
+    sqlite3_stmt *stmt = key ? [self statement:VibeCacheRemoveEntry]
                              : [self statement:"DELETE FROM shared WHERE name = ?1 AND part = ?2"];
     VibeCacheBindText(stmt, 1, key ?: name);
     if (!key) {
@@ -1056,7 +1076,7 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
             }
             // The replaced row goes first, while the moved row still names
             // its shared item, so the two can share one.
-            sqlite3_stmt *remove = [self statement:"DELETE FROM entries WHERE key = ?1"];
+            sqlite3_stmt *remove = [self statement:VibeCacheRemoveEntry];
             VibeCacheBindText(remove, 1, newKey);
             sqlite3_stmt *move = [self statement:"UPDATE entries SET key = ?2 WHERE key = ?1"];
             VibeCacheBindText(move, 1, oldKey);
