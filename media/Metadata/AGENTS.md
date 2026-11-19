@@ -167,7 +167,7 @@ Opus defines the R128 gains. The parse reads them from any Xiph comment, since t
 
 ## The stores
 
-**The disk cache is three stores, each with its own budget**, built through `files/DiskCache` on its shared terms: 1 GiB each, and 180 days unused. All three are keyed by the file's `cacheKey`, and the cache builds them together on its queue.
+**The disk cache is three stores, each with its own budget**, built through `files/DiskCache` with its default terms: 1 GiB each, and 180 days from an entry's last use. An app sets one store's terms with `setByteLimit:ageLimit:forStore:`, which runs on the cache's queue once the stores are built. All three are keyed by the file's `cacheKey`, and the cache builds them together on its queue.
 
 | Store | `AudioTrackMetadataCache` name | Holds | Typical entry |
 | --- | --- | --- | --- |
