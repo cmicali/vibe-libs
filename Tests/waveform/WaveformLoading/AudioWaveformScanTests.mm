@@ -212,6 +212,50 @@ static const double kThrottledSeconds = 8;
     XCTAssertEqual(_recorder.failures, 0u, @"a scan's failure is its completion's, not the delegate's");
 }
 
+// A scan for results alone delivers them and files nothing, so a second one
+// decodes again. Once a scan for the waveform files the entry, a scan for
+// results answers from it with no decode.
+- (void)testAResultsScanFilesNothingAndAnswersFromAFiledEntry {
+    VibeTestTrack *track = [self trackNamed:@"results.wav" seconds:3];
+    NSMutableArray<NSNumber *> *answers = [NSMutableArray array];
+    [_cache scanResultsForTrack:track completion:^(BOOL analyzed) {
+        XCTAssertTrue(NSThread.isMainThread);
+        [answers addObject:@(analyzed)];
+    }];
+    XCTAssertTrue(WaveformSpinUntil(^BOOL { return answers.count == 1; }));
+    XCTAssertEqualObjects(answers, @[@YES]);
+    XCTAssertEqualObjects(_recorder.resultTracks, @[track], @"the results come with the scan's own item");
+    XCTAssertEqual(_recorder.completedTracks.count, 0u, @"a scan delivers no waveform");
+    XCTAssertEqual(_observer.sinks.firstObject.finishes, 1u);
+    XCTAssertNil([self filedWaveform:track], @"nothing is filed");
+
+    [_cache scanResultsForTrack:track completion:^(BOOL analyzed) {
+        [answers addObject:@(analyzed)];
+    }];
+    XCTAssertTrue(WaveformSpinUntil(^BOOL { return answers.count == 2; }));
+    XCTAssertEqual(_observer.sinks.count, 2u, @"with no entry, it decodes again");
+
+    [_cache scanWaveformForTrack:track completion:^(BOOL filed) {
+        [answers addObject:@(filed)];
+    }];
+    XCTAssertTrue(WaveformSpinUntil(^BOOL { return answers.count == 3; }));
+    XCTAssertTrue(WaveformEventuallyCached(_cache, track));
+    [_cache scanResultsForTrack:track completion:^(BOOL analyzed) {
+        [answers addObject:@(analyzed)];
+    }];
+    XCTAssertTrue(WaveformSpinUntil(^BOOL { return answers.count == 4; }));
+    XCTAssertEqualObjects(answers, (@[@YES, @YES, @YES, @YES]));
+    XCTAssertEqual(_observer.sinks.count, 3u, @"a filed entry answers with no decode");
+    XCTAssertEqual(_recorder.resultTracks.count, 4u);
+
+    NSURL *missing = [_directory URLByAppendingPathComponent:@"missing.wav"];
+    [_cache scanResultsForTrack:[VibeTestTrack withURL:missing] completion:^(BOOL analyzed) {
+        [answers addObject:@(analyzed)];
+    }];
+    XCTAssertTrue(WaveformSpinUntil(^BOOL { return answers.count == 5; }));
+    XCTAssertEqualObjects(answers.lastObject, @NO);
+}
+
 // Scans run one at a time, in the order asked. The lane's throughput is
 // logged beside the same files' bare decodes.
 - (void)testScansRunOneAtATimeInOrder {

@@ -11,6 +11,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 @protocol AudioTrackMetadataCacheDelegate;
 
+// The three stores, each with its own limits.
+typedef NS_ENUM(NSInteger, VibeMetadataCacheStore) {
+    VibeMetadataCacheStoreTags,
+    VibeMetadataCacheStoreThumbnails,
+    VibeMetadataCacheStoreDisplayArt,
+};
+
 @interface AudioTrackMetadataCache : NSObject
 
 @property (nullable, weak) id <AudioTrackMetadataCacheDelegate> delegate;
@@ -95,6 +102,14 @@ NS_ASSUME_NONNULL_BEGIN
                                    toKey:(NSString *)newKey
                               artChanged:(BOOL)artChanged
                               completion:(nullable dispatch_block_t)completion;
+
+// One store's limits, over files/DiskCache's defaults, which a store keeps
+// until its app sets others.
+// Calls run in the order made, on the cache's internal queue, once the store
+// is built. The store then trims to them in the background. Any thread.
+- (void)setByteLimit:(NSUInteger)byteLimit
+            ageLimit:(NSTimeInterval)ageLimit
+            forStore:(VibeMetadataCacheStore)store;
 
 // All three stores', enumerated off the calling thread; the completion runs
 // on main.

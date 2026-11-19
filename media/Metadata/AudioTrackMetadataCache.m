@@ -238,6 +238,28 @@
     });
 }
 
+- (void)setByteLimit:(NSUInteger)byteLimit
+            ageLimit:(NSTimeInterval)ageLimit
+            forStore:(VibeMetadataCacheStore)store {
+    dispatch_async(_cacheQueue, ^{
+        VibeMetadataStores *stores = [self storesOnQueue];
+        PINCache *cache = nil;
+        switch (store) {
+            case VibeMetadataCacheStoreTags:
+                cache = stores.tags;
+                break;
+            case VibeMetadataCacheStoreThumbnails:
+                cache = stores.thumbnails;
+                break;
+            case VibeMetadataCacheStoreDisplayArt:
+                cache = stores.displayArt;
+                break;
+        }
+        cache.diskCache.byteLimit = byteLimit;
+        cache.diskCache.ageLimit = ageLimit;
+    });
+}
+
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
     dispatch_async(_cacheQueue, ^{
         [PINCache audioDiskUsageOfCaches:[self storesOnQueue].all completion:completion];

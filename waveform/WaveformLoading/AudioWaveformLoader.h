@@ -72,6 +72,10 @@ static inline NSArray<NSString *> *VibeWaveformObserverIdentifiers(VibeWaveformA
 @property (atomic) NSUInteger cueStart;
 @property (atomic) NSUInteger cueEnd;
 
+// A scan for results alone: the cache files nothing this loader decodes. Set
+// before load:.
+@property (atomic) BOOL resultsOnly;
+
 // Reads blocks of the window into the waveform's detail at full resolution,
 // as the mix, for deep zoom (the summary's Detail). Skips blocks already
 // held. Set the window first. NO when the file cannot be opened or read, or
