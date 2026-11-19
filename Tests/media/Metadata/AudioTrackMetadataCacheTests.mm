@@ -754,6 +754,27 @@ static void SafeRetitle(NSURL *url, NSString *title, NSData *_Nullable newArt) {
     XCTAssertTrue([self oldStoresAreUnder:root], @"the bulk import has not run");
 }
 
+// One store for a root however it is spelled, and before or after its folder
+// exists: under /var, the system's path names /private/var only once a file
+// is there. A second store would fail to open on the folder's lock, and
+// every read through it would miss.
+- (void)testARootIsOneStoreBeforeAndAfterItsFolderExists {
+    char resolved[PATH_MAX];
+    XCTAssertTrue(realpath(_dir.fileSystemRepresentation, resolved) != NULL);
+    NSString *real = [@(resolved) stringByAppendingPathComponent:@"not yet/cache"];
+    XCTAssertTrue([real hasPrefix:@"/private/"], @"%@", real);
+    VibeMetadataStore *first = [VibeMetadataStore checkOutStoreUnderRootPath:real];
+    XCTAssertNotNil(first.cacheStore);
+    VibeMetadataStore *again = [VibeMetadataStore checkOutStoreUnderRootPath:real];
+    VibeMetadataStore *spelled = [VibeMetadataStore
+        checkOutStoreUnderRootPath:[_dir URLByAppendingPathComponent:@"not yet/cache"].path];
+    XCTAssertEqual(again, first);
+    XCTAssertEqual(spelled, first);
+    for (VibeMetadataStore *store in @[spelled, again, first]) {
+        [store checkIn];
+    }
+}
+
 // An import cut short goes on at the next open, past what it brought over.
 - (void)testAnImportCutShortGoesOnAtTheNextOpen {
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
