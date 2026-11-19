@@ -78,6 +78,12 @@ typedef struct {
 // fails leaves no entry under key, so it reads as a miss.
 - (void)setData:(NSData *)data forKey:(NSString *)key format:(NSInteger)format sharedName:(nullable NSString *)sharedName;
 - (void)removeEntryForKey:(NSString *)key;
+// Lists a file another store wrote as the entry under key, for an import. A
+// file over inlineLimit is renamed into the store, and a smaller one is read
+// into its row and then removed. lastUse, nil for now, dates the entry for
+// the limits. NO, leaving the file, when key already holds an entry, or the
+// file can't be read or renamed, as from another volume.
+- (BOOL)adoptFileAtPath:(NSString *)path forKey:(NSString *)key format:(NSInteger)format lastUse:(nullable NSDate *)lastUse;
 // Moves the entry to newKey, replacing any there. NO when oldKey has none.
 - (BOOL)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey;
 

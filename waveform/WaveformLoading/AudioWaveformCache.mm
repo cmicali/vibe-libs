@@ -6,8 +6,7 @@
 #import "AudioWaveformCacheInternal.h"
 #import "FilePaths.h"
 #import "AudioWaveform.h"
-#import "PINCache.h"
-#import "PINCache+VibeAudioCache.h"
+#import "VibeWaveformStore.h"
 #import "AudioWaveformLoader.h"
 #import "AudioWorkScheduler.h"
 #import "AudioFileMaterializationCoordinator.h"
@@ -70,6 +69,26 @@ static NSString *VibeWaveformClaimKey(id<VibePlayableItem> track) {
 // detached decode completes, persists, and turns the next request for that
 // file into a disk hit. Beyond the cap the oldest is cancelled — with the
 // active load this bounds concurrent decodes at three.
+// An entry's bytes: the keyed archive PINDiskCache wrote, so the import
+// lists the old files as they are.
+static NSData *_Nullable VibeWaveformArchive(CodableAudioWaveform *waveform) {
+    NSError *error = nil;
+    NSData *data = [NSKeyedArchiver archivedDataWithRootObject:waveform requiringSecureCoding:NO error:&error];
+    if (!data) {
+        LogError(@"Waveform entry would not archive: %@", error);
+    }
+    return data;
+}
+
+static id _Nullable VibeWaveformUnarchive(NSData *data) {
+    NSKeyedUnarchiver *unarchiver = [[NSKeyedUnarchiver alloc] initForReadingFromData:data error:NULL];
+    unarchiver.requiresSecureCoding = NO;
+    unarchiver.decodingFailurePolicy = NSDecodingFailurePolicySetErrorAndReturn;
+    id object = [unarchiver decodeObjectForKey:NSKeyedArchiveRootObjectKey];
+    [unarchiver finishDecoding];
+    return object;
+}
+
 static const NSUInteger kMaxDetachedWaveformLoads = 2;
 static const NSUInteger kMaxPendingWaveformWork = 4;
 static const NSTimeInterval kWaveformAdmissionGraceSeconds = 10.0;
@@ -114,11 +133,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 }
 
 + (NSString *)cacheName {
-    // The name embeds the entry format version, so a version bump renames the
-    // cache and unreadable older entries waiting for LRU eviction do not
-    // consume the byte budget.
-    return [NSString stringWithFormat:@"audio_waveform_cache_v%d",
-                                      kCodableAudioWaveformVersion];
+    return VibeWaveformStore.name;
 }
 
 - (id)init {
@@ -128,8 +143,8 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 - (instancetype)initWithRootPath:(NSString *)rootPath {
     self = [super init];
     if (self) {
-        // Utility, not user-initiated. The loader blocks on PINCache's own
-        // utility-QoS queues, through a synchronous objectForKey:, and a
+        // Utility, not user-initiated. The loader blocks on the store's
+        // utility-QoS queue, through a synchronous write, and a
         // higher class here merely trips the Thread Performance Checker's
         // priority-inversion warning while stealing P-core time from the start
         // of playback.
@@ -177,15 +192,12 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         _currentLoader = nil;
         _detachedLoaders = [NSMutableArray array];
         _claimsByKey = [NSMutableDictionary dictionary];
-        // Created on the loader queue: on main, PINCache's init-time disk scan
-        // would run at user-initiated QoS and priority-invert against the
-        // utility-QoS cache calls. The ivar is read only on this serial queue,
-        // so it exists before first use; decode-side writes go through a
-        // pointer snapshotted here.
+        // Opened on the loader queue, off main: the open takes a few ms. The
+        // ivar is read only on this serial queue, so it exists before first
+        // use; decode-side writes go through a pointer snapshotted here.
+        // Views retain their live waveforms, so nothing is kept in memory.
         dispatch_async(_loaderQueue, ^{
-            // Views retain their live waveforms. Replays read the disk cache
-            // without pinning every entry in PINMemoryCache.
-            self->_waveformCache = [PINCache audioCacheWithName:AudioWaveformCache.cacheName rootPath:rootPath];
+            self->_waveformCache = [VibeWaveformStore storeUnderRoot:rootPath];
         });
     }
     return self;
@@ -194,7 +206,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 - (void)invalidateWithCompletion:(dispatch_block_t)completion {
     dispatch_async(_loaderQueue, ^{
         self->_cacheGeneration.fetch_add(1, std::memory_order_relaxed);
-        [self->_waveformCache removeAllObjects];
+        [self->_waveformCache removeAll];
         if (completion) {
             completion();
         }
@@ -205,18 +217,18 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
                   completion:(dispatch_block_t)completion {
     NSDictionary<NSString *, NSString *> *moves = [newKeysByOldKey copy];
     dispatch_async(_moveQueue, ^{
-        PINCache *cache = [self store];
+        VibeWaveformStore *cache = [self store];
         [moves enumerateKeysAndObjectsUsingBlock:^(NSString *oldKey, NSString *newKey, BOOL *stop) {
             if ([oldKey isEqualToString:newKey]) {
                 return;
             }
             uint64_t generation = self->_cacheGeneration.load(std::memory_order_relaxed);
             BOOL moved = [self fileUnderKey:newKey inStore:cache generation:generation write:^BOOL {
-                return [cache.diskCache moveObjectForKey:oldKey toKey:newKey];
+                return [cache moveEntryFromKey:oldKey toKey:newKey];
             }];
             // Refused: the new key already holds an entry, or there is none.
             if (!moved) {
-                [cache.diskCache removeObjectForKey:oldKey];
+                [cache removeEntryForKey:oldKey];
             }
         }];
         if (completion) {
@@ -227,20 +239,20 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 
 // Runs write, which files an entry under key, unless an invalidation came
 // after generation was taken. The generation is checked again once the write
-// lands, and a raced write is removed. removeAllObjects takes PINDiskCache's
-// lock directly rather than queueing behind pending writes, so an
-// invalidation can slip between the first check and the write. The
+// lands, and a raced write is removed. An invalidation runs on the loader
+// queue, apart from the writes, so it can slip between the first check and
+// the write. The
 // compensating remove is what makes the header's cannot-repopulate guarantee
 // hold. YES when the entry is filed.
 - (BOOL)fileUnderKey:(NSString *)key
-             inStore:(PINCache *)cache
+             inStore:(VibeWaveformStore *)cache
           generation:(uint64_t)generation
                write:(NS_NOESCAPE BOOL (^)(void))write {
     if (generation != _cacheGeneration.load(std::memory_order_relaxed) || !write()) {
         return NO;
     }
     if (generation != _cacheGeneration.load(std::memory_order_relaxed)) {
-        [cache.diskCache removeObjectForKey:key];
+        [cache removeEntryForKey:key];
         return NO;
     }
     return YES;
@@ -248,16 +260,19 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 
 - (void)setByteLimit:(NSUInteger)byteLimit ageLimit:(NSTimeInterval)ageLimit {
     dispatch_async(_loaderQueue, ^{
-        self->_waveformCache.diskCache.byteLimit = byteLimit;
-        self->_waveformCache.diskCache.ageLimit = ageLimit;
+        self->_waveformCache.entries.byteLimit = byteLimit;
+        self->_waveformCache.entries.ageLimit = ageLimit;
     });
 }
 
 - (void)diskUsageWithCompletion:(void (^)(NSUInteger fileCount, unsigned long long totalBytes))completion {
-    // The serial queue guarantees the cache exists and keeps the blocking
-    // enumeration off the caller's thread.
+    // The serial queue guarantees the store exists. The store keeps the sum,
+    // so this reads one row.
     dispatch_async(_loaderQueue, ^{
-        [self->_waveformCache audioDiskUsageWithCompletion:completion];
+        VibeCacheUsage usage = self->_waveformCache.entries.usage;
+        run_on_main_thread({
+            completion(usage.entries, usage.bytes);
+        });
     });
 }
 
@@ -357,8 +372,8 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 
 // The store, once the loader queue has made it. The hop is short, so no
 // caller's disk read waits behind another's on that serial queue.
-- (PINCache *)store {
-    __block PINCache *store;
+- (VibeWaveformStore *)store {
+    __block VibeWaveformStore *store;
     dispatch_sync(_loaderQueue, ^{
         store = self->_waveformCache;
     });
@@ -394,19 +409,19 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
     }];
 }
 
-// On a lane's worker, for both cache readers. PINDiskCache is thread-safe.
-- (CodableAudioWaveform *)waveformInStore:(PINCache *)store
+// On a lane's worker, for both cache readers. The store is thread-safe.
+- (CodableAudioWaveform *)waveformInStore:(VibeWaveformStore *)store
                                    forKey:(NSString *)cacheKey
                                  analysis:(VibeWaveformAnalysis)analysis {
-    CodableAudioWaveform *cachedWaveform =
-            (CodableAudioWaveform *)[store.diskCache objectForKey:cacheKey];
-    // PINCache unarchives without secure coding, so a corrupt or tampered
-    // entry with a different root class decodes cleanly and would crash with
-    // an unrecognized selector at first use — on every play of this track,
-    // since nothing would ever evict it. The metadata cache uses the same
-    // guard.
+    NSData *data = [store dataForKey:cacheKey];
+    CodableAudioWaveform *cachedWaveform = data ? VibeWaveformUnarchive(data) : nil;
+    // The archive is read without secure coding, as PINCache wrote it, so a
+    // corrupt or tampered entry with a different root class decodes cleanly
+    // and would crash with an unrecognized selector at first use — on every
+    // play of this track, since nothing would ever evict it. The metadata
+    // cache uses the same guard.
     if (cachedWaveform && ![cachedWaveform isKindOfClass:[CodableAudioWaveform class]]) {
-        [store.diskCache removeObjectForKey:cacheKey];
+        [store removeEntryForKey:cacheKey];
         cachedWaveform = nil;
     }
     cachedWaveform.entryKey = cacheKey;
@@ -607,7 +622,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
 // decode's admission failure runs on main. A caller that removes pending work owns its settlement. nil means
 // failed, cancelled, or decoded from another version than cacheKey names, and
 // wasCached marks a disk hit. A decode completes before its cache write, so a
-// delivery never queues behind PINDiskCache. settled follows on the same
+// delivery never queues behind the store. settled follows on the same
 // thread, after the write attempt, and says whether the entry is on disk.
 // Invalidation can suppress the write.
 - (void)load:(id<VibePlayableItem>)track
@@ -617,7 +632,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
    scheduler:(AudioWorkScheduler *)scheduler
   completion:(void (^)(CodableAudioWaveform *waveform, BOOL wasCached))completion
      settled:(void (^)(BOOL filed))settled {
-    PINCache *cache = [self store];
+    VibeWaveformStore *cache = [self store];
     CodableAudioWaveform *cachedWaveform = [self waveformInStore:cache forKey:cacheKey analysis:loader.analysis];
     if (cachedWaveform) {
         // A hit finishes this loader as surely as a decode does; without the
@@ -669,7 +684,7 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         }
         waveform.entryKey = cacheKey;
         // Delivered before persisting, so UI delivery never queues behind
-        // PINDiskCache. The waveform is valid whatever the persist below
+        // the store. The waveform is valid whatever the persist below
         // decides.
         completion(waveform, NO);
         if (loader.resultsOnly) {
@@ -680,8 +695,9 @@ static const NSTimeInterval kWaveformClaimWaitSeconds = 20.0;
         // the next play of this track. It is skipped when an invalidate
         // arrived after this decode started, since the write would repopulate
         // the just-emptied cache.
-        BOOL filed = [self fileUnderKey:cacheKey inStore:cache generation:generation write:^BOOL {
-            [cache.diskCache setObject:waveform forKey:cacheKey];
+        NSData *archive = VibeWaveformArchive(waveform);
+        BOOL filed = archive && [self fileUnderKey:cacheKey inStore:cache generation:generation write:^BOOL {
+            [cache setData:archive forKey:cacheKey];
             return YES;
         }];
         settled(filed);

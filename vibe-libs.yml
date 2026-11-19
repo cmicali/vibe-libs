@@ -355,14 +355,14 @@ targetTemplates:
   # cached on disk and shared between requests. It opens files through
   # Decode's handle and FileLoading's materializer, reads the CUE window math
   # and the playable-item protocol from AudioTypes, and files entries through
-  # DiskCache and PINCache. Its seams compile in every configuration. Each
+  # DiskCache's SQLite store. Its seams compile in every configuration. Each
   # wraps its body in #if DEBUG, so a release build ships none of it.
   #
   # TRAP: an app that also takes VibeLibsTaglib lists this template first, as
   # it would VibeLibsDecode, which this one lists.
   VibeLibsWaveformLoading:
     templates: [VibeLibsCommon, VibeLibsWaveform, VibeLibsAudioTypes, VibeLibsDecode, VibeLibsDiskCache,
-                VibeLibsFileLoading, VibeLibsPINCache]
+                VibeLibsFileLoading]
     sources:
       - path: waveform/WaveformLoading
         excludes: ["**/*.md", "${excludedPlatform}/**"]
