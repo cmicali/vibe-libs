@@ -668,7 +668,9 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
                                     make(VibePNG(0.1), @"image/png", 3, @"Back", 8),
                                     make(VibePNG(0.1), @"image/png", 3, @"Front", 9)]) {
         XCTAssertNotEqualObjects(one, other);
-        XCTAssertNotEqual(one.hash, other.hash, @"%@", other);
+        // NSData's hash reads only the bytes' start, so two images may hash
+        // alike. Every other field tells them apart.
+        if ([other.data isEqualToData:one.data]) XCTAssertNotEqual(one.hash, other.hash, @"%@", other);
     }
 }
 
