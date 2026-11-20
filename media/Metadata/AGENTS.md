@@ -124,14 +124,14 @@ A loader snapshots `AudioLoadingConfiguration`, so a settings change reaches onl
 | ReplayGain | `TXXX:REPLAYGAIN_TRACK_GAIN`, and `_TRACK_PEAK`, `_ALBUM_GAIN`, `_ALBUM_PEAK` | `----:com.apple.iTunes:replaygain_track_gain` and the other three | `REPLAYGAIN_TRACK_GAIN` and the other three | `REPLAYGAIN_TRACK_GAIN` and the other three | | |
 | R128 | | | `R128_TRACK_GAIN`, `R128_ALBUM_GAIN` | | | |
 | Sound Check | `COMM:iTunNORM` | `----:com.apple.iTunes:iTunNORM` | | | | |
-| catalog number | `TXXX:CATALOGNUMBER` | `----:com.apple.iTunes:CATALOGNUMBER` | `CATALOGNUMBER` | `CATALOGNUMBER` | | |
+| catalog number | `TXXX:CATALOGNUMBER`, then `TXXX:CATALOGID` | `----:com.apple.iTunes:CATALOGNUMBER` | `CATALOGNUMBER` | `CATALOGNUMBER` | | |
 | conductor | `TPE3` | `----:com.apple.iTunes:CONDUCTOR` | `CONDUCTOR` | `CONDUCTOR` | | |
 | remixer | `TPE4` | `----:com.apple.iTunes:REMIXER` | `REMIXER` | `MixArtist` | `IEDT` | |
 | lyricist | `TEXT` | `----:com.apple.iTunes:LYRICIST` | `LYRICIST` | `LYRICIST` | `IWRI` | |
 | mood | `TMOO`, v2.4 only | `----:com.apple.iTunes:MOOD` | `MOOD` | `MOOD` | | |
 | language | `TLAN` | `----:com.apple.iTunes:LANGUAGE` | `LANGUAGE` | `LANGUAGE` | `ILNG` | |
 | copyright | `TCOP` | `cprt` | `COPYRIGHT` | `COPYRIGHT` | `ICOP` | |
-| original date | `TDOR`, or v2.3's `TORY`, then `TXXX:ORIGINALYEAR` | `----:com.apple.iTunes:ORIGINALDATE` | `ORIGINALDATE`, then `ORIGINALYEAR` | `ORIGINALDATE` | | |
+| original date | `TDOR`, or v2.3's `TORY`, then `TXXX:ORIGINALYEAR` | `----:com.apple.iTunes:ORIGINALDATE` | `ORIGINALDATE`, then `ORIGINALYEAR` | `ORIGINALDATE` or `ORIGINAL DATE`, then `ORIGINALYEAR` or `ORIGINAL YEAR` | | |
 | title, artist, album, and album artist sort | `TSOT`, `TSOP`, `TSOA`, `TSO2` | `sonm`, `soar`, `soal`, `soaa` | `TITLESORT`, `ARTISTSORT`, `ALBUMSORT`, `ALBUMARTISTSORT` | the same | | |
 
 Opus defines the R128 gains. The parse reads them from any Xiph comment, since the lookup is the same. A count comes from the number's tag, as in "3/12", or else from a tag of its own. The year is the date's leading number. **ID3v2's `TIT1` is the grouping only when `GRP1` is absent.** TagLib calls `TIT1` the work, as iTunes has since 12.5. Before that, iTunes kept the grouping there, and many taggers still do. MP4's and a Xiph comment's work is never the grouping. An ID3v2 comment with a description, such as iTunNORM, is not the comment.
@@ -150,7 +150,7 @@ Opus defines the R128 gains. The parse reads them from any Xiph comment, since t
 
 **CoreAudio's facts carry none of the fields.** A CAF or a W64 reads its title and artist from the info dictionary, and no other tag.
 
-**TRAP: an entry archived before the fields must not read as untagged.** It decodes cleanly, with every field absent. A hit would then report an untagged album or gain for a file that carries one. So every row carries the archive's format, `VibeMetadataTagsFormat` (`VibeMetadataStore.h`): 12, since the ratings. It was 11, as the PINCache store's last name was `Audio Track Metadata v11`. It was `v8` since the fields, `v9` since the thumbnail left the entry, `v10` since the comment, the grouping, the label, and the bit depth, and `v11` since the extra tags. Bump the number with a change to the archived fields or their meaning. An older row then misses for a read that may open the file, which parses it once and replaces the row. A read that may not, as for a file in the cloud, keeps its answer, marked older (The store, below). So a bump costs one parse of each file the user can read, as the store's rename did, and a file in the cloud keeps its tags and its art.
+**TRAP: an entry archived before the fields must not read as untagged.** It decodes cleanly, with every field absent. A hit would then report an untagged album or gain for a file that carries one. So every row carries the archive's format, `VibeMetadataTagsFormat` (`VibeMetadataStore.h`): 13, since split AIFF tags and the other spellings of original date and catalog number. Ratings used 12. It was 11, as the PINCache store's last name was `Audio Track Metadata v11`. It was `v8` since the fields, `v9` since the thumbnail left the entry, `v10` since the comment, the grouping, the label, and the bit depth, and `v11` since the extra tags. Bump the number with a change to the archived fields or their meaning. An older row then misses for a read that may open the file, which parses it once and replaces the row. A read that may not, as for a file in the cloud, keeps its answer, marked older (The store, below). So a bump costs one parse of each file the user can read, as the store's rename did, and a file in the cloud keeps its tags and its art.
 
 **Album grouping is `AlbumGroupingRules.h`.** `VibeAlbumGroupKey` gives the key that every track of one album shares. The release identifier is the whole key where present. Otherwise the key is the album artist, the album, and the year. The track artist stands in for a missing album artist. A compilation never splits by track artist. A track without an album has no key. Text compares as tagged. The rule reads values, so an app passes the fields of whatever record it keeps.
 

@@ -1005,6 +1005,39 @@ static VibeTagContainer VibeContainer(NSString *name) {
     }
 }
 
+- (void)testSplitAIFFTagsSurviveAnEdit {
+    NSURL *url = [self write:@"split.aif"];
+    NSMutableData *file = [NSMutableData dataWithContentsOfURL:url];
+    NSData *front = VibePNG(0.2), *back = VibePNG(0.6);
+    TagLib::ID3v2::Tag earlier, later;
+    earlier.setArtist("Artist");
+    earlier.setTitle("First");
+    VibeAddAPIC(&earlier, front);
+    VibeAddAPIC(&earlier, back, TagLib::ID3v2::AttachedPictureFrame::BackCover);
+    later.setTitle("Last");
+    VibeAddAPIC(&later, front);
+    for (NSData *bytes in @[[NSData data], VibeNS(earlier.render()), VibeNS(later.render())]) {
+        [file appendBytes:"ID3 " length:4];
+        uint32_t size = CFSwapInt32HostToBig((uint32_t)bytes.length);
+        [file appendBytes:&size length:4];
+        [file appendData:bytes];
+        if (bytes.length % 2) [file increaseLengthBy:1];
+    }
+    uint32_t size = CFSwapInt32HostToBig((uint32_t)file.length - 8);
+    [file replaceBytesInRange:NSMakeRange(4, 4) withBytes:&size];
+    XCTAssertTrue([file writeToURL:url atomically:YES]);
+    XCTAssertEqualObjects([self read:url][VibeTagFieldTitle], @[@"Last"]);
+    XCTAssertEqualObjects([self read:url][VibeTagFieldArtist], @[@"Artist"]);
+    XCTAssertEqualObjects(VibePictures(url), (@[front, back]));
+    XCTAssertEqualObjects(VibeFrontCover(url), front);
+    NSData *audio = VibeDigest(url);
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[]}];
+    XCTAssertNil([self read:url][VibeTagFieldTitle]);
+    XCTAssertEqualObjects([self read:url][VibeTagFieldArtist], @[@"Artist"]);
+    XCTAssertEqualObjects(VibePictures(url), (@[front, back]));
+    XCTAssertEqualObjects(VibeDigest(url), audio);
+}
+
 // Stale totals under other spellings, and a field's fallback spellings, go
 // with a write of the field, so a removal sticks for media/Metadata's read.
 - (void)testOtherSpellingsAreClearedInEveryFormat {
@@ -1017,7 +1050,8 @@ static VibeTagContainer VibeContainer(NSString *name) {
             stale.insert("TRACKNUMBER", TagLib::StringList("3"));
             stale.insert("TRACKTOTAL", TagLib::StringList("9"));
             stale.insert("TOTALTRACKS", TagLib::StringList("8"));
-            for (const char *key : {"DESCRIPTION", "ORGANIZATION", "PUBLISHER", "ORIGINALYEAR"}) {
+            for (const char *key : {"DESCRIPTION", "ORGANIZATION", "PUBLISHER", "ORIGINALYEAR", "ORIGINAL DATE",
+                                    "ORIGINAL YEAR", "CATALOGID"}) {
                 stale.insert(key, TagLib::StringList("stale"));
             }
             if (auto mpeg = dynamic_cast<TagLib::MPEG::File *>(file)) {
@@ -1046,11 +1080,11 @@ static VibeTagContainer VibeContainer(NSString *name) {
         }
         XCTAssertEqualObjects([self read:url][VibeTagFieldTrackTotal], @[@"9"], @"%@ reads the stale total", name);
         [self assertWrite:url fields:@{VibeTagFieldTrackTotal: @[], VibeTagFieldComment: @[], VibeTagFieldLabel: @[],
-                                       VibeTagFieldOriginalDate: @[]}];
+                                       VibeTagFieldOriginalDate: @[], VibeTagFieldCatalogNumber: @[]}];
         TagLibAudioFile ref(url.fileSystemRepresentation, false);
         const TagLib::PropertyMap properties = ref.file()->properties();
         for (const char *key : {"TRACKTOTAL", "TOTALTRACKS", "DESCRIPTION", "ORGANIZATION", "PUBLISHER",
-                                "ORIGINALYEAR"}) {
+                                "ORIGINALYEAR", "ORIGINAL DATE", "ORIGINAL YEAR", "CATALOGID"}) {
             XCTAssertFalse(properties.contains(key), @"%@ %s", name, key);
         }
         XCTAssertEqual(properties.value("TRACKNUMBER"), TagLib::StringList("3"), @"%@", name);

@@ -659,6 +659,13 @@ static void Retag(NSURL *url, VibeTagFixture fixture, NSDictionary<NSString *, N
             XCTAssertEqual(fixture, VibeTagFixtureVorbis);
             continue;
         }
+        Retag(url, fixture, @{@"ORIGINAL YEAR": @"1967", @"CATALOGID": @"A-2"});
+        XCTAssertEqual(Parse(url, NULL).originalYear, 1967, @"%@", name);
+        XCTAssertEqualObjects([Parse(url, NULL) extraTag:VibeTagFieldCatalogNumber], @"A-2", @"%@", name);
+        Retag(url, fixture, @{@"ORIGINAL DATE": @"1966-02-01", @"ORIGINAL YEAR": @"1967",
+                              @"CATALOGID": @"A-2", @"CATALOGNUMBER": @"A-3"});
+        XCTAssertEqualObjects([Parse(url, NULL) extraTag:VibeTagFieldOriginalDate], @"1966-02-01", @"%@", name);
+        XCTAssertEqualObjects([Parse(url, NULL) extraTag:VibeTagFieldCatalogNumber], @"A-3", @"%@", name);
         Retag(url, fixture, @{@"ORIGINALYEAR": @"1968"});
         AudioTrackMetadata *metadata = Parse(url, NULL);
         XCTAssertEqualObjects([metadata extraTag:VibeTagFieldOriginalDate], @"1968", @"%@", name);

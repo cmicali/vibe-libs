@@ -138,12 +138,13 @@ constexpr NumberKeys kNumberKeys[] = {
 // write of the field clears them, so a removal sticks.
 struct Aliases {
     const char *key;
-    const char *aliases[2];
+const char *aliases[3];
 };
 constexpr Aliases kAliases[] = {
     {"COMMENT", {"DESCRIPTION", nullptr}},
     {"LABEL", {"ORGANIZATION", "PUBLISHER"}},
-    {"ORIGINALDATE", {"ORIGINALYEAR", nullptr}},
+    {"ORIGINALDATE", {"ORIGINAL DATE", "ORIGINALYEAR", "ORIGINAL YEAR"}},
+    {"CATALOGNUMBER", {"CATALOGID"}},
 };
 
 BOOL Fail(NSError *__autoreleasing *error, VibeTagWriteError code, NSString *path, NSString *reason) {
@@ -1464,6 +1465,17 @@ VibeTagFieldValues *VibeTagLibReadFields(NSString *path, NSError *__autoreleasin
             NSMutableArray<NSString *> *strings = [NSMutableArray array];
             for (const TagLib::String &value : values) [strings addObject:NS(value)];
             fields[NS(key.upper())] = strings;
+        }
+        // An editor needs the value the reader showed, including for undo.
+        for (const Aliases &alias : kAliases) {
+            NSString *key = @(alias.key);
+            for (const char *other : alias.aliases) {
+                if (!other || [fields[key].firstObject stringByTrimmingCharactersInSet:
+                               NSCharacterSet.whitespaceAndNewlineCharacterSet].length) break;
+                NSArray *values = fields[@(other)];
+                if ([values.firstObject stringByTrimmingCharactersInSet:
+                     NSCharacterSet.whitespaceAndNewlineCharacterSet].length) fields[key] = values;
+            }
         }
         for (const NumberKeys &keys : kNumberKeys) {
             TagLib::String number, total;

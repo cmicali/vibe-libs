@@ -753,7 +753,11 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedTexts(NSCoder *c
     for (VibeTagField name in VibeMetadataExtraTagNames()) {
         NSString *text = PropertyText(properties, name.UTF8String);
         if (!text && name == VibeTagFieldOriginalDate) {
-            text = PropertyText(properties, "ORIGINALYEAR");
+            text = PropertyText(properties, "ORIGINAL DATE") ?: PropertyText(properties, "ORIGINALYEAR")
+                    ?: PropertyText(properties, "ORIGINAL YEAR");
+        }
+        if (!text && name == VibeTagFieldCatalogNumber) {
+            text = PropertyText(properties, "CATALOGID");
         }
         if (text) {
             if (!extras) extras = [NSMutableDictionary dictionary];
