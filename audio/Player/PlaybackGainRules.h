@@ -43,4 +43,13 @@ static inline float VibeFileGainOfItem(id<VibePlayableItem> _Nullable item) {
     return [item respondsToSelector:@selector(fileGain)] ? VibeFileGainApplied(item.fileGain) : kVibeFileGainUnity;
 }
 
+// What the player applies for `item` in a file that is DSD or not: a DSD
+// file plays at the item's dsdFileGain, through the guard, and any other
+// file, or an item without one, at its fileGain. Which gain an item gives
+// for DSD is its app's choice.
+static inline float VibeFileGainOfItemInFile(id<VibePlayableItem> _Nullable item, BOOL dsd) {
+    return dsd && [item respondsToSelector:@selector(dsdFileGain)] ? VibeFileGainApplied(item.dsdFileGain)
+                                                                   : VibeFileGainOfItem(item);
+}
+
 NS_ASSUME_NONNULL_END

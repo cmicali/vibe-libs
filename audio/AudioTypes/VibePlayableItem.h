@@ -40,6 +40,11 @@ NS_ASSUME_NONNULL_BEGIN
 // request and keeps it with the item (audio/Player's PlaybackGainRules.h).
 // Fixed before the item crosses a thread, as the window is.
 @property (readonly) float fileGain;
+// The gain to play the file at when it turns out to be DSD, in a DSF or a
+// WavPack file, linear. The DSD filters decode 0 dB SACD at -6 dBFS
+// (docs/dsd-to-pcm.md), so an app may raise it. An item without one plays a
+// DSD file at its fileGain. Fixed before the item crosses a thread.
+@property (readonly) float dsdFileGain;
 
 @end
 

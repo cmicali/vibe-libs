@@ -526,7 +526,7 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     _windowEstimated = estimated;
     AVAudioFramePosition startFrame = VibeClampedStartFrame(startIntent.position, sampleRate, window);
     NSTimeInterval startSeconds = VibeWindowSecondsAtFrame(startFrame, sampleRate, window);
-    float fileGain = VibeFileGainOfItem(track);
+    float fileGain = [self fileGainOfItem:track inFile:file];
     VibeVoiceID voice = [self startVoiceOnQueueForFile:file atFrame:startFrame
                                               endFrame:VibeTrackEndFrameInFile(track, file) fileGain:fileGain
                                       fadeMilliseconds:(_incomingFadeMilliseconds ?: kFadeDurationMilliseconds)
@@ -1270,6 +1270,10 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     }
     uint32_t frames = (uint32_t)VibeFadeFramesForMilliseconds(milliseconds, _voiceBus.format.sampleRate);
     return VibeVoiceRampMake(gain, frames, VibeFadeCurveForMilliseconds(milliseconds), action);
+}
+
+- (float)fileGainOfItem:(nullable id<VibePlayableItem>)item inFile:(nullable AudioFileHandle *)file {
+    return VibeFileGainOfItemInFile(item, file.dsdSampleRate > 0);
 }
 
 - (VibeVoiceID)startVoiceOnQueueForFile:(AudioFileHandle *)file atFrame:(AVAudioFramePosition)frame

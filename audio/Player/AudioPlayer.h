@@ -42,7 +42,6 @@ NS_ASSUME_NONNULL_BEGIN
 // the minimum unqueues a gapless successor unless it is a contiguous CUE
 // window. Lowering it re-queues the park.
 @property (atomic) NSInteger crossfadeMilliseconds;
-
 // What a transport edge does. YES (default): a ≤10 ms declick touching only
 // those frames. NO: a cut, every sample untouched. A longer crossfade fades
 // either way; under bit-perfect output the crossfade is held at the declick,
