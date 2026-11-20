@@ -48,6 +48,12 @@
 //  tells these containers and FLAC by the file's first bytes. A coding
 //  dr_wav lacks, such as GSM, is CoreAudio's.
 //
+//  A DSF file's DSD is converted to PCM by the handle's own filters, to
+//  float at 176.4 kHz, or 192 kHz in the 48 kHz family, whatever its DSD rate
+//  (docs/dsd-to-pcm.md). The facts are that PCM's. dsdSampleRate keeps the
+//  DSD rate. DSD in WavPack is libwavpack's, at an eighth of its DSD rate,
+//  and states no DSD rate here. A DSDIFF file (.dff) is refused.
+//
 //  A file a remote transfer is still writing from byte 0
 //  (CloudFileMaterializer's availabilityForURL:) is read from its part file
 //  at its final size, and a read past the bytes written waits for them. A
@@ -123,7 +129,7 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
                                   error:(NSError * _Nullable __autoreleasing * _Nullable)error NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
-// "dr_mp3", "dr_flac", "dr_wav", "libvorbis", "libwavpack" or "apple", for a
+// "dr_mp3", "dr_flac", "dr_wav", "libvorbis", "libwavpack", "dsd" or "apple", for a
 // debug report.
 @property (nonatomic, readonly) NSString *decoderName;
 // A hybrid WavPack file's correction file, when the open found one beside it
@@ -137,6 +143,14 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
 // hybrid file is lossless cheaply. Blocking. It does not check that the file
 // matches: a play does that, and falls back to the lossy half.
 + (nullable NSURL *)correctionFileForWavPack:(NSURL *)url;
+// A DSF file's DSD rate, a channel's samples a second, such as 2,822,400 for
+// DSD64. 0 for every other file, a WavPack DSD file included. The facts and the reads are the PCM the
+// handle converts the DSD to (AudioFileHandle+DSD.m): fileFormat states
+// 176.4 kHz. An app that shows a file's rate reads media/Metadata's
+// sampleRate, which TagLib states as the DSD rate. This is the rate for a
+// reader that has only the open handle, such as the player's diagnostics.
+// VibeDSD.h names a rate's multiple of DSD64.
+@property (nonatomic, readonly) double dsdSampleRate;
 
 @property (nonatomic, readonly) NSURL *url;
 // For property reads while the handle lives. NULL once one of the handle's

@@ -21,7 +21,7 @@
     }
     XCTAssertEqual(VibeAudioFileTailWindowBytes(@"mp3", 0), 0u);
     for (NSString *extension in @[@"m4a", @"M4A", @"m4b", @"m4r", @"mp4", @"qta",
-                                  @"aif", @"AIFF", @"aiff", @"aifc", @"afc", @"wav", @"wave", @"bwf", @"w64", @"caf"]) {
+                                  @"aif", @"AIFF", @"aiff", @"aifc", @"afc", @"wav", @"wave", @"bwf", @"w64", @"caf", @"dsf"]) {
         // 6 minutes of 256 kbps AAC, its moov ~60 KB: the floor.
         XCTAssertEqual(VibeAudioFileTailWindowBytes(extension, 11 * MB), 512 * KB, @"%@", extension);
         // A 32nd of the file between the two.

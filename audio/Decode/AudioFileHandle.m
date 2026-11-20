@@ -115,7 +115,11 @@ uint32_t VibeID3v2TagBytes(const uint8_t header[10]) {
 
 - (NSString *)decoderName {
     return _mpeg ? @"dr_mp3" : _flac ? @"dr_flac" : _wav ? @"dr_wav" : _vorbis ? @"libvorbis"
-            : _wavpack ? @"libwavpack" : _ape ? @"MACLib" : @"apple";
+            : _wavpack ? @"libwavpack" : _ape ? @"MACLib" : _dsd ? @"dsd" : @"apple";
+}
+
+- (double)dsdSampleRate {
+    return _dsd ? _dsf.sampleRate : 0;
 }
 
 - (AudioFileID)parser {
@@ -1031,6 +1035,7 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     free(_mpegOffsets);
     free(_mpegSizes);
     [self closeStreamDecoder];
+    [self closeDSD];
     AudioFileID parser = _parserOwnsFile ? _parser : NULL;
     if (!parser) {
         [self closeParser];
@@ -1077,6 +1082,9 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     if (_ape) {
         return VibeAPEDecoderPosition(_ape);
     }
+    if (_dsd) {
+        return _dsdPosition;
+    }
     SInt64 position = 0;
     return ExtAudioFileTell(_codec, &position) == noErr ? position : 0;
 }
@@ -1109,6 +1117,10 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     }
     if (_mpeg) {
         return [self seekMPEGToFrame:frame error:error];
+    }
+    if (_dsd) {
+        // A seek restarts the converter, whatever a read left.
+        return [self seekDSDToFrame:frame error:error];
     }
     OSStatus status;
     if ([self hasStreamDecoder]) {
@@ -1217,6 +1229,9 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     }
     if ([self hasStreamDecoder]) {
         return [self readStreamIntoBuffer:buffer frameCount:wanted error:error];
+    }
+    if (_dsd) {
+        return [self readDSDIntoBuffer:buffer frameCount:wanted error:error];
     }
     // The list's data pointers span the whole allocation whatever frameLength
     // says; the copy below walks them by the frames already produced.

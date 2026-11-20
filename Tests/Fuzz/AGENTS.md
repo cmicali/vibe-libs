@@ -8,8 +8,8 @@ The pieces' XCTest fuzz suites (`AudioTrackMetadataFuzzTests`, `VibePlaylistFile
 
 | Target | Source | What it calls |
 | --- | --- | --- |
-| `tags-flac`, `tags-mp3`, `tags-m4a`, `tags-wav`, `tags-aiff`, `tags-ogg`, `tags-opus`, `tags-wv`, `tags-ape` | `Targets/FuzzTags.mm` | a scan's parse, `+[AudioTrackMetadata metadataWithURL:displayArtData:]`: TagLib through `media/Tags`, the fields, the CoreAudio and dr_flac fallbacks, and the thumbnail encode. An input whose last byte is odd also takes the art loader's own read. |
-| `decode-flac`, `decode-mp3`, `decode-wav`, `decode-aiff`, `decode-ogg`, `decode-wv`, `decode-ape` | `Targets/FuzzDecode.m` | a play's open, `AudioFileHandle`: CoreAudio's parser, then dr_flac, dr_mp3, dr_wav, libvorbis, libwavpack, or the Monkey's Audio SDK. It reads a few buffers, seeks to the middle, and reads again. |
+| `tags-flac`, `tags-mp3`, `tags-m4a`, `tags-wav`, `tags-aiff`, `tags-ogg`, `tags-opus`, `tags-wv`, `tags-ape`, `tags-dsf` | `Targets/FuzzTags.mm` | a scan's parse, `+[AudioTrackMetadata metadataWithURL:displayArtData:]`: TagLib through `media/Tags`, the fields, the CoreAudio and dr_flac fallbacks, and the thumbnail encode. An input whose last byte is odd also takes the art loader's own read. |
+| `decode-flac`, `decode-mp3`, `decode-wav`, `decode-aiff`, `decode-ogg`, `decode-wv`, `decode-ape`, `decode-dsf` | `Targets/FuzzDecode.m` | a play's open, `AudioFileHandle`: CoreAudio's parser, then dr_flac, dr_mp3, dr_wav, libvorbis, libwavpack, the Monkey's Audio SDK, or the DSD decode. It reads a few buffers, seeks to the middle, and reads again. |
 | `cue` | `Targets/FuzzCue.m` | a sheet beside its audio, `cueEntriesForSheetAtURL:knownFiles:`, with each FILE resolved through the rungs. An input whose last byte is odd resolves against a walk's listing. |
 | `m3u` | `Targets/FuzzM3U.m` | an M3U as an app imports it (`m3uItemsInData:relativeToDirectory:`), and as the walk reads it (`entriesForPlaylistAtURL:`). |
 | `flac-cue` | `Targets/FuzzFLACCue.m` | a FLAC's own sheet, `cueEntriesEmbeddedInFLACAtURL:`. |
@@ -29,7 +29,7 @@ The extension in each name picks the parser, as a file's does. A decode target t
 
 ## Seeds and dictionaries
 
-- **`Seeds/<target>/`** holds small valid files of the target's format, each tagged, some with a picture or a sheet. `make-seeds.sh` makes the audio and pictures from a sine tone and a generated test pattern, so none is anyone's recording. A WavPack seed with a cover is `audio/Decode`'s fixture, since ffmpeg writes WavPack with no cover. The text seeds are written in the script. Re-run it only to change the seeds, and commit what it writes. The Monkey's Audio seeds need the SDK's `mac` encoder, which the script takes as `MAC`.
+- **`Seeds/<target>/`** holds small valid files of the target's format, each tagged, some with a picture or a sheet. `make-seeds.sh` makes the audio and pictures from a sine tone and a generated test pattern, so none is anyone's recording. A WavPack seed with a cover is `audio/Decode`'s fixture, since ffmpeg writes WavPack with no cover. The text seeds are written in the script. Re-run it only to change the seeds, and commit what it writes. The Monkey's Audio seeds need the SDK's `mac` encoder, which the script takes as `MAC`. No encoder here writes DSF, so `make-dsf-seeds.py`, which it calls, modulates the DSF seeds itself.
 - **`Dictionaries/`** lists each format's magic, chunk, frame, atom, and keyword spellings, which a mutation splices in.
 
 ## A crash, once found

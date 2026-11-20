@@ -12,9 +12,13 @@
 #import <AVFoundation/AVFoundation.h>
 
 #import "TagLibAudioFile.h"
+#import "VibeTagFields.h"
+#import "VibeTagWriter.h"
 #import "AudioFileFixtures.h"
+#import "DSFFixtures.h"
 
 #include <audioproperties.h>
+#include <dsffile.h>
 
 @interface TagLibAudioFileTests : XCTestCase
 @end
@@ -306,6 +310,68 @@ static NSString *Title(NSURL *url) {
         XCTAssertEqual(bitsPerSampleFromTagLibFile(file.file()), depths[name].intValue, @"%@", name);
         XCTAssertEqual(VibeWavPackHybridBitsFromTagLibFile(file.file()), [name isEqualToString:@"hybrid.wv"] ? 16 : 0, @"%@", name);
     }
+}
+
+#pragma mark - DSF
+
+// A DSF's ID3v2 tag: two text frames and a JPEG front cover, ID3v2.3.
+static NSData *VibeDSFTag(NSData *jpeg) {
+    NSMutableData *frames = [NSMutableData data];
+    NSMutableData *title = [NSMutableData dataWithBytes:"\0Tone" length:5];
+    [frames appendData:VibeID3v2Frame("TIT2", 3, (uint32_t)title.length, 0, title)];
+    NSMutableData *artist = [NSMutableData dataWithBytes:"\0Modulator" length:10];
+    [frames appendData:VibeID3v2Frame("TPE1", 3, (uint32_t)artist.length, 0, artist)];
+    NSMutableData *picture = [NSMutableData dataWithBytes:"\0image/jpeg\0\x03\0" length:14];
+    [picture appendData:jpeg];
+    [frames appendData:VibeID3v2Frame("APIC", 3, (uint32_t)picture.length, 0, picture)];
+    return VibeID3v2Tag(3, 0, frames);
+}
+
+- (NSURL *)writeDSF:(NSString *)name tag:(NSData *)tag {
+    NSURL *url = [_dir URLByAppendingPathComponent:name];
+    XCTAssertTrue([VibeDSFFile(2, 1, YES, 100000, VibeDSFSine(1000, 0.5), tag) writeToURL:url atomically:YES]);
+    return url;
+}
+
+- (void)testADSFReadsItsTagCoverAndProperties {
+    NSData *jpeg = [NSData dataWithBytes:"\xFF\xD8\xFF\xE0 not a real picture \xFF\xD9" length:26];
+    NSURL *url = [self writeDSF:@"tone.dsf" tag:VibeDSFTag(jpeg)];
+    TagLibAudioFile file(url.fileSystemRepresentation);
+    XCTAssertFalse(file.isNull());
+    XCTAssertEqualObjects(fileTypeForTagLibFile(file.file()), VibeAudioFileFormatDSD);
+    XCTAssertTrue(tagLibFileCarriesID3v2(file.file()));
+    XCTAssertEqual(bitsPerSampleFromTagLibFile(file.file()), 1);
+    XCTAssertEqual(file.tag()->title(), TagLib::String("Tone"));
+    XCTAssertEqual(file.tag()->artist(), TagLib::String("Modulator"));
+    XCTAssertEqualObjects(albumArtDataFromTagLibFile(file.file()), jpeg);
+    TagLib::AudioProperties *properties = file.file()->audioProperties();
+    XCTAssertEqual(properties ? properties->sampleRate() : 0, 2822400);
+    XCTAssertEqual(properties ? properties->channels() : 0, 2);
+}
+
+- (void)testADSFWithNoTagParsesWithAnEmptyOne {
+    TagLibAudioFile file([self writeDSF:@"untagged.dsf" tag:nil].fileSystemRepresentation);
+    XCTAssertFalse(file.isNull());
+    XCTAssertEqualObjects(fileTypeForTagLibFile(file.file()), VibeAudioFileFormatDSD);
+    XCTAssertTrue(file.tag() == nullptr || file.tag()->isEmpty());
+    XCTAssertNil(albumArtDataFromTagLibFile(file.file()));
+}
+
+- (void)testADSFMisnamedOrUnnamedSniffsAsDSF {
+    NSURL *dsf = [self writeDSF:@"sniffed.dsf" tag:nil];
+    XCTAssertEqualObjects(Detected([self rename:dsf to:@"misnamed.mp3"]), VibeAudioFileFormatDSD);
+    dsf = [self writeDSF:@"sniffed.dsf" tag:nil];
+    XCTAssertEqualObjects(Detected([self rename:dsf to:@"noextension"]), VibeAudioFileFormatDSD);
+}
+
+// DSF tags are read-only for now: the writer takes no DSF.
+- (void)testTheWriterRefusesADSF {
+    NSURL *url = [self writeDSF:@"readonly.dsf" tag:VibeDSFTag([NSData dataWithBytes:"\xFF\xD8\xFF\xD9" length:4])];
+    NSData *before = [NSData dataWithContentsOfURL:url];
+    NSError *error = nil;
+    XCTAssertFalse(VibeTagLibWriteTags(url.path, @{VibeTagFieldTitle: @[@"New"]}, NO, nil, nil, VibeTagWriteSyncFull, NULL, &error));
+    XCTAssertEqual(error.code, VibeTagWriteErrorNoParser);
+    XCTAssertEqualObjects([NSData dataWithContentsOfURL:url], before);
 }
 
 @end

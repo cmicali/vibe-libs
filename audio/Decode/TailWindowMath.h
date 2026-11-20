@@ -20,7 +20,9 @@ NS_ASSUME_NONNULL_BEGIN
 // ~10 KB a minute (61 KB at 6 minutes, 608 KB at 60), against 960 KB a minute
 // of 128 kbps audio. A 32nd of the file then holds the index of any AAC at
 // 43 kbps or more. In an AIFF, a WAV, a W64, or a CAF it is any chunk after
-// the audio, most often a tag with its cover (235 KB on a measured AIFF).
+// the audio, most often a tag with its cover (235 KB on a measured AIFF). A
+// DSF's open reads only its head, but its ID3v2 tag, cover and all, follows
+// the audio, where the tag read finds it.
 // dr_wav's open of a WAV or W64 stops at the data chunk, as dr_mp3's of MP3
 // in a WAV does. Any other file dr_wav refuses goes to CoreAudio's parser,
 // which walks to the end.
@@ -43,7 +45,7 @@ NS_ASSUME_NONNULL_BEGIN
 static inline uint64_t VibeAudioFileTailWindowBytes(NSString *extension, uint64_t size) {
     static const uint64_t kSmall = 128 * 1024, kChunkedFloor = 512 * 1024, kChunkedCap = 1536 * 1024;
     BOOL chunked = [@[@"m4a", @"m4b", @"m4r", @"mp4", @"qta", @"aif", @"aiff", @"wav", @"wave", @"bwf", @"w64", @"caf",
-                      @"aifc", @"afc"] containsObject:extension.lowercaseString];
+                      @"aifc", @"afc", @"dsf"] containsObject:extension.lowercaseString];
     uint64_t window = chunked ? MIN(kChunkedCap, MAX(kChunkedFloor, size / 32)) : kSmall;
     return size > 2 * window ? window : 0;
 }

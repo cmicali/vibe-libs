@@ -22,6 +22,11 @@
     XCTAssertEqualObjects(VibeAudioFileFormatForCodec('wvpk'), VibeAudioFileFormatWavPack);
 }
 
+// A name is archived in a metadata cache, so its spelling never changes.
+- (void)testDSDIsSpelledDSD {
+    XCTAssertEqualObjects(VibeAudioFileFormatDSD, @"DSD");
+}
+
 // PCM's name is its container's.
 - (void)testPCMHasNoNameOfItsOwn {
     XCTAssertNil(VibeAudioFileFormatForCodec(kAudioFormatLinearPCM));

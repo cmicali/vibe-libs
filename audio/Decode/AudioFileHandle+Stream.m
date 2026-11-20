@@ -19,6 +19,7 @@
 // behind ID3v2 tags too, goes to dr_flac. Ogg goes to libvorbis, which finds
 // a Vorbis stream among the streams the file starts. Monkey's Audio's
 // descriptor, behind ID3v2 tags too, goes to its SDK (AudioFileHandle+APE.m).
+// A DSF goes to the DSD decode, and a DSF it refuses goes nowhere.
 // MPEG frames go to dr_mp3, behind ID3v2 tags or in a WAV's data chunk too. NO leaves the file to the
 // parser: BW64, RIFX and every other container, a coding the decoder does not
 // decode, or a stream it cannot open.
@@ -52,6 +53,9 @@
     }
     if (got >= 4 && (memcmp(head, "MAC ", 4) == 0 || memcmp(head, "MACF", 4) == 0)) {
         return [self openAPEInterleaved:interleaved];
+    }
+    if (at == 0 && got >= 4 && memcmp(head, "DSD ", 4) == 0) {
+        return [self openDSFInterleaved:interleaved];
     }
     AudioFileTypeID type = VibeFileTypeForExtension(_url.pathExtension);
     BOOL named = type == kAudioFileMP3Type || type == kAudioFileMP2Type || type == kAudioFileMP1Type;
@@ -266,15 +270,19 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         {L, C, R}, {L, R, Ls, Rs}, {L, C, R, Ls, Rs}, {L, C, R, Ls, Rs, LFE},
         {L, C, R, Ls, Rs, Cs, LFE}, {L, C, R, Ls, Rs, Rls, Rrs, LFE},
     };
-    if (channels <= 2 || channels > 8) {
-        return nil;
-    }
+    return channels <= 2 || channels > 8 ? nil : VibeLabeledLayout(orders[channels - 3], channels);
+}
+
+AVAudioChannelLayout *VibeLabeledLayout(const AudioChannelLabel *labels, UInt32 channels) {
     size_t size = offsetof(AudioChannelLayout, mChannelDescriptions) + channels * sizeof(AudioChannelDescription);
     AudioChannelLayout *layout = calloc(1, size);
+    if (!layout) {
+        return nil;
+    }
     layout->mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelDescriptions;
     layout->mNumberChannelDescriptions = channels;
     for (UInt32 c = 0; c < channels; c++) {
-        layout->mChannelDescriptions[c].mChannelLabel = orders[channels - 3][c];
+        layout->mChannelDescriptions[c].mChannelLabel = labels[c];
     }
     AVAudioChannelLayout *result = [[AVAudioChannelLayout alloc] initWithLayout:layout];
     free(layout);
@@ -398,7 +406,11 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         got = _flac ? drflac_read_pcm_frames_f32(_flac, frames, planes[0]) : drwav_read_pcm_frames_f32(_wav, frames, planes[0]);
     }
     buffer.frameLength = (AVAudioFrameCount)got;
-    if ((_streamReadFailed || failed) && !_waitError) {
+    return [self finishReadFailed:_streamReadFailed || failed error:error];
+}
+
+- (BOOL)finishReadFailed:(BOOL)failed error:(NSError **)error {
+    if (failed && !_waitError) {
         if (error) {
             *error = VibeHandleError(kAudioFilePositionError, [NSString stringWithFormat:@"Reading %@ failed", _url.lastPathComponent]);
         }

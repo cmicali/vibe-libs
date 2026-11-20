@@ -155,7 +155,7 @@
     XCTAssertEqualObjects(supported, ([NSSet setWithArray:@[@"mp2", @"mp3", @"aac", @"adts", @"aif", @"aiff",
                                                             @"wav", @"wave", @"bwf", @"w64", @"flac", @"ape", @"caf",
                                                             @"m4a", @"mp4", @"qta", @"m4b", @"m4r",
-                                                            @"ogg", @"oga", @"opus", @"aifc", @"afc", @"wv"]]));
+                                                            @"ogg", @"oga", @"opus", @"aifc", @"afc", @"wv", @"dsf"]]));
     NSArray<NSString *> *ordered = PlayableExtensions.ordered;
     XCTAssertEqualObjects([NSSet setWithArray:ordered], supported);
     XCTAssertEqual(ordered.count, supported.count);
