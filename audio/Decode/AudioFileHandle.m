@@ -825,6 +825,23 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     return NO;
 }
 
+// WavPack 1 to 3 kept a PCM WAV header and put its compressed stream at
+// the start of the data chunk. dr_wav otherwise reads those bytes as samples.
+static BOOL VibeWAVContainsLegacyWavPack(AudioFileHandle *handle) {
+    const drwav *wav = handle->_wav;
+    uint8_t header[10];
+    UInt32 got = 0;
+    if (!wav || wav->container != drwav_container_riff || wav->fmt.formatTag != DR_WAVE_FORMAT_PCM
+            || wav->channels > 2 || wav->bitsPerSample < 16 || wav->bitsPerSample > 24
+            || wav->dataChunkDataSize < sizeof header
+            || VibeHandleRead((__bridge void *)handle, (SInt64)wav->dataChunkDataPos, sizeof header, header, &got) != noErr
+            || got != sizeof header || memcmp(header, "wvpk", 4) != 0) {
+        return NO;
+    }
+    UInt16 version = OSReadLittleInt16(header, 8);
+    return version >= 1 && version <= 3;
+}
+
 - (instancetype)initForReading:(NSURL *)url interleaved:(BOOL)interleaved interrupted:(BOOL (^)(void))interrupted
                          error:(NSError **)error {
     self = [super init];
@@ -839,6 +856,10 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     // each Vorbis file's first 128 frames (macOS 27; this piece's
     // AGENTS.md).
     if ([self openOwnDecoderInterleaved:interleaved] || _waitError) {
+        if (!_waitError && VibeWAVContainsLegacyWavPack(self)) {
+            return [self failWithError:error status:kAudioFileUnsupportedDataFormatError
+                           description:[NSString stringWithFormat:@"%@ uses WavPack before version 4", name]];
+        }
         return [self openedWithError:error];
     }
     if (![self openParserWithError:error]) {

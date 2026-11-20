@@ -110,6 +110,21 @@ static int VibeDescriptorsOpenOn(NSURL *url) {
 
 #pragma mark - Verdicts
 
+- (void)testLegacyWavPackInRIFFIsRefused {
+    for (uint8_t version = 1; version <= 3; version++) {
+        const uint8_t header[] = {'w', 'v', 'p', 'k', 28, 0, 0, 0, version, 0};
+        NSMutableData *payload = [NSMutableData dataWithBytes:header length:sizeof header];
+        [payload increaseLengthBy:54];
+        NSString *name = [NSString stringWithFormat:@"legacy-%u.%@", (unsigned)version, version == 3 ? @"wav" : @"wv"];
+        NSURL *url = VibeWriteWAV([self.fixtureDirectory URLByAppendingPathComponent:name], payload, 44100, 2, 16, 64);
+        XCTAssertNotNil(url);
+        NSError *error = nil;
+        XCTAssertNil([[AudioFileHandle alloc] initForReading:url error:&error]);
+        XCTAssertEqualObjects(error.domain, NSOSStatusErrorDomain);
+        XCTAssertEqual(error.code, kAudioFileUnsupportedDataFormatError);
+    }
+}
+
 - (void)testMissingPathIsRefusedWithAPOSIXError {
     NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:@"missing.wav"];
     NSError *error = nil;
@@ -455,6 +470,38 @@ static NSData *VibeID3TagThen(NSUInteger size, NSData *next) {
     NSMutableData *samples = [NSMutableData dataWithLength:4096 * 2 * 3];
     NSURL *sowt = VibeWriteSowtAIFF([self.fixtureDirectory URLByAppendingPathComponent:@"sowt.aif"], samples, 44100, 2, 24);
     XCTAssertEqualObjects([self open:sowt].decoderName, @"dr_wav", @"a sowt AIFF-C, which only dr_wav reads right");
+}
+
+- (void)testIMA4CountsWholePacketsExceptInBlockAlignedSoundData {
+    // COMM claims one stereo packet. SSND holds three and, in the unaligned
+    // file, the first eight bytes of a fourth packet before it is cut short.
+    const char header[] =
+        "FORM\0\0\0\0AIFCFVER\0\0\0\4\xA2\x80\x51\x40"
+        "COMM\0\0\0\x18\0\2\0\0\0\1\0\x10\x40\x0e\xac\x44\0\0\0\0\0\0ima4\0\0"
+        "SSND\0\0\0\0\0\0\0\0\0\0\0\0";
+    enum { packetBytes = 68, packetFrames = 64, packets = 3, headerBytes = sizeof header - 1 };
+    for (NSNumber *aligned in @[@NO, @YES]) {
+        uint32_t blockSize = aligned.boolValue ? packets * packetBytes : 0;
+        uint32_t offset = blockSize ? blockSize - headerBytes : 0;
+        NSMutableData *aiff = [NSMutableData dataWithBytes:header length:headerBytes];
+        [aiff increaseLengthBy:offset + packets * packetBytes + (blockSize ? 0 : 8)];
+        uint32_t formSize = CFSwapInt32HostToBig(headerBytes - 8 + offset + (blockSize ? packets : packets + 1) * packetBytes);
+        uint32_t sound[] = {CFSwapInt32HostToBig(8 + offset + (blockSize ? packets : packets + 1) * packetBytes),
+                            CFSwapInt32HostToBig(offset), CFSwapInt32HostToBig(blockSize)};
+        [aiff replaceBytesInRange:NSMakeRange(4, 4) withBytes:&formSize];
+        [aiff replaceBytesInRange:NSMakeRange(headerBytes - sizeof sound, sizeof sound) withBytes:sound];
+        NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:blockSize ? @"aligned.aifc" : @"truncated.aifc"];
+        XCTAssertTrue([aiff writeToURL:url atomically:YES]);
+        AudioFileHandle *reader = [self open:url];
+        XCTAssertEqualObjects(reader.decoderName, @"dr_wav");
+        XCTAssertEqual(reader.fileFormat.streamDescription->mFormatID, kAudioFormatAppleIMA4);
+        AVAudioFramePosition expected = (blockSize ? 1 : packets) * packetFrames;
+        XCTAssertEqual(reader.length, expected);
+        XCTAssertTrue([reader seekToFrame:expected - 1 error:NULL]);
+        AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:reader.processingFormat frameCapacity:2];
+        XCTAssertTrue([reader readIntoBuffer:buffer error:NULL]);
+        XCTAssertEqual(buffer.frameLength, 1u);
+    }
 }
 
 // A QuickTime container (.qta, what Voice Memos exports) has no callback open
