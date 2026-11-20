@@ -28,7 +28,8 @@ typedef NS_ERROR_ENUM(VibeTagWriteErrorDomain, VibeTagWriteError) {
     // The cover is empty, too large, not a type VibeTagCoverMIMETypes()
     // names, not whole, or its bytes do not start as its type says. Or the
     // format cannot hold its type: MP4 holds no new TIFF or WebP. Or a
-    // picture VibeTagLibWritePictures was given is past its limits.
+    // picture VibeTagLibWritePictures was given is past its limits, or one
+    // APE cannot hold, which keeps one front and one back cover.
     VibeTagWriteErrorInvalidImage = 5,
     // The format cannot hold a value as given, as MP4 holds no BPM but a
     // whole number. An ID3v2.3 tag that cannot becomes 2.4 instead.
@@ -150,17 +151,18 @@ typedef NS_ENUM(NSInteger, VibeTagPictureType) {
 
 // Every picture with bytes in the file, in its order, and the index of the
 // one the art read shows (TagLibAudioFile.h), or NSNotFound. A picture with
-// no bytes is never shown or listed. An MPEG, WAV, or AIFF file's are its
-// ID3v2 tag's. YES with an empty array is a file with none. NO with an error
+// no bytes is never shown or listed. An MPEG, WAV, AIFF, or DSF file's are
+// its ID3v2 tag's. A WavPack or Monkey's Audio file's are its APE tag's front
+// cover, then its back cover, with no MIME string, since APE stores none. YES with an empty array is a file with none. NO with an error
 // when no parser took the file or TagLib threw.
 FOUNDATION_EXTERN BOOL VibeTagLibReadPictures(NSString *path,
                                               NSArray<VibeTagPicture *> *_Nullable __autoreleasing *_Nullable pictures,
                                               NSUInteger *_Nullable shownIndex,
                                               NSError *_Nullable __autoreleasing *_Nullable error);
 
-// The picture home of a file's tag: an MPEG, WAV, or AIFF file's ID3v2 tag,
-// a FLAC's picture blocks, an Ogg Vorbis or Opus file's Xiph comment, or an
-// MP4's covr item. TRAP: VibeAudioFileFormat names the codec, so FLAC in an
+// The picture home of a file's tag: an MPEG, WAV, AIFF, or DSF file's ID3v2
+// tag, a FLAC's picture blocks, an Ogg Vorbis or Opus file's Xiph comment, an
+// MP4's covr item, or a WavPack or Monkey's Audio file's APE tag. TRAP: VibeAudioFileFormat names the codec, so FLAC in an
 // MP4 reads FLAC, and cannot say this.
 typedef NS_ENUM(NSInteger, VibeTagContainer) {
     VibeTagContainerUnknown = 0,
@@ -168,6 +170,7 @@ typedef NS_ENUM(NSInteger, VibeTagContainer) {
     VibeTagContainerFLAC = 2,
     VibeTagContainerXiph = 3,
     VibeTagContainerMP4 = 4,
+    VibeTagContainerAPE = 5,
 };
 
 // Whether VibeTagLibWritePictures would take `pictures` for a file of
@@ -175,7 +178,8 @@ typedef NS_ENUM(NSInteger, VibeTagContainer) {
 // and a type from -1 to 20, and fits a FLAC block of under 16 MiB with its
 // MIME type and description, in every format, so a list fits any file. All
 // of them, counted as blocks, hold at most 250,000,000 bytes. In MP4 each
-// is Untyped or FrontCover. NO with InvalidImage and the reason. It reads
+// is Untyped or FrontCover. In APE each is FrontCover or BackCover, one of
+// each at most. NO with InvalidImage and the reason. It reads
 // no file, so it checks the list alone, not the file's own refusals: a file
 // that is read-only, damaged, or holds what TagLib would drop is refused by
 // the write alone.
@@ -187,7 +191,8 @@ FOUNDATION_EXTERN BOOL VibeTagLibPicturesFit(NSArray<VibeTagPicture *> *pictures
 // before the edit, a snapshot taken then, since the edit's own result
 // cannot say what it took. The bytes are not checked against the type.
 // Untyped is "other" outside MP4. In MP4 a picture's description is
-// ignored, and a MIME type MP4 does not type is written untyped. A list
+// ignored, and a MIME type MP4 does not type is written untyped. APE keeps
+// no MIME string and writes its front cover before its back cover. A list
 // VibeTagLibPicturesFit refuses for the file's container is refused, and
 // every refusal of VibeTagLibWriteTags holds, and `changes` says what it
 // says there. media/Tags/AGENTS.md lists what the write does not keep.
@@ -206,8 +211,10 @@ FOUNDATION_EXTERN VibeTagFieldValues *_Nullable VibeTagLibReadFields(NSString *p
 // A SHA-256 of the file's audio, read from its bytes without TagLib: an
 // MP3's frames between its tags, a FLAC's STREAMINFO and frames, an MP4's
 // sound samples where its sample tables put them, a WAV's fmt and data
-// chunks, an AIFF's COMM and SSND chunks, and an Ogg stream's
-// identification and setup headers and audio pages. A tag write leaves it
+// chunks, an AIFF's COMM and SSND chunks, an Ogg stream's identification
+// and setup headers and audio pages, a WavPack file's blocks, a Monkey's
+// Audio file's header, seek table, and frames, and a DSF's fmt and data
+// chunks. A tag write leaves it
 // unchanged, so an app compares the original's with its rewritten copy's. It
 // reads the file once, with pread. nil with NoParser when the format's
 // audio cannot be found, and with ReadFailed when a read comes back short

@@ -12,9 +12,11 @@
 #include <memory>
 #include <stdexcept>
 #include <aifffile.h>
+#include <apefile.h>
 #include <apetag.h>
 #include <attachedpictureframe.h>
 #include <commentsframe.h>
+#include <dsffile.h>
 #include <flacfile.h>
 #include <flacpicture.h>
 #include <id3v1genres.h>
@@ -36,6 +38,7 @@
 #include <tpropertymap.h>
 #include <vorbisfile.h>
 #include <wavfile.h>
+#include <wavpackfile.h>
 #include <xiphcomment.h>
 
 #include "VibeCheckedFileStream.h"
@@ -594,6 +597,105 @@ void CheckMP4ItemsSurvive(NSString *path, TagLib::MP4::Tag *tag) {
     }
 }
 
+#pragma mark - APE
+
+// An APE tag holds two pictures, as the items "Cover Art (Front)" and
+// "Cover Art (Back)". So a list fits one only when it holds at most one
+// front cover and one back cover, and nothing else. The reason when it
+// does not, or empty.
+std::string APEPicturesFault(const std::vector<int> &types) {
+    int fronts = 0, backs = 0;
+    for (int type : types) {
+        if (type == 3) fronts++;
+        else if (type == 4) backs++;
+        else return "APE holds no picture type but a front or back cover, not " + std::to_string(type);
+    }
+    if (fronts > 1 || backs > 1) return "APE holds one front cover and one back cover at most";
+    return "";
+}
+
+// The pictures in the order VibeEmbeddedPictures indexes them: the front
+// cover, then the back cover. TagLib writes each item as its description,
+// a NUL, and its bytes, and reads it back the same way.
+void ApplyAPECover(TagLib::APE::Tag *tag, const Cover &cover) {
+    if (cover.take == Cover::Take::None) return;
+    std::vector<int> added;
+    for (const Record &record : cover.add) added.push_back(record.type);
+    if (const std::string fault = APEPicturesFault(added); !fault.empty()) Refuse(VibeTagWriteErrorInvalidImage, fault);
+    std::vector<TagLib::VariantMap> existing, taken;
+    for (const TagLib::VariantMap &picture : tag->complexProperties("PICTURE")) existing.push_back(picture);
+    const std::vector<TagLib::VariantMap> arranged = Arrange<TagLib::VariantMap>(
+            existing, cover, [](const Record &record) {
+                TagLib::VariantMap picture;
+                picture.insert("data", record.data);
+                picture.insert("description", record.description);
+                picture.insert("pictureType", TagLib::String(record.type == 4 ? "Back Cover" : "Front Cover"));
+                return picture;
+            }, &taken);
+    std::vector<int> types;
+    TagLib::List<TagLib::VariantMap> list;
+    for (const TagLib::VariantMap &picture : arranged) {
+        types.push_back(picture.value("pictureType").toString() == "Back Cover" ? 4 : 3);
+        list.append(picture);
+    }
+    if (const std::string fault = APEPicturesFault(types); !fault.empty()) Refuse(VibeTagWriteErrorInvalidImage, fault);
+    tag->setComplexProperties("PICTURE", list);
+}
+
+// WavPack and Monkey's Audio: the APEv2 tag at the file's end, and an
+// existing ID3v1 tag after it, when the edit changes it. TRAP: TagLib reads
+// the first tag that is not empty, so a new or empty APE tag holding one
+// field would hide every field of the ID3v1 tag. It first takes the fields
+// the file reads today. A hybrid WavPack file's correction file is another
+// file, which the save never opens.
+template <class APEFile>
+bool SaveAPEFile(APEFile *file, const Edits &named, const Cover &cover) {
+    const bool hadAPE = file->hasAPETag(), hadID3v1 = file->hasID3v1Tag();
+    const TagLib::PropertyMap current = file->properties();
+    TagLib::APE::Tag *ape = file->APETag(true);
+    if ((!hadAPE || ape->isEmpty()) && !current.isEmpty()) ape->setProperties(current);
+    ApplyByPropertyMap(ape, named, Style::Folded);
+    ApplyAPECover(ape, cover);
+    if (hadID3v1) ApplyByPropertyMap(file->ID3v1Tag(), named, Style::ID3v1);
+    return file->save();
+}
+
+#pragma mark - DSF
+
+// A DSF's header: the file's size at byte 12, and at byte 20 the offset of
+// its ID3v2 tag, or 0 for none. Its fmt chunk follows at 28, then its data
+// chunk. TagLib's save writes the tag at that offset, or at the file's size
+// when there is none, so the data chunk must end before either. A pointer
+// to bytes that are not an ID3v2 tag would be written over. Whether the
+// file holds a tag.
+bool CheckDSFLayout(TagLib::DSF::File *file) {
+    auto u64 = [&](TagLib::offset_t at) {
+        file->seek(at);
+        const TagLib::ByteVector bytes = file->readBlock(8);
+        if (bytes.size() != 8) Refuse(VibeTagWriteErrorNoParser, "the DSF's header could not be read");
+        return bytes.toULongLong(false);
+    };
+    auto is = [&](TagLib::offset_t at, const char *name) {
+        file->seek(at);
+        return file->readBlock(4) == TagLib::ByteVector(name, 4);
+    };
+    const unsigned long long size = u64(12), pointer = u64(20), format = u64(32);
+    const unsigned long long data = 28 + format;
+    if (!is(28, "fmt ") || format > size || !is((TagLib::offset_t)data, "data")) {
+        Refuse(VibeTagWriteErrorNoParser, "the DSF's fmt and data chunks could not be found");
+    }
+    const unsigned long long dataSize = u64((TagLib::offset_t)data + 4);
+    const unsigned long long place = pointer ? pointer : size;
+    if (dataSize < 12 || dataSize > place || data > place - dataSize) {
+        Refuse(VibeTagWriteErrorWouldLoseData, "the DSF's tag would go inside its audio");
+    }
+    if (pointer && !is((TagLib::offset_t)pointer, "ID3\x02") && !is((TagLib::offset_t)pointer, "ID3\x03")
+            && !is((TagLib::offset_t)pointer, "ID3\x04")) {
+        Refuse(VibeTagWriteErrorWouldLoseData, "the DSF's metadata pointer names no ID3v2 tag");
+    }
+    return pointer != 0;
+}
+
 #pragma mark - Per file
 
 // The pictures a cover write or removal takes: every front cover, or when
@@ -666,6 +768,12 @@ bool SaveFile(NSString *path, TagLib::File *file, const Edits &named, const Cove
         ApplyMP4Edits(mp4->tag(), named);
         ApplyMP4Cover(mp4->tag(), cover);
         return mp4->save();
+    }
+    if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) return SaveAPEFile(wavpack, named, cover);
+    if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) return SaveAPEFile(ape, named, cover);
+    if (auto dsf = dynamic_cast<TagLib::DSF::File *>(file)) {
+        const bool existed = CheckDSFLayout(dsf);
+        return dsf->save(ApplyID3v2Edits(dsf->tag(), existed, file, named, cover, upgraded));
     }
     Refuse(VibeTagWriteErrorNoParser, "no writer takes this format");
 }
@@ -948,6 +1056,7 @@ namespace {
 // is always InvalidImage, or empty.
 std::string PictureListFault(NSArray<VibeTagPicture *> *pictures, VibeTagContainer container) {
     uint64_t total = 0;
+    std::vector<int> types;
     for (VibeTagPicture *picture in pictures) {
         const uint64_t mime = [picture.mimeType ?: @"" lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
         const uint64_t description = [picture.pictureDescription lengthOfBytesUsingEncoding:NSUTF8StringEncoding];
@@ -962,7 +1071,12 @@ std::string PictureListFault(NSArray<VibeTagPicture *> *pictures, VibeTagContain
             const std::string fault = MP4PictureTypeFault((int)picture.type);
             if (!fault.empty()) return fault;
         }
+        types.push_back((int)picture.type);
         total += FLACPictureBlockBytes(mime, description, picture.data.length);
+    }
+    if (container == VibeTagContainerAPE) {
+        const std::string fault = APEPicturesFault(types);
+        if (!fault.empty()) return fault;
     }
     if (total > kMaxPicturesBytes) {
         return "the pictures hold " + std::to_string(total) + " bytes, past " + std::to_string(kMaxPicturesBytes);

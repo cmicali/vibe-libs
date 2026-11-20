@@ -18,13 +18,19 @@
 #include <sys/resource.h>
 #include <sys/stat.h>
 
+#import "AudioFileFixtures.h"
 #import "AudioTrackMetadataTagFixtures.h"
+#import "DSFFixtures.h"
 #import "OggFixtures.h"
 #import "TagLibAudioFile.h"
 #import "VibeTagWriter.h"
 #include "VibeCheckedFileStream.h"
 
+#include <apefile.h>
+#include <apetag.h>
+#include <dsffile.h>
 #include <id3v2header.h>
+#include <wavpackfile.h>
 #include <privateframe.h>
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdocumentation-html"
@@ -209,6 +215,8 @@ static void VibeWriteLargeAudio(NSString *path, NSString *kind, uint64_t size, u
     [handle closeFile];
 }
 
+static VibeTagContainer VibeContainer(NSString *name);
+
 @implementation VibeTagWriterTests {
     NSURL *_dir;
 }
@@ -230,7 +238,16 @@ static void VibeWriteLargeAudio(NSString *path, NSString *kind, uint64_t size, u
 // frame so it keeps its version. plain.mp3 has no tag.
 - (NSArray<NSString *> *)formats {
     return @[@"plain.mp3", @"id3v23.mp3", @"audio.m4a", @"audio.flac", @"audio.ogg", @"audio.opus", @"audio.wav",
-             @"audio.aif"];
+             @"audio.aif", @"audio.aifc", @"audio.wv", @"audio.ape", @"audio.dsf"];
+}
+
+// The formats whose tags hold any picture type, and several of one. APE
+// holds one front and one back cover (testAnAPETagHoldsAFrontAndABackCover).
+- (NSArray<NSString *> *)formatsOfEveryPictureType {
+    NSPredicate *notAPE = [NSPredicate predicateWithBlock:^BOOL(NSString *name, NSDictionary *bindings) {
+        return VibeContainer(name) != VibeTagContainerAPE;
+    }];
+    return [self.formats filteredArrayUsingPredicate:notAPE];
 }
 
 - (NSURL *)write:(NSString *)name {
@@ -246,6 +263,27 @@ static void VibeWriteLargeAudio(NSString *path, NSString *kind, uint64_t size, u
             file.ID3v2Tag(true)->setProperties(properties);
             XCTAssertTrue(file.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone, TagLib::ID3v2::v3));
         }
+    }
+    // WavPack and Monkey's Audio from audio/Decode's fixtures, which no
+    // Apple encoder writes. A DSF modulated here, with no tag.
+    else if ([extension isEqualToString:@"wv"]) {
+        [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+        XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(@"s16.wv") toURL:url error:&error],
+                      @"%@", error);
+    }
+    else if ([extension isEqualToString:@"ape"]) {
+        [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+        XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"level-normal.ape") toURL:url
+                                                            error:&error], @"%@", error);
+    }
+    else if ([extension isEqualToString:@"aifc"]) {
+        NSMutableData *samples = [NSMutableData dataWithLength:22050 * 4];
+        int16_t *out = (int16_t *)samples.mutableBytes;
+        for (NSUInteger i = 0; i < 22050 * 2; i++) out[i] = (int16_t)(sin((double)i * 0.01) * 12000.0);
+        XCTAssertNotNil(VibeWriteSowtAIFF(url, samples, 44100, 2, 16));
+    }
+    else if ([extension isEqualToString:@"dsf"]) {
+        XCTAssertTrue([VibeDSFFile(2, 1, YES, 44100, VibeDSFSine(1000, 0.5), nil) writeToURL:url atomically:YES]);
     }
     else if ([extension isEqualToString:@"ogg"] || [extension isEqualToString:@"opus"]) {
         XCTAssertTrue([VibeOggTagFile([extension isEqualToString:@"opus"]) writeToURL:url atomically:YES]);
@@ -416,10 +454,36 @@ static void VibeWriteLargeAudio(NSString *path, NSString *kind, uint64_t size, u
         apic(file.ID3v2Tag());
         XCTAssertTrue(file.save());
     }
-    else if ([extension isEqualToString:@"aif"]) {
+    else if ([extension isEqualToString:@"aif"] || [extension isEqualToString:@"aifc"]) {
         TagLib::RIFF::AIFF::File file(path);
         apic(file.tag());
         XCTAssertTrue(file.save());
+    }
+    else if ([extension isEqualToString:@"dsf"]) {
+        TagLib::DSF::File file(path);
+        apic(file.tag());
+        XCTAssertTrue(file.save());
+    }
+    // APE holds a front and a back cover, each its description, a NUL, and
+    // its bytes.
+    else if ([extension isEqualToString:@"wv"] || [extension isEqualToString:@"ape"]) {
+        TagLib::WavPack::File *wavpack = nullptr;
+        TagLib::APE::File *monkeys = nullptr;
+        std::unique_ptr<TagLib::File> file;
+        if ([extension isEqualToString:@"wv"]) file.reset(wavpack = new TagLib::WavPack::File(path));
+        else file.reset(monkeys = new TagLib::APE::File(path));
+        TagLib::APE::Tag *tag = wavpack ? wavpack->APETag(true) : monkeys->APETag(true);
+        TagLib::List<TagLib::VariantMap> list = tag->complexProperties("PICTURE");
+        for (VibeTagPicture *picture in pictures) {
+            TagLib::VariantMap map;
+            map.insert("data", VibeTagBytes(picture.data));
+            map.insert("description", TagLib::String(picture.pictureDescription.UTF8String, TagLib::String::UTF8));
+            map.insert("pictureType", TagLib::String(picture.type == VibeTagPictureTypeBackCover ? "Back Cover"
+                                                                                                 : "Front Cover"));
+            list.append(map);
+        }
+        XCTAssertTrue(tag->setComplexProperties("PICTURE", list));
+        XCTAssertTrue(file->save());
     }
     else if ([extension isEqualToString:@"flac"]) {
         TagLib::FLAC::File file(path);
@@ -471,6 +535,11 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
                                                type:VibeTagPictureTypeUntyped description:nil];
     }
     if ([@[@"flac", @"ogg", @"opus"] containsObject:format]) return picture;
+    // APE keeps no MIME string.
+    if ([@[@"wv", @"ape"] containsObject:format]) {
+        return [[VibeTagPicture alloc] initWithData:picture.data mimeType:nil type:picture.type
+                                        description:picture.pictureDescription];
+    }
     return [[VibeTagPicture alloc] initWithData:picture.data mimeType:picture.mimeType type:picture.type
                                     description:picture.pictureDescription];
 }
@@ -498,7 +567,7 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
     VibeTagPicture *icon = picture(VibePNG(0.3), 1);
     VibeTagPicture *other = picture(VibePNG(0.5), VibeTagPictureTypeOther);
     VibeTagPicture *second = picture(VibePNG(0.7), VibeTagPictureTypeOther);
-    for (NSString *name in self.formats) {
+    for (NSString *name in self.formatsOfEveryPictureType) {
         const BOOL mp4 = [name.pathExtension isEqualToString:@"m4a"];
         for (NSArray<VibeTagPicture *> *pictures in @[@[back, other], @[icon, other], @[other, second], @[other]]) {
             if (mp4 && pictures.count == 2 && pictures[0] == icon) continue;  // the same two untyped entries
@@ -528,7 +597,7 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
     VibeTagPicture *front = picture(VibePNG(0.1), VibeTagPictureTypeFrontCover);
     VibeTagPicture *again = picture(VibePNG(0.3), VibeTagPictureTypeFrontCover);
     VibeTagPicture *back = picture(VibePNG(0.5), VibeTagPictureTypeBackCover);
-    for (NSString *name in self.formats) {
+    for (NSString *name in self.formatsOfEveryPictureType) {
         NSURL *url = [self write:name];
         [self addPictures:@[front, again, back] to:url];
         NSData *art = nil;
@@ -550,7 +619,7 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
                                                            type:VibeTagPictureTypeBackCover description:nil];
     VibeTagPicture *other = [[VibeTagPicture alloc] initWithData:VibePNG(0.5) mimeType:@"image/png"
                                                             type:VibeTagPictureTypeOther description:nil];
-    for (NSString *name in self.formats) {
+    for (NSString *name in self.formatsOfEveryPictureType) {
         NSURL *url = [self write:name];
         [self addPictures:@[back, other] to:url];
         XCTAssertTrue(VibeWriteFrontCover(url.path, VibeJPEG(0.9), @"image/jpeg", NULL), @"%@", name);
@@ -574,7 +643,7 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
     }
     [booklet addObject:[[VibeTagPicture alloc] initWithData:VibeJPEG(0.9) mimeType:@"image/jpeg"
                                                        type:(VibeTagPictureType)8 description:@"Artist"]];
-    for (NSString *name in self.formats) {
+    for (NSString *name in self.formatsOfEveryPictureType) {
         if ([name.pathExtension isEqualToString:@"m4a"]) continue;
         NSURL *url = [self write:name];
         [self addPictures:booklet to:url];
@@ -623,7 +692,7 @@ static VibeTagPicture *VibeStored(VibeTagPicture *picture, NSString *format) {
     VibeTagPicture *tiff = [[VibeTagPicture alloc] initWithData:VibeImageOfType(@"image/tiff", 0) mimeType:nil
                                                            type:(VibeTagPictureType)8 description:@"Artist"];
     for (NSArray<VibeTagPicture *> *given in @[@[other, front, back], @[other], @[tiff, back], @[]]) {
-        for (NSString *name in self.formats) {
+        for (NSString *name in self.formatsOfEveryPictureType) {
             NSURL *url = [self write:name];
             NSData *audio = VibeDigest(url);
             [self addPictures:given to:url];
@@ -656,7 +725,8 @@ static VibeTagContainer VibeContainer(NSString *name) {
     NSDictionary<NSString *, NSNumber *> *containers = @{
         @"mp3": @(VibeTagContainerID3v2), @"wav": @(VibeTagContainerID3v2), @"aif": @(VibeTagContainerID3v2),
         @"flac": @(VibeTagContainerFLAC), @"ogg": @(VibeTagContainerXiph), @"opus": @(VibeTagContainerXiph),
-        @"m4a": @(VibeTagContainerMP4)};
+        @"m4a": @(VibeTagContainerMP4), @"aifc": @(VibeTagContainerID3v2), @"dsf": @(VibeTagContainerID3v2),
+        @"wv": @(VibeTagContainerAPE), @"ape": @(VibeTagContainerAPE)};
     return (VibeTagContainer)containers[name.pathExtension].integerValue;
 }
 
@@ -839,6 +909,18 @@ static VibeTagContainer VibeContainer(NSString *name) {
         mp4->tag()->setItem("----:com.apple.iTunes:VIBE_CUSTOM", TagLib::StringList("kept"));
         XCTAssertTrue(mp4->save());
     }
+    else if (auto dsf = dynamic_cast<TagLib::DSF::File *>(file)) {
+        id3(dsf->tag());
+        XCTAssertTrue(dsf->save());
+    }
+    else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
+        wavpack->APETag(true)->addValue("VIBE_CUSTOM", "kept");
+        XCTAssertTrue(wavpack->save());
+    }
+    else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
+        ape->APETag(true)->addValue("VIBE_CUSTOM", "kept");
+        XCTAssertTrue(ape->save());
+    }
 }
 
 // A file with every field, a custom field, a front and a back cover. A write
@@ -947,6 +1029,11 @@ static VibeTagContainer VibeContainer(NSString *name) {
             else if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
                 wav->ID3v2Tag()->setProperties(stale);
                 XCTAssertTrue(wav->save(TagLib::RIFF::WAV::File::ID3v2, TagLib::File::StripNone));
+            }
+            // WavPack and Monkey's Audio make their APE tag when it is missing.
+            else if (dynamic_cast<TagLib::WavPack::File *>(file) || dynamic_cast<TagLib::APE::File *>(file)) {
+                file->setProperties(stale);
+                XCTAssertTrue(file->save());
             }
             else {
                 file->tag()->setProperties(stale);
@@ -1455,7 +1542,9 @@ static NSString *const kVibeLatin1Artist = @"Café Artist";
         XCTAssertEqualObjects(VibeDigest(url), digest, @"%@: a tag that grows", name);
         NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:url];
         // The audio's own chunk where the tag's may follow it.
-        NSDictionary<NSString *, NSString *> *chunks = @{@"m4a": @"mdat", @"wav": @"data", @"aif": @"SSND"};
+        NSDictionary<NSString *, NSString *> *chunks = @{@"m4a": @"mdat", @"wav": @"data", @"aif": @"SSND",
+                                                         @"aifc": @"SSND", @"wv": @"wvpk", @"ape": @"MAC ",
+                                                         @"dsf": @"data"};
         NSString *chunk = chunks[name.pathExtension];
         NSUInteger at = bytes.length - 1;
         if (chunk) {
@@ -1485,7 +1574,9 @@ static NSString *const kVibeLatin1Artist = @"Café Artist";
         [self assertMatch:original with:copy name:name];
 
         NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:copy];
-        NSDictionary<NSString *, NSString *> *chunks = @{@"m4a": @"mdat", @"wav": @"data", @"aif": @"SSND"};
+        NSDictionary<NSString *, NSString *> *chunks = @{@"m4a": @"mdat", @"wav": @"data", @"aif": @"SSND",
+                                                         @"aifc": @"SSND", @"wv": @"wvpk", @"ape": @"MAC ",
+                                                         @"dsf": @"data"};
         NSString *chunk = chunks[name.pathExtension];
         NSUInteger at = bytes.length - 1;
         if (chunk) {
