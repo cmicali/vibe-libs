@@ -4,9 +4,10 @@
 //
 //  The private header AudioFileHandle.m and its decodes share: dr_mp3's
 //  (AudioFileHandle+MPEG.m), dr_flac's, dr_wav's and libvorbis's
-//  (AudioFileHandle+Stream.m), and libwavpack's (AudioFileHandle+WavPack.m).
-//  It holds the ivars the decodes read, the reads and waits they call, and the
-//  decodes' methods the core calls. Only those four files import it.
+//  (AudioFileHandle+Stream.m), libwavpack's (AudioFileHandle+WavPack.m), and
+//  Monkey's Audio's (AudioFileHandle+APE.m). It holds the ivars the decodes
+//  read, the reads and waits they call, and the decodes' methods the core
+//  calls. Only those five files import it.
 //
 
 #import "AudioFileHandle.h"
@@ -20,6 +21,7 @@
 #define ChunkHeader VibeWavPackChunkHeader
 #include <wavpack.h>
 #undef ChunkHeader
+#include "VibeAPEDecoder.h"
 
 #include <stdatomic.h>
 
@@ -59,7 +61,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // goes, and read on any thread, hence the getter's atomic load.
     AVAudioFramePosition _length;
     AudioFileID _parser;
-    ExtAudioFileRef _codec; // NULL while dr_mp3, dr_flac, dr_wav, libvorbis or libwavpack decodes
+    ExtAudioFileRef _codec; // NULL while dr_mp3, dr_flac, dr_wav, libvorbis, libwavpack or MACLib decodes
     // A file still streaming, or reading ahead: every read waits for its
     // bytes. Set by the open and fixed from then on. Nil for a whole file.
     CloudFileAvailability *_availability;
@@ -119,6 +121,9 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // short: the next seek starts a fresh context, and reads return nothing
     // until then.
     BOOL _wavpackStale;
+    // Monkey's Audio's decode (AudioFileHandle+APE.m), reading through
+    // VibeStreamRead at _streamCursor. NULL while another decoder decodes.
+    VibeAPEDecoder *_ape;
 }
 
 - (BOOL)reportWaitFault:(NSError **)error;
@@ -148,7 +153,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 - (BOOL)keepStreamDecoderWithLength:(UInt64)length description:(AudioStreamBasicDescription)description
                              layout:(AVAudioChannelLayout *)layout interleaved:(BOOL)interleaved;
 - (void)closeStreamDecoder;
-// Whether dr_flac, dr_wav, libvorbis, or libwavpack has the file. A new
+// Whether dr_flac, dr_wav, libvorbis, libwavpack, or Monkey's Audio has the file. A new
 // stream decoder joins here, and the core's seek and read follow.
 - (BOOL)hasStreamDecoder;
 - (BOOL)readStreamIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
@@ -167,7 +172,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 @end
 
 // AudioFileHandle+Stream.m's layout for a WAVE channel mask, which a WavPack
-// file's mask is too.
+// file's mask is too, and a Monkey's Audio file's source WAV's.
 AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels);
 // AudioFileHandle+Stream.m's PCM facts, as CoreAudio's parser states a WAV's:
 // a sample narrower than its bytes is high-aligned in them (20 bits in 3).
@@ -175,6 +180,24 @@ AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels);
 // `description` already holds.
 void VibeDescribePCM(AudioStreamBasicDescription *description, UInt32 bits, UInt32 bytes, BOOL isFloat, BOOL isSigned,
                      BOOL bigEndian);
+
+// AudioFileHandle+APE.m. The stream open calls the open when the file starts
+// with a Monkey's Audio descriptor, and the stream reads call the reads.
+@interface AudioFileHandle (APE)
+
+- (BOOL)openAPEInterleaved:(BOOL)interleaved;
+- (AVAudioFrameCount)readAPEInto:(float *const *)planes frameCount:(AVAudioFrameCount)wanted failed:(BOOL *)failed;
+
+@end
+
+// The lossless formats' source-depth flag for a sample width, as CoreAudio's
+// parser states a FLAC's: the narrowest of 16, 20, 24, and 32 bits that holds
+// it. An 8 or 12-bit file states 16, and a 28-bit one 32. With no flag,
+// bit-perfect output would assume 24.
+static inline AudioFormatFlags VibeLosslessDepthFlag(UInt32 depth) {
+    return depth <= 16 ? kAppleLosslessFormatFlag_16BitSourceData : depth <= 20 ? kAppleLosslessFormatFlag_20BitSourceData
+            : depth <= 24 ? kAppleLosslessFormatFlag_24BitSourceData : kAppleLosslessFormatFlag_32BitSourceData;
+}
 
 // AudioFileHandle.m's reads and waits, which the decode's open also uses.
 uint32_t VibeID3v2Syncsafe(const uint8_t bytes[4]);

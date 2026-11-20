@@ -410,12 +410,13 @@ targets:
   DecodeTests:
     type: bundle.unit-test
     platform: macOS
-    templates: [VibeLibsDecode]
+    # Playlists for the CUE sheet beside a Monkey's Audio image.
+    templates: [VibeLibsDecode, VibeLibsPlaylists]
     templateAttributes:
       excludedPlatform: iOS
     sources:
       - path: Tests/audio/Decode
-        excludes: ["**/*.md", "WavPack/**"]
+        excludes: ["**/*.md", "WavPack/**", "APE/**"]
       - path: Tests/Support/VibeReadAheadScript.m
     settings:
       base:
@@ -1083,6 +1084,22 @@ targets:
     platform: iOS
     templates: [VibeLibsWavpack]
 
+  MonkeysAudioTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsMonkeysAudio]
+    sources:
+      - path: Tests/third_party/monkeys_audio
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  MonkeysAudio-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsMonkeysAudio]
+
   # Sparkle is macOS only, so it has no iOS target.
   SparkleTests:
     type: bundle.unit-test
@@ -1178,6 +1195,8 @@ schemes:
         Vorbis-iOS: all
         WavpackTests: [test]
         Wavpack-iOS: all
+        MonkeysAudioTests: [test]
+        MonkeysAudio-iOS: all
         SparkleTests: [test]
     test:
       targets: [CommonTests, GraphicsTests, AudioTypesTests, DSPTests, AnalysisTests, OutputDevicesTests,
@@ -1187,4 +1206,4 @@ schemes:
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
                 SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, DebugVerbsTests,
                 TaglibTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
-                OggTests, VorbisTests, SparkleTests, WavpackTests]
+                OggTests, VorbisTests, SparkleTests, WavpackTests, MonkeysAudioTests]

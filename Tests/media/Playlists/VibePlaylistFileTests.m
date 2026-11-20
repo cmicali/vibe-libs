@@ -493,8 +493,18 @@
     }
 }
 
-- (void)testAnApeBesideTheEntryIsNotAFallback {
+// A rip's sheet names the WAV that was compressed: Monkey's Audio plays.
+- (void)testAWavEntryRecoversToAnApeBesideIt {
     NSURL *dir = [self makeTempDirWithFiles:@[@"track.ape"]
+                               playlistName:@"mix.m3u"
+                                       text:@"track.wav\n"];
+    NSArray<NSURL *> *urls = [[VibePlaylistFile entriesForPlaylistAtURL:
+            [dir URLByAppendingPathComponent:@"mix.m3u"]] valueForKey:@"url"];
+    XCTAssertEqualObjects(urls.firstObject.lastPathComponent, @"track.ape");
+}
+
+- (void)testAFileThatDoesNotPlayBesideTheEntryIsNotAFallback {
+    NSURL *dir = [self makeTempDirWithFiles:@[@"track.tta"]
                                playlistName:@"mix.m3u"
                                        text:@"track.wav\n"];
     NSArray<NSURL *> *urls = [[VibePlaylistFile entriesForPlaylistAtURL:

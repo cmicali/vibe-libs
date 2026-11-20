@@ -44,7 +44,8 @@ static inline BOOL VibeBitPerfectChannelMapPreservesSource(const SInt32 *map, UI
 
 static const UInt32 kVibeBitPerfectAssumedLosslessDepth = 24;
 
-// PCM: mBitsPerChannel. ALAC and FLAC: the kAppleLosslessFormatFlag_*
+// PCM: mBitsPerChannel. ALAC, FLAC, and Monkey's Audio ('APE ', audio/Decode's
+// ID, which this piece cannot import): the kAppleLosslessFormatFlag_*
 // source-depth flags, or 24 assumed when the flags say nothing. Lossy and
 // unknown: 0, meaning no native depth to honor. The fold's SourceLossy is that
 // 0, so the chooser and the report cannot disagree about a file.
@@ -52,7 +53,8 @@ static inline UInt32 VibeSourceBitDepth(AudioStreamBasicDescription source) {
     if (source.mFormatID == kAudioFormatLinearPCM) {
         return source.mBitsPerChannel;
     }
-    if (source.mFormatID == kAudioFormatAppleLossless || source.mFormatID == kAudioFormatFLAC) {
+    if (source.mFormatID == kAudioFormatAppleLossless || source.mFormatID == kAudioFormatFLAC
+            || source.mFormatID == 'APE ') {
         switch (source.mFormatFlags) {
             case kAppleLosslessFormatFlag_16BitSourceData: return 16;
             case kAppleLosslessFormatFlag_20BitSourceData: return 20;

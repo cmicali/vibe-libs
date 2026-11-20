@@ -4,7 +4,7 @@ A subset of [TagLib](https://taglib.org) 2.3.2, `toolkit/taglib.h`'s version. It
 
 ## What is vendored
 
-Only the formats the apps play: `mpeg/` and ID3, `mp4/`, `flac/`, `riff/`, `ogg/` with its `vorbis/` and `opus/` files, and `wavpack/`. It also keeps the APE *tag* machinery that MPEG and WavPack files need, and `ogg/xiphcomment` for FLAC and Ogg comments. It has no Ogg FLAC, which Vibe refuses. It has nothing for CAF or W64, which TagLib cannot read.
+Only the formats the apps play: `mpeg/` and ID3, `mp4/`, `flac/`, `riff/`, `ogg/` with its `vorbis/` and `opus/` files, `wavpack/`, and `ape/apefile` and `ape/apeproperties` for Monkey's Audio. It also keeps the APE *tag* machinery that MPEG and WavPack files need, and `ogg/xiphcomment` for FLAC and Ogg comments. It has no Ogg FLAC, which Vibe refuses. It has nothing for CAF or W64, which TagLib cannot read.
 
 `TagLib::FileRef` is not vendored, since its detection references every format parser. `media/Tags`' `TagLibAudioFile` factory stands in for it. It mirrors FileRef's extension-then-content-sniff detection for these formats. An update re-checks it against `fileref.cpp`.
 
@@ -29,4 +29,4 @@ Re-copy the same subset, re-apply the four edits and the comments that name the 
 
 ## License
 
-TagLib is dual-licensed. Each source file offers the GNU Lesser General Public License 2.1 *or* the Mozilla Public License 1.1, at the recipient's choice. **vibe-libs and Vibe use it under the Mozilla Public License 1.1.** Its full text is `LICENSE.MPL`, as MPL 1.1 §3.6 requires. 176 of the 180 source files carry both notices. The other four are `taglib_config.h`, `id3v2.h`, and the two UTF8-CPP headers. `toolkit/utf8-cpp.checked.h` and `utf8-cpp.core.h` are not TagLib's code. They carry a permissive grant in the style of the Boost license, which keeping their notice satisfies. Their small changes are in `CHANGES.md` too. `THIRD-PARTY-NOTICES.md` at the repo root has the full notice.
+TagLib is dual-licensed. Each source file offers the GNU Lesser General Public License 2.1 *or* the Mozilla Public License 1.1, at the recipient's choice. **vibe-libs and Vibe use it under the Mozilla Public License 1.1.** Its full text is `LICENSE.MPL`, as MPL 1.1 §3.6 requires. 180 of the 184 source files carry both notices. The other four are `taglib_config.h`, `id3v2.h`, and the two UTF8-CPP headers. `toolkit/utf8-cpp.checked.h` and `utf8-cpp.core.h` are not TagLib's code. They carry a permissive grant in the style of the Boost license, which keeping their notice satisfies. Their small changes are in `CHANGES.md` too. `THIRD-PARTY-NOTICES.md` at the repo root has the full notice.

@@ -109,12 +109,26 @@ static inline NSURL *VibeWriteSowtAIFF(NSURL *url, NSData *samples, double rate,
     return [aiff writeToURL:url atomically:YES] ? url : nil;
 }
 
+// A fixture kept beside audio/Decode's tests, in `folder`, or with an empty
+// name the folder: the formats nothing here encodes, each made by the
+// script in its folder.
+static inline NSURL *VibeDecodeFixture(NSString *folder, NSString *name) {
+    NSString *path = [@__FILE__.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"../audio/Decode"];
+    path = [path stringByAppendingPathComponent:folder].stringByStandardizingPath;
+    return [NSURL fileURLWithPath:[path stringByAppendingPathComponent:name]];
+}
+
 // A WavPack fixture, or with an empty name their folder: Tests/audio/Decode/
-// WavPack/, which its make-fixtures.sh made, since nothing here encodes
-// WavPack.
+// WavPack/, which its make-fixtures.sh made.
 static inline NSURL *VibeWavPackFixture(NSString *name) {
-    NSString *folder = [@__FILE__.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"../audio/Decode/WavPack"];
-    return [NSURL fileURLWithPath:[folder.stringByStandardizingPath stringByAppendingPathComponent:name]];
+    return VibeDecodeFixture(@"WavPack", name);
+}
+
+// A Monkey's Audio fixture, or with an empty name their folder:
+// Tests/audio/Decode/APE/, which its make-fixtures.py made with the SDK's
+// own encoder.
+static inline NSURL *VibeAPEFixture(NSString *name) {
+    return VibeDecodeFixture(@"APE", name);
 }
 
 // Writes a WavPack block's checksum again, after a test changed its header or

@@ -17,8 +17,9 @@
 // CoreAudio's parser, which never opens it. The file's first bytes name the
 // container. RIFF and RF64 WAVE, Wave64 and AIFF(-C) go to dr_wav. FLAC,
 // behind ID3v2 tags too, goes to dr_flac. Ogg goes to libvorbis, which finds
-// a Vorbis stream among the streams the file starts. MPEG frames go to dr_mp3,
-// behind ID3v2 tags or in a WAV's data chunk too. NO leaves the file to the
+// a Vorbis stream among the streams the file starts. Monkey's Audio's
+// descriptor, behind ID3v2 tags too, goes to its SDK (AudioFileHandle+APE.m).
+// MPEG frames go to dr_mp3, behind ID3v2 tags or in a WAV's data chunk too. NO leaves the file to the
 // parser: BW64, RIFX and every other container, a coding the decoder does not
 // decode, or a stream it cannot open.
 - (BOOL)openOwnDecoderInterleaved:(BOOL)interleaved {
@@ -48,6 +49,9 @@
     }
     if (got >= 4 && memcmp(head, "wvpk", 4) == 0) {
         return [self openWavPackInterleaved:interleaved];
+    }
+    if (got >= 4 && (memcmp(head, "MAC ", 4) == 0 || memcmp(head, "MACF", 4) == 0)) {
+        return [self openAPEInterleaved:interleaved];
     }
     AudioFileTypeID type = VibeFileTypeForExtension(_url.pathExtension);
     BOOL named = type == kAudioFileMP3Type || type == kAudioFileMP2Type || type == kAudioFileMP1Type;
@@ -101,8 +105,7 @@ AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels) {
     UInt32 depth = _flac->bitsPerSample, channels = _flac->channels;
     AudioStreamBasicDescription description = {
         .mSampleRate = _flac->sampleRate, .mFormatID = kAudioFormatFLAC,
-        .mFormatFlags = depth <= 16 ? kAppleLosslessFormatFlag_16BitSourceData : depth <= 20 ? kAppleLosslessFormatFlag_20BitSourceData
-                : depth <= 24 ? kAppleLosslessFormatFlag_24BitSourceData : kAppleLosslessFormatFlag_32BitSourceData,
+        .mFormatFlags = VibeLosslessDepthFlag(depth),
         .mFramesPerPacket = _flac->maxBlockSizeInPCMFrames, .mChannelsPerFrame = channels,
     };
     AVAudioChannelLayout *layout = channels >= 3 && channels <= 8 ? VibeMaskLayout(masks[channels - 3], channels) : nil;
@@ -317,7 +320,7 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
 }
 
 - (BOOL)hasStreamDecoder {
-    return _flac || _wav || _vorbis || _wavpack;
+    return _flac || _wav || _vorbis || _wavpack || _ape;
 }
 
 - (void)closeStreamDecoder {
@@ -333,6 +336,10 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         _vorbis = NULL;
     }
     [self closeWavPack];
+    // Off this thread: the close joins the SDK's worker, and a handle's last
+    // release can land where main waits (audio/Decode/AGENTS.md).
+    VibeAPEDecoderCloseLater(_ape);
+    _ape = NULL;
 }
 
 // libvorbis's decode. vorbisfile hands out each packet's frames from buffers
@@ -383,6 +390,8 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         got = [self readVorbisInto:planes frameCount:(AVAudioFrameCount)frames failed:&failed];
     } else if (_wavpack) {
         got = [self readWavPackInto:planes frameCount:(AVAudioFrameCount)frames];
+    } else if (_ape) {
+        got = [self readAPEInto:planes frameCount:(AVAudioFrameCount)frames failed:&failed];
     } else if (!_processingFormat.isInterleaved) {
         got = _flac ? drflac_read_pcm_frames_f32_planar(_flac, frames, planes) : drwav_read_pcm_frames_f32_planar(_wav, frames, planes);
     } else {

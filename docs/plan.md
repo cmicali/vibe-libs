@@ -161,7 +161,7 @@ vibe-libs/
 ├── tools/strings ●      the strings registry's extraction and catalog checks, configured per app
 │
 ├── third_party/         taglib/ ●  dr_mp3/ ●  dr_flac/ ●  dr_wav/ ●  r8brain/ ●
-│                        ogg/ ●  vorbis/ ●  Sparkle/  wavpack/ ●
+│                        ogg/ ●  vorbis/ ●  Sparkle/  wavpack/ ●  monkeys_audio/ ●
 │
 └── Tests/               one directory per piece, mirroring the tree; Support/, the
                          tests' shared helpers; Consumer/, the minimal consumer; and
@@ -189,7 +189,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | audio/AudioTypes | nothing |
 | audio/DSP | third_party/r8brain |
 | audio/Analysis | audio/AudioTypes |
-| audio/Decode | files/FileLoading, third_party/dr_mp3, third_party/dr_flac, third_party/dr_wav, third_party/vorbis, third_party/wavpack |
+| audio/Decode | files/FileLoading, third_party/dr_mp3, third_party/dr_flac, third_party/dr_wav, third_party/vorbis, third_party/wavpack, third_party/monkeys_audio |
 | audio/Meter | nothing |
 | audio/FX | audio/DSP |
 | audio/OutputDevices | nothing |

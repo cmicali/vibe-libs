@@ -29,6 +29,8 @@
 #include <wavpackfile.h>
 #include <apetag.h>
 #include <tpicturetype.h>
+#include <apefile.h>
+#include <apeproperties.h>
 #include <tdebuglistener.h>
 #include <tagutils.h>
 #include <infotag.h>
@@ -299,7 +301,8 @@ std::unique_ptr<TagLib::File> TagLibAudioFile::openByContentAndRewind(TagLib::IO
 // container MP4::File parses). .ogg and .oga hold Vorbis or Opus, told
 // apart by a cheap sniff; FLAC in Ogg has no vendored parser.
 // TRAP: the MPEG, AIFF, and WAV parsers take another format's bytes as valid,
-// so a misnamed file would parse with no tags. Each checks the header first.
+// so a misnamed file would parse with no tags. Each checks the header first,
+// as APE's does, whose parser finds "MAC " anywhere in a file's first 1 KB.
 std::unique_ptr<TagLib::File> TagLibAudioFile::openByExtension(const char *path, TagLib::IOStream *stream,
                                                               bool readProperties) {
     NSString *ext = [@(path) pathExtension].uppercaseString;
@@ -342,6 +345,13 @@ std::unique_ptr<TagLib::File> TagLibAudioFile::openByExtension(const char *path,
             return openByContentAndRewind(stream, readProperties);
         return std::make_unique<TagLib::WavPack::File>(stream, readProperties);
     }
+    if ([ext isEqualToString:@"APE"]) {
+        std::unique_ptr<TagLib::File> file;
+        if (!TagLib::APE::File::isSupported(stream))
+            file = openByContentAndRewind(stream, readProperties);
+        if (file) return file;
+        return std::make_unique<TagLib::APE::File>(stream, readProperties);
+    }
     return nullptr;
 }
 
@@ -356,6 +366,8 @@ std::unique_ptr<TagLib::File> TagLibAudioFile::openByContent(TagLib::IOStream *s
         return std::make_unique<TagLib::WavPack::File>(stream, readProperties);
     if (TagLib::Ogg::Opus::File::isSupported(stream))
         return std::make_unique<TagLib::Ogg::Opus::File>(stream, readProperties);
+    if (TagLib::APE::File::isSupported(stream))
+        return std::make_unique<TagLib::APE::File>(stream, readProperties);
     if (TagLib::MP4::File::isSupported(stream))
         return std::make_unique<TagLib::MP4::File>(stream, readProperties);
     if (TagLib::RIFF::AIFF::File::isSupported(stream))
@@ -406,6 +418,9 @@ VibeAudioFileFormat _Nullable fileTypeForTagLibFile(TagLib::File *file) {
     if (dynamic_cast<TagLib::WavPack::File*>(file)) {
         return VibeAudioFileFormatWavPack;
     }
+    if (dynamic_cast<TagLib::APE::File*>(file)) {
+        return VibeAudioFileFormatMonkeysAudio;
+    }
     return nil;
 }
 
@@ -454,6 +469,9 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file) {
         // player plays it. DSD has 1 bit, which describes no PCM depth.
         auto props = wavpack->audioProperties();
         if (props && props->isLossless() && !props->isDsd()) bits = props->bitsPerSample();
+    }
+    else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
+        if (auto props = ape->audioProperties()) bits = props->bitsPerSample();
     }
     return bits > 0 && bits <= 64 ? bits : 0;
 }
@@ -586,6 +604,9 @@ std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file) {
     }
     else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
         ListAPE(wavpack->hasAPETag() ? wavpack->APETag() : nullptr, &pictures);
+    }
+    else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
+        ListAPE(ape->hasAPETag() ? ape->APETag(false) : nullptr, &pictures);
     }
     return pictures;
 }
