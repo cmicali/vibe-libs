@@ -134,6 +134,7 @@ static const AudioFormatID kVibeMicrosoftADPCMFormat = 0x6D730002;
 typedef struct {
     AudioChannelLayout *layout; // the CHAN chunk's, malloc'd
     UInt16 sampleSize;          // the COMM chunk's, before dr_wav rounds it up to whole bytes
+    BOOL soundBlockAligned;     // SSND may have padding after the audio when its block size is set
 } VibeAIFFStated;
 
 // dr_wav's facts as CoreAudio's parser states them, field for field. A PCM
@@ -197,8 +198,9 @@ static AudioStreamBasicDescription VibeWAVDescription(const drwav *wav, UInt16 a
 }
 
 // An AIFF's chunks as dr_wav meets them, into the VibeAIFFStated at `user`.
-// COMM's sample size is bytes 6 and 7. Apple's tools keep the channel layout
-// in a CHAN chunk, CAF's form of an AudioChannelLayout, big-endian.
+// COMM's sample size is bytes 6 and 7. SSND gives its block size after its
+// offset. Apple's tools keep the channel layout in a CHAN chunk, CAF's form
+// of an AudioChannelLayout, big-endian.
 // CoreAudio's parser reads both.
 static drwav_uint64 VibeReadAIFFChunk(void *user, drwav_read_proc onRead, drwav_seek_proc onSeek, void *readUser,
                                       const drwav_chunk_header *header, drwav_container container, const drwav_fmt *fmt) {
@@ -211,6 +213,12 @@ static drwav_uint64 VibeReadAIFFChunk(void *user, drwav_read_proc onRead, drwav_
         uint8_t comm[8];
         size_t got = onRead(readUser, comm, sizeof comm);
         stated->sampleSize = got == sizeof comm ? OSReadBigInt16(comm, 6) : 0;
+        return got;
+    }
+    if (memcmp(header->id.fourcc, "SSND", 4) == 0 && header->sizeInBytes >= 8) {
+        uint8_t sound[8];
+        size_t got = onRead(readUser, sound, sizeof sound);
+        stated->soundBlockAligned = got == sizeof sound && OSReadBigInt32(sound, 4) != 0;
         return got;
     }
     if (memcmp(header->id.fourcc, "CHAN", 4) != 0
@@ -239,9 +247,7 @@ static drwav_uint64 VibeReadAIFFChunk(void *user, drwav_read_proc onRead, drwav_
     return got;
 }
 
-// dr_wav answers the length: the frames the data holds, a COMM or fact count
-// only when it is no more. The layout is an AIFF's CHAN chunk, or a WAV's
-// channel mask.
+// The layout is an AIFF's CHAN chunk, or a WAV's channel mask.
 - (BOOL)openWAVInterleaved:(BOOL)interleaved {
     VibeAIFFStated stated = {0};
     if (!drwav_init_ex(&_wavState, VibeStreamRead, VibeWAVSeek, VibeStreamTell, VibeReadAIFFChunk, (__bridge void *)self, &stated, 0, NULL)) {
@@ -254,7 +260,13 @@ static drwav_uint64 VibeReadAIFFChunk(void *user, drwav_read_proc onRead, drwav_
     if (_wav->channels <= 2 || layout.channelCount != _wav->channels) {
         layout = VibeMaskLayout(_wav->fmt.channelMask, _wav->channels);
     }
-    return [self keepStreamDecoderWithLength:_wav->totalPCMFrameCount description:VibeWAVDescription(_wav, stated.sampleSize)
+    AudioStreamBasicDescription description = VibeWAVDescription(_wav, stated.sampleSize);
+    // Audacity can undercount ima4 packets in COMM. Like CoreAudio, count
+    // whole packets in SSND when it has no block-alignment padding.
+    if (description.mFormatID == kAudioFormatAppleIMA4 && !stated.soundBlockAligned) {
+        _wav->totalPCMFrameCount = (_wav->dataChunkDataSize / description.mBytesPerPacket) * description.mFramesPerPacket;
+    }
+    return [self keepStreamDecoderWithLength:_wav->totalPCMFrameCount description:description
                                       layout:layout interleaved:interleaved];
 }
 
