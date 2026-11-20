@@ -29,7 +29,7 @@ The words every audio piece shares, so a piece that needs one of them needs neit
 
 ## The format names
 
-**`AudioFileFormat.h` names the codecs and containers**: MP3, FLAC, WAV, and the rest. A name is an identifier. It is compared with `isEqualToString:` and archived in a metadata cache, so it is never localized. `VibeAudioFileFormatForCodec` names a codec from its CoreAudio format ID. A codec with no constant here, PCM among them, answers nil, since its name is its container's.
+**`AudioFileFormat.h` names the codecs and containers**: MP3, FLAC, WAV, DSD, and the rest. DSD is its own kind, though the handle plays it as PCM, and TagLib's parse names it. A name is an identifier. It is compared with `isEqualToString:` and archived in a metadata cache, so it is never localized. `VibeAudioFileFormatForCodec` names a codec from its CoreAudio format ID. A codec with no constant here, PCM among them, answers nil, since its name is its container's.
 
 ## The playable extensions
 

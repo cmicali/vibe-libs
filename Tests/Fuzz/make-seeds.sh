@@ -33,7 +33,7 @@ tags=(-metadata title="Fuzz Tone" -metadata artist="Seed Artist" -metadata album
 with_cover() { ff -i "$1" -i "$work/cover.$2" -map 0:a -map 1:v -c:v copy -disposition:v attached_pic "${@:4}" "$3"; }
 
 rm -rf "$seeds"
-mkdir -p "$seeds"/{tags-flac,tags-mp3,tags-m4a,tags-wav,tags-aiff,tags-ogg,tags-opus,flac-cue,cue,m3u,art}
+mkdir -p "$seeds"/{tags-flac,tags-mp3,tags-m4a,tags-wav,tags-aiff,tags-ogg,tags-opus,flac-cue,cue,m3u,art,tags-dsf}
 
 # FLAC: plain, tagged, with a picture, with a sheet as a comment, and with a
 # binary CUESHEET block, which metaflac takes only for a 44.1 kHz stream.
@@ -122,5 +122,8 @@ file:///Users/Shared/Two%20Two.mp3
 M3U
 printf 'C:\\Music\\One.mp3\r\n.\\Two.flac\r\n\r\n..\\..\\Three.m4a\r\n' > "$seeds/m3u/windows.m3u"
 iconv -f UTF-8 -t UTF-16 "$seeds/m3u/extended.m3u8" > "$seeds/m3u/utf16.m3u"
+
+# DSF, which no encoder here writes, modulated by a script of its own.
+python3 -I "$here/make-dsf-seeds.py" "$seeds" "$work/cover.jpg"
 
 du -sh "$seeds"

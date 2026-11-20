@@ -48,6 +48,11 @@
 //  tells these containers and FLAC by the file's first bytes. A coding
 //  dr_wav lacks, such as GSM, is CoreAudio's.
 //
+//  A DSF file's DSD is converted to PCM by the handle's own filters, to
+//  float at 176.4 kHz, or 192 kHz in the 48 kHz family, whatever its DSD rate
+//  (docs/dsd-to-pcm.md). The facts are that PCM's. dsdSampleRate keeps the
+//  DSD rate. A DSDIFF file (.dff) is refused.
+//
 //  A file a remote transfer is still writing from byte 0
 //  (CloudFileMaterializer's availabilityForURL:) is read from its part file
 //  at its final size, and a read past the bytes written waits for them. A
@@ -123,8 +128,13 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
                                   error:(NSError * _Nullable __autoreleasing * _Nullable)error NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
-// "dr_mp3", "dr_flac", "dr_wav", "libvorbis" or "apple", for a debug report.
+// "dr_mp3", "dr_flac", "dr_wav", "libvorbis", "dsd" or "apple", for a debug report.
 @property (nonatomic, readonly) NSString *decoderName;
+// A DSF file's DSD rate, a channel's samples a second, such as 2,822,400 for
+// DSD64. 0 for every other file. The facts and the reads are the PCM the
+// handle converts the DSD to (AudioFileHandle+DSD.m), so an app shows this
+// rate where it would show the file's.
+@property (nonatomic, readonly) double dsdSampleRate;
 
 @property (nonatomic, readonly) NSURL *url;
 // For property reads while the handle lives. NULL once one of the handle's

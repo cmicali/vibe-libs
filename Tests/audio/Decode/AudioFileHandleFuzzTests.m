@@ -3,7 +3,8 @@
 //
 //  Malformed files through AudioFileHandle: open, read the facts, decode to the
 //  end, seek and decode again, close. Every decoder the handle chooses is fed:
-//  dr_wav, dr_flac, dr_mp3, libvorbis and Apple's (AAC, ALAC, Opus, and CAF).
+//  dr_wav, dr_flac, dr_mp3, libvorbis, the DSD decode, and Apple's (AAC, ALAC,
+//  Opus, and CAF).
 //  The sources are the generated fixtures, sliced to a few hundred KB, plus a
 //  few written here that no encoder on the machine makes.
 //
@@ -31,6 +32,7 @@
 //  |                                   | and iTunes gapless, free format, mode changes, junk, tags  |         |            |         |
 //  | AudioFileHandleFuzzCoreAudioTests | AAC, ADTS, QuickTime, ALAC in MP4 and CAF, LPCM in CAF,    | 10      | 8          | 2.4     |
 //  |                                   | Ogg Vorbis (libvorbis), Opus, a WAV past dr_wav's 768 kHz  |         |            |         |
+//  | AudioFileHandleFuzzDSDTests       | DSF written here: stereo LSB first, 5.1 MSB first, DSD128  | 3       | 8          | 0.9     |
 //
 //  Iterations is how often each random mutator runs per source. A named shape
 //  runs once per source it applies to, whatever the count.
@@ -42,11 +44,12 @@
 
 #import "AudioFileFixtures.h"
 #import "AudioFileHandle.h"
+#import "DSFFixtures.h"
 
-typedef NS_ENUM(NSUInteger, FuzzFamily) { FuzzFamilyWAV, FuzzFamilyFLAC, FuzzFamilyMPEG, FuzzFamilyApple };
+typedef NS_ENUM(NSUInteger, FuzzFamily) { FuzzFamilyWAV, FuzzFamilyFLAC, FuzzFamilyMPEG, FuzzFamilyApple, FuzzFamilyDSD };
 
 static const uint32_t kFuzzIterations[] = {
-    [FuzzFamilyWAV] = 8, [FuzzFamilyFLAC] = 8, [FuzzFamilyMPEG] = 4, [FuzzFamilyApple] = 8,
+    [FuzzFamilyWAV] = 8, [FuzzFamilyFLAC] = 8, [FuzzFamilyMPEG] = 4, [FuzzFamilyApple] = 8, [FuzzFamilyDSD] = 8,
 };
 
 // A source larger than this is sliced to kFuzzSliceBytes of audio, so a mutant decodes in milliseconds.
@@ -69,7 +72,7 @@ static NSUInteger FuzzIn(VibeFuzzRandom *random, NSRange range) {
 #pragma mark - Containers
 
 typedef NS_ENUM(NSUInteger, FuzzContainer) {
-    FuzzRIFF, FuzzRF64, FuzzW64, FuzzFORM, FuzzCAF, FuzzFLAC, FuzzMP4, FuzzOgg, FuzzMPEG, FuzzADTS,
+    FuzzRIFF, FuzzRF64, FuzzW64, FuzzFORM, FuzzCAF, FuzzFLAC, FuzzMP4, FuzzOgg, FuzzMPEG, FuzzADTS, FuzzDSF,
 };
 
 // One chunk, box, metadata block or page: where its size field is, and its body.
@@ -149,6 +152,7 @@ static FuzzContainer FuzzContainerOf(NSData *data) {
     if (memcmp(b, "caff", 4) == 0) return FuzzCAF;
     if (memcmp(b, "fLaC", 4) == 0) return FuzzFLAC;
     if (memcmp(b, "OggS", 4) == 0) return FuzzOgg;
+    if (memcmp(b, "DSD ", 4) == 0) return FuzzDSF;
     if (memcmp(b + 4, "ftyp", 4) == 0 || memcmp(b + 4, "moov", 4) == 0 || memcmp(b + 4, "wide", 4) == 0) return FuzzMP4;
     if (b[0] == 0xFF && (b[1] & 0xF6) == 0xF0) return FuzzADTS;
     return FuzzMPEG;
@@ -256,6 +260,18 @@ static NSData *FuzzWalk(NSData *data, FuzzContainer container, NSRange *audio) {
         case FuzzADTS:
             *audio = NSMakeRange(7, length - 7);
             break;
+        case FuzzDSF: {
+            // Three chunks at fixed places, each with a 64-bit size that counts its header.
+            static const struct { NSUInteger at; const char *tag; } fixed[] = {{0, "DSD "}, {28, "fmt "}, {80, "data"}};
+            for (size_t i = 0; i < 3 && fixed[i].at + 12 <= length; i++) {
+                uint64_t size = FuzzGet(data, fixed[i].at + 4, 8, NO);
+                uint64_t body = size >= 12 ? size - 12 : 0;
+                NSUInteger end = body > length - fixed[i].at - 12 ? length : fixed[i].at + 12 + (NSUInteger)body;
+                FuzzAddChunk(chunks, data, fixed[i].at, fixed[i].at + 4, 8, NO, fixed[i].at + 12, body, end, 0, fixed[i].tag);
+            }
+            if (length > 92) *audio = NSMakeRange(92, length - 92);
+            break;
+        }
     }
     return chunks;
 }
@@ -404,12 +420,23 @@ static NSArray<NSString *> *FuzzWrittenSources(NSURL *dir) {
         NSURL *url = [dir URLByAppendingPathComponent:spec[0]];
         if (VibeWriteFixture(url, buffer, NULL)) [written addObject:url.path];
     }
+    // DSF, which no encoder on the machine writes: stereo least significant
+    // bit first, 5.1 most significant first, and DSD128 mono.
+    VibeDSFSignal tones = ^double(uint32_t channel, double t) { return 0.5 * sin(2 * M_PI * 1000 * (channel + 1) * t); };
+    NSArray *dsf = @[@[@"written-stereo.dsf", @2, @1, @YES], @[@"written-5.1-msb.dsf", @7, @1, @NO], @[@"written-dsd128.dsf", @1, @2, @YES]];
+    for (NSArray *spec in dsf) {
+        NSURL *url = [dir URLByAppendingPathComponent:spec[0]];
+        // Five blocks a channel and a part one, so a cut lands inside the data.
+        NSData *bytes = VibeDSFFile([spec[1] unsignedIntValue], [spec[2] unsignedIntValue], [spec[3] boolValue], 5 * 4096 * 8 + 1000 * 8 + 5,
+                                    tones, VibeID3v2Tag(3, 0, [NSData data]));
+        if ([bytes writeToURL:url atomically:NO]) [written addObject:url.path];
+    }
     return written;
 }
 
 static FuzzFamily FuzzFamilyOf(NSString *decoder) {
     return [decoder isEqualToString:@"dr_wav"] ? FuzzFamilyWAV : [decoder isEqualToString:@"dr_flac"] ? FuzzFamilyFLAC
-         : [decoder isEqualToString:@"dr_mp3"] ? FuzzFamilyMPEG : FuzzFamilyApple;
+         : [decoder isEqualToString:@"dr_mp3"] ? FuzzFamilyMPEG : [decoder isEqualToString:@"dsd"] ? FuzzFamilyDSD : FuzzFamilyApple;
 }
 
 // Every fixture of `family` the generator wrote, one per coding for dr_wav's and every one for
@@ -1385,6 +1412,12 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
 @end
 @implementation AudioFileHandleFuzzMPEGTests
 - (void)testMutants { [self fuzzFamily:FuzzFamilyMPEG]; }
+@end
+
+@interface AudioFileHandleFuzzDSDTests : AudioFileHandleFuzzTestCase
+@end
+@implementation AudioFileHandleFuzzDSDTests
+- (void)testMutants { [self fuzzFamily:FuzzFamilyDSD]; }
 @end
 
 @interface AudioFileHandleFuzzCoreAudioTests : AudioFileHandleFuzzTestCase

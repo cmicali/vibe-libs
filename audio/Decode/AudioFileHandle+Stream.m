@@ -17,7 +17,8 @@
 // CoreAudio's parser, which never opens it. The file's first bytes name the
 // container. RIFF and RF64 WAVE, Wave64 and AIFF(-C) go to dr_wav. FLAC,
 // behind ID3v2 tags too, goes to dr_flac. Ogg goes to libvorbis, which finds
-// a Vorbis stream among the streams the file starts. MPEG frames go to dr_mp3,
+// a Vorbis stream among the streams the file starts. A DSF goes to the DSD
+// decode, and a DSF it refuses goes nowhere. MPEG frames go to dr_mp3,
 // behind ID3v2 tags or in a WAV's data chunk too. NO leaves the file to the
 // parser: BW64, RIFX and every other container, a coding the decoder does not
 // decode, or a stream it cannot open.
@@ -45,6 +46,9 @@
     }
     if (got >= 4 && memcmp(head, "OggS", 4) == 0) {
         return [self openVorbisInterleaved:interleaved];
+    }
+    if (at == 0 && got >= 4 && memcmp(head, "DSD ", 4) == 0) {
+        return [self openDSFInterleaved:interleaved];
     }
     AudioFileTypeID type = VibeFileTypeForExtension(_url.pathExtension);
     BOOL named = type == kAudioFileMP3Type || type == kAudioFileMP2Type || type == kAudioFileMP1Type;

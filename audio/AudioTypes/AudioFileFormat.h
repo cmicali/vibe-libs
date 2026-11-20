@@ -27,6 +27,8 @@ FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatW64;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatCAF;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatVorbis;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatOpus;
+// DSD, which the handle plays as PCM. Its container is DSF.
+FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatDSD;
 
 // The codec's name, or nil for one without a constant here (PCM among them:
 // its name is its container's).

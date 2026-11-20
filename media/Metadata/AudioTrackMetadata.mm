@@ -813,6 +813,7 @@ static NSInteger CoreAudioBitDepth(const AudioStreamBasicDescription &format) {
     if ([VibeAudioFileFormatWAV isEqualToString:self.fileType]) return YES;
     if ([VibeAudioFileFormatW64 isEqualToString:self.fileType]) return YES;
     if ([VibeAudioFileFormatCAF isEqualToString:self.fileType]) return YES;
+    if ([VibeAudioFileFormatDSD isEqualToString:self.fileType]) return YES;
     return NO;
 }
 

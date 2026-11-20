@@ -607,6 +607,7 @@ targetTemplates:
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/vorbis"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/opus"
+          - "$(VIBE_LIBS_ROOT)/third_party/taglib/dsf"
 
   # Header-only but for upstream's C entry points, DLL/r8bsrc.cpp, and its FFT.
   # Optimized in every configuration, since at -O0 it costs many times its

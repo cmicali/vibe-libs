@@ -17,6 +17,7 @@ VibeAudioFileFormat const VibeAudioFileFormatW64 = @"W64";
 VibeAudioFileFormat const VibeAudioFileFormatCAF = @"CAF";
 VibeAudioFileFormat const VibeAudioFileFormatVorbis = @"Vorbis";
 VibeAudioFileFormat const VibeAudioFileFormatOpus = @"Opus";
+VibeAudioFileFormat const VibeAudioFileFormatDSD = @"DSD";
 
 VibeAudioFileFormat _Nullable VibeAudioFileFormatForCodec(AudioFormatID codec) {
     switch (codec) {

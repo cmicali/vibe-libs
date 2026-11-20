@@ -17,6 +17,7 @@
 #import "AudioFileHandle.h"
 #import "AudioTrackMetadataInternal.h"
 #import "AudioTrackMetadataTagFixtures.h"
+#import "DSFFixtures.h"
 #import "PlatformImage.h"
 #import "CloudFileMaterializer.h"
 
@@ -1010,6 +1011,23 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
         XCTAssertFalse(metadata.parsedOK, @"%@", name);
         XCTAssertEqualObjects(metadata.title, name.stringByDeletingPathExtension, @"%@", name);
     }
+}
+
+// A DSF: its ID3v2 tag, its kind, and the DSD rate, which the parse keeps
+// as the sample rate, as TagLib reads it.
+- (void)testADSFReadsAsLosslessDSDAtItsDSDRate {
+    NSMutableData *title = [NSMutableData dataWithBytes:"\0Tone" length:5];
+    NSData *tag = VibeID3v2Tag(3, 0, VibeID3v2Frame("TIT2", 3, (uint32_t)title.length, 0, title));
+    NSURL *url = [_dir URLByAppendingPathComponent:@"tone.dsf"];
+    XCTAssertTrue([VibeDSFFile(2, 1, YES, 2822400 / 2, VibeDSFSine(1000, 0.5), tag) writeToURL:url atomically:YES]);
+    AudioTrackMetadata *metadata = Parse(url, NULL);
+    XCTAssertTrue(metadata.parsedOK);
+    XCTAssertEqualObjects(metadata.title, @"Tone");
+    XCTAssertEqualObjects(metadata.fileType, VibeAudioFileFormatDSD);
+    XCTAssertTrue(metadata.isLossless);
+    XCTAssertEqualObjects(metadata.sampleRate, @2822400);
+    XCTAssertEqual(metadata.bitDepth, 1);
+    XCTAssertEqualWithAccuracy(metadata.duration, 0.5, 0.01);
 }
 
 @end

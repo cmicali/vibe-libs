@@ -9,6 +9,8 @@ This is the dated record of every change made to the TagLib files vendored here.
 - **Subset:** only the files `AGENTS.md` lists. Every other upstream file is left out, unchanged.
 - **Cherry-picks:** seven later upstream commits, which no release carried on 2026-11-17. Each is a dated row below that names its commit. A release that carries them replaces them.
 
+On 2026-11-20, `dsf/`'s four files joined the subset, unchanged from that tag.
+
 On 2026-11-11, every vendored file was compared byte for byte with that tag. Each of TagLib's own files matches, except the three listed below. The files added around TagLib, also listed below, have no upstream copy in that directory.
 
 ## History

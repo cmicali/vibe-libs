@@ -3,6 +3,7 @@
 //
 
 #import "AudioFileHandleStreamingTestCase.h"
+#import "DSFFixtures.h"
 
 #pragma mark - Fixtures
 
@@ -237,6 +238,8 @@ static NSData *VibeXingVBR(void) {
     add([VibeMP3WithInfoFrame(400, NO) writeToURL:mp3 atomically:YES] ? mp3 : nil, @"dr_mp3");
     NSURL *xing = [self sourceNamed:@"xing.mp3"];
     add([VibeXingVBR() writeToURL:xing atomically:YES] ? xing : nil, @"dr_mp3");
+    NSURL *dsf = [self sourceNamed:@"tone.dsf"];
+    add([VibeDSFFile(2, 1, YES, 2822400 / 2, VibeDSFSine(1000, 0.5), nil) writeToURL:dsf atomically:YES] ? dsf : nil, @"dsd");
     return fixtures;
 }
 
