@@ -688,13 +688,24 @@ NSDictionary<VibeTagField, NSString *> *_Nullable VibeTagRatingFields(TagLib::Fi
             if (value.doubleValue > 0) keep(VibeTagFieldRating, value);
         }
     }
-    // Only each format's own tag holds a rating: never an APE, ID3v1, or
-    // INFO tag the map may answer from, and RATING:<email> only in a Xiph
-    // comment, as the writer takes them.
+    // A WavPack or Monkey's Audio file's own tag is its APE tag, read alone,
+    // never the ID3v1 tag the map may answer from.
+    TagLib::APE::Tag *ape = nullptr;
+    if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
+        ape = wavpack->hasAPETag() ? wavpack->APETag() : nullptr;
+    }
+    else if (auto monkeys = dynamic_cast<TagLib::APE::File *>(file)) {
+        ape = monkeys->hasAPETag() ? monkeys->APETag(false) : nullptr;
+    }
+    // Only each format's own tag holds a rating: never an MP3's APE tag, an
+    // ID3v1 tag, or an INFO tag the map may answer from, and RATING:<email>
+    // only in a Xiph comment or a WavPack or Monkey's Audio file's APE tag,
+    // as the writer takes them.
     const bool mapHome = xiph || mp4 || (id3v2 && !id3v2->isEmpty());
-    for (const auto &[key, values] : mapHome ? properties : TagLib::PropertyMap()) {
+    const TagLib::PropertyMap apeProperties = ape ? ape->properties() : TagLib::PropertyMap();
+    for (const auto &[key, values] : ape ? apeProperties : mapHome ? properties : TagLib::PropertyMap()) {
         const bool plain = (key == "RATING" && !hasRate) || key == "FMPS_RATING";
-        const bool owned = xiph && key.startsWith("RATING:") && key.size() > 7 &&
+        const bool owned = (xiph || ape) && key.startsWith("RATING:") && key.size() > 7 &&
                            key.size() - 7 <= kMaxRatingEmailBytes;
         if ((plain || owned) && !values.isEmpty()) keep(RatingText(key), RatingText(values.front()));
     }

@@ -311,12 +311,14 @@ Edits Resolve(const Edits &named, const TagLib::PropertyMap &current, Style styl
 }
 
 // A tag with no editor of its own: its whole map, with the operations
-// applied. APE, ID3v1, and INFO keep what their maps do not name. Whether
-// the tag changed, so an unchanged one is not rewritten.
-bool ApplyByPropertyMap(TagLib::Tag *tag, const Edits &named, Style style) {
+// applied. APE, ID3v1, and INFO keep what their maps do not name. A rating
+// goes in only where the tag is its file's own, as a WavPack or Monkey's
+// Audio file's APE tag is. Whether the tag changed, so an unchanged one is
+// not rewritten.
+bool ApplyByPropertyMap(TagLib::Tag *tag, const Edits &named, Style style, bool ratings = false) {
     const TagLib::PropertyMap before = tag->properties();
     TagLib::PropertyMap properties = before;
-    for (const auto &[key, values] : Resolve(WithoutRatings(named), before, style, false)) {
+    for (const auto &[key, values] : Resolve(ratings ? named : WithoutRatings(named), before, style, false)) {
         if (values.isEmpty()) properties.erase(key);
         else properties.replace(key, values);
     }
@@ -750,16 +752,20 @@ void ApplyAPECover(TagLib::APE::Tag *tag, const Cover &cover) {
 // file, which the save never opens.
 template <class APEFile>
 bool SaveAPEFile(APEFile *file, const Edits &named, const Cover &cover) {
-    // The APE tag's ratings are neither read nor written (AGENTS.md,
-    // Ratings), so a rating is refused, never dropped.
+    // The APE tag holds RATING, FMPS_RATING, and RATING:<email> as items,
+    // as a Xiph comment does, and no POPM. TRAP: TagLib's APE map drops a
+    // key past 255 characters and still saves, so a long email is refused.
     for (const auto &[key, values] : named) {
-        if (IsRatingKey(key)) Refuse(VibeTagWriteErrorUnsupportedValue, "APE holds no rating here, not " + Text(key));
+        if (IsPopularimeterKey(key)) Refuse(VibeTagWriteErrorUnsupportedValue, "only ID3v2 holds " + Text(key));
+        if (IsRatingKey(key) && key.size() > 255) {
+            Refuse(VibeTagWriteErrorUnsupportedValue, "an APE item's name holds 255 characters, not " + Text(key));
+        }
     }
     const bool hadAPE = file->hasAPETag(), hadID3v1 = file->hasID3v1Tag();
     const TagLib::PropertyMap current = file->properties();
     TagLib::APE::Tag *ape = file->APETag(true);
     if ((!hadAPE || ape->isEmpty()) && !current.isEmpty()) ape->setProperties(current);
-    ApplyByPropertyMap(ape, named, Style::Folded);
+    ApplyByPropertyMap(ape, named, Style::Folded, true);
     ApplyAPECover(ape, cover);
     if (hadID3v1) ApplyByPropertyMap(file->ID3v1Tag(), named, Style::ID3v1);
     return file->save();

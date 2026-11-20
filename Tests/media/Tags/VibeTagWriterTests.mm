@@ -1977,7 +1977,9 @@ static void VibeAddPOPM(NSURL *url, NSArray<NSArray *> *frames) {
         if (mp3) XCTAssertEqual(VibeID3v2Version(url), version, @"%@ keeps its version", name);
         XCTAssertEqualObjects(VibeDigest(url), audio, @"%@", name);
     }
-    for (NSString *name in self.xiphFormats) {
+    // A WavPack or Monkey's Audio file's APE tag holds them as a Xiph
+    // comment does.
+    for (NSString *name in [self.xiphFormats arrayByAddingObjectsFromArray:@[@"audio.wv", @"audio.ape"]]) {
         NSURL *url = [self write:name];
         VibeTagFieldValues *ratings = @{VibeTagFieldRating: @[@"80"], @"RATING:SOMEONE@EXAMPLE.COM": @[@"4"],
                                         VibeTagFieldFMPSRating: @[@"0.8"]};
@@ -1997,8 +1999,6 @@ static void VibeAddPOPM(NSURL *url, NSArray<NSArray *> *frames) {
 - (void)testARatingRemovalTakesItInEveryFormat {
     NSString *popm = [VibeTagFieldPopularimeterPrefix stringByAppendingString:VibeWMPEmail];
     for (NSString *name in self.formats) {
-        // APE refuses a rating (testARatingAFormatCantHoldIsRefused).
-        if (VibeContainer(name) == VibeTagContainerAPE) continue;
         NSURL *url = [self write:name];
         BOOL id3v2 = [self.id3v2Formats containsObject:name];
         NSString *key = id3v2 ? popm : VibeTagFieldRating;
@@ -2046,10 +2046,11 @@ static void VibeAddPOPM(NSURL *url, NSArray<NSArray *> *frames) {
     for (NSString *name in @[@"audio.m4a", @"audio.flac", @"audio.ogg"]) {
         [self assertFailure:[self write:name] code:VibeTagWriteErrorUnsupportedValue fields:@{popm: @[@"196"]}];
     }
-    // WavPack's and Monkey's Audio's APE tag holds no rating here, so each
-    // form is refused, and never dropped while the title is written.
+    // WavPack's and Monkey's Audio's APE tag holds no POPM, and no item
+    // whose name passes 255 characters, which TagLib's APE map would drop.
+    NSString *longEmail = [@"RATING:" stringByPaddingToLength:256 withString:@"e" startingAtIndex:0];
     for (NSString *name in @[@"audio.wv", @"audio.ape"]) {
-        for (NSString *key in @[popm, VibeTagFieldRating, VibeTagFieldFMPSRating, @"RATING:SOMEONE@EXAMPLE.COM"]) {
+        for (NSString *key in @[popm, longEmail]) {
             [self assertFailure:[self write:name] code:VibeTagWriteErrorUnsupportedValue
                          fields:@{key: @[@"64"], VibeTagFieldTitle: @[@"Title"]}];
         }

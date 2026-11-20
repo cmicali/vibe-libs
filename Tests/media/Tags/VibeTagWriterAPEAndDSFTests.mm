@@ -198,6 +198,34 @@ static VibeTagPicture *VibePicture(NSData *data, VibeTagPictureType type, NSStri
     XCTAssertEqual(file.ID3v1Tag()->title(), TagLib::String("New Title"));
 }
 
+#pragma mark - APE ratings
+
+// foobar2000 writes RATING into a WavPack file's APE tag. The rating read
+// answers it, and a write of RATING replaces it. An ID3v1 tag beside the
+// APE tag never takes a rating.
+- (void)testAnAPERatingReadsAndWrites {
+    NSURL *url = [self copy:[NSURL fileURLWithPath:[@__FILE__.stringByDeletingLastPathComponent
+                                                       stringByAppendingPathComponent:@"../../Fuzz/Seeds/tags-wv/plain.wv"]]
+                         as:@"rated.wv"];
+    {
+        TagLib::WavPack::File file(url.fileSystemRepresentation);
+        file.APETag(true)->addValue("Rating", "4");
+        file.ID3v1Tag(true)->setTitle("Title");
+        XCTAssertTrue(file.save());
+    }
+    {
+        TagLibAudioFile file(url.fileSystemRepresentation, false);
+        XCTAssertEqualObjects(VibeTagRatingFields(file.file(), file.file()->properties()), (@{VibeTagFieldRating: @"4"}));
+    }
+    [self assertWrite:url fields:@{VibeTagFieldRating: @[@"80"], VibeTagFieldFMPSRating: @[@"0.8"]}];
+    VibeTagFieldValues *read = VibeTagLibReadFields(url.path, NULL);
+    XCTAssertEqualObjects(read[VibeTagFieldRating], @[@"80"]);
+    XCTAssertEqualObjects(read[VibeTagFieldFMPSRating], @[@"0.8"]);
+    TagLib::WavPack::File file(url.fileSystemRepresentation);
+    XCTAssertEqual(file.APETag()->itemListMap()["RATING"].toString(), TagLib::String("80"), @"one RATING item");
+    XCTAssertEqual(file.ID3v1Tag()->title(), TagLib::String("Title"));
+}
+
 #pragma mark - APE pictures
 
 // An APE tag holds a front and a back cover, each with its description,
