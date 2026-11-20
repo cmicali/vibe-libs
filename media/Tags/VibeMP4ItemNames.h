@@ -16,7 +16,8 @@
 // false when the file has no moov. No ilst is an empty list.
 bool VibeMP4ItemNames(const uint8_t *bytes, uint64_t length, std::vector<std::string> *names);
 
-// The rate atom's value when its data is a 4-byte integer, which TagLib
-// reads by its first two bytes only, so as 0. -1 when the file holds no such
-// rate (media/Tags/AGENTS.md, Ratings).
-int64_t VibeMP4WideRate(const uint8_t *bytes, uint64_t length);
+// Whether the rate atom holds a number that isn't 2 bytes, as a 4-byte or an
+// 8-byte integer, which TagLib reads by its first two bytes only, and saves
+// back so. A text rate, a 2-byte one, and no rate answer false
+// (media/Tags/AGENTS.md, Ratings).
+bool VibeMP4RateIsUnkept(const uint8_t *bytes, uint64_t length);

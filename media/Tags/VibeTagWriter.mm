@@ -669,11 +669,11 @@ void ApplyMP4Cover(TagLib::MP4::Tag *tag, const Cover &cover) {
 // the file's ilst children must be one of the parsed items.
 void CheckMP4ItemsSurvive(NSString *path, TagLib::MP4::Tag *tag, const Edits &named) {
     NSData *bytes = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:NULL];
-    // TRAP: TagLib reads a 4-byte integer rate by its first two bytes, as 0,
-    // and saves the 0, so any other edit would destroy another app's rating.
-    if (bytes && !named.contains("RATING") &&
-        VibeMP4WideRate((const uint8_t *)bytes.bytes, bytes.length) >= 0) {
-        Refuse(VibeTagWriteErrorWouldLoseData, "TagLib would save the MP4's 4-byte rate atom as 0");
+    // TRAP: TagLib reads a numeric rate by its first two bytes, and saves
+    // what it read, so any other edit would destroy another app's rating
+    // held in another width.
+    if (bytes && !named.contains("RATING") && VibeMP4RateIsUnkept((const uint8_t *)bytes.bytes, bytes.length)) {
+        Refuse(VibeTagWriteErrorWouldLoseData, "TagLib would save the MP4's rate atom, a number not of 2 bytes, as another");
     }
     std::vector<std::string> names;
     if (!bytes || !VibeMP4ItemNames((const uint8_t *)bytes.bytes, bytes.length, &names)) {

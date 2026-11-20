@@ -37,4 +37,21 @@
     XCTAssertEqualObjects(PlayableExtensions.tagParsed, expected);
 }
 
+// A .wvc is looked for in the .wv's case first, then in lowercase and in
+// uppercase, and a file with no extension looks for .wvc. The other way, a
+// .wvc names its .wv the same three ways, and anything else names none.
+- (void)testAWavPackCorrectionFileIsSpelledBothWays {
+    NSArray<NSString *> *(^names)(NSString *) = ^NSArray<NSString *> *(NSString *path) {
+        return [[PlayableExtensions wavPackCorrectionSpellingsOf:[NSURL fileURLWithPath:path]] valueForKey:@"lastPathComponent"];
+    };
+    XCTAssertEqualObjects(names(@"/a/song.wv"), (@[@"song.wvc", @"song.WVC"]));
+    XCTAssertEqualObjects(names(@"/a/SONG.WV"), (@[@"SONG.WVC", @"SONG.wvc"]));
+    XCTAssertEqualObjects(names(@"/a/song.Wv"), (@[@"song.Wvc", @"song.wvc", @"song.WVC"]));
+    XCTAssertEqualObjects(names(@"/a/song"), (@[@"song.wvc", @"song.WVC"]));
+    XCTAssertEqualObjects([PlayableExtensions wavPackPathsOfCorrectionPath:@"a/song.wvc"], (@[@"a/song.wv", @"a/song.WV"]));
+    XCTAssertEqualObjects([PlayableExtensions wavPackPathsOfCorrectionPath:@"a/LOUD.WVC"], (@[@"a/LOUD.WV", @"a/LOUD.wv"]));
+    XCTAssertEqualObjects([PlayableExtensions wavPackPathsOfCorrectionPath:@"a/song.wv"], @[]);
+    XCTAssertEqualObjects([PlayableExtensions wavPackPathsOfCorrectionPath:@"a/song"], @[]);
+}
+
 @end

@@ -38,4 +38,35 @@
     return tagParsed;
 }
 
+// "c" in the case of the extension's last letter, or "wvc" for none.
+static NSString *VibeCorrectionExtension(NSString *extension) {
+    if (extension.length == 0) {
+        return @"wvc";
+    }
+    unichar last = [extension characterAtIndex:extension.length - 1];
+    return [extension stringByAppendingString:[NSCharacterSet.uppercaseLetterCharacterSet characterIsMember:last] ? @"C" : @"c"];
+}
+
++ (NSArray<NSURL *> *)wavPackCorrectionSpellingsOf:(NSURL *)url {
+    NSURL *base = url.URLByDeletingPathExtension;
+    NSMutableArray<NSURL *> *spellings = [NSMutableArray array];
+    for (NSString *spelling in [NSOrderedSet orderedSetWithArray:@[VibeCorrectionExtension(url.pathExtension), @"wvc", @"WVC"]]) {
+        [spellings addObject:[base URLByAppendingPathExtension:spelling]];
+    }
+    return spellings;
+}
+
++ (NSArray<NSString *> *)wavPackPathsOfCorrectionPath:(NSString *)path {
+    NSString *extension = path.pathExtension;
+    if (![extension.lowercaseString isEqualToString:@"wvc"]) {
+        return @[];
+    }
+    NSString *base = path.stringByDeletingPathExtension;
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    for (NSString *spelling in [NSOrderedSet orderedSetWithArray:@[[extension substringToIndex:2], @"wv", @"WV"]]) {
+        [paths addObject:[base stringByAppendingPathExtension:spelling]];
+    }
+    return paths;
+}
+
 @end

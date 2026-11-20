@@ -681,6 +681,16 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedTexts(NSCoder *c
         self.ratings = VibeTagRatingFields(file, properties);
         self.audioMD5 = audioMD5FromTagLibFile(file);
         self.bitDepth = bitsPerSampleFromTagLibFile(file);
+        // A hybrid WavPack file plays lossless when its correction file
+        // opens beside it, so it reads lossless then. Only for hybrid files,
+        // so the open costs no other file anything. A file still downloading
+        // plays its lossy half (audio/Decode/AGENTS.md).
+        if (self.bitDepth == 0 && !read) {
+            int hybridBits = VibeWavPackHybridBitsFromTagLibFile(file);
+            if (hybridBits > 0 && [AudioFileHandle correctionFileForWavPack:url]) {
+                self.bitDepth = hybridBits;
+            }
+        }
 
         [self.artwork adoptParsedArtData:albumArtDataFromTagLibFile(file)];
         self.parsedOK = YES;
@@ -826,8 +836,8 @@ static NSInteger CoreAudioBitDepth(const AudioStreamBasicDescription &format) {
     if ([VibeAudioFileFormatWAV isEqualToString:self.fileType]) return YES;
     if ([VibeAudioFileFormatW64 isEqualToString:self.fileType]) return YES;
     if ([VibeAudioFileFormatCAF isEqualToString:self.fileType]) return YES;
-    // A hybrid WavPack file plays its lossy half, and DSD plays decimated.
-    // Neither has a PCM depth (bitsPerSampleFromTagLibFile).
+    // A hybrid WavPack file without its correction file plays its lossy half,
+    // and DSD plays decimated. Neither has a PCM depth (loadFromURL:).
     if ([VibeAudioFileFormatWavPack isEqualToString:self.fileType]) return self.bitDepth > 0;
     if ([VibeAudioFileFormatMonkeysAudio isEqualToString:self.fileType]) return YES;
     if ([VibeAudioFileFormatDSD isEqualToString:self.fileType]) return YES;

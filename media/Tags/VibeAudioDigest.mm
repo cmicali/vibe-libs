@@ -670,9 +670,9 @@ bool VibeMP4ItemNames(const uint8_t *memory, uint64_t length, std::vector<std::s
     return true;
 }
 
-int64_t VibeMP4WideRate(const uint8_t *memory, uint64_t length) {
+bool VibeMP4RateIsUnkept(const uint8_t *memory, uint64_t length) {
     Bytes f(memory, length);
-    if (!f.is(4, "ftyp")) return -1;
+    if (!f.is(4, "ftyp")) return false;
     const Atom moov = FindAtom(f, 0, f.n, "moov");
     const Atom udta = moov.found ? FindAtom(f, moov.body, moov.end, "udta") : Atom();
     const Atom meta = udta.found ? FindAtom(f, udta.body, udta.end, "meta") : Atom();
@@ -680,9 +680,9 @@ int64_t VibeMP4WideRate(const uint8_t *memory, uint64_t length) {
     const Atom rate = ilst.found ? FindAtom(f, ilst.body, ilst.end, "rate") : Atom();
     const Atom data = rate.found ? FindAtom(f, rate.body, rate.end, "data") : Atom();
     // A data atom: its type in four bytes, its locale in four, then the
-    // value. Type 1 is text; any other with four bytes is a wide integer.
-    if (!data.found || data.end - data.body != 12 || f.be32(data.body) == 1) return -1;
-    return (int64_t)f.be32(data.body + 8);
+    // value. Type 1 is text; any other of a length but 2 is unkept.
+    if (!data.found || data.end - data.body < 8 || f.be32(data.body) == 1) return false;
+    return data.end - data.body - 8 != 2;
 }
 
 // Each is a barrier: an allocation that fails is an error, not an abort.

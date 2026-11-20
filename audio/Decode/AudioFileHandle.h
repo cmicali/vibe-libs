@@ -129,8 +129,13 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
                                   error:(NSError * _Nullable __autoreleasing * _Nullable)error NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
-// "dr_mp3", "dr_flac", "dr_wav", "libvorbis", "dsd" or "apple", for a debug report.
+// "dr_mp3", "dr_flac", "dr_wav", "libvorbis", "libwavpack", "dsd" or "apple", for a
+// debug report.
 @property (nonatomic, readonly) NSString *decoderName;
+// A hybrid WavPack file's correction file, when the open found one beside it
+// that holds, and decodes lossless with it. Nil for every other open, a
+// hybrid file played lossy included.
+@property (nonatomic, readonly, nullable) NSURL *correctionFileURL;
 // A DSF file's DSD rate, a channel's samples a second, such as 2,822,400 for
 // DSD64. 0 for every other file, a WavPack DSD file included. The facts and the reads are the PCM the
 // handle converts the DSD to (AudioFileHandle+DSD.m): fileFormat states
@@ -226,6 +231,19 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
 // Writing only: flushes the last packet and finishes the container; the
 // status the encoder's end returns. Idempotent; dealloc closes silently.
 - (BOOL)closeWithError:(NSError * _Nullable __autoreleasing * _Nullable)error;
+
+@end
+
+@interface AudioFileHandle (WavPackCorrection)
+
+// The correction file a hybrid WavPack file at `url` would decode with, by
+// the same search a play makes (this piece's AGENTS.md, "A hybrid WavPack
+// file"): the first spelling beside it that is a regular file of some bytes
+// on this device, and no transfer is writing. Nil when there is none. One
+// stat a spelling, and no read, so an indexer asks it of a hybrid file
+// cheaply. Blocking. It does not check that the file matches: a play does
+// that, and falls back to the lossy half.
++ (nullable NSURL *)correctionFileForWavPack:(NSURL *)url;
 
 @end
 

@@ -7,7 +7,8 @@
     NSCondition *_condition;
     // Each read as "<name>@<offset>".
     NSCountedSet<NSString *> *_reads;
-    uint64_t _stallFrom, _failFrom, _cutAt;
+    uint64_t _stallFrom, _failFrom, _failUntil, _cutAt;
+    NSString *_failName; // nil: every file
     NSString *_stallName; // nil: every file
     NSUInteger _stallPasses;
     int _failCode;
@@ -22,7 +23,7 @@
         _reads = [NSCountedSet set];
         _stalled = dispatch_semaphore_create(0);
         _failed = dispatch_semaphore_create(0);
-        _stallFrom = _failFrom = _cutAt = UINT64_MAX;
+        _stallFrom = _failFrom = _failUntil = _cutAt = UINT64_MAX;
         [AudioFileHandle debugSetMountRule:^NSNumber *(NSURL *url) {
             return [url.path containsString:marker] ? @YES : nil;
         }];
@@ -92,7 +93,17 @@
     [_condition lock];
     _failCode = code;
     _failFrom = offset;
+    _failUntil = UINT64_MAX;
+    _failName = nil;
     _failAlways = always;
+    [_condition unlock];
+}
+
+- (void)fail:(int)code readsOf:(NSString *)name from:(uint64_t)offset until:(uint64_t)end {
+    [self fail:code from:offset always:YES];
+    [_condition lock];
+    _failUntil = end;
+    _failName = [name copy];
     [_condition unlock];
 }
 
@@ -153,7 +164,7 @@
         }
     }
     int code = 0;
-    if (offset >= _failFrom) {
+    if (offset >= _failFrom && offset < _failUntil && (!_failName || [name isEqualToString:_failName])) {
         code = _failCode;
         if (!_failAlways) {
             _failFrom = UINT64_MAX;

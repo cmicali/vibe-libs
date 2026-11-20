@@ -110,7 +110,6 @@ uint32_t VibeID3v2TagBytes(const uint8_t header[10]) {
     BOOL _parserOwnsFile; // opened by URL (the QuickTime road), so it holds a descriptor of its own
     _Atomic bool _readsInterrupted;
     _Atomic bool _waitingForBytes;
-    BOOL (^_openInterrupted)(void); // the open's caller's, while it runs
     float _opusGain; // the Opus header's output gain as a factor, 0 for none
 }
 
@@ -475,15 +474,19 @@ static float VibeOpusOutputGain(AudioFileID parser) {
 
 // A read-ahead also stops fetching ahead while reads are interrupted. A voice
 // skipped away from then stops pulling its file over the network.
+// A WavPack correction file's handle is interrupted and allowed with this
+// one, since one decode reads both.
 - (void)interruptReads {
     atomic_store(&_readsInterrupted, true);
     _availability.readAheadPaused = YES;
     [_availability wakeWaiters];
+    [_wavpackCorrection interruptReads];
 }
 
 - (void)allowReads {
     atomic_store(&_readsInterrupted, false);
     _availability.readAheadPaused = NO;
+    [_wavpackCorrection allowReads];
 }
 
 - (BOOL)waitsForBytes {
@@ -491,8 +494,13 @@ static float VibeOpusOutputGain(AudioFileID parser) {
 }
 
 - (BOOL)waitingForBytes {
-    return atomic_load(&_waitingForBytes);
+    return atomic_load(&_waitingForBytes) || _wavpackCorrection.waitingForBytes;
 }
+
+- (NSURL *)correctionFileURL {
+    return _wavpackCorrection.url;
+}
+
 
 - (uint64_t)bytesWritten {
     return _availability ? _availability.progressBytes : (uint64_t)MAX(0, _size);
@@ -515,6 +523,14 @@ static float VibeOpusOutputGain(AudioFileID parser) {
         return nil;
     }
     return [self openParserWithError:error];
+}
+
+- (instancetype)initBytesForReading:(NSURL *)url interrupted:(BOOL (^)(void))interrupted error:(NSError **)error {
+    self = [super init];
+    if (!self || ![self openFile:url interrupted:interrupted error:error]) {
+        return nil;
+    }
+    return [self openedWithError:error];
 }
 
 // The file the reads go to: a descriptor, a transfer's part file, or a

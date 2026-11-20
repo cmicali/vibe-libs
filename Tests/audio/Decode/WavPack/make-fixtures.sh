@@ -19,9 +19,23 @@ pack u8.wav
 pack surround.wav
 pack dsd.dsf
 pack dsd256.dsf
-# A hybrid file plays its lossy half alone. Its correction file is kept beside
-# it, so a later version can test the lossless decode.
+# A hybrid file and its correction file, which together decode lossless.
 wavpack -q -y --blocksize=1024 -b4 -c "$work/s16.wav" -o "$here/hybrid.wv"
+# Another song's correction file, of the same length and blocks: s16's
+# samples negated. Only its checksums tell it from hybrid.wvc.
+wavpack -q -y --blocksize=1024 -b4 -c "$work/negated.wav" -o "$work/negated.wv"
+mv "$work/negated.wvc" "$here/negated.wvc"
+# A song whose last two blocks are digital silence, packed at two rates.
+# Each rate's .wvc pairs with the other's .wv block for block, and the silent
+# blocks decode the same either way, so only a block with sound tells
+# fade-b3.wvc from fade.wvc.
+wavpack -q -y --blocksize=1024 -b4 -c "$work/fade.wav" -o "$here/fade.wv"
+wavpack -q -y --blocksize=1024 -b3 -c "$work/fade.wav" -o "$work/fade-b3.wv"
+mv "$work/fade-b3.wvc" "$here/fade-b3.wvc"
+# A hybrid pair of 15 s, each file four of a read-ahead's 256 KB blocks long,
+# so a read can wait in the third of either while the open's check reads
+# only the first, the second, and the last.
+wavpack -q -y --blocksize=1024 -b4 -c "$work/long.wav" -o "$here/long.wv"
 # A file that never states its length: the encoder reads a pipe and ignores
 # the WAV's length, and writes to a pipe, so it cannot go back to the first
 # block. The open then reads the last blocks.

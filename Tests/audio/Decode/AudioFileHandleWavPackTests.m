@@ -1,8 +1,9 @@
 //
 // WavPack through AudioFileHandle, by libwavpack: the facts each kind of file
-// states, a lossless decode bit for bit, seeks, a hybrid file's lossy half,
-// DSD as PCM, a file that never stated its length, and cut files. Also the
-// AIFF-C spellings, which dr_wav plays.
+// states, a lossless decode bit for bit, seeks, a hybrid file lossless with
+// its correction file and lossy without it, DSD as PCM, a file that never
+// stated its length, and cut files. Also the AIFF-C spellings, which dr_wav
+// plays. AudioFileHandleReadAheadTests interrupts a hybrid pair's reads.
 //
 // The fixtures are in WavPack/ beside this file. make-fixtures.sh made them
 // from make-sources.py's integer signals, which VibeWavPackSample repeats.
@@ -89,6 +90,17 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
     [super tearDown];
 }
 
+// hybrid.wv in the scratch folder, as `name`, with `wvc` beside it as
+// `wvcName` when given.
+- (NSURL *)hybridNamed:(NSString *)name beside:(NSData *)wvc named:(NSString *)wvcName {
+    NSURL *url = [self.scratch URLByAppendingPathComponent:name];
+    XCTAssertTrue([[NSData dataWithContentsOfURL:VibeWavPackFixture(@"hybrid.wv")] writeToURL:url atomically:YES]);
+    if (wvc) {
+        XCTAssertTrue([wvc writeToURL:[self.scratch URLByAppendingPathComponent:wvcName] atomically:YES]);
+    }
+    return url;
+}
+
 - (AudioFileHandle *)open:(NSURL *)url interleaved:(BOOL)interleaved {
     NSError *error = nil;
     AudioFileHandle *handle = [[AudioFileHandle alloc] initForReading:url interleaved:interleaved error:&error];
@@ -148,7 +160,7 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 // file's first 16 frames they differ from a read from the start. From frame
 // 16 on, it seeks exactly.
 - (void)testSeeksLandExactly {
-    for (NSString *name in @[@"s16.wv", @"surround.wv", @"dsd.wv"]) {
+    for (NSString *name in @[@"s16.wv", @"surround.wv", @"dsd.wv", @"hybrid.wv"]) {
         AudioFileHandle *handle = [self open:VibeWavPackFixture(name) interleaved:YES];
         NSMutableData *whole = [NSMutableData data];
         XCTAssertTrue(VibeReadToEnd(handle, whole, NULL), @"%@", name);
@@ -176,11 +188,12 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 
 #pragma mark - Lossy, DSD, and the length
 
-// A hybrid file plays its lossy half alone, even with its correction file
-// beside it. It states WavPack's own format and no depth, so bit-perfect
-// output keeps none, and it sounds like its source.
-- (void)testAHybridFilePlaysItsLossyHalf {
-    AudioFileHandle *handle = [self open:VibeWavPackFixture(@"hybrid.wv") interleaved:YES];
+// A hybrid file alone plays its lossy half. It states WavPack's own format
+// and no depth, so bit-perfect output keeps none, and it sounds like its
+// source.
+- (void)testAHybridFileAlonePlaysItsLossyHalf {
+    AudioFileHandle *handle = [self open:[self hybridNamed:@"alone.wv" beside:nil named:nil] interleaved:YES];
+    XCTAssertNil(handle.correctionFileURL);
     XCTAssertEqual(handle.fileFormat.streamDescription->mFormatID, (AudioFormatID)'wvpk');
     XCTAssertEqual(handle.fileFormat.streamDescription->mBitsPerChannel, 0u);
     XCTAssertEqual(handle.length, 8192);
@@ -198,8 +211,163 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
     XCTAssertLessThan(error / signal, 0.01, @"within 20 dB of its source");
 }
 
-// DSD decodes to 24-bit PCM at an eighth of its rate: DSD64 at 352.8 kHz.
-// The source is a 1 kHz sine at half scale.
+// The lossy half alone, decoded to the end: what every fallback must match.
+- (NSData *)lossyHalf {
+    NSMutableData *pcm = [NSMutableData data];
+    XCTAssertTrue(VibeReadToEnd([self open:[self hybridNamed:@"reference.wv" beside:nil named:nil] interleaved:YES], pcm, NULL));
+    return pcm;
+}
+
+// With its correction file beside it, a hybrid file decodes to its source
+// bit for bit, in either layout, and states the source's facts, as a lossless
+// file does. So bit-perfect output keeps its depth.
+- (void)testAHybridFileWithItsCorrectionFileDecodesBitForBit {
+    NSData *expected = VibeWavPackExpected(kLossless[0]);
+    for (int interleaved = 0; interleaved < 2; interleaved++) {
+        AudioFileHandle *handle = [self open:VibeWavPackFixture(@"hybrid.wv") interleaved:interleaved];
+        XCTAssertEqualObjects(handle.correctionFileURL.lastPathComponent, @"hybrid.wvc");
+        XCTAssertEqualObjects(handle.decoderName, @"libwavpack");
+        const AudioStreamBasicDescription *file = handle.fileFormat.streamDescription;
+        XCTAssertEqual(file->mFormatID, kAudioFormatLinearPCM);
+        XCTAssertEqual(file->mBitsPerChannel, 16u);
+        XCTAssertEqual(file->mSampleRate, 44100);
+        XCTAssertEqual(handle.length, 8192);
+        NSMutableData *pcm = [NSMutableData data];
+        NSError *error = nil;
+        XCTAssertTrue(VibeReadToEnd(handle, pcm, &error), @"%@", error);
+        XCTAssertEqualObjects(pcm, expected, @"interleaved %d", interleaved);
+    }
+}
+
+// A correction file that is missing, empty, unreadable, cut short, or
+// another song's leaves the lossy half playing, with no error, exactly as the
+// .wv alone plays.
+- (void)testABadCorrectionFileFallsBackToTheLossyHalf {
+    NSData *wvc = [NSData dataWithContentsOfURL:VibeWavPackFixture(@"hybrid.wvc")];
+    NSData *lossy = [self lossyHalf];
+    NSDictionary<NSString *, NSData *> *cases = @{
+        @"empty": [NSData data],
+        @"cut-short": [wvc subdataWithRange:NSMakeRange(0, wvc.length / 2)],
+        @"header-only": [wvc subdataWithRange:NSMakeRange(0, 32)],
+        @"another-song": [NSData dataWithContentsOfURL:VibeWavPackFixture(@"negated.wvc")],
+        @"not-wavpack": [NSMutableData dataWithLength:wvc.length],
+        @"unreadable": wvc,
+    };
+    for (NSString *name in cases) {
+        NSString *wvName = [name stringByAppendingPathExtension:@"wv"];
+        NSString *wvcName = [name stringByAppendingPathExtension:@"wvc"];
+        NSURL *url = [self hybridNamed:wvName beside:cases[name] named:wvcName];
+        NSString *wvcPath = [self.scratch URLByAppendingPathComponent:wvcName].path;
+        if ([name isEqualToString:@"unreadable"]) {
+            XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions: @0} ofItemAtPath:wvcPath error:NULL]);
+        }
+        AudioFileHandle *handle = [self open:url interleaved:YES];
+        XCTAssertNil(handle.correctionFileURL, @"%@", name);
+        XCTAssertEqual(handle.fileFormat.streamDescription->mFormatID, (AudioFormatID)'wvpk', @"%@", name);
+        XCTAssertEqual(handle.length, 8192, @"%@", name);
+        NSMutableData *pcm = [NSMutableData data];
+        NSError *error = nil;
+        XCTAssertTrue(VibeReadToEnd(handle, pcm, &error), @"%@: %@", name, error);
+        XCTAssertEqualObjects(pcm, lossy, @"%@", name);
+        XCTAssertEqualObjects(VibeDecodeRange(handle, 4000, 300), [lossy subdataWithRange:NSMakeRange(4000 * 8, 300 * 8)],
+                              @"%@: a seek", name);
+        [NSFileManager.defaultManager setAttributes:@{NSFilePosixPermissions: @0644} ofItemAtPath:wvcPath error:NULL];
+    }
+}
+
+// `wv` and `wvc` fixtures copied into the scratch folder as `name`.wv and
+// `name`.wvc.
+- (NSURL *)pairNamed:(NSString *)name wv:(NSString *)wv wvc:(NSString *)wvc {
+    NSURL *url = [self.scratch URLByAppendingPathComponent:[name stringByAppendingPathExtension:@"wv"]];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(wv) toURL:url error:NULL]);
+    NSURL *correction = [self.scratch URLByAppendingPathComponent:[name stringByAppendingPathExtension:@"wvc"]];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(wvc) toURL:correction error:NULL]);
+    return url;
+}
+
+// Another encode's .wvc of the same song pairs with the .wv block for block,
+// by index, samples, and flags, and the song's last two blocks are digital
+// silence, which decodes the same with either. Its first and middle blocks
+// tell it apart, so it falls back to the lossy half. The right .wvc decodes
+// bit for bit.
+- (void)testAnotherEncodesCorrectionFileFallsBack {
+    AudioFileHandle *wrong = [self open:[self pairNamed:@"wrong" wv:@"fade.wv" wvc:@"fade-b3.wvc"] interleaved:YES];
+    XCTAssertNil(wrong.correctionFileURL);
+    XCTAssertEqual(wrong.fileFormat.streamDescription->mFormatID, (AudioFormatID)'wvpk');
+    AudioFileHandle *right = [self open:[self pairNamed:@"right" wv:@"fade.wv" wvc:@"fade.wvc"] interleaved:YES];
+    XCTAssertNotNil(right.correctionFileURL);
+    NSMutableData *expected = [VibeWavPackExpected(kLossless[0]) mutableCopy];
+    const size_t frameBytes = 2 * sizeof(float);
+    memset((uint8_t *)expected.mutableBytes + (8192 - 2048) * frameBytes, 0, 2048 * frameBytes);
+    NSMutableData *pcm = [NSMutableData data];
+    XCTAssertTrue(VibeReadToEnd(right, pcm, NULL));
+    XCTAssertEqualObjects(pcm, expected);
+}
+
+// A .wvc cut short while it plays leaves blocks with no correction, which
+// libwavpack would decode lossy under lossless facts. The read fails instead,
+// and so does every later seek.
+- (void)testACorrectionFileCutDuringThePlayFailsTheRead {
+    NSURL *url = [self pairNamed:@"cut" wv:@"long.wv" wvc:@"long.wvc"];
+    AudioFileHandle *handle = [self open:url interleaved:YES];
+    XCTAssertNotNil(handle.correctionFileURL);
+    XCTAssertNotNil(VibeDecodeRange(handle, 0, 4096), @"the head plays");
+    NSFileHandle *wvc = [NSFileHandle fileHandleForWritingToURL:handle.correctionFileURL error:NULL];
+    XCTAssertTrue([wvc truncateAtOffset:200 * 1024 error:NULL]);
+    [wvc closeAndReturnError:NULL];
+    NSMutableData *pcm = [NSMutableData data];
+    NSError *error = nil;
+    XCTAssertFalse(VibeReadToEnd(handle, pcm, &error), @"no lossy frames under lossless facts");
+    XCTAssertNotNil(error);
+    XCTAssertFalse([handle seekToFrame:100 error:NULL]);
+}
+
+// A .wvc emptied after the open: a seek into what the reads have not held
+// fails, and so does the seek after it, whose restart would open without the
+// .wvc and decode the lossy half under lossless facts.
+- (void)testASeekOverAnEmptiedCorrectionFileFails {
+    NSURL *url = [self pairNamed:@"emptied" wv:@"long.wv" wvc:@"long.wvc"];
+    AudioFileHandle *handle = [self open:url interleaved:YES];
+    XCTAssertNotNil(handle.correctionFileURL);
+    XCTAssertNotNil(VibeDecodeRange(handle, 0, 4096), @"the head plays");
+    XCTAssertTrue([[NSData data] writeToURL:handle.correctionFileURL atomically:NO]);
+    XCTAssertFalse([handle seekToFrame:300000 error:NULL]);
+    XCTAssertFalse([handle seekToFrame:100 error:NULL]);
+}
+
+// The correction file's name follows the .wv's: the same name, with wvc in
+// the case of the .wv's extension first. The check an indexer asks finds the
+// same file a play opens, and nothing for a file alone.
+- (void)testTheCorrectionFileIsFoundByItsName {
+    NSData *wvc = [NSData dataWithContentsOfURL:VibeWavPackFixture(@"hybrid.wvc")];
+    NSURL *upper = [self hybridNamed:@"UPPER.WV" beside:wvc named:@"UPPER.WVC"];
+    XCTAssertEqualObjects([AudioFileHandle correctionFileForWavPack:upper].lastPathComponent, @"UPPER.WVC");
+    AudioFileHandle *handle = [self open:upper interleaved:YES];
+    XCTAssertEqualObjects(handle.correctionFileURL.lastPathComponent, @"UPPER.WVC");
+    XCTAssertEqual(handle.fileFormat.streamDescription->mFormatID, kAudioFormatLinearPCM);
+
+    NSURL *mixed = [self hybridNamed:@"mixed.wv" beside:wvc named:@"mixed.WVC"];
+    XCTAssertNotNil([AudioFileHandle correctionFileForWavPack:mixed]);
+    XCTAssertEqual([self open:mixed interleaved:YES].fileFormat.streamDescription->mFormatID, kAudioFormatLinearPCM);
+
+    NSURL *alone = [self hybridNamed:@"alone.wv" beside:nil named:nil];
+    XCTAssertNil([AudioFileHandle correctionFileForWavPack:alone]);
+    XCTAssertNil([AudioFileHandle correctionFileForWavPack:VibeWavPackFixture(@"s16.wv")]);
+}
+
+// A lossless file never looks for a correction file, nor states one.
+- (void)testALosslessFileStatesNoCorrectionFile {
+    NSURL *url = [self.scratch URLByAppendingPathComponent:@"lossless.wv"];
+    XCTAssertTrue([[NSData dataWithContentsOfURL:VibeWavPackFixture(@"s16.wv")] writeToURL:url atomically:YES]);
+    XCTAssertTrue([[NSData dataWithContentsOfURL:VibeWavPackFixture(@"hybrid.wvc")]
+                   writeToURL:[self.scratch URLByAppendingPathComponent:@"lossless.wvc"] atomically:YES]);
+    AudioFileHandle *handle = [self open:url interleaved:YES];
+    XCTAssertNil(handle.correctionFileURL);
+    NSMutableData *pcm = [NSMutableData data];
+    XCTAssertTrue(VibeReadToEnd(handle, pcm, NULL));
+    XCTAssertEqualObjects(pcm, VibeWavPackExpected(kLossless[0]));
+}
+
 - (void)testDSDPlaysAsPCM {
     AudioFileHandle *handle = [self open:VibeWavPackFixture(@"dsd.wv") interleaved:NO];
     XCTAssertEqual(handle.fileFormat.sampleRate, 352800);

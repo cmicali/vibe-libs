@@ -477,8 +477,9 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file) {
         if (auto props = aiff->audioProperties()) bits = props->bitsPerSample();
     }
     else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
-        // A hybrid file read without its correction file is lossy, as the
-        // player plays it. DSD has 1 bit, which describes no PCM depth.
+        // A hybrid file is lossless only with its correction file, another
+        // file (VibeWavPackHybridBitsFromTagLibFile). DSD has 1 bit, which
+        // describes no PCM depth.
         auto props = wavpack->audioProperties();
         if (props && props->isLossless() && !props->isDsd()) bits = props->bitsPerSample();
     }
@@ -490,6 +491,15 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file) {
     else if (dynamic_cast<TagLib::DSF::File *>(file)) {
         bits = 1;
     }
+    return bits > 0 && bits <= 64 ? bits : 0;
+}
+
+// TagLib calls every WavPack file that is not lossless hybrid: a lossy file
+// is a hybrid file's lossy half.
+int VibeWavPackHybridBitsFromTagLibFile(TagLib::File *file) {
+    auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file);
+    auto props = wavpack ? wavpack->audioProperties() : nullptr;
+    int bits = props && !props->isLossless() && !props->isDsd() ? props->bitsPerSample() : 0;
     return bits > 0 && bits <= 64 ? bits : 0;
 }
 
@@ -659,9 +669,9 @@ NSDictionary<VibeTagField, NSString *> *_Nullable VibeTagRatingFields(TagLib::Fi
     auto xiph = dynamic_cast<TagLib::Ogg::XiphComment *>(file->tag()) || dynamic_cast<TagLib::FLAC::File *>(file);
     auto mp4 = dynamic_cast<TagLib::MP4::File *>(file);
     TagLib::ID3v2::Tag *id3v2 = VibeID3v2TagOfFile(file);
-    // Only each format's own tag holds a rating: never an APE, ID3v1, or
-    // INFO tag the map may answer from, and RATING:<email> only in a Xiph
-    // comment, as the writer takes them.
+    // A freeform RATING reads only when the MP4 has no rate at all, whatever
+    // the rate holds.
+    bool hasRate = false;
     if (mp4) {
         // MP4's rate first, so it wins over a freeform RATING atom. TRAP:
         // TagLib's property map has no name for rate, so it reads nowhere
@@ -670,7 +680,8 @@ NSDictionary<VibeTagField, NSString *> *_Nullable VibeTagRatingFields(TagLib::Fi
         // number, is none.
         const TagLib::MP4::ItemMap &items = mp4->tag()->itemMap();
         auto rate = items.find("rate");
-        if (rate != items.end()) {
+        hasRate = rate != items.end();
+        if (hasRate) {
             const TagLib::StringList text = rate->second.toStringList();
             NSString *value = text.isEmpty() ? [NSString stringWithFormat:@"%d", rate->second.toInt()]
                                              : RatingText(text.front());
@@ -682,7 +693,7 @@ NSDictionary<VibeTagField, NSString *> *_Nullable VibeTagRatingFields(TagLib::Fi
     // comment, as the writer takes them.
     const bool mapHome = xiph || mp4 || (id3v2 && !id3v2->isEmpty());
     for (const auto &[key, values] : mapHome ? properties : TagLib::PropertyMap()) {
-        const bool plain = key == "RATING" || key == "FMPS_RATING";
+        const bool plain = (key == "RATING" && !hasRate) || key == "FMPS_RATING";
         const bool owned = xiph && key.startsWith("RATING:") && key.size() > 7 &&
                            key.size() - 7 <= kMaxRatingEmailBytes;
         if ((plain || owned) && !values.isEmpty()) keep(RatingText(key), RatingText(values.front()));

@@ -117,8 +117,13 @@ int VibeMP4FormatOfMIMEType(const TagLib::String &mimeType);
 NSData *_Nullable audioMD5FromTagLibFile(TagLib::File *file);
 // The bits per sample of a lossless stream: FLAC, ALAC or FLAC in MP4, PCM
 // or float WAV, AIFF, and lossless PCM WavPack. 0 for a lossy codec, which
-// has none.
+// has none, and for a hybrid WavPack file, which is lossless only with its
+// correction file.
 int bitsPerSampleFromTagLibFile(TagLib::File *file);
+// A hybrid PCM WavPack file's source bits per sample: what it decodes to with
+// its correction file. 0 for any other file. Whether that file is there is
+// the caller's to ask (media/Metadata asks audio/Decode).
+int VibeWavPackHybridBitsFromTagLibFile(TagLib::File *file);
 
 // Every rating the file holds, by its VibeTagFields.h key, each its first
 // value as stored, from the file's own tag only: an ID3v2 tag's POPM frames

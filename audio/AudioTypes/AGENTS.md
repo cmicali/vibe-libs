@@ -37,7 +37,7 @@ The words every audio piece shares, so a piece that needs one of them needs neit
 
 ## The playable extensions
 
-**`PlayableExtensions` lists every audio extension the decoders open**, lowercase. `ordered` lists lossless before lossy. A playlist entry naming a missing file takes the first spelling that exists, so the order picks the replacement. `lookup` is the same set for a membership test. `tagParsed` is the share TagLib parses. The rest, W64 and CAF, take their facts from CoreAudio, which reads only a whole local file.
+**`PlayableExtensions` lists every audio extension the decoders open**, lowercase. `ordered` lists lossless before lossy. A playlist entry naming a missing file takes the first spelling that exists, so the order picks the replacement. `lookup` is the same set for a membership test. `tagParsed` is the share TagLib parses. The rest, W64 and CAF, take their facts from CoreAudio, which reads only a whole local file. **A WavPack correction file, `.wvc`, is never a song**, and `PlayableExtensions` names its spellings both ways: `wavPackCorrectionSpellingsOf:` the ones to look for beside a `.wv`, and `wavPackPathsOfCorrectionPath:` the `.wv` files a `.wvc` may belong to. `audio/Decode`'s play and its indexer's check, and an app's watch, share that one rule.
 
 **An app's document types must not admit a spelling this list lacks.** A claimed type takes in every type that conforms to it. Finder then offers the app a file its open filter drops.
 

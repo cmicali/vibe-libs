@@ -297,8 +297,9 @@ static NSString *Title(NSURL *url) {
     }
 }
 
-// A hybrid file plays its lossy half, and DSD plays decimated, so neither
-// states a PCM depth. A lossless float file states 32.
+// A hybrid file is lossless only with its correction file, another file, and
+// DSD plays decimated, so neither states a PCM depth. A hybrid file states its
+// source's apart. A lossless float file states 32.
 - (void)testWavPackStatesADepthOnlyForLosslessPCM {
     NSDictionary<NSString *, NSNumber *> *depths = @{@"hybrid.wv": @0, @"dsd.wv": @0, @"f32.wv": @32, @"s24.wv": @24, @"u8.wv": @8};
     for (NSString *name in depths) {
@@ -307,6 +308,7 @@ static NSString *Title(NSURL *url) {
         if (file.isNull()) continue;
         XCTAssertEqualObjects(fileTypeForTagLibFile(file.file()), VibeAudioFileFormatWavPack, @"%@", name);
         XCTAssertEqual(bitsPerSampleFromTagLibFile(file.file()), depths[name].intValue, @"%@", name);
+        XCTAssertEqual(VibeWavPackHybridBitsFromTagLibFile(file.file()), [name isEqualToString:@"hybrid.wv"] ? 16 : 0, @"%@", name);
     }
 }
 
@@ -329,6 +331,15 @@ static NSData *VibeDSFTag(NSData *jpeg) {
     NSURL *url = [_dir URLByAppendingPathComponent:name];
     XCTAssertTrue([VibeDSFFile(2, 1, YES, 100000, VibeDSFSine(1000, 0.5), tag) writeToURL:url atomically:YES]);
     return url;
+}
+
+// A DSF's rating: its ID3v2 tag's POPM, which the rating read finds.
+- (void)testADSFReadsItsRating {
+    NSMutableData *popm = [NSMutableData dataWithBytes:"me@x\0\xC4\0\0\0\x03" length:10];
+    NSData *tag = VibeID3v2Tag(3, 0, VibeID3v2Frame("POPM", 3, (uint32_t)popm.length, 0, popm));
+    NSURL *url = [self writeDSF:@"rated.dsf" tag:tag];
+    TagLibAudioFile file(url.fileSystemRepresentation);
+    XCTAssertEqualObjects(VibeTagRatingFields(file.file(), file.file()->properties()), (@{@"POPM:me@x": @"196"}));
 }
 
 - (void)testADSFReadsItsTagCoverAndProperties {

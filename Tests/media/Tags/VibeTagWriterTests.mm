@@ -2123,6 +2123,38 @@ static void VibeAddPOPM(NSURL *url, NSArray<NSArray *> *frames) {
     [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"New"]}];
     [self assertWrite:url fields:@{VibeTagFieldRating: @[@"80"]}];
     XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"80"], @"a write of RATING replaces it");
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"Text rate"]}];
+    {
+        TagLib::MP4::File file(url.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(60));
+        file.save();
+    }
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"Two-byte rate"]}];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"60"], @"a 2-byte rate is kept");
+}
+
+// An 8-byte rate is refused too, and a freeform RATING never answers while
+// a rate is there, a 0 or no number included.
+- (void)testAnyRateTagLibCantKeepIsRefusedAndRateAloneAnswers {
+    NSURL *url = [self write:@"audio.m4a"];
+    {
+        TagLib::MP4::File file(url.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(TagLib::StringList("ABCDEFGH")));
+        file.tag()->setItem("----:com.apple.iTunes:RATING", TagLib::MP4::Item(TagLib::StringList("20")));
+        file.save();
+    }
+    XCTAssertNil([self read:url][VibeTagFieldRating], @"rate is no number, and the freeform atom stays quiet");
+    NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:url];
+    NSRange rate = [bytes rangeOfData:[@"rate" dataUsingEncoding:NSASCIIStringEncoding] options:0
+                                range:NSMakeRange(0, bytes.length)];
+    if (rate.location == NSNotFound) {
+        XCTFail(@"no rate atom");
+        return;
+    }
+    const uint8_t integer[4] = {0, 0, 0, 21};
+    [bytes replaceBytesInRange:NSMakeRange(rate.location + 12, 4) withBytes:integer];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"New"]}];
 }
 
 // A custom field named POPM:x is no rating in the read-back, and a key is
