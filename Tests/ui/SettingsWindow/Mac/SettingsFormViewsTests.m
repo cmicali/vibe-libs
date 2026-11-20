@@ -12,6 +12,26 @@
 #import "SettingsFormViews.h"
 #import "SettingsPaneViewController.h"
 
+// Three rows of text cells in whatever columns its table has.
+@interface SettingsListStub : NSObject <NSTableViewDelegate, NSTableViewDataSource>
+@end
+
+@implementation SettingsListStub
+
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
+    return 3;
+}
+
+- (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)column row:(NSInteger)row {
+    return [SettingsRowView listCellWithIdentifier:column.identifier inTableView:tableView imagePosition:NSNoImage];
+}
+
+- (NSTableRowView *)tableView:(NSTableView *)tableView rowViewForRow:(NSInteger)row {
+    return [SettingsRowView listRowViewForRow:row];
+}
+
+@end
+
 @interface SettingsFormViewsTests : XCTestCase
 @end
 
@@ -309,6 +329,63 @@ static NSString *const kLongCaption = @"A caption long enough to run well past a
     row.indentLevel = 1;
     XCTAssertEqual(row.indentLevel, 1);
     XCTAssertNil(row.titleLabel);
+}
+
+// The x of each column's cell in each row, in the table's coordinates.
+static NSArray<NSArray<NSNumber *> *> *ListCellOrigins(NSTableView *table) {
+    NSMutableArray<NSArray<NSNumber *> *> *origins = [NSMutableArray array];
+    for (NSInteger row = 0; row < table.numberOfRows; row++) {
+        NSMutableArray<NSNumber *> *xs = [NSMutableArray array];
+        for (NSInteger column = 0; column < table.numberOfColumns; column++) {
+            NSView *cell = [table viewAtColumn:column row:row makeIfNecessary:YES];
+            [xs addObject:@(NSMinX([cell convertRect:cell.bounds toView:table]))];
+        }
+        [origins addObject:xs];
+    }
+    return origins;
+}
+
+// Makes every row before the card exists, as a pane does: it sets its columns'
+// widths first, and a table that refuses an empty selection tiles then.
+- (void)assertRowsMadeBeforeTheCardAlignInList:(NSTableView *)table {
+    table.allowsEmptySelection = NO;
+    [table tableColumnWithIdentifier:@"name"].width = 300;
+    [table tableColumnWithIdentifier:@"type"].width = 140;
+    for (NSInteger row = 0; row < table.numberOfRows; row++) {
+        XCTAssertNotNil([table rowViewAtRow:row makeIfNecessary:YES]);
+    }
+    SettingsRowView *listRow = [SettingsRowView rowWithTableView:table rowCount:3];
+    listRow.frame = NSMakeRect(0, 0, 500, 200);
+    [listRow layoutSubtreeIfNeeded];
+
+    NSArray<NSArray<NSNumber *> *> *origins = ListCellOrigins(table);
+    XCTAssertEqual(origins.count, 3u);
+    for (NSUInteger row = 0; row < origins.count; row++) {
+        XCTAssertEqualObjects(origins[row], origins[0], @"row %lu", (unsigned long)row);
+        for (NSUInteger column = 0; column < origins[row].count; column++) {
+            XCTAssertEqual(origins[row][column].doubleValue,
+                           NSMinX([table frameOfCellAtColumn:(NSInteger)column row:(NSInteger)row]),
+                           @"row %lu, column %lu", (unsigned long)row, (unsigned long)column);
+        }
+    }
+}
+
+- (void)testRowsMadeBeforeTheCardAlignInEveryColumn {
+    SettingsListStub *stub = [[SettingsListStub alloc] init];
+    [self assertRowsMadeBeforeTheCardAlignInList:
+            [SettingsRowView listTableWithColumnIdentifiers:@[@"icon", @"name", @"type"] delegate:stub]];
+}
+
+// A pane may hand the card a table it made itself, a subclass say.
+- (void)testRowsOfAPanesOwnTableAlignInEveryColumn {
+    SettingsListStub *stub = [[SettingsListStub alloc] init];
+    NSTableView *table = [[NSTableView alloc] initWithFrame:NSZeroRect];
+    table.dataSource = stub;
+    table.delegate = stub;
+    for (NSString *identifier in @[@"icon", @"name", @"type"]) {
+        [table addTableColumn:[[NSTableColumn alloc] initWithIdentifier:identifier]];
+    }
+    [self assertRowsMadeBeforeTheCardAlignInList:table];
 }
 
 - (void)testFillFollowsTheAppearance {
