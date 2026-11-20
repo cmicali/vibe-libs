@@ -447,7 +447,7 @@ static NSString *VibeCacheMarkName(NSString *mark) {
 
 - (BOOL)mayHoldEntriesFromBeforeMark:(NSString *)mark {
     NSNumber *day = [self dayOfMark:mark];
-    if (!day) {
+    if (day == nil) {
         __block int64_t recorded = -1;
         [self syncOnQueue:^{
             if (!self->_writer) {
