@@ -245,11 +245,8 @@ static NSString *VibePreviousKey(NSString *key, NSString *path) {
     return [self cacheKeyWithStat:NULL];
 }
 
-- (nullable NSString *)previousCacheKeyForKey:(NSString *)key {
-    return VibePreviousKey(key, [self.path stringByResolvingSymlinksInPath]);
-}
-
-+ (nullable NSString *)previousCacheKeyForKey:(NSString *)key {
+// The resolved path this process keyed under key's hash lately, or nil.
+static NSString *VibeRecentPathOfKey(NSString *key) {
     NSRange range = VibeKeyHashRange(key);
     if (range.location == NSNotFound) {
         return nil;
@@ -257,7 +254,18 @@ static NSString *VibePreviousKey(NSString *key, NSString *path) {
     os_unfair_lock_lock(&sPreviousLock);
     NSString *path = sPreviousPaths[[key substringWithRange:range]];
     os_unfair_lock_unlock(&sPreviousLock);
+    return path;
+}
+
+- (nullable NSString *)previousCacheKeyForKey:(NSString *)key {
+    // Resolving the links again costs a few lstats, so a key made lately
+    // takes the path it was made from.
+    NSString *path = VibeRecentPathOfKey(key) ?: [self.path stringByResolvingSymlinksInPath];
     return VibePreviousKey(key, path);
+}
+
++ (nullable NSString *)previousCacheKeyForKey:(NSString *)key {
+    return VibePreviousKey(key, VibeRecentPathOfKey(key));
 }
 
 - (nullable NSString *)cacheKeyWithStat:(struct stat *_Nullable)info {

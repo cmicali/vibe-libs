@@ -544,4 +544,40 @@ static NSString *VibeTestKey(NSUInteger i) {
     XCTAssertEqual(self.fileNames.count, 0u);
 }
 
+// MARK: Marks (CH34)
+
+// A store that held nothing at the mark holds nothing from before it.
+- (void)testAnEmptyStoreHoldsNothingFromBeforeAMark {
+    XCTAssertFalse([self.store mayHoldEntriesFromBeforeMark:@"change"]);
+    [self.store setData:VibeTestData(10, 1) forKey:@"k" format:1 sharedName:nil];
+    XCTAssertFalse([self.store mayHoldEntriesFromBeforeMark:@"change"], @"the mark keeps its first answer");
+}
+
+// A store that held entries at the mark may hold them until the age limit
+// has passed since, and the mark outlives a reopening.
+- (void)testEntriesFromBeforeAMarkLastTheAgeLimit {
+    [self.store setData:VibeTestData(10, 1) forKey:@"k" format:1 sharedName:nil];
+    self.store.ageLimit = 10 * 86400;
+    XCTAssertTrue([self.store mayHoldEntriesFromBeforeMark:@"change"]);
+    [self.store setDayOffsetForTesting:10];
+    XCTAssertTrue([self.store mayHoldEntriesFromBeforeMark:@"change"]);
+    [self reopen];
+    self.store.ageLimit = 10 * 86400;
+    [self.store setDayOffsetForTesting:11];
+    XCTAssertFalse([self.store mayHoldEntriesFromBeforeMark:@"change"]);
+    self.store.ageLimit = 0;
+    XCTAssertTrue([self.store mayHoldEntriesFromBeforeMark:@"change"], @"with no age limit, nothing ages out");
+}
+
+// A renewal, as after an import under the old keys, starts the days again.
+- (void)testARenewedMarkStartsAgain {
+    self.store.ageLimit = 10 * 86400;
+    XCTAssertFalse([self.store mayHoldEntriesFromBeforeMark:@"change"]);
+    [self.store setDayOffsetForTesting:30];
+    [self.store renewMark:@"change"];
+    XCTAssertTrue([self.store mayHoldEntriesFromBeforeMark:@"change"]);
+    [self.store setDayOffsetForTesting:41];
+    XCTAssertFalse([self.store mayHoldEntriesFromBeforeMark:@"change"]);
+}
+
 @end
