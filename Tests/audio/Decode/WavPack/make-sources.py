@@ -61,34 +61,89 @@ def wav(path, rate, channels, frames, bits, container=None, float32=False, mask=
     Path(path).write_bytes(b'RIFF' + struct.pack('<I', len(body)) + body)
 
 
-def dsf(path, seconds, rate=2822400):
-    """A stereo DSD file, DSD64 by default, of a 1 kHz sine at half scale, a
-    different phase in each channel, by a second-order delta-sigma modulator."""
+def dsf(path, samples, rate=2822400, channel_type=2, lsb_first=True):
+    """A DSD file of a 1 kHz sine at half scale, a different phase in each
+    channel, by a second-order delta-sigma modulator: DSD64 stereo by
+    default, `samples` a channel. The DSF fixtures beside this script are
+    these files, so a test can decode the same DSD from a DSF and a .wv."""
     block = 4096
-    bits = int(rate * seconds)
+    count = {1: 1, 2: 2, 7: 6}[channel_type]
     channels = []
-    for c in range(2):
-        out = bytearray((bits + 7) // 8)
+    for c in range(count):
+        out = bytearray((samples + 7) // 8)
         i1 = i2 = 0.0
         y = 0.0
-        for n in range(bits):
+        for n in range(samples):
             x = 0.5 * math.sin(2 * math.pi * 1000 * n / rate + c)
             i1 += x - y
             i2 += i1 - y
             y = 1.0 if i2 >= 0 else -1.0
             if y > 0:
-                out[n >> 3] |= 1 << (n & 7)  # LSB first
+                out[n >> 3] |= (1 << (n & 7)) if lsb_first else (0x80 >> (n & 7))
         out += b'\x00' * (-len(out) % block)  # zeros pad the last block, as the format asks
         channels.append(out)
     data = bytearray()
     for b in range(0, len(channels[0]), block):
         for c in channels:
             data += c[b:b + block]
-    fmt = struct.pack('<4sQIIIIIIQII', b'fmt ', 52, 1, 0, 2, 2, rate, 1, bits, block, 0)
+    fmt = struct.pack('<4sQIIIIIIQII', b'fmt ', 52, 1, 0, channel_type, count, rate, 1 if lsb_first else 8,
+                      samples, block, 0)
     data_chunk = b'data' + struct.pack('<Q', 12 + len(data)) + data
     total = 28 + len(fmt) + len(data_chunk)
     head = b'DSD ' + struct.pack('<QQQ', 28, total, 0)
     Path(path).write_bytes(head + fmt + data_chunk)
+
+
+def wavpack_blocks(data):
+    """Each block's offset and length: "wvpk", then its size after these 8 bytes."""
+    at = 0
+    while at + 32 <= len(data) and data[at:at + 4] == b'wvpk':
+        size = struct.unpack_from('<I', data, at + 4)[0] + 8
+        yield at, size
+        at += size
+
+
+def resum(data, at, length):
+    """Writes a block's checksum again, as AudioFileFixtures.h's VibeWavPackResum does."""
+    block = memoryview(data)[at:at + length]
+    sub = 32
+    while sub + 2 <= length:
+        ident = block[sub]
+        header = 4 if ident & 0x80 else 2
+        size = block[sub + 1] * 2 + ((block[sub + 2] << 9) + (block[sub + 3] << 17) if ident & 0x80 else 0)
+        if ident & 0x3F == 0x2F:
+            total = 0xFFFFFFFF
+            for w in range(0, sub, 2):
+                total = (total * 3 + block[w] + (block[w + 1] << 8)) & 0xFFFFFFFF
+            if size == 2:
+                total ^= total >> 16
+                struct.pack_into('<H', block, sub + header, total & 0xFFFF)
+            else:
+                struct.pack_into('<I', block, sub + header, total)
+        sub += header + size
+
+
+def damaged(source, out, how):
+    """A copy of a DSD .wv, damaged as `how` names. "no-qmode" clears the
+    source's bit order from every block's new config, so the file is told as
+    DSD by its blocks' DSD flag alone. "hybrid" sets the first block's hybrid
+    flag, which WavPack's encoder never writes for DSD."""
+    data = bytearray(Path(source).read_bytes())
+    for at, length in wavpack_blocks(data):
+        if how == 'hybrid':
+            data[at + 24] |= 0x08
+            resum(data, at, length)
+            break
+        sub = at + 32
+        while sub + 2 <= at + length:
+            ident = data[sub]
+            header = 4 if ident & 0x80 else 2
+            size = data[sub + 1] * 2 + ((data[sub + 2] << 9) + (data[sub + 3] << 17) if ident & 0x80 else 0)
+            if ident & 0x3F == 0x2A and size >= 2:
+                data[sub + header + 1] = 0
+            sub += header + size
+        resum(data, at, length)
+    Path(out).write_bytes(bytes(data))
 
 
 def png(path):
@@ -101,6 +156,9 @@ def png(path):
 
 
 def main():
+    if sys.argv[1] == '--damage':
+        damaged(sys.argv[3], sys.argv[4], sys.argv[2])
+        return
     out = Path(sys.argv[1])
     png(out / 'cover.png')
     wav(out / 's16.wav', 44100, 2, 8192, 16)
@@ -113,8 +171,13 @@ def main():
     wav(out / 'negated.wav', 44100, 2, 8192, 16, negated=True)
     wav(out / 'long.wav', 44100, 2, 640000, 16)
     wav(out / 'fade.wav', 44100, 2, 8192, 16, silent_tail=2048)
-    dsf(out / 'dsd.dsf', 0.05)
-    dsf(out / 'dsd256.dsf', 0.005, rate=11289600)
+    dsf(out / 'dsd.dsf', 141120)
+    dsf(out / 'dsd-msb.dsf', 141120, lsb_first=False)
+    dsf(out / 'dsd128-48k.dsf', 122880, rate=6144000, channel_type=1)
+    dsf(out / 'dsd256.dsf', 56448, rate=11289600)
+    dsf(out / 'dsd512.dsf', 90112, rate=22579200)
+    dsf(out / 'dsd-surround.dsf', 45056, channel_type=7)
+    dsf(out / 'dsd-odd.dsf', 141123)
 
 
 if __name__ == '__main__':

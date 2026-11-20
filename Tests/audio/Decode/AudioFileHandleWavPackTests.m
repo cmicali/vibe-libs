@@ -1,7 +1,7 @@
 //
 // WavPack through AudioFileHandle, by libwavpack: the facts each kind of file
 // states, a lossless decode bit for bit, seeks, a hybrid file lossless with
-// its correction file and lossy without it, DSD as PCM, a file that never
+// its correction file and lossy without it, DSD as its DSF decodes, a file that never
 // stated its length, and cut files. Also the AIFF-C spellings, which dr_wav
 // plays. AudioFileHandleReadAheadTests interrupts a hybrid pair's reads.
 //
@@ -155,12 +155,9 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 
 // A seek lands on the frame asked for, inside a block, at a block's start,
 // and across many blocks, both ways. Past the end, it lands at the end, and
-// reads nothing. TRAP: libwavpack's DSD decimator estimates a file's first 9
-// frames from the frames its first decode holds, so after a seek into a DSD
-// file's first 16 frames they differ from a read from the start. From frame
-// 16 on, it seeks exactly.
+// reads nothing.
 - (void)testSeeksLandExactly {
-    for (NSString *name in @[@"s16.wv", @"surround.wv", @"dsd.wv", @"hybrid.wv"]) {
+    for (NSString *name in @[@"s16.wv", @"surround.wv", @"hybrid.wv"]) {
         AudioFileHandle *handle = [self open:VibeWavPackFixture(name) interleaved:YES];
         NSMutableData *whole = [NSMutableData data];
         XCTAssertTrue(VibeReadToEnd(handle, whole, NULL), @"%@", name);
@@ -169,7 +166,6 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
         XCTAssertEqual(whole.length, (NSUInteger)length * frameBytes, @"%@", name);
         for (NSNumber *target in @[@(length - 300), @0, @1, @1023, @1024, @3000, @17, @(length / 2), @5]) {
             AVAudioFramePosition at = target.longLongValue;
-            if ([name isEqualToString:@"dsd.wv"] && at > 0 && at < 16) continue;
             NSData *read = VibeDecodeRange(handle, at, 300);
             NSData *slice = [whole subdataWithRange:NSMakeRange((NSUInteger)at * frameBytes,
                                                                 MIN(300 * frameBytes, whole.length - (NSUInteger)at * frameBytes))];
@@ -368,21 +364,79 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
     XCTAssertEqualObjects(pcm, VibeWavPackExpected(kLossless[0]));
 }
 
-- (void)testDSDPlaysAsPCM {
-    AudioFileHandle *handle = [self open:VibeWavPackFixture(@"dsd.wv") interleaved:NO];
-    XCTAssertEqual(handle.fileFormat.sampleRate, 352800);
-    XCTAssertEqual(handle.fileFormat.streamDescription->mFormatID, (AudioFormatID)'wvpk');
-    XCTAssertEqual(handle.fileFormat.channelCount, 2u);
-    XCTAssertEqual(handle.length, 2822400 / 20 / 8);
-    NSMutableData *pcm = [NSMutableData data];
-    XCTAssertTrue(VibeReadToEnd(handle, pcm, NULL));
-    const float *samples = pcm.bytes;
-    float peak = 0;
-    for (NSUInteger i = pcm.length / sizeof(float) / 4; i < pcm.length / sizeof(float); i++) {
-        peak = MAX(peak, fabsf(samples[i]));
+// The DSD fixtures: each .wv was packed from the .dsf of the same name, so
+// both hold the same DSD. They cover both of a DSF's bit orders, mono, 5.1,
+// the 48 kHz family, and DSD64 to DSD512.
+static NSArray<NSString *> *VibeDSDFixtures(void) {
+    return @[@"dsd", @"dsd-msb", @"dsd128-48k", @"dsd256", @"dsd512", @"dsd-surround"];
+}
+
+// DSD in WavPack goes through the handle's own converter, as a DSF's does, so
+// the same DSD decodes to the same samples, bit for bit, in either layout. The
+// facts are the DSF's: float PCM at 176.4 kHz, or 192 kHz in the 48 kHz
+// family, a frame for each 16 DSD samples at DSD64, and the DSD rate.
+// DSD256 and DSD512 play, since they no longer decode past 768 kHz.
+- (void)testDSDDecodesAsItsDSFDoes {
+    for (NSString *name in VibeDSDFixtures()) {
+        for (NSNumber *interleaved in @[@YES, @NO]) {
+            NSURL *wvURL = VibeWavPackFixture([name stringByAppendingPathExtension:@"wv"]);
+            AudioFileHandle *wv = [self open:wvURL interleaved:interleaved.boolValue];
+            AudioFileHandle *dsf = [self open:VibeWavPackFixture([name stringByAppendingPathExtension:@"dsf"])
+                                  interleaved:interleaved.boolValue];
+            if (!wv || !dsf) continue;
+            XCTAssertEqualObjects(wv.decoderName, @"libwavpack", @"%@", name);
+            XCTAssertEqualObjects(dsf.decoderName, @"dsd", @"%@", name);
+            XCTAssertGreaterThan(wv.dsdSampleRate, 0, @"%@", name);
+            XCTAssertEqual(wv.dsdSampleRate, dsf.dsdSampleRate, @"%@", name);
+            XCTAssertEqual(wv.length, dsf.length, @"%@", name);
+            XCTAssertEqual(wv.fileFormat.sampleRate, dsf.fileFormat.sampleRate, @"%@", name);
+            XCTAssertEqual(wv.fileFormat.channelCount, dsf.fileFormat.channelCount, @"%@", name);
+            XCTAssertEqual(wv.fileFormat.streamDescription->mFormatID, kAudioFormatLinearPCM, @"%@", name);
+            XCTAssertEqual(wv.fileFormat.commonFormat, AVAudioPCMFormatFloat32, @"%@", name);
+            XCTAssertEqual(wv.fileFormat.streamDescription->mBitsPerChannel, 32u, @"%@", name);
+            XCTAssertEqualObjects(wv.processingFormat, dsf.processingFormat, @"%@", name);
+            NSMutableData *fromWV = [NSMutableData data], *fromDSF = [NSMutableData data];
+            XCTAssertTrue(VibeReadToEnd(wv, fromWV, NULL), @"%@", name);
+            XCTAssertTrue(VibeReadToEnd(dsf, fromDSF, NULL), @"%@", name);
+            XCTAssertEqual(fromWV.length, (NSUInteger)wv.length * wv.processingFormat.channelCount * sizeof(float), @"%@", name);
+            XCTAssertTrue([fromWV isEqualToData:fromDSF], @"%@, interleaved %@", name, interleaved);
+        }
     }
-    XCTAssertGreaterThan(peak, 0.35f);
-    XCTAssertLessThan(peak, 0.65f);
+    AudioFileHandle *dsd64 = [self open:VibeWavPackFixture(@"dsd.wv") interleaved:YES];
+    XCTAssertEqual(dsd64.fileFormat.sampleRate, 176400);
+    XCTAssertEqual(dsd64.dsdSampleRate, 2822400);
+    XCTAssertEqual(dsd64.length, 141120 / 16);
+    AudioFileHandle *dsd512 = [self open:VibeWavPackFixture(@"dsd512.wv") interleaved:YES];
+    XCTAssertEqual(dsd512.fileFormat.sampleRate, 176400);
+    XCTAssertEqual(dsd512.dsdSampleRate, 22579200);
+    AudioFileHandle *family48 = [self open:VibeWavPackFixture(@"dsd128-48k.wv") interleaved:YES];
+    XCTAssertEqual(family48.fileFormat.sampleRate, 192000);
+    XCTAssertEqual(family48.fileFormat.channelCount, 1u);
+}
+
+// A seek primes the converter as a DSF's does, so a seek's output equals a
+// read's from the start, sample for sample, at every frame, the first ones
+// included, and across libwavpack's blocks both ways.
+- (void)testADSDSeekEqualsAReadFromTheStart {
+    for (NSString *name in @[@"dsd.wv", @"dsd512.wv", @"dsd-surround.wv"]) {
+        AudioFileHandle *handle = [self open:VibeWavPackFixture(name) interleaved:NO];
+        NSMutableData *whole = [NSMutableData data];
+        XCTAssertTrue(VibeReadToEnd(handle, whole, NULL), @"%@", name);
+        AVAudioFramePosition length = handle.length;
+        size_t frameBytes = handle.processingFormat.channelCount * sizeof(float);
+        for (NSNumber *target in @[@(length - 100), @0, @1, @5, @26, @27, @53, @511, @512, @(length / 2), @3,
+                                   @(length - 1), @700]) {
+            AVAudioFramePosition at = target.longLongValue;
+            NSData *read = VibeDecodeRange(handle, at, 300);
+            NSUInteger count = MIN(300 * frameBytes, whole.length - (NSUInteger)at * frameBytes);
+            XCTAssertEqualObjects(read, [whole subdataWithRange:NSMakeRange((NSUInteger)at * frameBytes, count)],
+                                  @"%@ at %lld", name, at);
+            XCTAssertEqual(handle.framePosition, at + (AVAudioFramePosition)(read.length / frameBytes), @"%@ at %lld", name, at);
+        }
+        XCTAssertTrue([handle seekToFrame:length + 10 error:NULL], @"%@", name);
+        XCTAssertEqual(handle.framePosition, length, @"%@", name);
+        XCTAssertEqual(VibeDecodeRange(handle, length, 64).length, 0u, @"%@", name);
+    }
 }
 
 // A file whose first block never stated its length, as an encoder writing to
@@ -397,12 +451,6 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 }
 
 #pragma mark - Damage
-
-// DSD256 would decode to 1.4 MHz, past the handle's 768 kHz, so it is refused.
-// CoreAudio has no WavPack reader, so nothing plays it.
-- (void)testDSD256IsRefused {
-    XCTAssertNil([[AudioFileHandle alloc] initForReading:VibeWavPackFixture(@"dsd256.wv") error:NULL]);
-}
 
 // A header whose shift leaves no bits in the sample would state PCM of 0 bits.
 // It is refused.
@@ -465,6 +513,70 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
     XCTAssertEqualObjects([pcm subdataWithRange:NSMakeRange(2048 * frameBytes, 1024 * frameBytes)], silence);
     XCTAssertEqualObjects([pcm subdataWithRange:NSMakeRange(3072 * frameBytes, pcm.length - 3072 * frameBytes)],
                           [expected subdataWithRange:NSMakeRange(3072 * frameBytes, pcm.length - 3072 * frameBytes)]);
+}
+
+// A source DSF whose sample count is not a multiple of 8: WavPack's encoder
+// drops the last byte's few samples, with a warning, where the DSF keeps them
+// and reads its padding as silence. So the two have the same length, and
+// only the last frames, whose filters reach that byte, differ, by those
+// samples' share alone.
+- (void)testADSFsLastPartByteIsDroppedInWavPack {
+    NSData *wv = VibeDecodeFile(VibeWavPackFixture(@"dsd-odd.wv"));
+    NSData *dsf = VibeDecodeFile(VibeWavPackFixture(@"dsd-odd.dsf"));
+    XCTAssertEqual(wv.length, dsf.length);
+    XCTAssertEqual(wv.length, 141123 / 16 * 2 * sizeof(float));
+    NSUInteger same = wv.length - 27 * 2 * sizeof(float);
+    XCTAssertEqualObjects([wv subdataWithRange:NSMakeRange(0, same)], [dsf subdataWithRange:NSMakeRange(0, same)]);
+    const float *a = wv.bytes, *b = dsf.bytes;
+    float most = 0;
+    for (NSUInteger i = same / sizeof(float); i < wv.length / sizeof(float); i++) {
+        most = MAX(most, fabsf(a[i] - b[i]));
+    }
+    XCTAssertGreaterThan(most, 0);
+    XCTAssertLessThan(most, 0.05f); // 0.023, -33 dBFS, for the fixture's 3 samples
+}
+
+// DSD is told by its blocks' DSD flag, as libwavpack decodes it, not by the
+// source's bit order in the config, which damage can clear. Without it, the
+// file still plays as DSD, the same samples.
+- (void)testDSDWithoutItsBitOrderStillPlaysAsDSD {
+    AudioFileHandle *handle = [self open:VibeWavPackFixture(@"dsd-no-qmode.wv") interleaved:YES];
+    XCTAssertEqual(handle.dsdSampleRate, 2822400);
+    XCTAssertEqualObjects(VibeDecodeFile(VibeWavPackFixture(@"dsd-no-qmode.wv")), VibeDecodeFile(VibeWavPackFixture(@"dsd.wv")));
+}
+
+// WavPack's encoder has no hybrid DSD, so a DSD file that says hybrid is
+// damaged, and refused (recommended, open to change). It never looks for a
+// correction file, even one beside it.
+- (void)testAHybridDSDFileIsRefused {
+    NSURL *url = [self.scratch URLByAppendingPathComponent:@"dsd-hybrid.wv"];
+    XCTAssertTrue([[NSData dataWithContentsOfURL:VibeWavPackFixture(@"dsd-hybrid.wv")] writeToURL:url atomically:YES]);
+    XCTAssertTrue([[NSData dataWithContentsOfURL:VibeWavPackFixture(@"hybrid.wvc")]
+                   writeToURL:[self.scratch URLByAppendingPathComponent:@"dsd-hybrid.wvc"] atomically:YES]);
+    XCTAssertNil([[AudioFileHandle alloc] initForReading:url error:NULL]);
+}
+
+// A DSD file cut short opens on its stated length, as a PCM one does, and
+// reads up to its last whole block, with no error. Only the frames whose
+// filters reach past the cut differ from the whole file's, since the cut's
+// bytes read as silence. A seek inside what is there lands as in the whole file.
+- (void)testACutDSDFileDecodesUpToTheCut {
+    NSData *bytes = [NSData dataWithContentsOfURL:VibeWavPackFixture(@"dsd.wv")];
+    NSMutableData *whole = [NSMutableData data];
+    XCTAssertTrue(VibeReadToEnd([self open:VibeWavPackFixture(@"dsd.wv") interleaved:YES], whole, NULL));
+    NSURL *half = [self.scratch URLByAppendingPathComponent:@"half.wv"];
+    XCTAssertTrue([[bytes subdataWithRange:NSMakeRange(0, bytes.length / 2)] writeToURL:half atomically:YES]);
+    AudioFileHandle *handle = [self open:half interleaved:YES];
+    XCTAssertEqual(handle.length, 141120 / 16);
+    NSMutableData *pcm = [NSMutableData data];
+    XCTAssertTrue(VibeReadToEnd(handle, pcm, NULL));
+    const size_t frameBytes = 2 * sizeof(float);
+    XCTAssertGreaterThan(pcm.length, 64 * frameBytes);
+    XCTAssertLessThan(pcm.length, whole.length);
+    NSUInteger same = pcm.length - 27 * frameBytes;
+    XCTAssertEqualObjects([pcm subdataWithRange:NSMakeRange(0, same)], [whole subdataWithRange:NSMakeRange(0, same)]);
+    XCTAssertEqualObjects(VibeDecodeRange(handle, 100, 200), [whole subdataWithRange:NSMakeRange(100 * frameBytes, 200 * frameBytes)],
+                          @"a seek inside what is there");
 }
 
 #pragma mark - The lists

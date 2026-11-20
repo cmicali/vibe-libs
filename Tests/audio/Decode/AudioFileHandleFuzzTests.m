@@ -33,8 +33,9 @@
 //  |                                   | and iTunes gapless, free format, mode changes, junk, tags  |         |            |         |
 //  | AudioFileHandleFuzzCoreAudioTests | AAC, ADTS, QuickTime, ALAC in MP4 and CAF, LPCM in CAF,    | 10      | 8          | 2.4     |
 //  |                                   | Ogg Vorbis (libvorbis), Opus, a WAV past dr_wav's 768 kHz  |         |            |         |
-//  | AudioFileHandleFuzzWavPackTests   | every WavPack fixture: 8 to 32 bits, float, 5.1, hybrid,   | 10      | 8          |         |
-//  |                                   | DSD, and a file that never states its length. And hybrid's |         |            |         |
+//  | AudioFileHandleFuzzWavPackTests   | every WavPack fixture: 8 to 32 bits, float, 5.1, hybrid,   | 15      | 8          |         |
+//  |                                   | DSD64 to DSD512 through the DSD converter, mono to 5.1,    |         |            |         |
+//  |                                   | and a file that never states its length. And hybrid's      |         |            |         |
 //  |                                   | correction file, damaged beside its .wv                    |         |            |         |
 //  | AudioFileHandleFuzzAPETests       | Monkey's Audio: each level, 8 to 32 bits, float, 5.1, an   | 14      | 8          | 0.6     |
 //  |                                   | AIFF's samples, an APEv2 tag, an ID3v2 tag before it       |         |            |         |

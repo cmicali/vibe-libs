@@ -1078,6 +1078,29 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
     XCTAssertEqual(paired.bitDepth, 16);
 }
 
+// DSD in WavPack reads as its DSF does: lossless, 1 bit, and the DSD rate as
+// the sample rate, though TagLib states a byte's rate, an eighth of it. Its
+// kind stays WavPack, and its bit rate is the file's, as a FLAC's is.
+- (void)testAWavPackDSDFileReadsAsItsDSFDoes {
+    for (NSString *name in @[@"dsd", @"dsd128-48k", @"dsd512"]) {
+        AudioTrackMetadata *wv = Parse(VibeWavPackFixture([name stringByAppendingPathExtension:@"wv"]), NULL);
+        AudioTrackMetadata *dsf = Parse(VibeWavPackFixture([name stringByAppendingPathExtension:@"dsf"]), NULL);
+        XCTAssertTrue(wv.parsedOK, @"%@", name);
+        XCTAssertEqualObjects(wv.fileType, VibeAudioFileFormatWavPack, @"%@", name);
+        XCTAssertEqualObjects(dsf.fileType, VibeAudioFileFormatDSD, @"%@", name);
+        XCTAssertTrue(wv.isLossless, @"%@", name);
+        XCTAssertEqual(wv.bitDepth, 1, @"%@", name);
+        XCTAssertEqualObjects(wv.sampleRate, dsf.sampleRate, @"%@", name);
+        XCTAssertEqualWithAccuracy(wv.duration, dsf.duration, 0.002, @"%@", name);
+        XCTAssertGreaterThan(wv.bitrate.integerValue, 0, @"%@", name);
+    }
+    XCTAssertEqualObjects(Parse(VibeWavPackFixture(@"dsd.wv"), NULL).sampleRate, @2822400);
+    XCTAssertEqualObjects(Parse(VibeWavPackFixture(@"dsd128-48k.wv"), NULL).sampleRate, @6144000);
+    AudioTrackMetadata *hybrid = Parse(VibeWavPackFixture(@"dsd-hybrid.wv"), NULL);
+    XCTAssertFalse(hybrid.isLossless, @"a DSD file that says hybrid, which audio/Decode refuses");
+    XCTAssertEqual(hybrid.bitDepth, 0);
+}
+
 // A DSF: its ID3v2 tag, its kind, and the DSD rate, which the parse keeps
 // as the sample rate, as TagLib reads it.
 - (void)testADSFReadsAsLosslessDSDAtItsDSDRate {
