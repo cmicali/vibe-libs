@@ -29,6 +29,10 @@ FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatVorbis;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatOpus;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatMonkeysAudio;
 
+// The format ID audio/Decode states for a Monkey's Audio file. The SDK names
+// no constant.
+enum { kVibeAudioFormatMonkeysAudio = 'APE ' };
+
 // The codec's name, or nil for one without a constant here (PCM among them:
 // its name is its container's).
 FOUNDATION_EXPORT VibeAudioFileFormat _Nullable VibeAudioFileFormatForCodec(AudioFormatID codec);

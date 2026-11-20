@@ -3,10 +3,10 @@
 //  vibe-libs
 //
 //  The private header AudioFileHandle.m and its decodes share: dr_mp3's
-//  (AudioFileHandle+MPEG.m), and dr_flac's, dr_wav's and libvorbis's
-//  (AudioFileHandle+Stream.m). It holds the ivars the decodes read, the reads
-//  and waits they call, and the decodes' methods the core calls. Only those
-//  three files import it.
+//  (AudioFileHandle+MPEG.m), dr_flac's, dr_wav's and libvorbis's
+//  (AudioFileHandle+Stream.m), and Monkey's Audio's (AudioFileHandle+APE.m).
+//  It holds the ivars the decodes read, the reads and waits they call, and
+//  the decodes' methods the core calls. Only those four files import it.
 //
 
 #import "AudioFileHandle.h"
@@ -139,6 +139,15 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 - (BOOL)readAPEIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
 
 @end
+
+// The lossless formats' source-depth flag for a sample width, as CoreAudio's
+// parser states a FLAC's: the narrowest of 16, 20, 24, and 32 bits that holds
+// it. An 8 or 12-bit file states 16, and a 28-bit one 32. With no flag,
+// bit-perfect output would assume 24.
+static inline AudioFormatFlags VibeLosslessDepthFlag(UInt32 depth) {
+    return depth <= 16 ? kAppleLosslessFormatFlag_16BitSourceData : depth <= 20 ? kAppleLosslessFormatFlag_20BitSourceData
+            : depth <= 24 ? kAppleLosslessFormatFlag_24BitSourceData : kAppleLosslessFormatFlag_32BitSourceData;
+}
 
 // AudioFileHandle+Stream.m's layout for a WAVE channel mask, which the APE
 // open shares.

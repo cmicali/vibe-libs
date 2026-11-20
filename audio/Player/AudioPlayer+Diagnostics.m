@@ -63,7 +63,7 @@ static NSString *VibeSampleFormatName(AVAudioFormat *format) {
         source[@"file"] = file.url.lastPathComponent ?: @"";
         source[@"codec"] = VibeCodecName(asbd->mFormatID);
         source[@"lossless"] = @(asbd->mFormatID == kAudioFormatLinearPCM || asbd->mFormatID == kAudioFormatFLAC
-                                || asbd->mFormatID == kAudioFormatAppleLossless || asbd->mFormatID == 'APE ');
+                                || asbd->mFormatID == kAudioFormatAppleLossless || asbd->mFormatID == kVibeAudioFormatMonkeysAudio);
         source[@"sampleRate"] = @(file.fileFormat.sampleRate);
         source[@"channels"] = @(file.fileFormat.channelCount);
         // Only PCM's flags say float: a lossless codec's flags are its source

@@ -33,7 +33,8 @@ The template adds only `MACLib/*.cpp`, with the dr_ decoders' flags: `-O3` in ev
 ## What it refuses
 
 - **A file newer than 3.99**, the format every SDK since 2004 writes, but for 4.11, which the SDK takes. `VibeAPEDecoderOpen` checks this before the SDK's own factory, since that factory keeps the file's info when it refuses the version.
-- **A frame larger than Insane's 1,179,648 audio frames.** The SDK takes up to ten million and sizes its buffers by it.
+- **A frame larger than Insane's 1,179,648 audio frames, or of more than 64 MB of PCM.** The SDK takes up to ten million frames, and sizes three buffers by a frame. Insane's frame of 32 channels at 32 bits would be 151 MB.
+- **A seek table shorter than the frames, or out of order.** The SDK reads the table at the frame count, whatever size the table states, so a short one read past its end. It takes a 32-bit entry smaller than the one before as a jump of 4 GB, and a frame's byte count into 32 bits, so a table out of order allocated a frame of gigabytes. Every frame must start inside the file, after the one before.
 - **A sample width other than 8, 16, 24, or 32 bits.** 32 bits may be integer or float.
 - **Any file whose header the SDK refuses**: no `MAC ` or `MACF` within 1 MB of the start, no frames, over 32 channels, or a final frame longer than a frame.
 
@@ -57,6 +58,7 @@ The wall time equals the CPU time: the worker decodes while the caller waits, so
 - **Every level is far faster than playback needs.** Even Insane decodes a second of audio in 11 ms.
 - **The whole-file passes feel it.** The waveform and the analysis read a whole file. A one-hour mix takes about 7 s at Normal and 40 s at Insane, against under 1 s for FLAC.
 - **Insane's seek is the one cost a listener can notice.** A seek decodes from the start of its 26.7 s frame, up to 0.3 s. Extra High's 25 ms is not noticed.
+- **The waveform's detail pass seeks before each block of 65,536 frames, so a seek to where the decoder already is must cost nothing** (`VibeAPEDecoderSeek`). Without that, each seek dropped the frame decoded ahead and decoded its own frame again. Measured on 2026-11-20 at a load of 22, the same five minutes read that way: Normal at 483× real time with the skip, against 159× without it. Insane at 86×, against under 5.4× without it (five runs did not finish in 280 s).
 - **Nothing is special-cased yet.** The SDK can decode frames on more threads (`SetNumberOfThreads`), which would speed the whole-file passes at the cost of more cores. The handle uses one.
 
 ## Making test files
@@ -72,7 +74,7 @@ xcrun clang++ -std=c++11 -O2 -DPLATFORM_APPLE -w -I Source/MACLib -I Source/Shar
 
 ## Updating
 
-Copy the same files from the new SDK, flatten them into `MACLib/` again, and re-apply the four edits. Let the linker report anything new. Diff `MACLib.cpp`'s `CreateIAPEDecompressCore` against `VibeAPEDecoderOpen`'s version check. Then run this repo's `make test`, whose `AudioFileHandleAPETests` decode every level and width bit for bit, and whose `AudioFileHandleFuzzAPETests` and streaming tests read the fixtures through it.
+Copy the same files from the new SDK, flatten them into `MACLib/` again, and re-apply the three edits. Let the linker report anything new. Diff `MACLib.cpp`'s `CreateIAPEDecompressCore` against `VibeAPEDecoderOpen`'s version check. Then run this repo's `make test`, whose `AudioFileHandleAPETests` decode every level and width bit for bit, and whose `AudioFileHandleFuzzAPETests` and streaming tests read the fixtures through it.
 
 ## License
 

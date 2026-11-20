@@ -739,15 +739,13 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCode
     self.extraTags = extras;
 }
 
-// PCM's bits per channel, or a lossless codec's source depth from its flags:
-// ALAC's, FLAC's, or Monkey's Audio's ('APE ', audio/Decode's ID). 0 for a
+// PCM's bits per channel, or ALAC's source depth from its flags. 0 for a
 // lossy codec.
 static NSInteger CoreAudioBitDepth(const AudioStreamBasicDescription &format) {
     if (format.mFormatID == kAudioFormatLinearPCM) {
         return format.mBitsPerChannel <= 64 ? format.mBitsPerChannel : 0;
     }
-    if (format.mFormatID == kAudioFormatAppleLossless || format.mFormatID == kAudioFormatFLAC
-            || format.mFormatID == 'APE ') {
+    if (format.mFormatID == kAudioFormatAppleLossless || format.mFormatID == kAudioFormatFLAC) {
         switch (format.mFormatFlags) {
             case kAppleLosslessFormatFlag_16BitSourceData: return 16;
             case kAppleLosslessFormatFlag_20BitSourceData: return 20;

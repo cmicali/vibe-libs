@@ -102,8 +102,7 @@ AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels) {
     UInt32 depth = _flac->bitsPerSample, channels = _flac->channels;
     AudioStreamBasicDescription description = {
         .mSampleRate = _flac->sampleRate, .mFormatID = kAudioFormatFLAC,
-        .mFormatFlags = depth <= 16 ? kAppleLosslessFormatFlag_16BitSourceData : depth <= 20 ? kAppleLosslessFormatFlag_20BitSourceData
-                : depth <= 24 ? kAppleLosslessFormatFlag_24BitSourceData : kAppleLosslessFormatFlag_32BitSourceData,
+        .mFormatFlags = VibeLosslessDepthFlag(depth),
         .mFramesPerPacket = _flac->maxBlockSizeInPCMFrames, .mChannelsPerFrame = channels,
     };
     AVAudioChannelLayout *layout = channels >= 3 && channels <= 8 ? VibeMaskLayout(masks[channels - 3], channels) : nil;
@@ -323,7 +322,9 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         free(_vorbis);
         _vorbis = NULL;
     }
-    VibeAPEDecoderClose(_ape);
+    // Off this thread: the close joins the SDK's worker, and a handle's last
+    // release can land where main waits (audio/Decode/AGENTS.md).
+    VibeAPEDecoderCloseLater(_ape);
     _ape = NULL;
 }
 

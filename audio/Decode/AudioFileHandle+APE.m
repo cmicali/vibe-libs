@@ -12,7 +12,8 @@
 #import "AudioFileHandleInternal.h"
 #import "VibeMacros.h"
 
-// The format ID an APE file states. The SDK names no constant.
+// The format ID an APE file states. The SDK names no constant. AudioTypes'
+// kVibeAudioFormatMonkeysAudio is the same, which this piece cannot import.
 static const AudioFormatID kVibeMonkeysAudioFormat = 'APE ';
 
 @implementation AudioFileHandle (APE)
@@ -41,11 +42,9 @@ static int64_t VibeAPERead(void *user, int64_t position, void *buffer, int64_t c
         return NO;
     }
     VibeAPEFacts facts = VibeAPEDecoderFacts(_ape);
-    UInt32 depth = facts.bitsPerSample;
     AudioStreamBasicDescription description = {
         .mSampleRate = facts.sampleRate, .mFormatID = kVibeMonkeysAudioFormat,
-        .mFormatFlags = depth <= 16 ? kAppleLosslessFormatFlag_16BitSourceData
-                : depth <= 24 ? kAppleLosslessFormatFlag_24BitSourceData : kAppleLosslessFormatFlag_32BitSourceData,
+        .mFormatFlags = VibeLosslessDepthFlag(facts.bitsPerSample),
         .mFramesPerPacket = facts.blocksPerFrame, .mChannelsPerFrame = facts.channels,
     };
     if (facts.sampleRate == 0 || facts.channels == 0 || facts.length == 0

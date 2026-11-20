@@ -1096,7 +1096,7 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
         // The SDK's seek restarts at the frame that holds the target, so it
         // needs no restart after an interrupted read. It clamps a target
         // past the end to the end.
-        status = VibeAPEDecoderSeek(_ape, MAX(0, frame)) && !_streamReadFailed ? noErr : kAudioFilePositionError;
+        status = VibeAPEDecoderSeek(_ape, frame) && !_streamReadFailed ? noErr : kAudioFilePositionError;
     } else {
         status = !_codec || _writing ? kAudio_ParamError : ExtAudioFileSeek(_codec, MAX(0, frame));
     }

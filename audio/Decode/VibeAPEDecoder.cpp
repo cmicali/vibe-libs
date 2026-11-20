@@ -19,8 +19,12 @@
 #include "monkeys_audio/MACLib/APETag.h"
 #pragma clang diagnostic pop
 
+#include <Accelerate/Accelerate.h>
+#include <dispatch/dispatch.h>
+
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <new>
 #include <vector>
 
@@ -31,6 +35,10 @@ namespace {
 // The largest frame any encoder level writes: Insane's 16 × 73,728 audio
 // frames. The SDK takes up to ten million, and sizes its buffers by it.
 const int64_t kVibeAPELargestFrame = 73728 * 16;
+// The most bytes one frame of PCM may take. A decoder holds three such
+// buffers: its own, its worker's, and the worker's input. Insane's frame of
+// 8 channels at 32 bits takes 38 MB; 32 channels would take 151 MB.
+const int64_t kVibeAPELargestFrameBytes = 64 * 1024 * 1024;
 // The audio frames one SDK read decodes into the scratch buffer.
 const int64_t kVibeAPEChunk = 4096;
 
@@ -48,7 +56,7 @@ public:
         if (bytesRead) {
             *bytesRead = 0;
         }
-        if (m_failed) {
+        if (m_failed || !m_read) {
             return APE_ERROR_IO_READ;
         }
         if (count <= 0 || m_position >= m_size) {
@@ -92,6 +100,8 @@ public:
 
     bool failed() const { return m_failed; }
     void clearFailure() { m_failed = false; }
+    // Every read fails from here on, without calling the caller's function.
+    void detach() { m_read = nullptr; }
 
 private:
     VibeAPEReadFunction m_read;
@@ -128,12 +138,44 @@ uint32_t VibeAPEChannelMask(IAPEDecompress *decompress) {
     return 0;
 }
 
+// Whether the seek table has an entry for every frame, each after the one
+// before and no further from it than the file is long. `*firstOutside` is
+// the first frame that starts at or past the file's end, in a file cut
+// short, or the frame count. TRAP: the SDK reads the table at the frame
+// count, whatever size the table states, and reads a frame's byte count
+// from two of its entries into 32 bits: the last frame's from the file's
+// size. A short table, one whose 32-bit entries go backwards, which the SDK
+// takes for a jump of 4 GB, or a frame that starts past the end, would read
+// past the table or allocate a frame of gigabytes.
+bool VibeAPESeekTableHolds(CAPEInfo *info, int64 size, int64 *firstOutside) {
+    APE_FILE_INFO *file = reinterpret_cast<APE_FILE_INFO *>(info->GetInfo(IAPEInfo::APE_INFO_FILE_INFO));
+    if (!file || file->nSeekTableElements < 0 || static_cast<uint32>(file->nSeekTableElements) < file->nTotalFrames) {
+        return false;
+    }
+    *firstOutside = file->nTotalFrames;
+    int64 previous = -1;
+    for (uint32 frame = 0; frame < file->nTotalFrames; frame++) {
+        int64 at = info->GetInfo(IAPEInfo::APE_INFO_SEEK_BYTE, frame);
+        if (at <= previous || (previous >= 0 && at - previous > size)) {
+            return false;
+        }
+        if (at >= size && *firstOutside == file->nTotalFrames) {
+            *firstOutside = frame;
+        }
+        previous = at;
+    }
+    return true;
+}
+
+void VibeAPEDecoderCloseNow(void *decoder);
+
 } // namespace
 
 struct VibeAPEDecoder {
     VibeAPEIO *io = nullptr;
     IAPEDecompress *decompress = nullptr;
     VibeAPEFacts facts = {};
+    bool isFloat = false;
     int64_t blockAlign = 0;
     // The first audio frame past the file's bytes, once a frame's bytes ran
     // past its end: a file cut short. The length from the header past it is
@@ -143,11 +185,23 @@ struct VibeAPEDecoder {
     // the last frame, and steps past a damaged frame's silence.
     int64_t position = 0;
     // Up to here, reads deliver silence: the rest of a damaged frame. The SDK
-    // is then moved to it (`resync`), the next frame's start.
+    // already waits at its end, the next frame's start.
     int64_t silenceEnd = 0;
-    bool resync = false;
     std::vector<unsigned char> scratch;
 };
+
+namespace {
+
+void VibeAPEDecoderCloseNow(void *opaque) {
+    VibeAPEDecoder *decoder = static_cast<VibeAPEDecoder *>(opaque);
+    // The decompressor first: it joins its worker, and deletes the info and
+    // the tag, which hold the I/O.
+    delete decoder->decompress;
+    delete decoder->io;
+    delete decoder;
+}
+
+} // namespace
 
 extern "C" VibeAPEDecoder *VibeAPEDecoderOpen(VibeAPEReadFunction read, void *user, int64_t size, int *error) {
     int code = APE_ERROR_UNDEFINED;
@@ -159,90 +213,85 @@ extern "C" VibeAPEDecoder *VibeAPEDecoderOpen(VibeAPEReadFunction read, void *us
         // the last frame's bytes. So an open reads nothing at the file's end,
         // and a file still downloading opens from its head (this piece's
         // AGENTS.md). The SDK skips its ID3v1 check only for a WAV whose
-        // trailing chunk is 128 bytes; this checks always.
-        CAPETag *tag = new CAPETag(decoder->io, false, true);
-        CAPEInfo *info = new CAPEInfo(&code, decoder->io, tag);
-        if (code != APE_ERROR_SUCCESS) {
-            // A failed open never took the tag.
-            delete tag;
-            delete info;
-        } else {
+        // trailing chunk is 128 bytes; this checks always. The info takes the
+        // tag only when it opens.
+        std::unique_ptr<CAPETag> tag(new CAPETag(decoder->io, false, true));
+        std::unique_ptr<CAPEInfo> info(new CAPEInfo(&code, decoder->io, tag.get()));
+        if (code == APE_ERROR_SUCCESS) {
+            tag.release();
             // CreateIAPEDecompressEx2 keeps an info whose version it refuses,
             // so the version is checked first: 3.99 and older, and 4.11, as
-            // its own check takes.
+            // its own check takes. TRAP: the SDK's float step runs on 32-bit
+            // words whenever the float flag is set, whatever the width says.
+            // On a 16-bit file it read twice the bytes decoded, past the
+            // buffer (AudioFileHandleFuzzAPETests).
+            int64 firstOutside = 0;
             int64 version = info->GetInfo(IAPEInfo::APE_INFO_FILE_VERSION);
             int64 bits = info->GetInfo(IAPEInfo::APE_INFO_BITS_PER_SAMPLE);
+            int64 perFrame = info->GetInfo(IAPEInfo::APE_INFO_BLOCKS_PER_FRAME);
+            bool isFloat = info->GetInfo(IAPEInfo::APE_INFO_FORMAT_FLAGS) & APE_FORMAT_FLAG_FLOATING_POINT;
             if (version > APE_FILE_VERSION_NUMBER && version != 4110) {
                 code = VibeAPEErrorUnsupportedVersion;
-                delete info;
-            } else if (info->GetInfo(IAPEInfo::APE_INFO_BLOCKS_PER_FRAME) > kVibeAPELargestFrame) {
-                code = VibeAPEErrorFrameTooLarge;
-                delete info;
             } else if (bits != 8 && bits != 16 && bits != 24 && bits != 32) {
                 code = VibeAPEErrorUnsupportedDepth;
-                delete info;
+            } else if (isFloat && bits != 32) {
+                code = VibeAPEErrorUnsupportedDepth;
+            } else if (perFrame > kVibeAPELargestFrame
+                    || perFrame * info->GetInfo(IAPEInfo::APE_INFO_BLOCK_ALIGN) > kVibeAPELargestFrameBytes) {
+                code = VibeAPEErrorFrameTooLarge;
+            } else if (!VibeAPESeekTableHolds(info.get(), size, &firstOutside)) {
+                code = VibeAPEErrorBadSeekTable;
             } else {
+                decoder->isFloat = isFloat;
+                // A file cut short: its reads end where its frames' bytes do.
+                decoder->end = firstOutside * perFrame;
                 // It takes the info, and deletes it with itself.
-                decoder->decompress = CreateIAPEDecompressEx2(info, -1, -1, &code);
+                decoder->decompress = CreateIAPEDecompressEx2(info.release(), -1, -1, &code);
             }
         }
     } catch (...) {
         code = APE_ERROR_INSUFFICIENT_MEMORY;
     }
-    if (!decoder || !decoder->decompress || code != APE_ERROR_SUCCESS || decoder->io->failed()) {
-        VibeAPEDecoderClose(decoder);
-        if (error) {
-            *error = code != APE_ERROR_SUCCESS ? code : APE_ERROR_IO_READ;
+    if (decoder && decoder->decompress && code == APE_ERROR_SUCCESS && !decoder->io->failed()) {
+        IAPEDecompress *decompress = decoder->decompress;
+        VibeAPEFacts &facts = decoder->facts;
+        facts.sampleRate = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_SAMPLE_RATE));
+        facts.channels = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_CHANNELS));
+        facts.bitsPerSample = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_BITS_PER_SAMPLE));
+        facts.blocksPerFrame = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_BLOCKS_PER_FRAME));
+        facts.length = std::max<int64_t>(0, decompress->GetInfo(IAPEDecompress::APE_DECOMPRESS_TOTAL_BLOCKS));
+        try {
+            facts.channelMask = VibeAPEChannelMask(decompress);
+            // The SDK writes a read at its own frame size into the scratch
+            // buffer: the same, since the width is a whole number of bytes.
+            decoder->blockAlign = decompress->GetInfo(IAPEInfo::APE_INFO_BLOCK_ALIGN);
+            decoder->scratch.resize(static_cast<size_t>(kVibeAPEChunk * decoder->blockAlign));
+            return decoder;
+        } catch (...) {
+            code = APE_ERROR_INSUFFICIENT_MEMORY;
         }
-        return nullptr;
     }
-    IAPEDecompress *decompress = decoder->decompress;
-    VibeAPEFacts &facts = decoder->facts;
-    facts.sampleRate = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_SAMPLE_RATE));
-    facts.channels = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_CHANNELS));
-    facts.bitsPerSample = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_BITS_PER_SAMPLE));
-    facts.isFloat = decompress->GetInfo(IAPEInfo::APE_INFO_FORMAT_FLAGS) & APE_FORMAT_FLAG_FLOATING_POINT;
-    facts.blocksPerFrame = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_BLOCKS_PER_FRAME));
-    facts.version = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_FILE_VERSION));
-    facts.compressionLevel = static_cast<uint32_t>(decompress->GetInfo(IAPEInfo::APE_INFO_COMPRESSION_LEVEL));
-    facts.length = std::max<int64_t>(0, decompress->GetInfo(IAPEDecompress::APE_DECOMPRESS_TOTAL_BLOCKS));
-    // The SDK writes a read at its own frame size into the scratch buffer,
-    // which is sized here. A header whose sizes disagree is refused.
-    // TRAP: its float step runs on 32-bit words whenever the float flag is
-    // set, whatever the width says. On a 16-bit file it read twice the
-    // bytes decoded, past the buffer (AudioFileHandleFuzzAPETests).
-    decoder->blockAlign = static_cast<int64_t>(facts.channels) * facts.bitsPerSample / 8;
-    bool floatFlag = decompress->GetInfo(IAPEInfo::APE_INFO_FORMAT_FLAGS) & APE_FORMAT_FLAG_FLOATING_POINT;
-    if (decompress->GetInfo(IAPEInfo::APE_INFO_BLOCK_ALIGN) != decoder->blockAlign || decoder->blockAlign == 0
-            || facts.blocksPerFrame == 0 || (floatFlag && facts.bitsPerSample != 32)) {
-        VibeAPEDecoderClose(decoder);
-        if (error) {
-            *error = VibeAPEErrorUnsupportedDepth;
-        }
-        return nullptr;
+    VibeAPEDecoderClose(decoder);
+    if (error) {
+        *error = code != APE_ERROR_SUCCESS ? code : APE_ERROR_IO_READ;
     }
-    try {
-        facts.channelMask = VibeAPEChannelMask(decompress);
-        decoder->scratch.resize(static_cast<size_t>(kVibeAPEChunk * decoder->blockAlign));
-    } catch (...) {
-        VibeAPEDecoderClose(decoder);
-        if (error) {
-            *error = APE_ERROR_INSUFFICIENT_MEMORY;
-        }
-        return nullptr;
-    }
-    return decoder;
+    return nullptr;
 }
 
 extern "C" void VibeAPEDecoderClose(VibeAPEDecoder *decoder) {
+    if (decoder) {
+        VibeAPEDecoderCloseNow(decoder);
+    }
+}
+
+extern "C" void VibeAPEDecoderCloseLater(VibeAPEDecoder *decoder) {
     if (!decoder) {
         return;
     }
-    // The decompressor first: it joins its worker, and deletes the info and
-    // the tag, which read through the I/O.
-    delete decoder->decompress;
-    delete decoder->io;
-    delete decoder;
+    // Nothing the close does reads, and from here no read reaches the
+    // caller, which may be gone by the time the worker is joined.
+    decoder->io->detach();
+    dispatch_async_f(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), decoder, VibeAPEDecoderCloseNow);
 }
 
 extern "C" VibeAPEFacts VibeAPEDecoderFacts(const VibeAPEDecoder *decoder) {
@@ -255,41 +304,63 @@ extern "C" int64_t VibeAPEDecoderPosition(const VibeAPEDecoder *decoder) {
 
 // The SDK's samples, interleaved, as float32: unsigned 8-bit, signed
 // little-endian 16, 24, and 32-bit, or float, whatever the source's order.
+// Every scale is a power of two, so the floats are exact but for 32-bit
+// integers, which round to float's 24 bits.
 static void VibeAPEConvert(const VibeAPEDecoder *decoder, const unsigned char *from, int64_t frames,
                            float *const *planes, bool interleaved, int64_t at) {
+    const vDSP_Length count = static_cast<vDSP_Length>(frames);
     const uint32_t channels = decoder->facts.channels, bits = decoder->facts.bitsPerSample;
-    const bool isFloat = decoder->facts.isFloat;
-    for (int64_t f = 0; f < frames; f++) {
-        for (uint32_t c = 0; c < channels; c++) {
-            float sample;
-            switch (bits) {
-                case 8:
-                    sample = (static_cast<int>(from[0]) - 128) * (1.0f / 128);
-                    break;
-                case 16:
-                    sample = static_cast<int16_t>(from[0] | from[1] << 8) * (1.0f / 32768);
-                    break;
-                case 24:
-                    sample = (static_cast<int32_t>(static_cast<uint32_t>(from[0]) << 8 | static_cast<uint32_t>(from[1]) << 16
-                                                   | static_cast<uint32_t>(from[2]) << 24) >> 8) * (1.0f / 8388608);
-                    break;
-                default: {
-                    uint32_t word = static_cast<uint32_t>(from[0] | from[1] << 8 | from[2] << 16) | static_cast<uint32_t>(from[3]) << 24;
-                    if (isFloat) {
-                        memcpy(&sample, &word, sizeof sample);
-                    } else {
-                        sample = static_cast<float>(static_cast<int32_t>(word)) * (1.0f / 2147483648.0f);
-                    }
-                    break;
+    if (count == 0) {
+        return;
+    }
+    // Interleaved, one pass over every sample. Planar, one strided pass a channel.
+    const uint32_t passes = interleaved ? 1 : channels;
+    const vDSP_Stride stride = interleaved ? 1 : channels;
+    const vDSP_Length n = interleaved ? count * channels : count;
+    for (uint32_t c = 0; c < passes; c++) {
+        float *to = interleaved ? planes[0] + at * channels : planes[c] + at;
+        switch (bits) {
+            case 8: {
+                const float scale = 1.0f / 128, offset = -1.0f;
+                vDSP_vfltu8(from + c, stride, to, 1, n);
+                vDSP_vsmsa(to, 1, &scale, &offset, to, 1, n);
+                break;
+            }
+            case 16: {
+                const float scale = 1.0f / 32768;
+                vDSP_vflt16(reinterpret_cast<const short *>(from) + c, stride, to, 1, n);
+                vDSP_vsmul(to, 1, &scale, to, 1, n);
+                break;
+            }
+            case 24: {
+                const float scale = 1.0f / 8388608;
+                vDSP_vflt24(reinterpret_cast<const vDSP_int24 *>(from) + c, stride, to, 1, n);
+                vDSP_vsmul(to, 1, &scale, to, 1, n);
+                break;
+            }
+            default:
+                if (decoder->isFloat) {
+                    const float one = 1;
+                    vDSP_vsmul(reinterpret_cast<const float *>(from) + c, stride, &one, to, 1, n);
+                } else {
+                    const float scale = 1.0f / 2147483648.0f;
+                    vDSP_vflt32(reinterpret_cast<const int *>(from) + c, stride, to, 1, n);
+                    vDSP_vsmul(to, 1, &scale, to, 1, n);
                 }
-            }
-            from += bits / 8;
-            if (interleaved) {
-                planes[0][(at + f) * channels + c] = sample;
-            } else {
-                planes[c][at + f] = sample;
-            }
+                break;
         }
+    }
+}
+
+// Silence for `frames` frames from `at`.
+static void VibeAPESilence(const VibeAPEDecoder *decoder, float *const *planes, bool interleaved, int64_t at, int64_t frames) {
+    const uint32_t channels = decoder->facts.channels;
+    if (interleaved) {
+        memset(planes[0] + at * channels, 0, static_cast<size_t>(frames) * channels * sizeof(float));
+        return;
+    }
+    for (uint32_t c = 0; c < channels; c++) {
+        memset(planes[c] + at, 0, static_cast<size_t>(frames) * sizeof(float));
     }
 }
 
@@ -297,9 +368,11 @@ static void VibeAPEConvert(const VibeAPEDecoder *decoder, const unsigned char *f
 // TRAP: its return code can speak for the frame after the one it delivers,
 // whose bytes it reads ahead, and a damaged frame's silence runs about 64
 // frames past the frame's end. Within one frame, the code says which it was.
+// A C++ exception, such as an allocation that failed, is
+// APE_ERROR_INSUFFICIENT_MEMORY.
 static int VibeAPEGetData(VibeAPEDecoder *decoder, int64_t want, int64_t *retrieved) {
     int64 got = 0;
-    int code = APE_ERROR_UNDEFINED;
+    int code = APE_ERROR_INSUFFICIENT_MEMORY;
     // Float processing only, playback's default. The SDK stores an AIFF's
     // samples little-endian and signed 8-bit ones unsigned, as a WAV's. Its
     // other two steps turn them back, for writing the AIFF out again.
@@ -313,13 +386,15 @@ static int VibeAPEGetData(VibeAPEDecoder *decoder, int64_t want, int64_t *retrie
     return code;
 }
 
-// Moves the SDK to `frame`. false when a read failed. A frame with no bytes
-// on disk, in a file cut short, ends the reads where its bytes do.
+// Moves the SDK to `frame`. false when a read failed or the SDK threw. A
+// frame with no bytes on disk, in a file cut short, ends the reads where its
+// bytes do.
 static bool VibeAPESeekSDK(VibeAPEDecoder *decoder, int64_t frame) {
     int code = APE_ERROR_UNDEFINED;
     try {
         code = decoder->decompress->Seek(frame);
     } catch (...) {
+        return false;
     }
     if (decoder->io->failed()) {
         return false;
@@ -342,59 +417,98 @@ extern "C" int64_t VibeAPEDecoderRead(VibeAPEDecoder *decoder, float *const *pla
         }
         if (position < decoder->silenceEnd) {
             int64_t silent = std::min(frames - got, decoder->silenceEnd - position);
-            for (uint32_t c = 0; c < (interleaved ? 1 : decoder->facts.channels); c++) {
-                size_t width = interleaved ? decoder->facts.channels : 1;
-                memset(planes[c] + got * width, 0, static_cast<size_t>(silent) * width * sizeof(float));
-            }
+            VibeAPESilence(decoder, planes, interleaved, got, silent);
             got += silent;
             position += silent;
-            continue;
-        }
-        if (decoder->resync) {
-            decoder->resync = false;
-            if (!VibeAPESeekSDK(decoder, position)) {
-                *failed = true;
-                break;
-            }
             continue;
         }
         int64_t want = std::min({frames - got, kVibeAPEChunk, stop - position, perFrame - position % perFrame});
         int64_t retrieved = 0;
         int code = VibeAPEGetData(decoder, want, &retrieved);
-        VibeAPEConvert(decoder, decoder->scratch.data(), retrieved, planes, interleaved, got);
         // The end of the file's frame this read was in.
         const int64_t frameEnd = position - position % perFrame + perFrame;
-        got += retrieved;
-        position += retrieved;
-        if (decoder->io->failed()) {
+        if (decoder->io->failed() || code == APE_ERROR_INSUFFICIENT_MEMORY) {
             // The read that failed is the next frame's, or this one's, which
-            // then delivered nothing. What came before it is good.
+            // then delivered nothing. What came before it is good. An
+            // allocation that failed is a failure too, never damage.
+            VibeAPEConvert(decoder, decoder->scratch.data(), retrieved, planes, interleaved, got);
+            got += retrieved;
+            position += retrieved;
             *failed = true;
         } else if (code == APE_ERROR_INPUT_FILE_TOO_SMALL) {
             // The bytes ran out in the next frame, or in this one.
+            VibeAPEConvert(decoder, decoder->scratch.data(), retrieved, planes, interleaved, got);
+            got += retrieved;
+            position += retrieved;
             decoder->end = std::min(decoder->end, retrieved > 0 ? frameEnd : position);
         } else if (code != APE_ERROR_SUCCESS) {
-            // A damaged frame, which the SDK filled with silence. The rest of
-            // it is silence too, then the SDK starts afresh at the next one.
+            // A damaged frame. The SDK fills it with its own silence, which
+            // for 8-bit samples is one step below zero, and runs past the
+            // frame. All of the frame is silence here, and the SDK starts
+            // afresh at the next one.
             decoder->silenceEnd = std::min(stop, frameEnd);
-            decoder->resync = true;
+            if (frameEnd < decoder->facts.length && !VibeAPESeekSDK(decoder, frameEnd)) {
+                *failed = true;
+            }
         } else if (retrieved == 0) {
             break;
+        } else {
+            VibeAPEConvert(decoder, decoder->scratch.data(), retrieved, planes, interleaved, got);
+            got += retrieved;
+            position += retrieved;
         }
     }
     return got;
 }
 
 extern "C" bool VibeAPEDecoderSeek(VibeAPEDecoder *decoder, int64_t frame) {
+    int64_t target = std::min(std::max<int64_t>(0, frame), decoder->facts.length);
+    // The waveform's detail pass seeks before each block it reads. A seek to
+    // where the decoder is would make the SDK drop the frame it decoded ahead
+    // and decode its frame again from the start: up to 1.2 million frames at
+    // Insane, for each block.
+    if (target == decoder->position && !decoder->io->failed()) {
+        return true;
+    }
     decoder->io->clearFailure();
     decoder->silenceEnd = 0;
-    decoder->resync = false;
-    int64_t target = std::min(std::max<int64_t>(0, frame), decoder->facts.length);
     decoder->position = target;
     if (target >= std::min(decoder->facts.length, decoder->end)) {
         // Reads deliver nothing here. The SDK's own seek would clamp to the
         // last frame. The next seek inside the audio moves it.
         return true;
     }
-    return VibeAPESeekSDK(decoder, target);
+    // TRAP: the SDK goes to the start of the target's frame, and the reads
+    // here skip to the target. The SDK's own skip takes a damaged frame's
+    // silence past the frame's end, which would move every later frame.
+    const int64_t start = target - target % decoder->facts.blocksPerFrame;
+    decoder->position = start;
+    if (!VibeAPESeekSDK(decoder, start)) {
+        return false;
+    }
+    if (target == start) {
+        return true;
+    }
+    try {
+        const uint32_t channels = decoder->facts.channels;
+        std::vector<float> discard(static_cast<size_t>(kVibeAPEChunk) * channels);
+        std::vector<float *> planes(channels);
+        for (uint32_t c = 0; c < channels; c++) {
+            planes[c] = discard.data() + static_cast<size_t>(c) * kVibeAPEChunk;
+        }
+        bool failed = false;
+        while (decoder->position < target && !failed) {
+            if (VibeAPEDecoderRead(decoder, planes.data(), false, std::min(kVibeAPEChunk, target - decoder->position), &failed) == 0) {
+                break;
+            }
+        }
+        if (failed) {
+            return false;
+        }
+    } catch (...) {
+        return false;
+    }
+    // A file cut short before the target ends there.
+    decoder->position = std::max(decoder->position, target);
+    return true;
 }

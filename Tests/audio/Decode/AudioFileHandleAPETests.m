@@ -11,11 +11,13 @@
 
 #import <XCTest/XCTest.h>
 #import <AVFoundation/AVFoundation.h>
+#include <libkern/OSByteOrder.h>
 
 #import "AudioFileHandle.h"
 #import "CueWindowMath.h"
 #import "VibePlaylistEntry.h"
 #import "VibePlaylistFile.h"
+#include "VibeAPEDecoder.h"
 
 // make-ape-fixtures.py's sample16: a triangle and two bits of hashed noise,
 // in [-8194, 8192].
@@ -255,6 +257,64 @@ static float APEFixtureFloat(int64_t frame, uint32_t channel, uint32_t bits) {
     XCTAssertEqual(frame, 258048);
     XCTAssertGreaterThan(silent, 0, @"the damage was found");
     XCTAssertLessThanOrEqual(silent, 73728, @"one frame's worth at most");
+}
+
+// The SDK's reads over bytes in memory.
+static int64_t APEReadBytes(void *user, int64_t position, void *buffer, int64_t count) {
+    NSData *bytes = (__bridge NSData *)user;
+    int64_t got = MAX(0, MIN(count, (int64_t)bytes.length - position));
+    memcpy(buffer, (const uint8_t *)bytes.bytes + position, (size_t)got);
+    return got;
+}
+
+// The fixture with `edit` applied, opened by the wrapper alone: its refusal's
+// code, or 0 when it opens. The descriptor is 52 bytes, so the header starts
+// there, and the seek table after its 24 bytes, at 76.
+- (int)openEdited:(NSString *)name edit:(void (^)(uint8_t *bytes))edit {
+    NSMutableData *bytes = [[NSData dataWithContentsOfURL:[self fixture:name]] mutableCopy];
+    edit(bytes.mutableBytes);
+    int error = 0;
+    VibeAPEDecoder *decoder = VibeAPEDecoderOpen(APEReadBytes, (__bridge void *)bytes, (int64_t)bytes.length, &error);
+    VibeAPEDecoderClose(decoder);
+    return decoder ? 0 : error;
+}
+
+// Each refusal of the wrapper's own, which the SDK would open (VibeAPEDecoder.h).
+- (void)testTheOpenRefusesWhatTheSDKMisreads {
+    XCTAssertEqual([self openEdited:@"long" edit:^(uint8_t *b) {}], 0, @"the file as made opens");
+    XCTAssertEqual([self openEdited:@"long" edit:^(uint8_t *b) { OSWriteLittleInt16(b, 4, 4000); }],
+                   VibeAPEErrorUnsupportedVersion, @"a version past 3.99 and 4.11");
+    XCTAssertEqual([self openEdited:@"level-insane" edit:^(uint8_t *b) { OSWriteLittleInt32(b, 56, 73728 * 16 + 1); }],
+                   VibeAPEErrorFrameTooLarge, @"a frame past Insane's, which the SDK takes at Insane");
+    XCTAssertEqual([self openEdited:@"level-insane" edit:^(uint8_t *b) {
+        OSWriteLittleInt16(b, 68, 32);
+        OSWriteLittleInt16(b, 70, 32);
+    }], VibeAPEErrorFrameTooLarge, @"Insane's frame of 32 channels at 32 bits, 151 MB");
+    XCTAssertEqual([self openEdited:@"long" edit:^(uint8_t *b) { OSWriteLittleInt16(b, 68, 12); }],
+                   VibeAPEErrorUnsupportedDepth, @"a 12-bit width");
+    XCTAssertEqual([self openEdited:@"long" edit:^(uint8_t *b) { OSWriteLittleInt16(b, 54, 1 << 12); }],
+                   VibeAPEErrorUnsupportedDepth, @"a float flag on 16 bits");
+    XCTAssertEqual([self openEdited:@"long" edit:^(uint8_t *b) {
+        uint32_t second = OSReadLittleInt32(b, 80);
+        OSWriteLittleInt32(b, 80, OSReadLittleInt32(b, 84));
+        OSWriteLittleInt32(b, 84, second);
+    }], VibeAPEErrorBadSeekTable, @"a seek table out of order, which the SDK reads as a jump of 4 GB");
+    XCTAssertEqual([self openEdited:@"long" edit:^(uint8_t *b) { OSWriteLittleInt32(b, 16, 8); }],
+                   VibeAPEErrorBadSeekTable, @"a seek table of 2 entries for 4 frames");
+}
+
+// A seek to where the decoder is reads nothing again, and a seek after it
+// still lands.
+- (void)testASeekToWhereItIsKeepsTheDecode {
+    AudioFileHandle *handle = [self open:[self fixture:@"long"]];
+    XCTAssertEqual([self check:handle from:0 limit:65536 chunk:65536 bits:16 context:@"first"], 65536);
+    for (int i = 0; i < 3; i++) {
+        XCTAssertTrue([handle seekToFrame:65536 error:NULL]);
+    }
+    XCTAssertEqual([self check:handle from:65536 limit:65536 chunk:65536 bits:16 context:@"next"], 65536);
+    XCTAssertTrue([handle seekToFrame:-5 error:NULL]);
+    XCTAssertEqual(handle.framePosition, 0);
+    XCTAssertEqual([self check:handle from:0 limit:10 chunk:10 bits:16 context:@"back"], 10);
 }
 
 - (void)testBytesThatAreNoMonkeysAudioFileAreRefused {

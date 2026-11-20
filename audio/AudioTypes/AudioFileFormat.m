@@ -28,7 +28,7 @@ VibeAudioFileFormat _Nullable VibeAudioFileFormatForCodec(AudioFormatID codec) {
         case kAudioFormatAppleLossless: return VibeAudioFileFormatALAC;
         case kAudioFormatOpus:          return VibeAudioFileFormatOpus;
         case 'vorb':                    return VibeAudioFileFormatVorbis; // the SDK names no constant
-        case 'APE ':                    return VibeAudioFileFormatMonkeysAudio; // audio/Decode's, as 'vorb'
+        case kVibeAudioFormatMonkeysAudio: return VibeAudioFileFormatMonkeysAudio;
         default:                        return nil;
     }
 }
