@@ -703,8 +703,10 @@ static AVAudioFramePosition VibeFrameInBlock(uint64_t index) {
 
 #pragma mark - A WavPack correction file
 
-// long.wv and long.wvc, a hybrid pair, as network copies. Each is longer than
-// two read-ahead blocks. The open reads only the first and last block of each.
+// long.wv and long.wvc, a hybrid pair, as network copies. Each is four
+// read-ahead blocks long. The open's check reads WavPack blocks at the start,
+// the middle, and the end, which lie in read-ahead blocks 0, 1, and 3, so
+// block 2 is read only by the decode.
 - (NSURL *)networkWavPackPair {
     [self networkCopyOf:VibeWavPackFixture(@"long.wvc")];
     return [self networkCopyOf:VibeWavPackFixture(@"long.wv")];
@@ -719,7 +721,7 @@ static AVAudioFramePosition VibeFrameInBlock(uint64_t index) {
     NSURL *direct = VibeWavPackFixture(@"long.wv");
     for (NSString *name in @[@"long.wv", @"long.wvc"]) {
         VibeReadAheadScript *script = [self readAhead];
-        [script fail:EIO readsOf:name from:kReadAheadBlock until:2 * kReadAheadBlock];
+        [script fail:EIO readsOf:name from:2 * kReadAheadBlock until:3 * kReadAheadBlock];
         NSError *error = nil;
         AudioFileHandle *handle = VibeOpenInterruptibly([self networkWavPackPair], &error);
         XCTAssertNotNil(handle.correctionFileURL, @"%@: %@", name, error);

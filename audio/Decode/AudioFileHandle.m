@@ -501,16 +501,6 @@ static float VibeOpusOutputGain(AudioFileID parser) {
     return _wavpackCorrection.url;
 }
 
-+ (NSURL *)correctionFileForWavPack:(NSURL *)url {
-    for (NSURL *spelling in VibeWavPackCorrectionSpellings(url)) {
-        int descriptor = open(spelling.fileSystemRepresentation, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-        if (descriptor >= 0) {
-            close(descriptor);
-            return spelling;
-        }
-    }
-    return nil;
-}
 
 - (uint64_t)bytesWritten {
     return _availability ? _availability.progressBytes : (uint64_t)MAX(0, _size);

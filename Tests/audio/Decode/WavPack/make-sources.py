@@ -34,13 +34,15 @@ def samples(frames, channels, bits):
             yield sample(f * channels + c, f, c, bits)
 
 
-def wav(path, rate, channels, frames, bits, container=None, float32=False, mask=None, negated=False):
-    """`negated` writes every sample's negative: another song of the same shape."""
+def wav(path, rate, channels, frames, bits, container=None, float32=False, mask=None, negated=False, silent_tail=0):
+    """`negated` writes every sample's negative: another song of the same shape.
+    `silent_tail` frames at the end are digital silence."""
     container = container or bits
     width = container // 8
     data = bytearray()
-    for v in samples(frames, channels, bits):
+    for i, v in enumerate(samples(frames, channels, bits)):
         v = -v if negated else v
+        v = 0 if i >= (frames - silent_tail) * channels else v
         if float32:
             data += struct.pack('<f', v / float(1 << 23))
         elif container == 8:
@@ -109,7 +111,8 @@ def main():
     wav(out / 'u8.wav', 22050, 1, 4096, 8)
     wav(out / 'surround.wav', 48000, 6, 4096, 16, mask=0x3F)
     wav(out / 'negated.wav', 44100, 2, 8192, 16, negated=True)
-    wav(out / 'long.wav', 44100, 2, 440000, 16)
+    wav(out / 'long.wav', 44100, 2, 640000, 16)
+    wav(out / 'fade.wav', 44100, 2, 8192, 16, silent_tail=2048)
     dsf(out / 'dsd.dsf', 0.05)
     dsf(out / 'dsd256.dsf', 0.005, rate=11289600)
 

@@ -200,9 +200,6 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 
 @end
 
-// AudioFileHandle+WavPack.m's spellings of a hybrid file's correction file,
-// in the order they are tried (this piece's AGENTS.md).
-NSArray<NSURL *> *VibeWavPackCorrectionSpellings(NSURL *url);
 // AudioFileHandle+Stream.m's layout for a WAVE channel mask, which a WavPack
 // file's mask is too, and a Monkey's Audio file's source WAV's.
 AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels);

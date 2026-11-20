@@ -136,13 +136,6 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
 // that holds, and decodes lossless with it. Nil for every other open, a
 // hybrid file played lossy included.
 @property (nonatomic, readonly, nullable) NSURL *correctionFileURL;
-// The correction file a hybrid WavPack file at `url` would decode with: the
-// first spelling beside it that opens for reading (this piece's AGENTS.md,
-// "A hybrid WavPack file"). Nil when none does. It opens and closes each
-// spelling, and never reads, so a caller such as an indexer answers whether a
-// hybrid file is lossless cheaply. Blocking. It does not check that the file
-// matches: a play does that, and falls back to the lossy half.
-+ (nullable NSURL *)correctionFileForWavPack:(NSURL *)url;
 // A DSF file's DSD rate, a channel's samples a second, such as 2,822,400 for
 // DSD64. 0 for every other file, a WavPack DSD file included. The facts and the reads are the PCM the
 // handle converts the DSD to (AudioFileHandle+DSD.m): fileFormat states
@@ -238,6 +231,19 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
 // Writing only: flushes the last packet and finishes the container; the
 // status the encoder's end returns. Idempotent; dealloc closes silently.
 - (BOOL)closeWithError:(NSError * _Nullable __autoreleasing * _Nullable)error;
+
+@end
+
+@interface AudioFileHandle (WavPackCorrection)
+
+// The correction file a hybrid WavPack file at `url` would decode with, by
+// the same search a play makes (this piece's AGENTS.md, "A hybrid WavPack
+// file"): the first spelling beside it that is a regular file of some bytes
+// on this device, and no transfer is writing. Nil when there is none. One
+// stat a spelling, and no read, so an indexer asks it of a hybrid file
+// cheaply. Blocking. It does not check that the file matches: a play does
+// that, and falls back to the lossy half.
++ (nullable NSURL *)correctionFileForWavPack:(NSURL *)url;
 
 @end
 

@@ -1104,6 +1104,8 @@ static const FuzzMutator kFuzzMutators[] = {
 @property (nonatomic) BOOL opened;
 @property (nonatomic, copy) NSString *decoder;
 @property (nonatomic) AudioFormatID formatID; // the file's, as the open stated it
+// Set for a correction file's mutant: the .wv decoded with the mutant beside it.
+@property (nonatomic, strong, nullable) NSData *pairedWavPack;
 @property (nonatomic) AVAudioFramePosition length;
 @property (nonatomic) BOOL estimated;
 @property (nonatomic, strong) NSMutableData *pcm;        // every frame read to the end, interleaved, when captured
@@ -1316,9 +1318,18 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
         dispatch_apply(mutants.count, DISPATCH_APPLY_AUTO, ^(size_t k) {
             FuzzDecode *mutant = mutants[k];
             NSURL *url = [root URLByAppendingPathComponent:mutant.name];
-            [mutant.bytes writeToURL:url atomically:NO];
-            FuzzDecodeURL(mutant, url, budget, kFuzzMutators[mutant.mutator].expect == FuzzExpectSourceDecode);
-            [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+            NSURL *written = url;
+            if (mutant.pairedWavPack) {
+                // A folder of its own: the .wv, with the mutant beside it as its .wvc.
+                [NSFileManager.defaultManager createDirectoryAtURL:url withIntermediateDirectories:YES attributes:nil error:NULL];
+                [mutant.bytes writeToURL:[url URLByAppendingPathComponent:@"song.wvc"] atomically:NO];
+                url = [url URLByAppendingPathComponent:@"song.wv"];
+                [mutant.pairedWavPack writeToURL:url atomically:NO];
+            } else {
+                [mutant.bytes writeToURL:url atomically:NO];
+            }
+            FuzzDecodeURL(mutant, url, budget, mutant.pairedWavPack || kFuzzMutators[mutant.mutator].expect == FuzzExpectSourceDecode);
+            [NSFileManager.defaultManager removeItemAtURL:written error:NULL];
             mutant.finished = YES;
             dispatch_semaphore_signal(finished);
         });
@@ -1339,21 +1350,12 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
     [self addAttachment:attachment];
 }
 
-- (void)fuzzSource:(FuzzSource *)source {
-    NSString *label = source.name;
-    NSURL *originalURL = [_root URLByAppendingPathComponent:[@"original." stringByAppendingString:source.extension]];
-    XCTAssertTrue([source.bytes writeToURL:originalURL atomically:NO]);
-    FuzzDecode *reference = [self decode:originalURL budget:kFuzzMaxSourceFrames];
-    XCTAssertNotNil(reference, @"%@: the source hung", label);
-    XCTAssertTrue(reference.opened, @"%@: the source does not open", label);
-    XCTAssertEqual(reference.problems.count, 0u, @"%@: the source: %@", label, reference.problems);
-    if (!reference.opened) return;
-    // Twice the source's samples, which bounds its frames from above.
-    AVAudioFramePosition budget = MAX(2 * (AVAudioFramePosition)(reference.pcm.length / sizeof(float)), 1 << 16);
+// Every mutant of a source, in order: each mutator its count of times, a
+// named shape once, under seeds from the base seed and the source's name. Each
+// is written to the export folder too, when one is named.
+- (NSArray<FuzzDecode *> *)mutantsOf:(FuzzSource *)source {
     uint64_t sourceHash = 0;
     for (const char *c = source.name.UTF8String; *c; c++) sourceHash = sourceHash * 131 + (uint8_t)*c;
-
-    // Every mutant is made here, in order, and decoded after.
     NSMutableArray<FuzzDecode *> *mutants = [NSMutableArray array];
     for (NSUInteger m = 0; m < sizeof(kFuzzMutators) / sizeof(*kFuzzMutators); m++) {
         FuzzMutator mutator = kFuzzMutators[m];
@@ -1377,6 +1379,21 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
             [mutants addObject:mutant];
         }
     }
+    return mutants;
+}
+
+- (void)fuzzSource:(FuzzSource *)source {
+    NSString *label = source.name;
+    NSURL *originalURL = [_root URLByAppendingPathComponent:[@"original." stringByAppendingString:source.extension]];
+    XCTAssertTrue([source.bytes writeToURL:originalURL atomically:NO]);
+    FuzzDecode *reference = [self decode:originalURL budget:kFuzzMaxSourceFrames];
+    XCTAssertNotNil(reference, @"%@: the source hung", label);
+    XCTAssertTrue(reference.opened, @"%@: the source does not open", label);
+    XCTAssertEqual(reference.problems.count, 0u, @"%@: the source: %@", label, reference.problems);
+    if (!reference.opened) return;
+    // Twice the source's samples, which bounds its frames from above.
+    AVAudioFramePosition budget = MAX(2 * (AVAudioFramePosition)(reference.pcm.length / sizeof(float)), 1 << 16);
+    NSArray<FuzzDecode *> *mutants = [self mutantsOf:source];
     BOOL returned = [self decodeMutants:mutants budget:budget];
     for (FuzzDecode *mutant in mutants) {
         FuzzMutator mutator = kFuzzMutators[mutant.mutator];
@@ -1422,9 +1439,10 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
     XCTAssertEqualObjects(again.seekReads, reference.seekReads, @"%@: the source seeks differently after its mutants", label);
 }
 
-// hybrid.wv beside a mutant of its correction file, each mutator of the
-// WavPack walk's blocks run on hybrid.wvc. Each opens lossless, or falls back
-// to the lossy half and then decodes and seeks exactly as hybrid.wv alone.
+// hybrid.wv beside a mutant of its correction file: every mutator of the
+// WavPack walk's blocks, run on hybrid.wvc, decoded across the cores. Each
+// opens lossless, or falls back to the lossy half and then decodes and seeks
+// exactly as hybrid.wv alone.
 - (void)fuzzCorrectionFile {
     NSData *wv = [NSData dataWithContentsOfURL:VibeWavPackFixture(@"hybrid.wv")];
     FuzzSource *source = [FuzzSource new];
@@ -1433,51 +1451,44 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
     source.bytes = [NSData dataWithContentsOfURL:VibeWavPackFixture(source.name)];
     source.family = FuzzFamilyWavPack;
     FuzzReadWalk(source);
-    NSURL *(^pair)(NSString *, NSData *) = ^NSURL *(NSString *name, NSData *wvc) {
-        NSURL *folder = [self->_root URLByAppendingPathComponent:name isDirectory:YES];
-        [NSFileManager.defaultManager createDirectoryAtURL:folder withIntermediateDirectories:YES attributes:nil error:NULL];
-        NSURL *url = [folder URLByAppendingPathComponent:@"song.wv"];
-        [wv writeToURL:url atomically:NO];
-        [wvc writeToURL:[folder URLByAppendingPathComponent:@"song.wvc"] atomically:NO];
-        return url;
-    };
-    FuzzDecode *lossy = [self decode:pair(@"alone", nil) budget:kFuzzMaxSourceFrames];
-    FuzzDecode *lossless = [self decode:pair(@"whole", source.bytes) budget:kFuzzMaxSourceFrames];
-    XCTAssertEqual(lossy.formatID, (AudioFormatID)'wvpk');
-    XCTAssertEqual(lossless.formatID, kAudioFormatLinearPCM);
-    XCTAssertEqual(lossy.problems.count + lossless.problems.count, 0u, @"%@ %@", lossy.problems, lossless.problems);
-    uint64_t sourceHash = 0x57C;
-    for (NSUInteger m = 0; m < sizeof(kFuzzMutators) / sizeof(*kFuzzMutators); m++) {
-        FuzzMutator mutator = kFuzzMutators[m];
-        NSUInteger iterations = mutator.named ? 1 : kFuzzIterations[FuzzFamilyWavPack] * _multiplier;
-        for (NSUInteger i = 0; i < iterations; i++) {
-            uint64_t seed = _baseSeed ^ sourceHash ^ ((uint64_t)m << 40) ^ ((uint64_t)i << 20);
-            VibeFuzzRandom random = {seed | 1};
-            NSMutableData *bytes = [source.bytes mutableCopy];
-            if (!mutator.mutate(bytes, source, &random, mutator.arg)) break;
-            if ([bytes isEqualToData:source.bytes]) continue;
-            NSString *name = [NSString stringWithFormat:@"%s-%lu", mutator.name, (unsigned long)i];
-            NSString *context = [NSString stringWithFormat:@"hybrid.wvc, %s, seed 0x%016llx", mutator.name, seed];
-            FuzzDecode *mutant = [self decode:pair(name, bytes) budget:kFuzzMaxSourceFrames];
-            if (!mutant) {
-                XCTFail(@"%@: hung past %d s", context, VIBE_TEST_HANG_TIMEOUT);
-                [self attach:bytes name:[name stringByAppendingString:@".wvc"]];
-                return; // a worker still holds its file
-            }
-            NSMutableArray<NSString *> *problems = mutant.problems;
-            if (!mutant.opened || mutant.length != lossy.length) {
-                [problems addObject:[NSString stringWithFormat:@"opened %d, length %lld", mutant.opened, mutant.length]];
-            } else if (mutant.formatID == 'wvpk' && !([mutant.pcm isEqualToData:lossy.pcm] && [mutant.seekReads isEqualToData:lossy.seekReads])) {
-                [problems addObject:@"a fallback decodes other samples than the .wv alone"];
-            } else if (mutant.formatID != 'wvpk' && mutant.formatID != kAudioFormatLinearPCM) {
-                [problems addObject:[NSString stringWithFormat:@"format %u", (unsigned)mutant.formatID]];
-            }
-            if (problems.count) {
-                XCTFail(@"%@: %@", context, problems);
-                [self attach:bytes name:[name stringByAppendingString:@".wvc"]];
-            }
+    FuzzDecode *alone = [FuzzDecode new], *whole = [FuzzDecode new];
+    alone.name = @"alone";
+    alone.bytes = [NSData data];
+    whole.name = @"whole";
+    whole.bytes = source.bytes;
+    alone.pairedWavPack = whole.pairedWavPack = wv;
+    NSArray<FuzzDecode *> *mutants = [self mutantsOf:source];
+    for (FuzzDecode *mutant in mutants) {
+        mutant.pairedWavPack = wv;
+    }
+    NSArray<FuzzDecode *> *references = @[alone, whole];
+    XCTAssertTrue([self decodeMutants:references budget:kFuzzMaxSourceFrames]);
+    XCTAssertEqual(alone.formatID, (AudioFormatID)'wvpk');
+    XCTAssertEqual(whole.formatID, kAudioFormatLinearPCM);
+    XCTAssertEqual(alone.problems.count + whole.problems.count, 0u, @"%@ %@", alone.problems, whole.problems);
+    BOOL returned = [self decodeMutants:mutants budget:kFuzzMaxSourceFrames];
+    for (FuzzDecode *mutant in mutants) {
+        NSString *context = [NSString stringWithFormat:@"hybrid.wvc, %s, seed 0x%016llx", kFuzzMutators[mutant.mutator].name, mutant.seed];
+        NSString *attachment = [@"hybrid-" stringByAppendingString:mutant.name];
+        if (!mutant.finished) {
+            XCTFail(@"%@: hung past %d s", context, VIBE_TEST_HANG_TIMEOUT);
+            [self attach:mutant.bytes name:attachment];
+            continue;
+        }
+        NSMutableArray<NSString *> *problems = mutant.problems;
+        if (!mutant.opened || mutant.length != alone.length) {
+            [problems addObject:[NSString stringWithFormat:@"opened %d, length %lld", mutant.opened, mutant.length]];
+        } else if (mutant.formatID == 'wvpk' && !([mutant.pcm isEqualToData:alone.pcm] && [mutant.seekReads isEqualToData:alone.seekReads])) {
+            [problems addObject:@"a fallback decodes other samples than the .wv alone"];
+        } else if (mutant.formatID != 'wvpk' && mutant.formatID != kAudioFormatLinearPCM) {
+            [problems addObject:[NSString stringWithFormat:@"format %u", (unsigned)mutant.formatID]];
+        }
+        if (problems.count) {
+            XCTFail(@"%@: %@", context, problems);
+            [self attach:mutant.bytes name:attachment];
         }
     }
+    XCTAssertTrue(returned, @"a worker still holds its file");
 }
 
 - (void)fuzzFamily:(FuzzFamily)family {

@@ -275,6 +275,66 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
     }
 }
 
+// `wv` and `wvc` fixtures copied into the scratch folder as `name`.wv and
+// `name`.wvc.
+- (NSURL *)pairNamed:(NSString *)name wv:(NSString *)wv wvc:(NSString *)wvc {
+    NSURL *url = [self.scratch URLByAppendingPathComponent:[name stringByAppendingPathExtension:@"wv"]];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(wv) toURL:url error:NULL]);
+    NSURL *correction = [self.scratch URLByAppendingPathComponent:[name stringByAppendingPathExtension:@"wvc"]];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(wvc) toURL:correction error:NULL]);
+    return url;
+}
+
+// Another encode's .wvc of the same song pairs with the .wv block for block,
+// by index, samples, and flags, and the song's last two blocks are digital
+// silence, which decodes the same with either. Its first and middle blocks
+// tell it apart, so it falls back to the lossy half. The right .wvc decodes
+// bit for bit.
+- (void)testAnotherEncodesCorrectionFileFallsBack {
+    AudioFileHandle *wrong = [self open:[self pairNamed:@"wrong" wv:@"fade.wv" wvc:@"fade-b3.wvc"] interleaved:YES];
+    XCTAssertNil(wrong.correctionFileURL);
+    XCTAssertEqual(wrong.fileFormat.streamDescription->mFormatID, (AudioFormatID)'wvpk');
+    AudioFileHandle *right = [self open:[self pairNamed:@"right" wv:@"fade.wv" wvc:@"fade.wvc"] interleaved:YES];
+    XCTAssertNotNil(right.correctionFileURL);
+    NSMutableData *expected = [VibeWavPackExpected(kLossless[0]) mutableCopy];
+    const size_t frameBytes = 2 * sizeof(float);
+    memset((uint8_t *)expected.mutableBytes + (8192 - 2048) * frameBytes, 0, 2048 * frameBytes);
+    NSMutableData *pcm = [NSMutableData data];
+    XCTAssertTrue(VibeReadToEnd(right, pcm, NULL));
+    XCTAssertEqualObjects(pcm, expected);
+}
+
+// A .wvc cut short while it plays leaves blocks with no correction, which
+// libwavpack would decode lossy under lossless facts. The read fails instead,
+// and so does every later seek.
+- (void)testACorrectionFileCutDuringThePlayFailsTheRead {
+    NSURL *url = [self pairNamed:@"cut" wv:@"long.wv" wvc:@"long.wvc"];
+    AudioFileHandle *handle = [self open:url interleaved:YES];
+    XCTAssertNotNil(handle.correctionFileURL);
+    XCTAssertNotNil(VibeDecodeRange(handle, 0, 4096), @"the head plays");
+    NSFileHandle *wvc = [NSFileHandle fileHandleForWritingToURL:handle.correctionFileURL error:NULL];
+    XCTAssertTrue([wvc truncateAtOffset:200 * 1024 error:NULL]);
+    [wvc closeAndReturnError:NULL];
+    NSMutableData *pcm = [NSMutableData data];
+    NSError *error = nil;
+    XCTAssertFalse(VibeReadToEnd(handle, pcm, &error), @"no lossy frames under lossless facts");
+    XCTAssertNotNil(error);
+    XCTAssertFalse([handle seekToFrame:100 error:NULL]);
+}
+
+// A .wvc emptied after the open: a seek into what the reads have not held
+// fails, and so does the seek after it, whose restart would open without the
+// .wvc and decode the lossy half under lossless facts.
+- (void)testASeekOverAnEmptiedCorrectionFileFails {
+    NSURL *url = [self pairNamed:@"emptied" wv:@"long.wv" wvc:@"long.wvc"];
+    AudioFileHandle *handle = [self open:url interleaved:YES];
+    XCTAssertNotNil(handle.correctionFileURL);
+    XCTAssertNotNil(VibeDecodeRange(handle, 0, 4096), @"the head plays");
+    XCTAssertTrue([[NSData data] writeToURL:handle.correctionFileURL atomically:NO]);
+    XCTAssertFalse([handle seekToFrame:300000 error:NULL]);
+    XCTAssertFalse([handle seekToFrame:100 error:NULL]);
+}
+
 // The correction file's name follows the .wv's: the same name, with wvc in
 // the case of the .wv's extension first. The check an indexer asks finds the
 // same file a play opens, and nothing for a file alone.
