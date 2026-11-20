@@ -27,6 +27,12 @@ FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatW64;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatCAF;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatVorbis;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatOpus;
+FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatWavPack;
+FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatMonkeysAudio;
+
+// The format ID audio/Decode states for a Monkey's Audio file. The SDK names
+// no constant.
+enum { kVibeAudioFormatMonkeysAudio = 'APE ' };
 // DSD, which the handle plays as PCM. Its container is DSF.
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatDSD;
 

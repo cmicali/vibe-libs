@@ -3,9 +3,12 @@
 # small generated picture, so no seed is anyone's recording. Each is a valid
 # file of its target's format, tagged, and small enough that a run mutates it
 # fast. Needs `brew install ffmpeg flac`, and macOS's sips and iconv. The
-# text seeds are written by hand.
+# Monkey's Audio seeds need the SDK's own encoder, `mac`, whose path MAC
+# names (third_party/monkeys_audio/AGENTS.md says how to build it). The text
+# seeds are written by hand.
 # Re-run it only to change the seeds, then commit them.
 set -euo pipefail
+: "${MAC:?set MAC to the path of the Monkey's Audio SDK's mac encoder}"
 
 here="$(cd "$(dirname "$0")" && pwd)"
 seeds="$here/Seeds"
@@ -33,7 +36,7 @@ tags=(-metadata title="Fuzz Tone" -metadata artist="Seed Artist" -metadata album
 with_cover() { ff -i "$1" -i "$work/cover.$2" -map 0:a -map 1:v -c:v copy -disposition:v attached_pic "${@:4}" "$3"; }
 
 rm -rf "$seeds"
-mkdir -p "$seeds"/{tags-flac,tags-mp3,tags-m4a,tags-wav,tags-aiff,tags-ogg,tags-opus,flac-cue,cue,m3u,art,tags-dsf}
+mkdir -p "$seeds"/{tags-flac,tags-mp3,tags-m4a,tags-wav,tags-aiff,tags-ogg,tags-opus,tags-wv,tags-ape,flac-cue,cue,m3u,art,tags-dsf}
 
 # FLAC: plain, tagged, with a picture, with a sheet as a comment, and with a
 # binary CUESHEET block, which metaflac takes only for a 44.1 kHz stream.
@@ -73,6 +76,19 @@ ff -i "$work/tone-8000.wav" -c:a pcm_s16be "$seeds/tags-aiff/plain.aiff"
 ff -i "$work/tone-8000.wav" "${tags[@]}" -c:a vorbis -strict -2 -ac 2 "$seeds/tags-ogg/vorbis.ogg"
 ff -i "$work/tone-48000.wav" "${tags[@]}" -c:a libopus -b:a 8k "$seeds/tags-opus/tagged.opus"
 cp "$seeds/tags-opus/tagged.opus" "$seeds/tags-ogg/opus.ogg"
+
+# WavPack: plain, and tagged with APEv2. ffmpeg writes no cover, so a cover's
+# seed is audio/Decode's fixture, which the wavpack tool made.
+ff -i "$work/tone-8000.wav" -c:a wavpack "$seeds/tags-wv/plain.wv"
+ff -i "$work/tone-8000.wav" "${tags[@]}" -c:a wavpack "$seeds/tags-wv/tagged.wv"
+cp "$here/../audio/Decode/WavPack/s16.wv" "$seeds/tags-wv/cover.wv"
+
+# Monkey's Audio: tagged at Normal, and at Extra High behind an ID3v2 tag,
+# which the SDK and TagLib both skip.
+"$MAC" "$work/tone-8000.wav" "$seeds/tags-ape/tagged.ape" -c2000 \
+    -t "Title=Fuzz Tone|Artist=Seed Artist|Album=Seed Album|Year=2026|Track=3|Genre=Test" >/dev/null
+"$MAC" "$work/tone-44100.wav" "$work/plain.ape" -c4000 >/dev/null
+{ printf 'ID3\x04\x00\x00\x00\x00\x00\x00'; cat "$work/plain.ape"; } > "$seeds/tags-ape/id3-before.ape"
 
 # Pictures as a file or a tag carries them.
 cp "$work/cover.png" "$work/cover.jpg" "$seeds/art/"

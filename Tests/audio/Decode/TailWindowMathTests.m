@@ -14,14 +14,14 @@
 // twice its window.
 - (void)testTheTailWindowIsSizedPerFormat {
     const uint64_t KB = 1024, MB = 1024 * KB;
-    for (NSString *extension in @[@"mp3", @"MP3", @"flac", @"ogg", @"opus", @"aac", @"mp2", @"xyz", @""]) {
+    for (NSString *extension in @[@"mp3", @"MP3", @"flac", @"ogg", @"opus", @"aac", @"mp2", @"wv", @"ape", @"xyz", @""]) {
         XCTAssertEqual(VibeAudioFileTailWindowBytes(extension, 300 * MB), 128 * KB, @"%@", extension);
         XCTAssertEqual(VibeAudioFileTailWindowBytes(extension, 256 * KB + 1), 128 * KB, @"%@", extension);
         XCTAssertEqual(VibeAudioFileTailWindowBytes(extension, 256 * KB), 0u, @"%@: at twice the window", extension);
     }
     XCTAssertEqual(VibeAudioFileTailWindowBytes(@"mp3", 0), 0u);
     for (NSString *extension in @[@"m4a", @"M4A", @"m4b", @"m4r", @"mp4", @"qta",
-                                  @"aif", @"AIFF", @"aiff", @"wav", @"wave", @"bwf", @"w64", @"caf", @"dsf"]) {
+                                  @"aif", @"AIFF", @"aiff", @"aifc", @"afc", @"wav", @"wave", @"bwf", @"w64", @"caf", @"dsf"]) {
         // 6 minutes of 256 kbps AAC, its moov ~60 KB: the floor.
         XCTAssertEqual(VibeAudioFileTailWindowBytes(extension, 11 * MB), 512 * KB, @"%@", extension);
         // A 32nd of the file between the two.

@@ -21,6 +21,8 @@ Vibe moved TagLib 2.1.0 in-tree on 2026-07-13 (this repo's `19912617`). Vibe's h
 
 On 2026-10-03, `5341fe88` replaced the files with 2.3.2's and re-applied the same edits. Its commit message names the release. It does not name an upstream commit. The byte-for-byte match above ties the files to tag `v2.3.2`.
 
+On 2026-11-20, the subset gained `wavpack/`'s four files from the same tag, unchanged, for WavPack's tags and properties. Upstream's later fixes to them, `f4117f8` and `cf86f20` among them, are already in that tag.
+
 ## Changes to TagLib's own files
 
 | Date | Files | Change |
@@ -37,6 +39,7 @@ On 2026-10-03, `5341fe88` replaced the files with 2.3.2's and re-applied the sam
 | 2026-11-17 | `toolkit/tbytevector.cpp`, `toolkit/tbytevector.h` | Upstream `629b707` (TagLib #1484), not yet released. `ByteVector::fromBase64` skips whitespace, so a line-wrapped `METADATA_BLOCK_PICTURE` in a Vorbis or Opus comment decodes. Before, it decoded to nothing and the art was missing. |
 | 2026-11-17 | `flac/flacpicture.cpp`, `toolkit/tbytevector.cpp` | Upstream `8fe8b82` (TagLib #1492), not yet released. A FLAC picture's length checks no longer wrap, so a huge MIME type length is refused. Before, it read a picture of garbage. `toNumber` no longer overflows its offset either. |
 | 2026-11-17 | `toolkit/tbytevector.cpp` | Upstream `58499cb` (TagLib #1493), not yet released. `ByteVector::containsAt` and `endsWith` check their bounds without wrapping. `containsAt` with an offset near 2^32 read out of bounds and crashed. |
+| 2026-11-20 | `ape/apefile.cpp`, `ape/apefile.h`, `ape/apeproperties.cpp`, `ape/apeproperties.h` | Joined the subset from tag `v2.3.2`, unchanged, so Monkey's Audio files are read. Nothing else changed. |
 
 ## Files added around TagLib
 

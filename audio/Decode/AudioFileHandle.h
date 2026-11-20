@@ -51,7 +51,8 @@
 //  A DSF file's DSD is converted to PCM by the handle's own filters, to
 //  float at 176.4 kHz, or 192 kHz in the 48 kHz family, whatever its DSD rate
 //  (docs/dsd-to-pcm.md). The facts are that PCM's. dsdSampleRate keeps the
-//  DSD rate. A DSDIFF file (.dff) is refused.
+//  DSD rate. DSD in WavPack is libwavpack's, at an eighth of its DSD rate,
+//  and states no DSD rate here. A DSDIFF file (.dff) is refused.
 //
 //  A file a remote transfer is still writing from byte 0
 //  (CloudFileMaterializer's availabilityForURL:) is read from its part file
@@ -131,7 +132,7 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
 // "dr_mp3", "dr_flac", "dr_wav", "libvorbis", "dsd" or "apple", for a debug report.
 @property (nonatomic, readonly) NSString *decoderName;
 // A DSF file's DSD rate, a channel's samples a second, such as 2,822,400 for
-// DSD64. 0 for every other file. The facts and the reads are the PCM the
+// DSD64. 0 for every other file, a WavPack DSD file included. The facts and the reads are the PCM the
 // handle converts the DSD to (AudioFileHandle+DSD.m): fileFormat states
 // 176.4 kHz. An app that shows a file's rate reads media/Metadata's
 // sampleRate, which TagLib states as the DSD rate. This is the rate for a

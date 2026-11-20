@@ -26,6 +26,11 @@
 #include <wavfile.h>
 #include <vorbisfile.h>
 #include <opusfile.h>
+#include <wavpackfile.h>
+#include <apetag.h>
+#include <tpicturetype.h>
+#include <apefile.h>
+#include <apeproperties.h>
 #include <dsffile.h>
 #include <tdebuglistener.h>
 #include <tagutils.h>
@@ -297,7 +302,8 @@ std::unique_ptr<TagLib::File> TagLibAudioFile::openByContentAndRewind(TagLib::IO
 // container MP4::File parses). Of DSD's containers, only DSF is vendored. .ogg and .oga hold Vorbis or Opus, told
 // apart by a cheap sniff; FLAC in Ogg has no vendored parser.
 // TRAP: the MPEG, AIFF, and WAV parsers take another format's bytes as valid,
-// so a misnamed file would parse with no tags. Each checks the header first.
+// so a misnamed file would parse with no tags. Each checks the header first,
+// as APE's does, whose parser finds "MAC " anywhere in a file's first 1 KB.
 std::unique_ptr<TagLib::File> TagLibAudioFile::openByExtension(const char *path, TagLib::IOStream *stream,
                                                               bool readProperties) {
     NSString *ext = [@(path) pathExtension].uppercaseString;
@@ -335,6 +341,18 @@ std::unique_ptr<TagLib::File> TagLibAudioFile::openByExtension(const char *path,
         if (file) return file;
         return std::make_unique<TagLib::RIFF::WAV::File>(stream, readProperties);
     }
+    if ([ext isEqualToString:@"WV"]) {
+        if (!TagLib::WavPack::File::isSupported(stream))
+            return openByContentAndRewind(stream, readProperties);
+        return std::make_unique<TagLib::WavPack::File>(stream, readProperties);
+    }
+    if ([ext isEqualToString:@"APE"]) {
+        std::unique_ptr<TagLib::File> file;
+        if (!TagLib::APE::File::isSupported(stream))
+            file = openByContentAndRewind(stream, readProperties);
+        if (file) return file;
+        return std::make_unique<TagLib::APE::File>(stream, readProperties);
+    }
     if ([ext isEqualToString:@"DSF"])
         return std::make_unique<TagLib::DSF::File>(stream, readProperties);
     return nullptr;
@@ -347,8 +365,12 @@ std::unique_ptr<TagLib::File> TagLibAudioFile::openByContent(TagLib::IOStream *s
         return std::make_unique<TagLib::Ogg::Vorbis::File>(stream, readProperties);
     if (!isOgg(stream) && TagLib::FLAC::File::isSupported(stream))
         return std::make_unique<TagLib::FLAC::File>(stream, readProperties);
+    if (TagLib::WavPack::File::isSupported(stream))
+        return std::make_unique<TagLib::WavPack::File>(stream, readProperties);
     if (TagLib::Ogg::Opus::File::isSupported(stream))
         return std::make_unique<TagLib::Ogg::Opus::File>(stream, readProperties);
+    if (TagLib::APE::File::isSupported(stream))
+        return std::make_unique<TagLib::APE::File>(stream, readProperties);
     if (TagLib::MP4::File::isSupported(stream))
         return std::make_unique<TagLib::MP4::File>(stream, readProperties);
     if (TagLib::RIFF::AIFF::File::isSupported(stream))
@@ -398,6 +420,12 @@ VibeAudioFileFormat _Nullable fileTypeForTagLibFile(TagLib::File *file) {
     if (dynamic_cast<TagLib::Ogg::Opus::File*>(file)) {
         return VibeAudioFileFormatOpus;
     }
+    if (dynamic_cast<TagLib::WavPack::File*>(file)) {
+        return VibeAudioFileFormatWavPack;
+    }
+    if (dynamic_cast<TagLib::APE::File*>(file)) {
+        return VibeAudioFileFormatMonkeysAudio;
+    }
     if (dynamic_cast<TagLib::DSF::File*>(file)) {
         return VibeAudioFileFormatDSD;
     }
@@ -443,6 +471,15 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file) {
     }
     else if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
         if (auto props = aiff->audioProperties()) bits = props->bitsPerSample();
+    }
+    else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
+        // A hybrid file read without its correction file is lossy, as the
+        // player plays it. DSD has 1 bit, which describes no PCM depth.
+        auto props = wavpack->audioProperties();
+        if (props && props->isLossless() && !props->isDsd()) bits = props->bitsPerSample();
+    }
+    else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
+        if (auto props = ape->audioProperties()) bits = props->bitsPerSample();
     }
     // DSD is one bit a sample. The fmt chunk's bits per sample is its bit
     // order, 1 or 8, not a depth.
@@ -506,6 +543,25 @@ void ListPictures(const TagLib::List<TagLib::FLAC::Picture *> &list, std::vector
     }
 }
 
+// An APE tag's front and back covers, its two binary picture items, each
+// after an optional file name. TagLib's complex properties parse them.
+void ListAPE(TagLib::APE::Tag *tag, std::vector<VibeEmbeddedPicture> *pictures) {
+    if (!tag) return;
+    size_t index = 0;
+    for (const TagLib::VariantMap &property : tag->complexProperties("PICTURE")) {
+        const TagLib::ByteVector data = property.value("data").toByteVector();
+        if (!data.isEmpty()) {
+            VibeEmbeddedPicture item;
+            item.index = index;
+            item.type = TagLib::Utils::pictureTypeFromString(property.value("pictureType").toString());
+            item.data = data;
+            item.description = property.value("description").toString();
+            pictures->push_back(item);
+        }
+        index++;
+    }
+}
+
 void ListMP4(TagLib::MP4::Tag *tag, std::vector<VibeEmbeddedPicture> *pictures) {
     if (!tag->contains("covr")) return;
     size_t index = 0;
@@ -558,6 +614,12 @@ std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file) {
     }
     else if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
         ListID3v2(wav->hasID3v2Tag() ? wav->ID3v2Tag() : nullptr, &pictures);
+    }
+    else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
+        ListAPE(wavpack->hasAPETag() ? wavpack->APETag() : nullptr, &pictures);
+    }
+    else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
+        ListAPE(ape->hasAPETag() ? ape->APETag(false) : nullptr, &pictures);
     }
     else if (auto dsf = dynamic_cast<TagLib::DSF::File *>(file)) {
         ListID3v2(dsf->tag(), &pictures);

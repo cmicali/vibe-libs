@@ -115,7 +115,8 @@ uint32_t VibeID3v2TagBytes(const uint8_t header[10]) {
 }
 
 - (NSString *)decoderName {
-    return _mpeg ? @"dr_mp3" : _flac ? @"dr_flac" : _wav ? @"dr_wav" : _vorbis ? @"libvorbis" : _dsd ? @"dsd" : @"apple";
+    return _mpeg ? @"dr_mp3" : _flac ? @"dr_flac" : _wav ? @"dr_wav" : _vorbis ? @"libvorbis"
+            : _wavpack ? @"libwavpack" : _ape ? @"MACLib" : _dsd ? @"dsd" : @"apple";
 }
 
 - (double)dsdSampleRate {
@@ -308,7 +309,7 @@ size_t VibeStreamRead(void *user, void *buffer, size_t count) {
 
 // A position past the end is refused: nothing is there to read, and a damaged
 // seek table's offset or chunk size can be exabytes out.
-static drflac_bool32 VibeStreamSeek(void *user, SInt64 offset, int origin) {
+drflac_bool32 VibeStreamSeek(void *user, SInt64 offset, int origin) {
     AudioFileHandle *handle = (__bridge AudioFileHandle *)user;
     SInt64 base = origin == 0 ? 0 : origin == 1 ? handle->_streamCursor : handle->_size;
     SInt64 target;
@@ -344,7 +345,8 @@ size_t VibeVorbisRead(void *buffer, size_t size, size_t count, void *user) {
     return size ? got / size : 0;
 }
 
-int VibeVorbisSeek(void *user, ogg_int64_t offset, int whence) {
+// vorbisfile's and libwavpack's seek: fseek's origins and answers.
+int VibeStreamSeekFrom(void *user, int64_t offset, int whence) {
     _Static_assert(SEEK_SET == 0 && SEEK_CUR == 1 && SEEK_END == 2, "VibeStreamSeek's origins");
     return VibeStreamSeek(user, offset, whence) ? 0 : -1;
 }
@@ -1048,6 +1050,12 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     if (_vorbis) {
         return _vorbisPosition;
     }
+    if (_wavpack) {
+        return _wavpackPosition;
+    }
+    if (_ape) {
+        return VibeAPEDecoderPosition(_ape);
+    }
     if (_dsd) {
         return _dsdPosition;
     }
@@ -1067,6 +1075,7 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
             _flac->currentPCMFrame = UINT64_MAX;
             drflac_seek_to_pcm_frame(_flac, 0);
         }
+        _wavpackStale = _wavpack != NULL;
         if (_codec) {
             // TRAP: ExtAudioFile keeps the packets a lost read fetched and
             // serves them after a later seek, as if they were the target's.
@@ -1088,14 +1097,19 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
         return [self seekDSDToFrame:frame error:error];
     }
     OSStatus status;
-    if (_flac || _wav || _vorbis) {
+    if ([self hasStreamDecoder]) {
         // Each lands at the end for a target past it, where reads return
         // nothing, as Apple's does. dr_flac and dr_wav clamp it themselves.
-        // vorbisfile refuses it, so it is clamped here. vorbisfile's seek finds
-        // its page again from the bytes. An interrupted read leaves nothing.
+        // vorbisfile refuses it, so it is clamped here. libwavpack's seek
+        // does it there, and so does Monkey's Audio's, which restarts at the
+        // frame that holds the target, so it needs no restart after an
+        // interrupted read. vorbisfile's seek finds its page again from the
+        // bytes. An interrupted read leaves nothing.
         SInt64 target = MAX(0, frame);
         BOOL landed = (_flac ? drflac_seek_to_pcm_frame(_flac, (drflac_uint64)target)
                        : _wav ? drwav_seek_to_pcm_frame(_wav, (drwav_uint64)target)
+                       : _wavpack ? [self seekWavPackToFrame:target]
+                       : _ape ? VibeAPEDecoderSeek(_ape, target)
                        : ov_pcm_seek(_vorbis, MIN(target, _length)) == 0) && !_streamReadFailed;
         if (landed && _vorbis) {
             _vorbisPosition = MIN(target, _length);
@@ -1187,7 +1201,7 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     if (_mpeg) {
         return [self readMPEGIntoBuffer:buffer frameCount:wanted error:error];
     }
-    if (_flac || _wav || _vorbis) {
+    if ([self hasStreamDecoder]) {
         return [self readStreamIntoBuffer:buffer frameCount:wanted error:error];
     }
     if (_dsd) {

@@ -3,10 +3,11 @@
 //
 //  Malformed files through AudioFileHandle: open, read the facts, decode to the
 //  end, seek and decode again, close. Every decoder the handle chooses is fed:
-//  dr_wav, dr_flac, dr_mp3, libvorbis, the DSD decode, and Apple's (AAC, ALAC,
-//  Opus, and CAF).
-//  The sources are the generated fixtures, sliced to a few hundred KB, plus a
-//  few written here that no encoder on the machine makes.
+//  dr_wav, dr_flac, dr_mp3, libvorbis, libwavpack, Monkey's Audio's SDK, the
+//  DSD decode, and Apple's (AAC, ALAC, Opus, and CAF). The sources are the
+//  generated fixtures, sliced to a few hundred KB, plus a few written here
+//  that no encoder on the machine makes, plus the WavPack and Monkey's Audio
+//  fixtures kept beside this file.
 //
 //  Seeded. The seed, the source and the mutator are in every failure message,
 //  and the failing mutant is attached to the result bundle.
@@ -32,6 +33,10 @@
 //  |                                   | and iTunes gapless, free format, mode changes, junk, tags  |         |            |         |
 //  | AudioFileHandleFuzzCoreAudioTests | AAC, ADTS, QuickTime, ALAC in MP4 and CAF, LPCM in CAF,    | 10      | 8          | 2.4     |
 //  |                                   | Ogg Vorbis (libvorbis), Opus, a WAV past dr_wav's 768 kHz  |         |            |         |
+//  | AudioFileHandleFuzzWavPackTests   | every WavPack fixture: 8 to 32 bits, float, 5.1, hybrid,   | 10      | 8          |         |
+//  |                                   | DSD, and a file that never states its length               |         |            |         |
+//  | AudioFileHandleFuzzAPETests       | Monkey's Audio: each level, 8 to 32 bits, float, 5.1, an   | 14      | 8          | 0.6     |
+//  |                                   | AIFF's samples, an APEv2 tag, an ID3v2 tag before it       |         |            |         |
 //  | AudioFileHandleFuzzDSDTests       | DSF written here: stereo LSB first, 5.1 MSB first, DSD128  | 3       | 8          | 0.9     |
 //
 //  Iterations is how often each random mutator runs per source. A named shape
@@ -46,10 +51,13 @@
 #import "AudioFileHandle.h"
 #import "DSFFixtures.h"
 
-typedef NS_ENUM(NSUInteger, FuzzFamily) { FuzzFamilyWAV, FuzzFamilyFLAC, FuzzFamilyMPEG, FuzzFamilyApple, FuzzFamilyDSD };
+typedef NS_ENUM(NSUInteger, FuzzFamily) {
+    FuzzFamilyWAV, FuzzFamilyFLAC, FuzzFamilyMPEG, FuzzFamilyApple, FuzzFamilyWavPack, FuzzFamilyAPE, FuzzFamilyDSD
+};
 
 static const uint32_t kFuzzIterations[] = {
-    [FuzzFamilyWAV] = 8, [FuzzFamilyFLAC] = 8, [FuzzFamilyMPEG] = 4, [FuzzFamilyApple] = 8, [FuzzFamilyDSD] = 8,
+    [FuzzFamilyWAV] = 8, [FuzzFamilyFLAC] = 8, [FuzzFamilyMPEG] = 4, [FuzzFamilyApple] = 8, [FuzzFamilyWavPack] = 8,
+    [FuzzFamilyAPE] = 8, [FuzzFamilyDSD] = 8,
 };
 
 // A source larger than this is sliced to kFuzzSliceBytes of audio, so a mutant decodes in milliseconds.
@@ -72,7 +80,7 @@ static NSUInteger FuzzIn(VibeFuzzRandom *random, NSRange range) {
 #pragma mark - Containers
 
 typedef NS_ENUM(NSUInteger, FuzzContainer) {
-    FuzzRIFF, FuzzRF64, FuzzW64, FuzzFORM, FuzzCAF, FuzzFLAC, FuzzMP4, FuzzOgg, FuzzMPEG, FuzzADTS, FuzzDSF,
+    FuzzRIFF, FuzzRF64, FuzzW64, FuzzFORM, FuzzCAF, FuzzFLAC, FuzzMP4, FuzzOgg, FuzzMPEG, FuzzADTS, FuzzWavPack, FuzzDSF,
 };
 
 // One chunk, box, metadata block or page: where its size field is, and its body.
@@ -152,6 +160,7 @@ static FuzzContainer FuzzContainerOf(NSData *data) {
     if (memcmp(b, "caff", 4) == 0) return FuzzCAF;
     if (memcmp(b, "fLaC", 4) == 0) return FuzzFLAC;
     if (memcmp(b, "OggS", 4) == 0) return FuzzOgg;
+    if (memcmp(b, "wvpk", 4) == 0) return FuzzWavPack;
     if (memcmp(b, "DSD ", 4) == 0) return FuzzDSF;
     if (memcmp(b + 4, "ftyp", 4) == 0 || memcmp(b + 4, "moov", 4) == 0 || memcmp(b + 4, "wide", 4) == 0) return FuzzMP4;
     if (b[0] == 0xFF && (b[1] & 0xF6) == 0xF0) return FuzzADTS;
@@ -209,6 +218,17 @@ static NSData *FuzzWalk(NSData *data, FuzzContainer container, NSRange *audio) {
                 }
                 if (end <= at) break;
                 at = end;
+            }
+            break;
+        }
+        case FuzzWavPack: {
+            // Each block: "wvpk", its size after these 8 bytes, then the rest of its 32-byte header.
+            *audio = NSMakeRange(0, length);
+            for (NSUInteger at = 0; at + 32 <= length && memcmp(b + at, "wvpk", 4) == 0 && chunks.length < 256 * sizeof(FuzzChunk);) {
+                uint64_t size = FuzzGet(data, at + 4, 4, NO);
+                FuzzAddChunk(chunks, data, at, at + 4, 4, NO, at + 32, size >= 24 ? size - 24 : 0, at + 8 + (NSUInteger)size, 0, "wvpk");
+                if (size < 24) break;
+                at += 8 + (NSUInteger)size;
             }
             break;
         }
@@ -436,7 +456,9 @@ static NSArray<NSString *> *FuzzWrittenSources(NSURL *dir) {
 
 static FuzzFamily FuzzFamilyOf(NSString *decoder) {
     return [decoder isEqualToString:@"dr_wav"] ? FuzzFamilyWAV : [decoder isEqualToString:@"dr_flac"] ? FuzzFamilyFLAC
-         : [decoder isEqualToString:@"dr_mp3"] ? FuzzFamilyMPEG : [decoder isEqualToString:@"dsd"] ? FuzzFamilyDSD : FuzzFamilyApple;
+         : [decoder isEqualToString:@"dr_mp3"] ? FuzzFamilyMPEG : [decoder isEqualToString:@"libwavpack"] ? FuzzFamilyWavPack
+         : [decoder isEqualToString:@"MACLib"] ? FuzzFamilyAPE : [decoder isEqualToString:@"dsd"] ? FuzzFamilyDSD
+         : FuzzFamilyApple;
 }
 
 // Every fixture of `family` the generator wrote, one per coding for dr_wav's and every one for
@@ -450,6 +472,18 @@ static NSArray<FuzzSource *> *FuzzCorpus(FuzzFamily family, NSURL *scratch, NSMu
         [paths addObject:[root stringByAppendingPathComponent:name]];
     }
     [paths addObjectsFromArray:FuzzWrittenSources(scratch)];
+    // The WavPack fixtures, kept beside this file, since no tool here encodes WavPack. A
+    // hybrid file's .wvc is no file to play.
+    NSString *wavpack = VibeWavPackFixture(@"").path;
+    for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:wavpack error:NULL] sortedArrayUsingSelector:@selector(compare:)]) {
+        if ([name.pathExtension isEqualToString:@"wv"]) [paths addObject:[wavpack stringByAppendingPathComponent:name]];
+    }
+    // Monkey's Audio's, kept beside this file too, made by the SDK's encoder
+    // (APE/make-fixtures.py).
+    NSString *ape = VibeAPEFixture(@"").path;
+    for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:ape error:NULL] sortedArrayUsingSelector:@selector(compare:)]) {
+        if ([name.pathExtension isEqualToString:@"ape"]) [paths addObject:[ape stringByAppendingPathComponent:name]];
+    }
     NSMutableDictionary<NSString *, FuzzSource *> *byKey = [NSMutableDictionary dictionary];
     for (NSString *path in paths) {
         FuzzSource *source = [FuzzSource new];
@@ -1414,6 +1448,12 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
 - (void)testMutants { [self fuzzFamily:FuzzFamilyMPEG]; }
 @end
 
+@interface AudioFileHandleFuzzAPETests : AudioFileHandleFuzzTestCase
+@end
+@implementation AudioFileHandleFuzzAPETests
+- (void)testMutants { [self fuzzFamily:FuzzFamilyAPE]; }
+@end
+
 @interface AudioFileHandleFuzzDSDTests : AudioFileHandleFuzzTestCase
 @end
 @implementation AudioFileHandleFuzzDSDTests
@@ -1424,4 +1464,10 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
 @end
 @implementation AudioFileHandleFuzzCoreAudioTests
 - (void)testMutants { [self fuzzFamily:FuzzFamilyApple]; }
+@end
+
+@interface AudioFileHandleFuzzWavPackTests : AudioFileHandleFuzzTestCase
+@end
+@implementation AudioFileHandleFuzzWavPackTests
+- (void)testMutants { [self fuzzFamily:FuzzFamilyWavPack]; }
 @end

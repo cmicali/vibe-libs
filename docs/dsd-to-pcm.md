@@ -1,11 +1,12 @@
 # DSD to PCM
 
-How `audio/Decode` plays a DSF file: the filters that turn its 1-bit DSD into PCM, the rate they come out at, and the level. The measurements below chose them. **Every choice here is open to change.** A change edits `scripts/dsd/design-filters.py` or `VibeDSDToPCM.c`, measures again, and updates this doc.
+How `audio/Decode` plays a DSF file, as opposed to DSD in WavPack, which libwavpack converts (below): the filters that turn its 1-bit DSD into PCM, the rate they come out at, and the level. The measurements below chose them. **Every choice here is open to change.** A change edits `scripts/dsd/design-filters.py` or `VibeDSDToPCM.c`, measures again, and updates this doc.
 
 ## What plays
 
 - **DSF files (`.dsf`)**, in Sony's DSF container: DSD64, DSD128, DSD256, and DSD512, in the 44.1 kHz family (2.8224 MHz and its multiples) and the 48 kHz family (3.072 MHz and its multiples). Mono, stereo, and the five multichannel types the fmt chunk names, up to 5.1. Both bit orders.
-- **Refused:** DSDIFF (`.dff`), which can hold DST compression, DSD in WavPack, and a DSF whose header fails `VibeDSF.c`'s checks. No decoder takes them, so the open fails.
+- **Refused:** DSDIFF (`.dff`), which can hold DST compression, and a DSF whose header fails `VibeDSF.c`'s checks. No decoder takes them, so the open fails.
+- **DSD in WavPack (`.wv`) does not go through these filters.** libwavpack decimates it itself, to 24-bit PCM at an eighth of its DSD rate: DSD64 at 352.8 kHz, and DSD128 at 705.6 kHz (`audio/Decode/AGENTS.md`). The measurements below say that a rate of 352.8 kHz passes the shaped noise above 88 kHz at about -39 dB. Sending WavPack's DSD through these filters, at 176.4 kHz, is an open follow-up.
 - **Not done:** DSD over PCM (DoP) and native DSD output. The section at the end says what they would need.
 
 ## The code
@@ -73,7 +74,7 @@ dsd2pcm's first stage costs the same, within 2%. Both stages read a linear buffe
 ## The choices
 
 1. **This stage 1, not dsd2pcm's.** The two are equal where it matters: neither adds audible noise, and they cost the same. This one is flat across the whole band stage 2 keeps, and it has a design for every DSD rate from the same script, where dsd2pcm has only DSD64's. Nothing of dsd2pcm is vendored, so it adds no notice.
-2. **176.4 kHz output (192 kHz in the 48 kHz family), whatever the DSD rate.** It keeps everything to 40 kHz and holds back the shaped noise above 88 kHz, which 352.8 kHz would pass or carry as empty samples. It costs the rest of the chain half the samples: the player, its effects, analysis, and the waveform. More devices play it.
+2. **176.4 kHz output (192 kHz in the 48 kHz family), whatever a DSF's DSD rate.** It keeps everything to 40 kHz and holds back the shaped noise above 88 kHz, which 352.8 kHz would pass or carry as empty samples. It costs the rest of the chain half the samples: the player, its effects, analysis, and the waveform. More devices play it.
 3. **No gain.** 0 dB SACD stays at -6 dBFS. A SACD's peaks may pass 0 dB SACD, so +6 dB would put them over full scale, and a bit-perfect integer output would clip them. A player that levels tracks makes up the 6 dB anyway. An app that wants the gain can apply it as a file gain.
 4. **r8brain is not used.** Stage 2 is a fixed 2:1 FIR of 97 taps that costs less than stage 1. r8brain's resampler would add a library to the piece and change nothing measured here.
 

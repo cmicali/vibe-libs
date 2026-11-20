@@ -153,13 +153,13 @@
     NSSet<NSString *> *supported = [FolderWalk supportedExtensions];
 
     XCTAssertEqualObjects(supported, ([NSSet setWithArray:@[@"mp2", @"mp3", @"aac", @"adts", @"aif", @"aiff",
-                                                            @"wav", @"wave", @"bwf", @"w64", @"flac", @"caf",
+                                                            @"wav", @"wave", @"bwf", @"w64", @"flac", @"ape", @"caf",
                                                             @"m4a", @"mp4", @"qta", @"m4b", @"m4r",
-                                                            @"ogg", @"oga", @"opus", @"dsf"]]));
+                                                            @"ogg", @"oga", @"opus", @"aifc", @"afc", @"wv", @"dsf"]]));
     NSArray<NSString *> *ordered = PlayableExtensions.ordered;
     XCTAssertEqualObjects([NSSet setWithArray:ordered], supported);
     XCTAssertEqual(ordered.count, supported.count);
-    for (NSString *rejected in @[@"ape", @"wv", @"m3u", @"m3u8", @"cue", @"aifc", @"txt", @""]) {
+    for (NSString *rejected in @[@"tta", @"wvc", @"m3u", @"m3u8", @"cue", @"txt", @""]) {
         XCTAssertFalse([supported containsObject:rejected], @"%@", rejected);
     }
 }
@@ -169,7 +169,7 @@
     [self makeFile:@"folder/Quiet.FlAc"];
     [self makeFile:@"folder/notes.txt"];
     [self makeFile:@"folder/cover.jpg"];
-    [self makeFile:@"folder/album.ape"];
+    [self makeFile:@"folder/album.tta"];
 
     NSArray<NSString *> *files = [self relativePaths:
             [FolderWalk expandDirectory:[self makeDirectory:@"folder"]
@@ -728,13 +728,13 @@ static const unsigned long long kLargeFLACBytes = 100ULL * 1024 * 1024 + 1;
     NSURL *sheet = [self makeText:[kTwoTrackSheet stringByReplacingOccurrencesOfString:@"mix.flac" withString:@"gone.flac"]
                                at:@"broken.cue"];
     NSURL *list = [self makeText:@"gone.mp3\nalso-gone.mp3\n" at:@"broken.m3u"];
-    [self makeFile:@"image.ape"];
-    NSURL *ape = [self makeText:[kTwoTrackSheet stringByReplacingOccurrencesOfString:@"mix.flac" withString:@"image.ape"]
-                             at:@"ape.cue"];
+    [self makeFile:@"image.tta"];
+    NSURL *tta = [self makeText:[kTwoTrackSheet stringByReplacingOccurrencesOfString:@"mix.flac" withString:@"image.tta"]
+                             at:@"tta.cue"];
 
     XCTAssertEqualObjects([self expandAndFilter:@[sheet] folderCount:NULL], @[]);
     XCTAssertEqualObjects([self expandAndFilter:@[list] folderCount:NULL], @[]);
-    XCTAssertEqualObjects([self expandAndFilter:@[ape] folderCount:NULL], @[]);
+    XCTAssertEqualObjects([self expandAndFilter:@[tta] folderCount:NULL], @[]);
 }
 
 // Inside a folder the rest of the folder speaks for itself: a sheet naming

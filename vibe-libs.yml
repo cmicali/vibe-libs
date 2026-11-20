@@ -209,7 +209,7 @@ targetTemplates:
   # it would VibeLibsVorbis. The handle includes libvorbis's vorbisfile.h.
   VibeLibsDecode:
     templates: [VibeLibsCommon, VibeLibsAudioTypes, VibeLibsFileLoading, VibeLibsDrMp3, VibeLibsDrFlac, VibeLibsDrWav,
-                VibeLibsVorbis]
+                VibeLibsVorbis, VibeLibsWavpack, VibeLibsMonkeysAudio]
     sources:
       - path: audio/Decode
         excludes: ["**/*.md", "${excludedPlatform}/**", "**/*.c"]
@@ -614,6 +614,7 @@ targetTemplates:
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/vorbis"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/opus"
+          - "$(VIBE_LIBS_ROOT)/third_party/taglib/wavpack"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/dsf"
 
   # Header-only but for upstream's C entry points, DLL/r8bsrc.cpp, and its FFT.
@@ -697,6 +698,41 @@ targetTemplates:
     settings:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/third_party/vorbis/include"]
+
+  # libwavpack's decoder, built as the dr_ decoders are. Only its C files join
+  # an app's project, as libvorbis's do. NO_TAGS leaves its tag reader out,
+  # since TagLib reads a WavPack file's tags. ENABLE_DSD keeps its DSD decode.
+  VibeLibsWavpack:
+    sources:
+      - path: third_party/wavpack/src
+        includes: ["*.c"]
+        compilerFlags:
+          - "-O3"
+          - "-w"
+          - "-Xclang"
+          - "-analyzer-disable-all-checks"
+          - "-DNO_TAGS"
+          - "-DENABLE_DSD"
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/third_party/wavpack/include"]
+
+  # Monkey's Audio's decoder, C++, optimized in every configuration as the dr_
+  # decoders are. Only audio/Decode's VibeAPEDecoder.cpp includes it, as
+  # "monkeys_audio/MACLib/MACLib.h".
+  #
+  # TRAP: none of its headers may join an app's project, and no search path
+  # may reach MACLib/. Its APETag.h would answer for TagLib's apetag.h on a
+  # case-insensitive disk, by the headermap or by the path. So the template
+  # adds only its C++ files, which find their headers beside them.
+  VibeLibsMonkeysAudio:
+    sources:
+      - path: third_party/monkeys_audio/MACLib
+        includes: ["*.cpp"]
+        compilerFlags: *dr-libs-flags
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/third_party"]
 
   # Sparkle's prebuilt framework, macOS only. It compiles nothing. It links
   # the framework, embeds it in the product's Frameworks, and signs it there

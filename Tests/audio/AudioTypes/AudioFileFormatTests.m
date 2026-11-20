@@ -19,6 +19,7 @@
     XCTAssertEqualObjects(VibeAudioFileFormatForCodec(kAudioFormatAppleLossless), VibeAudioFileFormatALAC);
     XCTAssertEqualObjects(VibeAudioFileFormatForCodec(kAudioFormatOpus), VibeAudioFileFormatOpus);
     XCTAssertEqualObjects(VibeAudioFileFormatForCodec('vorb'), VibeAudioFileFormatVorbis);
+    XCTAssertEqualObjects(VibeAudioFileFormatForCodec('wvpk'), VibeAudioFileFormatWavPack);
 }
 
 // A name is archived in a metadata cache, so its spelling never changes.
