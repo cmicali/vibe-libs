@@ -14,14 +14,15 @@ The container and the conversion are apart, so a second read path can reuse the 
 
 | File | Owns |
 | --- | --- |
-| `VibeDSF.c` | The header, read as hostile, and each channel's raw DSD bytes through the caller's reads: one read for each block of every channel, most significant bit first, with silence outside the samples. |
-| `VibeDSDToPCM.c` | The two filter stages, with their state for each channel, a reset, and the delay. |
+| `VibeDSF.c` | The header, read as hostile, and each channel's raw DSD bytes through the caller's reads: whole groups of blocks in one read, each channel's bytes as the file stores them, with silence in the file's bit order outside the samples. |
+| `VibeDSDToPCM.c` | The two filter stages, with their history for each channel, a reset, and the delay. Its tables take the file's bit order. |
 | `VibeDSDFilterTaps.h` | The taps, which `scripts/dsd/design-filters.py` writes. |
+| `audio/AudioTypes/VibeDSD.h` | The DSD rates and their multiples, and the idle pattern, which an app shares. |
 | `AudioFileHandle+DSD.m` | The handle's open, facts, reads, and seeks. |
 
 ## The filters
 
-**Stage 1** turns DSD into PCM at 352.8 kHz, or 384 kHz in the 48 kHz family. It is an equiripple FIR of 96 taps at DSD64, and 96 times the multiple above it, with one tap for each DSD bit. Its passband ends at 40 kHz, and its stopband starts at 264.6 kHz, which is where the decimation folds frequencies onto the 0 to 88.2 kHz band that stage 2 keeps. It runs a byte at a time: each of its 12 tables, one for each byte of its window, holds the sum of eight ±taps for all 256 byte values. So one output costs 12 table reads and adds at DSD64, and 12 times the multiple above it.
+**Stage 1** turns DSD into PCM at 352.8 kHz, or 384 kHz in the 48 kHz family. It is an equiripple FIR of 96 taps at DSD64, and 96 times the multiple above it, with one tap for each DSD bit. Its passband ends at 40 kHz, and its stopband starts at 264.6 kHz, which is where the decimation folds frequencies onto the 0 to 88.2 kHz band that stage 2 keeps. It runs a byte at a time, in the file's bit order: each of its 12 tables, one for each byte of its window, holds the sum of eight ±taps for all 256 byte values. So one output costs 12 table reads and adds at DSD64, and 12 times the multiple above it.
 
 **Stage 2** halves that rate. It is an equiripple FIR of 97 taps, flat to 40 kHz, and stopped from 88.2 kHz. The odd length puts its center on a sample, so the whole chain's delay is 26 output frames, a whole number, and the handle hides it.
 
@@ -57,14 +58,15 @@ The aliasing rows integrate the modulator's measured noise spectrum through each
 
 At 352.8 kHz, either first stage alone passes the shaped noise above 88 kHz at -39 dB, close to its full level. Removing it needs a second filter anyway, and then the band above 88 kHz holds nothing, so a 352.8 kHz output would carry half empty samples.
 
-**CPU**, for 60 s of stereo, the whole file read through the converter on one core of an M-series Mac under a load of about 9:
+**CPU**, for 60 s of stereo, the whole file read through the converter on one core of an M-series Mac under a load of about 15. `vibe-libs.yml` builds `VibeDSDToPCM.c` and `VibeDSF.c` at `-O3` in every configuration, as the dr_ decoders are, so a Debug build converts as fast as a Release one:
 
-| Build | DSD64 | DSD128 | DSD256 |
-| --- | --- | --- | --- |
-| `-O2`, as a Release build compiles it | 0.44 s (138× real time) | 0.57 s (106×) | 0.87 s (69×) |
-| `-O0`, as a Debug build compiles it | 3.1 s (19×) | 3.7 s (16×) | 4.8 s (13×) |
+| Build | DSD64 | DSD128 | DSD256 | DSD512 |
+| --- | --- | --- | --- | --- |
+| `-O3`, as shipped in every configuration | 0.41 s (148× real time) | 0.48 s (124×) | 0.67 s (89×) | 1.03 s (58×) |
+| `-Os`, an app's Release default, for comparison | 0.38 s (157×) | 0.72 s (84×) | 1.49 s (40×) | 3.11 s (19×) |
+| `-O0`, an app's Debug default, for comparison | 2.4 s (25×) | 3.1 s (20×) | 4.2 s (14×) | 6.5 s (9×) |
 
-dsd2pcm's first stage costs the same, within 2%. Stage 2 keeps four running sums, which took the cost from 0.56 s to 0.44 s at DSD64.
+dsd2pcm's first stage costs the same, within 2%. Both stages read a linear buffer with the filters' history in front, and sum in four lanes in a fixed order. Stage 2 folds its symmetric taps, so it multiplies half as often. The tables take the file's bit order, so a file stored least significant bit first needs no pass to reverse its bytes. A read takes as many groups of blocks as fit its buffer in one read of the file. Against the first version, one ring buffer and one serial sum, this is 1.1 times as fast at DSD64 and twice as fast at DSD512, at `-O3`. The new order of the sums moves the output by at most 1.8 × 10⁻⁷, -135 dB, which is float rounding.
 
 **The level.** A 1 kHz sine at 50% modulation, which is 0 dB SACD, reads -6.02 dBFS in every configuration measured. A tone's phase matches the DSD within a microsecond.
 
@@ -78,7 +80,7 @@ dsd2pcm's first stage costs the same, within 2%. Stage 2 keeps four running sums
 ## Seeks and the length
 
 - **The length** is the sample count over 16 times the multiple: one output frame for each 16 DSD samples at DSD64. The sample count trims the last block's padding. A file cut short keeps the samples its data holds.
-- **A seek is sample-accurate.** It resets the converter to silence and feeds from 27 frames before the target, which covers both filters' span, then drops the first 53 outputs. So a seek's output equals a read's from the start, sample for sample, and a seek never clicks. `testASeekLandsOnTheSampleAReadFromTheStartGives` checks it.
+- **A seek is sample-accurate.** It clears the filters' history and feeds from 27 frames before the target, which covers both filters' span, then drops the first 53 outputs. So a seek's output equals a read's from the start, sample for sample, and a seek never clicks. `testASeekLandsOnTheSampleAReadFromTheStartGives` checks it at DSD64 and DSD512.
 - **The ends** read as silence: before the first sample, and after the last, including the padding bits of its byte.
 
 ## What DoP would still need
@@ -88,4 +90,4 @@ dsd2pcm's first stage costs the same, within 2%. Stage 2 keeps four running sums
 - A handle that delivers the raw bytes instead of PCM, so the player can tell the two apart, with the same seek and the same length.
 - Silence that is DoP silence at every pause, fade, and gap. A PCM fade over DoP is noise.
 
-DoP would reuse `VibeDSF.c` unchanged.
+DoP would reuse `VibeDSF.c` unchanged. It takes the bytes as the file stores them, so DoP reverses a file stored least significant bit first, since DoP sends the first sample in the most significant bit.

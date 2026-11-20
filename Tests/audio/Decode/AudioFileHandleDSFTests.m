@@ -13,6 +13,7 @@
 #import "AudioFileHandle.h"
 #import "AudioFileFixtures.h"
 #import "DSFFixtures.h"
+#import "ToneFit.h"
 #import "VibeDSF.h"
 
 @interface AudioFileHandleDSFTests : XCTestCase
@@ -55,39 +56,23 @@
     return capture;
 }
 
-// The amplitude, in dB of full scale, and the phase of a sine at `frequency`
-// in one channel, fitted over `frames` frames from `start`.
-static double VibeFittedLevel(const float *samples, uint32_t channels, uint32_t channel, double rate,
-                              double frequency, size_t start, size_t frames) {
-    double ss = 0, sc = 0, cc = 0, ys = 0, yc = 0;
-    for (size_t i = start; i < start + frames; i++) {
-        double t = (double)i / rate, s = sin(2 * M_PI * frequency * t), c = cos(2 * M_PI * frequency * t);
-        double y = samples[i * channels + channel];
-        ss += s * s; sc += s * c; cc += c * c; ys += y * s; yc += y * c;
+// The fit of a sine at `frequency` to one channel, over `frames` frames from
+// `start`, its time counted from the file's start (ToneFit.h).
+static VibeToneFit VibeFitChannel(const float *samples, uint32_t channels, uint32_t channel, double rate,
+                                  double frequency, size_t start, size_t frames) {
+    double *x = malloc(frames * sizeof(double));
+    for (size_t i = 0; i < frames; i++) {
+        x[i] = samples[(start + i) * channels + channel];
     }
-    double det = ss * cc - sc * sc;
-    double a = (ys * cc - yc * sc) / det, b = (yc * ss - ys * sc) / det;
-    return 20 * log10(hypot(a, b));
+    VibeToneFit fit = VibeFitTone(x, frames, frequency, rate, (double)start, 0);
+    free(x);
+    return fit;
 }
 
-// The residual after the fitted sine, in dB of full scale: the noise and
-// distortion a decode adds.
-static double VibeResidual(const float *samples, uint32_t channels, uint32_t channel, double rate, double frequency,
-                           size_t start, size_t frames) {
-    double ss = 0, sc = 0, cc = 0, ys = 0, yc = 0;
-    for (size_t i = start; i < start + frames; i++) {
-        double t = (double)i / rate, s = sin(2 * M_PI * frequency * t), c = cos(2 * M_PI * frequency * t);
-        double y = samples[i * channels + channel];
-        ss += s * s; sc += s * c; cc += c * c; ys += y * s; yc += y * c;
-    }
-    double det = ss * cc - sc * sc;
-    double a = (ys * cc - yc * sc) / det, b = (yc * ss - ys * sc) / det, sum = 0;
-    for (size_t i = start; i < start + frames; i++) {
-        double t = (double)i / rate;
-        double e = samples[i * channels + channel] - a * sin(2 * M_PI * frequency * t) - b * cos(2 * M_PI * frequency * t);
-        sum += e * e;
-    }
-    return 10 * log10(sum / frames + 1e-30);
+// The fitted tone's level, in dB of full scale.
+static double VibeFittedLevel(const float *samples, uint32_t channels, uint32_t channel, double rate,
+                              double frequency, size_t start, size_t frames) {
+    return 20 * log10(VibeFitChannel(samples, channels, channel, rate, frequency, start, frames).amplitude);
 }
 
 #pragma mark - The facts and the tone
@@ -114,7 +99,7 @@ static double VibeResidual(const float *samples, uint32_t channels, uint32_t cha
     XCTAssertLessThan(VibeFittedLevel(samples, 2, 1, 176400, 1000, 4410, 35280), -90);
     // The tone is clean: what is left is the modulator's ultrasonic noise,
     // most of it above 20 kHz.
-    XCTAssertLessThan(VibeResidual(samples, 2, 0, 176400, 1000, 4410, 35280), -50);
+    XCTAssertLessThan(VibeDB(VibeFitChannel(samples, 2, 0, 176400, 1000, 4410, 35280).residualPower), -50);
 }
 
 - (void)testTheToneIsInPhaseWithTheDSD {
@@ -123,14 +108,10 @@ static double VibeResidual(const float *samples, uint32_t channels, uint32_t cha
     AudioFileHandle *handle = [self open:[self write:VibeDSFFile(1, 1, NO, 2822400 / 8, VibeDSFSine(1000, 0.5), nil)
                                               named:@"phase.dsf"]];
     NSData *pcm = [self decode:handle];
-    const float *samples = pcm.bytes;
-    double s = 0, c = 0;
-    for (size_t i = 4410; i < 4410 + 17640; i++) {
-        s += samples[i] * sin(2 * M_PI * 1000 * i / 176400.0);
-        c += samples[i] * cos(2 * M_PI * 1000 * i / 176400.0);
-    }
+    VibeToneFit fit = VibeFitChannel(pcm.bytes, 1, 0, 176400, 1000, 4410, 17640);
+    // The modulated sine is b·sin, so its cos term, a, is the phase error.
     // Under a microsecond: well inside one 176.4 kHz frame (5.7 µs).
-    XCTAssertLessThan(fabs(atan2(c, s)) / (2 * M_PI * 1000), 1e-6);
+    XCTAssertLessThan(fabs(atan2(fit.a, fit.b)) / (2 * M_PI * 1000), 1e-6);
 }
 
 - (void)testBothBitOrdersDecodeTheSame {
@@ -190,9 +171,14 @@ static double VibeResidual(const float *samples, uint32_t channels, uint32_t cha
     }
 }
 
-- (void)testMonoAndStereoNeedNoLayout {
+// Mono and stereo carry no layout, as every decoder's do: their order is plain.
+- (void)testMonoAndStereoCarryNoLayout {
     AudioFileHandle *mono = [self open:[self write:VibeDSFFile(1, 1, YES, 40000, VibeDSFSine(1000, 0.5), nil) named:@"mono.dsf"]];
     XCTAssertEqual(mono.processingFormat.channelCount, 1u);
+    XCTAssertNil(mono.processingFormat.channelLayout);
+    AudioFileHandle *stereo = [self open:[self write:VibeDSFFile(2, 1, YES, 40000, VibeDSFSine(1000, 0.5), nil) named:@"stereo.dsf"]];
+    XCTAssertEqual(stereo.processingFormat.channelCount, 2u);
+    XCTAssertNil(stereo.processingFormat.channelLayout);
 }
 
 #pragma mark - The length and the seeks
@@ -215,7 +201,16 @@ static double VibeResidual(const float *samples, uint32_t channels, uint32_t cha
 }
 
 - (void)testASeekLandsOnTheSampleAReadFromTheStartGives {
-    NSURL *url = [self write:VibeDSFFile(2, 1, YES, 400000, VibeDSFSine(997, 0.5), nil) named:@"seek.dsf"];
+    [self assertSeeksAtMultiple:1];
+}
+
+- (void)testASeekAtDSD512LandsOnTheSampleAReadFromTheStartGives {
+    [self assertSeeksAtMultiple:8];
+}
+
+- (void)assertSeeksAtMultiple:(uint32_t)multiple {
+    NSString *name = [NSString stringWithFormat:@"seek-%u.dsf", multiple];
+    NSURL *url = [self write:VibeDSFFile(2, multiple, YES, 400000ull * multiple, VibeDSFSine(997, 0.5), nil) named:name];
     NSData *whole = [self decode:[self open:url]];
     const float *reference = whole.bytes;
     AudioFileHandle *handle = [self open:url];
@@ -336,12 +331,11 @@ static double VibeResidual(const float *samples, uint32_t channels, uint32_t cha
 - (void)testTheParserMapsEachChannelsBytesAcrossTheBlocks {
     NSData *file = VibeDSFFile(3, 1, NO, 3 * 4096 * 8, VibeDSFSine(1000, 0.5), nil);
     VibeDSFInfo info;
-    XCTAssertEqual(VibeDSFParseHeader(file.bytes, file.length, file.length, &info), VibeDSFVerdictOK);
+    XCTAssertTrue(VibeDSFParseHeader(file.bytes, file.length, file.length, &info));
     XCTAssertEqual(info.channels, 3u);
     XCTAssertEqual(VibeDSFByteOffset(&info, 0, 0), 92u);
     XCTAssertEqual(VibeDSFByteOffset(&info, 2, 0), 92u + 2 * 4096);
     XCTAssertEqual(VibeDSFByteOffset(&info, 1, 4096 + 5), 92u + 4 * 4096 + 5);
-    XCTAssertEqual(info.metadataOffset, 0u);
 }
 
 @end

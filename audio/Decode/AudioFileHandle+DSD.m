@@ -22,27 +22,11 @@ static AVAudioChannelLayout *VibeDSFChannelLayout(uint32_t channelType) {
     enum { L = kAudioChannelLabel_Left, R = kAudioChannelLabel_Right, C = kAudioChannelLabel_Center,
            Ls = kAudioChannelLabel_LeftSurround, Rs = kAudioChannelLabel_RightSurround,
            LFE = kAudioChannelLabel_LFEScreen };
-    static const AudioChannelLabel orders[5][6] = {
+    static const AudioChannelLabel orders[5][kVibeDSFMaxChannels] = {
         {L, R, C}, {L, R, Ls, Rs}, {L, R, C, LFE}, {L, R, C, Ls, Rs}, {L, R, C, LFE, Ls, Rs},
     };
-    static const UInt32 counts[5] = {3, 4, 4, 5, 6};
-    if (channelType < 3 || channelType > 7) {
-        return nil;
-    }
-    UInt32 channels = counts[channelType - 3];
-    size_t size = offsetof(AudioChannelLayout, mChannelDescriptions) + channels * sizeof(AudioChannelDescription);
-    AudioChannelLayout *layout = calloc(1, size);
-    if (!layout) {
-        return nil;
-    }
-    layout->mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelDescriptions;
-    layout->mNumberChannelDescriptions = channels;
-    for (UInt32 c = 0; c < channels; c++) {
-        layout->mChannelDescriptions[c].mChannelLabel = orders[channelType - 3][c];
-    }
-    AVAudioChannelLayout *result = [[AVAudioChannelLayout alloc] initWithLayout:layout];
-    free(layout);
-    return result;
+    uint32_t channels = VibeDSFChannelsOfType(channelType);
+    return channels <= 2 ? nil : VibeLabeledLayout(orders[channelType - 3], channels);
 }
 
 // The handle's reads for VibeDSF.c. A short read is a file that ended
@@ -62,16 +46,19 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
 - (BOOL)openDSFInterleaved:(BOOL)interleaved {
     uint8_t header[kVibeDSFHeaderBytes];
     ssize_t got = VibeHandleFetch(self, 0, sizeof header, header, sizeof header);
-    if (got < (ssize_t)sizeof header
-            || VibeDSFParseHeader(header, sizeof header, (uint64_t)MAX(0, _size), &_dsf) != VibeDSFVerdictOK) {
+    if (got < (ssize_t)sizeof header || !VibeDSFParseHeader(header, sizeof header, (uint64_t)MAX(0, _size), &_dsf)) {
         return NO;
     }
-    _dsd = VibeDSDToPCMCreate(_dsf.channels, _dsf.rateMultiple);
+    _dsd = VibeDSDToPCMCreate(_dsf.channels, _dsf.rateMultiple, _dsf.lsbFirst);
     if (!_dsd) {
         return NO;
     }
     unsigned perFrame = VibeDSDToPCMBytesPerFrame(_dsd);
-    _dsdBytes = malloc((size_t)kVibeDSDChunkFrames * perFrame * _dsf.channels);
+    size_t chunkBytes = (size_t)kVibeDSDChunkFrames * perFrame;
+    _dsdBytes = malloc(chunkBytes * _dsf.channels);
+    // A chunk spans at most two groups of blocks more than it fills.
+    _dsdSpanBytes = (chunkBytes / kVibeDSFBlockBytes + 2) * kVibeDSFBlockBytes * _dsf.channels;
+    _dsdSpan = malloc(_dsdSpanBytes);
     double rate = (double)_dsf.sampleRate / (16.0 * _dsf.rateMultiple);
     AudioStreamBasicDescription description = {
         .mSampleRate = rate, .mFormatID = kAudioFormatLinearPCM,
@@ -79,7 +66,8 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
         .mBytesPerPacket = 4 * _dsf.channels, .mFramesPerPacket = 1, .mBytesPerFrame = 4 * _dsf.channels,
         .mChannelsPerFrame = _dsf.channels, .mBitsPerChannel = 32,
     };
-    if (!_dsdBytes || ![self takeFileFormat:description layout:VibeDSFChannelLayout(_dsf.channelType) interleaved:interleaved]) {
+    if (!_dsdBytes || !_dsdSpan
+            || ![self takeFileFormat:description layout:VibeDSFChannelLayout(_dsf.channelType) interleaved:interleaved]) {
         [self closeDSD];
         return NO;
     }
@@ -93,16 +81,17 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
     _dsd = NULL;
     free(_dsdBytes);
     _dsdBytes = NULL;
+    free(_dsdSpan);
+    _dsdSpan = NULL;
 }
 
-// The converter starts over from silence, fed from the lead before `frame`,
-// whose outputs are dropped. So the reads from `frame` on are what a read
-// from the start gives there, sample for sample.
+// The converter starts over, and the next read feeds it from the lead before
+// `frame`, whose outputs it drops. So the reads from `frame` on are what a
+// read from the start gives there, sample for sample.
 - (void)restartDSDAtFrame:(SInt64)frame {
     VibeDSDToPCMReset(_dsd);
     _dsdPosition = frame;
-    _dsdFeed = frame - kVibeDSDToPCMLeadFrames;
-    _dsdDrop = kVibeDSDToPCMLeadFrames + kVibeDSDToPCMDelayFrames;
+    _dsdRestarted = YES;
 }
 
 // Lands at the end for a target past it, where reads return nothing.
@@ -111,65 +100,58 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
     return [self reportWaitFault:error];
 }
 
-// Feeds the converter `frames` frames from _dsdFeed, writing each channel's
-// output at `planes`, a channel to each or interleaved. NO for a failed read,
-// with the converter part fed.
-- (BOOL)feedDSDFrames:(UInt32)frames into:(float *const *)planes interleaved:(BOOL)interleaved {
+// Feeds the converter `frames` frames from frame `feed`, writing each
+// channel's output at `planes`, a channel to each or interleaved. Every
+// channel's bytes are read before any is converted, so a failed read, NO,
+// leaves the converter as it was.
+- (BOOL)feedDSDFrames:(UInt32)frames from:(SInt64)feed into:(float *const *)planes interleaved:(BOOL)interleaved {
     unsigned perFrame = VibeDSDToPCMBytesPerFrame(_dsd);
     size_t bytes = (size_t)frames * perFrame;
-    uint8_t *channels[8];
+    uint8_t *channels[kVibeDSFMaxChannels];
     for (uint32_t c = 0; c < _dsf.channels; c++) {
         channels[c] = _dsdBytes + c * bytes;
     }
-    if (!VibeDSFReadChannels(&_dsf, VibeDSFHandleRead, (__bridge void *)self, _dsdFeed * perFrame, bytes, channels)) {
+    if (!VibeDSFReadChannels(&_dsf, VibeDSFHandleRead, (__bridge void *)self, feed * perFrame, bytes, channels,
+                             _dsdSpan, _dsdSpanBytes)) {
         return NO;
     }
     for (uint32_t c = 0; c < _dsf.channels; c++) {
         float *out = interleaved ? planes[0] + c : planes[c];
         VibeDSDToPCMProcess(_dsd, c, channels[c], frames, out, interleaved ? _dsf.channels : 1);
     }
-    _dsdFeed += frames;
     return YES;
 }
 
 - (BOOL)readDSDIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error {
+    enum { kDropped = kVibeDSDToPCMLeadFrames + kVibeDSDToPCMDelayFrames };
     BOOL interleaved = _processingFormat.isInterleaved;
     UInt32 channels = _dsf.channels;
     float *const *planes = buffer.floatChannelData;
     AVAudioFrameCount total = (AVAudioFrameCount)MIN((SInt64)wanted, MAX(0, _length - _dsdPosition));
     AVAudioFrameCount done = 0;
     BOOL failed = NO;
-    // The outputs a seek drops go to a scratch buffer.
-    while (_dsdDrop > 0 && total > 0 && !failed) {
-        float scratch[kVibeDSDToPCMLeadFrames + kVibeDSDToPCMDelayFrames][8];
-        float *scratchPlanes[1] = {&scratch[0][0]};
-        UInt32 frames = _dsdDrop;
-        failed = ![self feedDSDFrames:frames into:scratchPlanes interleaved:YES];
-        if (!failed) {
-            _dsdDrop = 0;
-        }
+    // After a restart, the lead's outputs go to a scratch buffer. Then the
+    // feed runs kVibeDSDToPCMDelayFrames ahead of the frame delivered.
+    if (_dsdRestarted && total > 0) {
+        float scratch[kDropped * kVibeDSFMaxChannels];
+        float *scratchPlanes[1] = {scratch};
+        failed = ![self feedDSDFrames:kDropped from:_dsdPosition - kVibeDSDToPCMLeadFrames into:scratchPlanes interleaved:YES];
+        _dsdRestarted = failed;
     }
     while (done < total && !failed) {
         UInt32 frames = MIN(total - done, (UInt32)kVibeDSDChunkFrames);
-        float *at[8];
+        float *at[kVibeDSFMaxChannels];
         for (UInt32 c = 0; c < (interleaved ? 1 : channels); c++) {
             at[c] = planes[c] + (size_t)done * (interleaved ? channels : 1);
         }
-        failed = ![self feedDSDFrames:frames into:at interleaved:interleaved];
+        failed = ![self feedDSDFrames:frames from:_dsdPosition + kVibeDSDToPCMDelayFrames into:at interleaved:interleaved];
         if (!failed) {
             done += frames;
             _dsdPosition += frames;
         }
     }
     buffer.frameLength = done;
-    if (failed && !_waitError) {
-        if (error) {
-            *error = VibeHandleError(kAudioFilePositionError, [NSString stringWithFormat:@"Reading %@ failed", _url.lastPathComponent]);
-        }
-        // A seek restarts the converter, so the next read may start over.
-        return NO;
-    }
-    return [self reportWaitFault:error];
+    return [self finishReadFailed:failed error:error];
 }
 
 @end

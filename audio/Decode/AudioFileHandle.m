@@ -1084,7 +1084,7 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
         return [self seekMPEGToFrame:frame error:error];
     }
     if (_dsd) {
-        // A seek restarts the converter, so an interrupted read leaves nothing.
+        // A seek restarts the converter, whatever a read left.
         return [self seekDSDToFrame:frame error:error];
     }
     OSStatus status;

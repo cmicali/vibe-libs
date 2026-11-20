@@ -99,14 +99,14 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     SInt64 _streamCursor;
     BOOL _streamReadFailed; // a pread failed, which no stream decoder can tell from the end
     // A DSF's decode (AudioFileHandle+DSD.m): its header, the converter, the
-    // frame the next read delivers, the next frame whose bytes it feeds, and
-    // the outputs to drop before that read's first, after a seek.
+    // frame the next read delivers, and its buffers.
     VibeDSFInfo _dsf;
     VibeDSDToPCM *_dsd;
     SInt64 _dsdPosition;
-    SInt64 _dsdFeed;
-    UInt32 _dsdDrop;
-    uint8_t *_dsdBytes; // a read's bytes, a channel after another
+    BOOL _dsdRestarted;  // the next read feeds the lead first (restartDSDAtFrame:)
+    uint8_t *_dsdBytes;  // a read's bytes, a channel after another
+    uint8_t *_dsdSpan;   // what one read of the file takes (VibeDSFReadChannels)
+    size_t _dsdSpanBytes;
 }
 
 - (BOOL)reportWaitFault:(NSError **)error;
@@ -135,6 +135,9 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 - (BOOL)openOwnDecoderInterleaved:(BOOL)interleaved;
 - (void)closeStreamDecoder;
 - (BOOL)readStreamIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
+// A read's end: NO with a read failure's error for a read that failed, else
+// what reportWaitFault: answers. The DSD decode's reads end here too.
+- (BOOL)finishReadFailed:(BOOL)failed error:(NSError **)error;
 
 @end
 
@@ -148,6 +151,9 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 - (BOOL)readDSDIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
 
 @end
+
+// AudioFileHandle+Stream.m's: a layout of `channels` labels, in order.
+AVAudioChannelLayout *VibeLabeledLayout(const AudioChannelLabel *labels, UInt32 channels);
 
 // AudioFileHandle.m's reads and waits, which the decode's open also uses.
 uint32_t VibeID3v2Syncsafe(const uint8_t bytes[4]);

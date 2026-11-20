@@ -1,6 +1,6 @@
 # audio/AudioTypes
 
-The words every audio piece shares, so a piece that needs one of them needs neither Decode nor Analysis. It holds the playable-item protocol, the CUE window math, the musical key and its color, the file format names, and the playable extensions. It came from Vibe. It depends on nothing, not even `core/Common`, since no file here logs. Each file imports only Foundation, but for two. The format names import `CoreAudioTypes` too, and the key's color imports AppKit or UIKit in its `.m` alone.
+The words every audio piece shares, so a piece that needs one of them needs neither Decode nor Analysis. It holds the playable-item protocol, the CUE window math, the musical key and its color, the file format names, and the playable extensions. It came from Vibe. It depends on nothing, not even `core/Common`, since no file here logs. Each file imports only Foundation, but for three. The format names import `CoreAudioTypes` too, the key's color imports AppKit or UIKit in its `.m` alone, and `VibeDSD.h` is plain C, so `audio/Decode`'s C files include it.
 
 ## The playable item
 
@@ -30,6 +30,10 @@ The words every audio piece shares, so a piece that needs one of them needs neit
 ## The format names
 
 **`AudioFileFormat.h` names the codecs and containers**: MP3, FLAC, WAV, DSD, and the rest. DSD is its own kind, though the handle plays it as PCM, and TagLib's parse names it. A name is an identifier. It is compared with `isEqualToString:` and archived in a metadata cache, so it is never localized. `VibeAudioFileFormatForCodec` names a codec from its CoreAudio format ID. A codec with no constant here, PCM among them, answers nil, since its name is its container's.
+
+## The DSD rates
+
+**`VibeDSD.h` names the DSD rates the toolbox plays**: DSD64 to DSD512, in the 44.1 kHz and 48 kHz families. `VibeDSDRateMultiple` answers a rate's multiple of DSD64, or 0 for a rate the decode refuses, so an app names a rate ("DSD64") by the same rule the decode takes it. It also holds DSD's idle pattern. `audio/Decode`'s DSF parser and converter include it.
 
 ## The playable extensions
 

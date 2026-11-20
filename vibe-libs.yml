@@ -208,10 +208,17 @@ targetTemplates:
   # TRAP: an app that also takes VibeLibsTaglib lists this template first, as
   # it would VibeLibsVorbis. The handle includes libvorbis's vorbisfile.h.
   VibeLibsDecode:
-    templates: [VibeLibsCommon, VibeLibsFileLoading, VibeLibsDrMp3, VibeLibsDrFlac, VibeLibsDrWav, VibeLibsVorbis]
+    templates: [VibeLibsCommon, VibeLibsAudioTypes, VibeLibsFileLoading, VibeLibsDrMp3, VibeLibsDrFlac, VibeLibsDrWav,
+                VibeLibsVorbis]
     sources:
       - path: audio/Decode
-        excludes: ["**/*.md", "${excludedPlatform}/**"]
+        excludes: ["**/*.md", "${excludedPlatform}/**", "**/*.c"]
+      # The DSD parser and converter, optimized in every configuration, as the
+      # dr_ decoders are, so a Debug build converts as a shipped one does.
+      - path: audio/Decode
+        includes: ["**/*.c"]
+        excludes: ["${excludedPlatform}/**"]
+        compilerFlags: ["-O3"]
     settings:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/audio/Decode"]

@@ -13,15 +13,12 @@
 
 #include <math.h>
 
+#import "VibeDSD.h"
+#import "VibeDSF.h"
+
 // The value of channel `channel` at `seconds`, in -1 to 1. Half of full scale
 // is 0 dB SACD.
 typedef double (^VibeDSFSignal)(uint32_t channel, double seconds);
-
-// The channels each fmt channel type names (VibeDSF.h).
-static inline uint32_t VibeDSFChannelsOfType(uint32_t channelType) {
-    static const uint32_t channels[8] = {0, 1, 2, 3, 4, 4, 5, 6};
-    return channelType < 8 ? channels[channelType] : 0;
-}
 
 // One channel modulated, most significant bit first: a fifth-order
 // error-feedback modulator whose noise transfer function has five zeros at DC
@@ -61,11 +58,11 @@ static inline void VibeDSFAppendLE(NSMutableData *data, uint64_t value, int byte
 }
 
 // A DSF of `samples` samples a channel at `rateMultiple` times `baseRate`
-// (2,822,400 or 3,072,000), with `tag` at its end when given. The last
+// (kVibeDSD64Rate or kVibeDSD64Rate48k), with `tag` at its end when given. The last
 // block's padding is zeros, as the spec has it.
 static inline NSData *VibeDSFFileAtRate(uint32_t channelType, double baseRate, uint32_t rateMultiple, BOOL lsbFirst,
                                         uint64_t samples, VibeDSFSignal signal, NSData *tag) {
-    enum { kBlock = 4096 };
+    enum { kBlock = kVibeDSFBlockBytes };
     uint32_t channels = VibeDSFChannelsOfType(channelType);
     double rate = baseRate * rateMultiple;
     uint64_t bytes = (samples + 7) / 8, blocks = (bytes + kBlock - 1) / kBlock;
@@ -116,7 +113,7 @@ static inline NSData *VibeDSFFileAtRate(uint32_t channelType, double baseRate, u
 
 static inline NSData *VibeDSFFile(uint32_t channelType, uint32_t rateMultiple, BOOL lsbFirst, uint64_t samples,
                                   VibeDSFSignal signal, NSData *tag) {
-    return VibeDSFFileAtRate(channelType, 2822400, rateMultiple, lsbFirst, samples, signal, tag);
+    return VibeDSFFileAtRate(channelType, kVibeDSD64Rate, rateMultiple, lsbFirst, samples, signal, tag);
 }
 
 // A sine at `frequency` and `amplitude` on every channel.

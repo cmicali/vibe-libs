@@ -25,6 +25,7 @@
 #include <audioproperties.h>
 #include <tpropertymap.h>
 #include <flacfile.h>
+#include <dsffile.h>
 
 NSNotificationName const AudioTrackMetadataThumbnailDidLoadNotification =
         @"AudioTrackMetadataThumbnailDidLoadNotification";
@@ -630,7 +631,12 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCode
         if (auto props = file->audioProperties()) {
             self.duration = static_cast<NSTimeInterval>(props->lengthInMilliseconds()) / 1000;
             // 0 is unknown; the codec line drops nil, not zero.
-            if (props->bitrate() > 0) self.bitrate = @(props->bitrate());
+            // TRAP: TagLib multiplies a DSF's rate by its bits per sample,
+            // which is its bit order, 1 or 8, so a file stored most
+            // significant bit first reads 8 times too fast. DSD is one bit.
+            int bitrate = dynamic_cast<TagLib::DSF::File *>(file)
+                    ? (int)(((int64_t)props->sampleRate() * props->channels() + 500) / 1000) : props->bitrate();
+            if (bitrate > 0) self.bitrate = @(bitrate);
             if (props->sampleRate() > 0) self.sampleRate = @(props->sampleRate());
         }
         // TagLib takes a FLAC's length from STREAMINFO alone, which may leave it

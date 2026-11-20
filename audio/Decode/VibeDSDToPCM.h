@@ -9,20 +9,26 @@
 //  through tables, down to 352.8 kHz. The second halves that. A full-scale
 //  DSD stream is ±1.0, so 0 dB SACD, half of it, is -6 dBFS.
 //
-//  It reads no file: the caller feeds it each channel's bytes, most
-//  significant bit first (VibeDSF.h). Feeding is in frames, a frame being
-//  the bytes that make one output sample (VibeDSDToPCMBytesPerFrame).
+//  It reads no file: the caller feeds it each channel's bytes as the file
+//  stores them, in the bit order the converter was made for. Feeding is in
+//  frames, a frame being the bytes that make one output sample
+//  (VibeDSDToPCMBytesPerFrame). Its sums run in one fixed order, so the same
+//  bytes give the same samples however they are split into calls.
 //
 
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct VibeDSDToPCM VibeDSDToPCM;
 
-// The output that the frame fed first lands on, after a reset: each output
-// is centered on the frame fed kVibeDSDToPCMDelayFrames before it.
+// Each output is centered on the frame fed kVibeDSDToPCMDelayFrames before it.
 enum { kVibeDSDToPCMDelayFrames = 26 };
 
 // The frames to feed before frame k, after a reset, so the output for frame
@@ -31,12 +37,14 @@ enum { kVibeDSDToPCMDelayFrames = 26 };
 // kVibeDSDToPCMLeadFrames + kVibeDSDToPCMDelayFrames outputs.
 enum { kVibeDSDToPCMLeadFrames = 27 };
 
-// NULL for a channel count past 8, a multiple other than 1, 2, 4, or 8, or a
-// failed allocation. Reset.
-VibeDSDToPCM *VibeDSDToPCMCreate(unsigned channels, unsigned multiple);
+// NULL for no channels or more than 8, a multiple other than 1, 2, 4, or 8,
+// or a failed allocation. `lsbFirst` names the bytes' bit order: the first
+// sample in the least significant bit. Reset.
+VibeDSDToPCM *VibeDSDToPCMCreate(unsigned channels, unsigned multiple, bool lsbFirst);
 void VibeDSDToPCMFree(VibeDSDToPCM *converter);
 
-// As if silence had been fed forever: the state any seek starts from.
+// Clears the filters' history. The outputs it leaves behind are the ones the
+// lead drops, so what follows depends on the bytes fed from then on.
 void VibeDSDToPCMReset(VibeDSDToPCM *converter);
 
 // A channel's bytes a frame: twice the multiple.
@@ -46,3 +54,7 @@ unsigned VibeDSDToPCMBytesPerFrame(const VibeDSDToPCM *converter);
 // frame to `out`, `stride` floats apart. Every channel is fed the same frames.
 void VibeDSDToPCMProcess(VibeDSDToPCM *converter, unsigned channel, const uint8_t *bytes, size_t frames,
                          float *out, size_t stride);
+
+#ifdef __cplusplus
+}
+#endif

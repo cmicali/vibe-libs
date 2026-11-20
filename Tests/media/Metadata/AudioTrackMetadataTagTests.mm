@@ -1028,6 +1028,17 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
     XCTAssertEqualObjects(metadata.sampleRate, @2822400);
     XCTAssertEqual(metadata.bitDepth, 1);
     XCTAssertEqualWithAccuracy(metadata.duration, 0.5, 0.01);
+    XCTAssertEqualObjects(metadata.bitrate, @5645); // 2.8224 MHz times two channels
+}
+
+// A DSF stored most significant bit first states 8 bits a sample, its bit
+// order. Its bit rate is still one bit a sample.
+- (void)testAnMSBFirstDSFStatesItsTrueBitRate {
+    NSURL *url = [_dir URLByAppendingPathComponent:@"msb.dsf"];
+    XCTAssertTrue([VibeDSFFile(2, 1, NO, 2822400 / 4, VibeDSFSine(1000, 0.5), nil) writeToURL:url atomically:YES]);
+    AudioTrackMetadata *metadata = Parse(url, NULL);
+    XCTAssertEqualObjects(metadata.bitrate, @5645);
+    XCTAssertEqual(metadata.bitDepth, 1);
 }
 
 @end

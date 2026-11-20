@@ -258,15 +258,19 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         {L, C, R}, {L, R, Ls, Rs}, {L, C, R, Ls, Rs}, {L, C, R, Ls, Rs, LFE},
         {L, C, R, Ls, Rs, Cs, LFE}, {L, C, R, Ls, Rs, Rls, Rrs, LFE},
     };
-    if (channels <= 2 || channels > 8) {
-        return nil;
-    }
+    return channels <= 2 || channels > 8 ? nil : VibeLabeledLayout(orders[channels - 3], channels);
+}
+
+AVAudioChannelLayout *VibeLabeledLayout(const AudioChannelLabel *labels, UInt32 channels) {
     size_t size = offsetof(AudioChannelLayout, mChannelDescriptions) + channels * sizeof(AudioChannelDescription);
     AudioChannelLayout *layout = calloc(1, size);
+    if (!layout) {
+        return nil;
+    }
     layout->mChannelLayoutTag = kAudioChannelLayoutTag_UseChannelDescriptions;
     layout->mNumberChannelDescriptions = channels;
     for (UInt32 c = 0; c < channels; c++) {
-        layout->mChannelDescriptions[c].mChannelLabel = orders[channels - 3][c];
+        layout->mChannelDescriptions[c].mChannelLabel = labels[c];
     }
     AVAudioChannelLayout *result = [[AVAudioChannelLayout alloc] initWithLayout:layout];
     free(layout);
@@ -377,7 +381,11 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         got = _flac ? drflac_read_pcm_frames_f32(_flac, frames, planes[0]) : drwav_read_pcm_frames_f32(_wav, frames, planes[0]);
     }
     buffer.frameLength = (AVAudioFrameCount)got;
-    if ((_streamReadFailed || failed) && !_waitError) {
+    return [self finishReadFailed:_streamReadFailed || failed error:error];
+}
+
+- (BOOL)finishReadFailed:(BOOL)failed error:(NSError **)error {
+    if (failed && !_waitError) {
         if (error) {
             *error = VibeHandleError(kAudioFilePositionError, [NSString stringWithFormat:@"Reading %@ failed", _url.lastPathComponent]);
         }
