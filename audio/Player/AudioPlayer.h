@@ -77,7 +77,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)setFXEnabled:(BOOL)enabled;
 
 // The render chain stage by stage (audioPathOnQueue). One queue round trip;
-// any thread but the player queue.
+// the caller reads the physical format after the player queue returns. Call off the player queue.
 - (NSArray<NSDictionary<NSString *, id> *> *)audioPathSnapshot;
 
 // deviceUID and deviceName name the persisted output device; empty follows

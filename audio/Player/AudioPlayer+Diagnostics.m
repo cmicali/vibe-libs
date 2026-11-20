@@ -61,14 +61,16 @@ static NSString *VibeSampleFormatName(AVAudioFormat *format) {
     if (file) {
         const AudioStreamBasicDescription *asbd = file.fileFormat.streamDescription;
         source[@"file"] = file.url.lastPathComponent ?: @"";
-        source[@"codec"] = VibeCodecName(asbd->mFormatID);
+        NSString *decoder = file.decoderName;
+        BOOL wavpack = [decoder isEqualToString:@"libwavpack"];
+        source[@"codec"] = wavpack ? VibeAudioFileFormatWavPack : VibeCodecName(asbd->mFormatID);
         source[@"lossless"] = @(asbd->mFormatID == kAudioFormatLinearPCM || asbd->mFormatID == kAudioFormatFLAC
                                 || asbd->mFormatID == kAudioFormatAppleLossless || asbd->mFormatID == kVibeAudioFormatMonkeysAudio);
         source[@"sampleRate"] = @(file.fileFormat.sampleRate);
         source[@"channels"] = @(file.fileFormat.channelCount);
         if (file.dsdSampleRate > 0) {
             // The handle converts the DSD to the PCM the facts state.
-            source[@"codec"] = VibeAudioFileFormatDSD;
+            if (!wavpack) source[@"codec"] = VibeAudioFileFormatDSD;
             source[@"dsdSampleRate"] = @(file.dsdSampleRate);
         }
         // Only PCM's flags say float: a lossless codec's flags are its source
@@ -82,7 +84,7 @@ static NSString *VibeSampleFormatName(AVAudioFormat *format) {
 #endif
         source[@"frames"] = @(file.length);
         source[@"decodedSampleFormat"] = VibeSampleFormatName(file.processingFormat);
-        source[@"decoder"] = file.decoderName;
+        source[@"decoder"] = decoder;
     }
 
     NSDictionary *conversion = [_voiceBus conversionOfVoice:_voice];

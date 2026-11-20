@@ -29,26 +29,9 @@ static const NSTimeInterval kSlowDeviceRebindLogThresholdSeconds = 0.25;
     NSMutableDictionary *device = [@{@"stage": @"device", @"present": @(deviceID != kAudioObjectUnknown)} mutableCopy];
     if (deviceID != kAudioObjectUnknown) {
         AudioDevice *known = [AudioDeviceManager.sharedInstance outputDeviceForId:deviceID];
-        __block Float64 rate = 0;
-        __block AudioStreamBasicDescription physical = {0};
-        __block BOOL rateRead = NO, physicalRead = NO;
-        BOOL answered = [CoreAudioUtil performBoundedRead:^{
-            AudioStreamID stream = kAudioObjectUnknown;
-            rateRead = [CoreAudioUtil readNominalSampleRate:&rate forDeviceID:deviceID];
-            physicalRead = [CoreAudioUtil readOutputStream:&stream physicalFormat:&physical availableFormats:NULL
-                                                     count:NULL forDeviceID:deviceID];
-        } within:kDeviceReadWaitSeconds late:nil];
         device[@"deviceId"] = @((NSInteger)deviceID);
         if (known) device[@"name"] = known.name;
         if (known) device[@"uid"] = known.uid;
-        if (!answered) device[@"deviceReadTimedOut"] = @YES;
-        if (answered && rateRead) device[@"nominalSampleRate"] = @(rate);
-        if (answered && physicalRead) {
-            device[@"physicalSampleRate"] = @(physical.mSampleRate);
-            device[@"physicalBitsPerChannel"] = @(physical.mBitsPerChannel);
-            device[@"physicalFloat"] = @((physical.mFormatFlags & kAudioFormatFlagIsFloat) != 0);
-            device[@"physicalChannels"] = @(physical.mChannelsPerFrame); // the stream's, of which the unit drives `channels`
-        }
         device[@"channels"] = @(_outputUnit.format.channelCount); // what reaches the device: the unit's stereo pair on its channel map
         device[@"latencySeconds"] = @(_outputUnit.presentationLatency); // the device's own: its latency, safety offset and stream latency
         device[@"preparedForBitPerfect"] = @(_preparedDeviceID == deviceID);
@@ -99,6 +82,33 @@ static const NSTimeInterval kSlowDeviceRebindLogThresholdSeconds = 0.25;
 #pragma mark - Output devices (internal surface + device-change observing)
 
 @implementation AudioPlayer (DevicesInternal)
+
+// The caller has left the player queue. A slow device can delay the report
+// while the player keeps handling transport commands.
++ (NSDictionary *)deviceStageWithPhysicalFormat:(NSDictionary *)stage {
+    AudioDeviceID deviceID = [stage[@"deviceId"] unsignedIntValue];
+    if (!deviceID) return stage;
+    __block Float64 rate = 0;
+    __block AudioStreamID stream = kAudioObjectUnknown;
+    __block AudioStreamBasicDescription physical = {0};
+    __block BOOL rateRead = NO, physicalRead = NO;
+    BOOL answered = [CoreAudioUtil performBoundedRead:^{
+        rateRead = [CoreAudioUtil readNominalSampleRate:&rate forDeviceID:deviceID];
+        physicalRead = [CoreAudioUtil readOutputStream:&stream physicalFormat:&physical availableFormats:NULL
+                                                 count:NULL forDeviceID:deviceID];
+    } within:kDeviceReadWaitSeconds late:nil];
+    NSMutableDictionary *device = [stage mutableCopy];
+    if (!answered) device[@"deviceReadTimedOut"] = @YES;
+    if (answered && rateRead) device[@"nominalSampleRate"] = @(rate);
+    if (answered && physicalRead) {
+        device[@"streamId"] = @(stream);
+        device[@"physicalSampleRate"] = @(physical.mSampleRate);
+        device[@"physicalBitsPerChannel"] = @(physical.mBitsPerChannel);
+        device[@"physicalFloat"] = @((physical.mFormatFlags & kAudioFormatFlagIsFloat) != 0);
+        device[@"physicalChannels"] = @(physical.mChannelsPerFrame);
+    }
+    return device;
+}
 
 - (BOOL)createOutputUnitOnQueue {
     AudioOutputUnit *unit = [[AudioOutputUnit alloc] init];

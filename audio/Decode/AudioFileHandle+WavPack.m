@@ -288,6 +288,7 @@ static BOOL VibeWavPackCorrectionHolds(WavpackContext *context, uint32_t blockSa
     }
     _wavpackScale = isFloat ? 0 : 1.0f / (float)(1u << (bytes * 8 - 1));
     AudioStreamBasicDescription description = {.mSampleRate = rate, .mChannelsPerFrame = channels};
+    _wavpackDSDRate = dsd ? WavpackGetNativeSampleRate(_wavpack) : 0;
     if ((mode & MODE_LOSSLESS) && !dsd) {
         VibeDescribePCM(&description, bits, bytes, isFloat, !isFloat && (bytes > 1 || (qualify & QMODE_SIGNED_BYTES)), NO);
     } else {
