@@ -13,6 +13,8 @@
 #include <stdexcept>
 #include <aifffile.h>
 #include <apefile.h>
+#include <apefooter.h>
+#include <apeitem.h>
 #include <apetag.h>
 #include <attachedpictureframe.h>
 #include <commentsframe.h>
@@ -43,6 +45,7 @@
 #include <xiphcomment.h>
 
 #include "VibeCheckedFileStream.h"
+#include "VibeDSFLayout.h"
 #include "VibeMP4ItemNames.h"
 
 NSErrorDomain const VibeTagWriteErrorDomain = @"vibe-libs.tags.write";
@@ -310,15 +313,14 @@ Edits Resolve(const Edits &named, const TagLib::PropertyMap &current, Style styl
     return ops;
 }
 
-// A tag with no editor of its own: its whole map, with the operations
-// applied. APE, ID3v1, and INFO keep what their maps do not name. A rating
-// goes in only where the tag is its file's own, as a WavPack or Monkey's
-// Audio file's APE tag is. Whether the tag changed, so an unchanged one is
-// not rewritten.
-bool ApplyByPropertyMap(TagLib::Tag *tag, const Edits &named, Style style, bool ratings = false) {
+// A tag with no editor of its own beside the file's own tag: its whole
+// map, with the operations applied, and no rating. An MP3's APE tag, an
+// ID3v1 tag, and INFO keep what their maps do not name. Whether the tag
+// changed, so an unchanged one is not rewritten.
+bool ApplyByPropertyMap(TagLib::Tag *tag, const Edits &named, Style style) {
     const TagLib::PropertyMap before = tag->properties();
     TagLib::PropertyMap properties = before;
-    for (const auto &[key, values] : Resolve(ratings ? named : WithoutRatings(named), before, style, false)) {
+    for (const auto &[key, values] : Resolve(WithoutRatings(named), before, style, false)) {
         if (values.isEmpty()) properties.erase(key);
         else properties.replace(key, values);
     }
@@ -716,32 +718,157 @@ std::string APEPicturesFault(const std::vector<int> &types) {
     return "";
 }
 
-// The pictures in the order VibeEmbeddedPictures indexes them: the front
-// cover, then the back cover. TagLib writes each item as its description,
-// a NUL, and its bytes, and reads it back the same way.
+// The APE item names of the two covers, by ID3v2's type numbers.
+constexpr struct {
+    int type;
+    const char *key;
+} kAPECovers[] = {{3, "Cover Art (Front)"}, {4, "Cover Art (Back)"}};
+
+// The covers as items, in the order VibeEmbeddedPictures indexes them: the
+// front cover, then the back cover, each a binary item. TRAP: TagLib's
+// complexProperties takes everything before a cover's first NUL as its
+// description, unless its bytes start as a JPEG or PNG does, so a cover
+// rebuilt from it would split a bare BMP or GIF and write the half back as
+// text. So each cover the write keeps stays the item it was, byte for byte,
+// and only an added cover is made: its description, a NUL, and its bytes.
 void ApplyAPECover(TagLib::APE::Tag *tag, const Cover &cover) {
     if (cover.take == Cover::Take::None) return;
     std::vector<int> added;
     for (const Record &record : cover.add) added.push_back(record.type);
     if (const std::string fault = APEPicturesFault(added); !fault.empty()) Refuse(VibeTagWriteErrorInvalidImage, fault);
-    std::vector<TagLib::VariantMap> existing, taken;
-    for (const TagLib::VariantMap &picture : tag->complexProperties("PICTURE")) existing.push_back(picture);
-    const std::vector<TagLib::VariantMap> arranged = Arrange<TagLib::VariantMap>(
+    std::vector<TagLib::APE::Item> existing, taken;
+    for (const auto &entry : kAPECovers) {
+        const TagLib::String key = TagLib::String(entry.key).upper();
+        if (!tag->itemListMap().contains(key)) continue;
+        const TagLib::APE::Item &item = tag->itemListMap()[key];
+        if (item.type() != TagLib::APE::Item::Binary) {
+            Refuse(VibeTagWriteErrorWouldLoseData, "the APE item " + Text(item.key()) + " holds no picture");
+        }
+        existing.push_back(item);
+    }
+    const std::vector<TagLib::APE::Item> arranged = Arrange<TagLib::APE::Item>(
             existing, cover, [](const Record &record) {
-                TagLib::VariantMap picture;
-                picture.insert("data", record.data);
-                picture.insert("description", record.description);
-                picture.insert("pictureType", TagLib::String(record.type == 4 ? "Back Cover" : "Front Cover"));
-                return picture;
+                TagLib::APE::Item item;
+                item.setKey(record.type == kAPECovers[1].type ? kAPECovers[1].key : kAPECovers[0].key);
+                item.setType(TagLib::APE::Item::Binary);
+                item.setBinaryData(record.description.data(TagLib::String::UTF8).append('\0').append(record.data));
+                return item;
             }, &taken);
     std::vector<int> types;
-    TagLib::List<TagLib::VariantMap> list;
-    for (const TagLib::VariantMap &picture : arranged) {
-        types.push_back(picture.value("pictureType").toString() == "Back Cover" ? 4 : 3);
-        list.append(picture);
+    for (const TagLib::APE::Item &item : arranged) {
+        types.push_back(item.key().upper() == TagLib::String(kAPECovers[1].key).upper() ? kAPECovers[1].type
+                                                                                         : kAPECovers[0].type);
     }
     if (const std::string fault = APEPicturesFault(types); !fault.empty()) Refuse(VibeTagWriteErrorInvalidImage, fault);
-    tag->setComplexProperties("PICTURE", list);
+    for (const auto &entry : kAPECovers) tag->removeItem(entry.key);
+    for (const TagLib::APE::Item &item : arranged) tag->setItem(item.key(), item);
+}
+
+// TagLib's APE spelling of a property map name, from its keyConversions
+// (apetag.cpp), or the name itself.
+TagLib::String APESpelling(const TagLib::String &key) {
+    static const char *const kConversions[][2] = {
+        {"TRACKNUMBER", "TRACK"}, {"DATE", "YEAR"}, {"ALBUMARTIST", "ALBUM ARTIST"}, {"DISCNUMBER", "DISC"},
+        {"REMIXER", "MIXARTIST"}, {"RELEASESTATUS", "MUSICBRAINZ_ALBUMSTATUS"},
+        {"RELEASETYPE", "MUSICBRAINZ_ALBUMTYPE"},
+    };
+    for (const auto &conversion : kConversions) {
+        if (key == conversion[0]) return conversion[1];
+    }
+    return key;
+}
+
+// Each named field's items: the items of its name and of TagLib's APE
+// spelling of it go, and its values come back as one text item, under the
+// spelling the file used, or TagLib's when it used neither. Every other
+// item stays as it was. TRAP: TagLib's whole-map setProperties renames what
+// it converts, so ALBUMARTIST would become ALBUM ARTIST, and a file's YEAR
+// and DATE would merge, on an edit of the title.
+void ApplyAPEEdits(TagLib::APE::Tag *tag, const Edits &named) {
+    for (const auto &[key, values] : Resolve(named, tag->properties(), Style::Folded, false)) {
+        const TagLib::String spelling = APESpelling(key);
+        TagLib::String used;
+        for (const TagLib::String &name : {key, spelling}) {
+            if (!tag->itemListMap().contains(name)) continue;
+            const TagLib::APE::Item &item = tag->itemListMap()[name];
+            if (item.type() != TagLib::APE::Item::Text) {
+                Refuse(VibeTagWriteErrorWouldLoseData, "the APE item " + Text(item.key()) + " holds no text");
+            }
+            if (used.isEmpty()) used = item.key();
+        }
+        tag->removeItem(key);
+        tag->removeItem(spelling);
+        if (values.isEmpty()) continue;
+        const TagLib::String name = used.isEmpty() ? spelling : used;
+        tag->setItem(name, TagLib::APE::Item(name, values));
+    }
+}
+
+// Where an APE tag ends: before an ID3v1 tag at the file's end, as TagLib's
+// findID3v1 finds one, which "TAG" inside an APE footer's "APETAGEX" is not.
+TagLib::offset_t APETagEnd(TagLib::File *file) {
+    const TagLib::offset_t length = file->length();
+    if (length >= 131) {
+        file->seek(length - 131);
+        const TagLib::ByteVector bytes = file->readBlock(8);
+        if (bytes.containsAt("TAG", 3) && bytes != "APETAGEX") return length - 128;
+        return length;
+    }
+    file->seek(length - 128);
+    return length >= 128 && file->readBlock(3) == "TAG" ? length - 128 : length;
+}
+
+// Whether a Monkey's Audio file states its lengths, from version 3.98 on,
+// so the audio check bounds its audio by them.
+bool StatesItsLengths(TagLib::File *file) {
+    if (!dynamic_cast<TagLib::APE::File *>(file)) return false;
+    TagLib::offset_t at = file->find("MAC ");
+    if (at < 0) at = file->find("MACF");
+    if (at < 0) return false;
+    file->seek(at + 4);
+    return file->readBlock(2).toUShort(false) >= 3980;
+}
+
+// The checks of an existing APE tag before the write, which TagLib's save
+// writes again from what it parsed. TRAP: its parse keeps only the items it
+// can use, so it drops one of two items whose names differ only in case,
+// an item with an invalid name, every item after one of a bad length, and
+// an empty item, and it turns text that is no UTF-8 into replacement
+// characters. Each item on disk must be one TagLib parsed, rendering to the
+// same bytes. TRAP: TagLib writes the tag where its footer says it starts.
+// A footer that claims more than its tag would put the write over the end
+// of the audio, and the audio check skips the same bytes. So the tag's
+// header must be where the footer says, unless a Monkey's Audio file from
+// 3.98 on states its own lengths, which the audio check holds it to.
+void CheckAPETag(TagLib::File *file, TagLib::APE::Tag *tag) {
+    const TagLib::APE::Footer *footer = tag->footer();
+    const TagLib::offset_t end = APETagEnd(file);
+    const TagLib::offset_t start = end - (TagLib::offset_t)footer->completeTagSize();
+    const TagLib::offset_t items = end - (TagLib::offset_t)footer->tagSize();
+    if (footer->tagSize() < 32 || start < 0) Refuse(VibeTagWriteErrorWouldLoseData, "the APE tag's footer is damaged");
+    file->seek(start);
+    if (!(footer->headerPresent() && file->readBlock(8) == "APETAGEX") && !StatesItsLengths(file)) {
+        Refuse(VibeTagWriteErrorWouldLoseData, "the APE tag has no header where its footer says it starts");
+    }
+    file->seek(items);
+    const TagLib::ByteVector data = file->readBlock(footer->tagSize() - 32);
+    unsigned int pos = 0, count = 0;
+    while (pos + 9 <= data.size() && count < footer->itemCount()) {
+        const unsigned int length = data.toUInt(pos, false);
+        const int nul = data.find('\0', pos + 8);
+        if (nul < 0 || length > data.size() - nul - 1) break;
+        const TagLib::ByteVector raw = data.mid(pos, (unsigned int)nul + 1 + length - pos);
+        const TagLib::String key(data.mid(pos + 8, (unsigned int)nul - pos - 8), TagLib::String::Latin1);
+        const TagLib::APE::ItemListMap &map = tag->itemListMap();
+        if (!map.contains(key.upper()) || map[key.upper()].render() != raw) {
+            Refuse(VibeTagWriteErrorWouldLoseData, "TagLib would lose or change the APE item " + Text(key));
+        }
+        pos += raw.size();
+        count++;
+    }
+    if (count != footer->itemCount() || count != tag->itemListMap().size()) {
+        Refuse(VibeTagWriteErrorWouldLoseData, "TagLib would drop an item of the APE tag");
+    }
 }
 
 // WavPack and Monkey's Audio: the APEv2 tag at the file's end, and an
@@ -761,11 +888,12 @@ bool SaveAPEFile(APEFile *file, const Edits &named, const Cover &cover) {
             Refuse(VibeTagWriteErrorUnsupportedValue, "an APE item's name holds 255 characters, not " + Text(key));
         }
     }
-    const bool hadAPE = file->hasAPETag(), hadID3v1 = file->hasID3v1Tag();
+    if (TagLib::APE::Tag *existing = VibeAPETagOfFile(file, false)) CheckAPETag(file, existing);
+    const bool hadID3v1 = file->hasID3v1Tag();
     const TagLib::PropertyMap current = file->properties();
-    TagLib::APE::Tag *ape = file->APETag(true);
-    if ((!hadAPE || ape->isEmpty()) && !current.isEmpty()) ape->setProperties(current);
-    ApplyByPropertyMap(ape, named, Style::Folded, true);
+    TagLib::APE::Tag *ape = VibeAPETagOfFile(file, true);
+    if (ape->isEmpty() && !current.isEmpty()) ape->setProperties(current);
+    ApplyAPEEdits(ape, named);
     ApplyAPECover(ape, cover);
     if (hadID3v1) ApplyByPropertyMap(file->ID3v1Tag(), named, Style::ID3v1);
     return file->save();
@@ -773,38 +901,30 @@ bool SaveAPEFile(APEFile *file, const Edits &named, const Cover &cover) {
 
 #pragma mark - DSF
 
-// A DSF's header: the file's size at byte 12, and at byte 20 the offset of
-// its ID3v2 tag, or 0 for none. Its fmt chunk follows at 28, then its data
-// chunk. TagLib's save writes the tag at that offset, or at the file's size
-// when there is none, so the data chunk must end before either. A pointer
-// to bytes that are not an ID3v2 tag would be written over. Whether the
-// file holds a tag.
+// TagLib's DSF save writes the tag at the header's tag offset, or at its
+// file size when there is none, without looking at what is there. So the
+// data chunk must end before that place, and an offset must name an ID3v2
+// tag, or the save would write over audio or other bytes. Whether the file
+// holds a tag.
 bool CheckDSFLayout(TagLib::DSF::File *file) {
-    auto u64 = [&](TagLib::offset_t at) {
-        file->seek(at);
-        const TagLib::ByteVector bytes = file->readBlock(8);
-        if (bytes.size() != 8) Refuse(VibeTagWriteErrorNoParser, "the DSF's header could not be read");
-        return bytes.toULongLong(false);
-    };
-    auto is = [&](TagLib::offset_t at, const char *name) {
-        file->seek(at);
-        return file->readBlock(4) == TagLib::ByteVector(name, 4);
-    };
-    const unsigned long long size = u64(12), pointer = u64(20), format = u64(32);
-    const unsigned long long data = 28 + format;
-    if (!is(28, "fmt ") || format > size || !is((TagLib::offset_t)data, "data")) {
+    file->seek(0);
+    const TagLib::ByteVector header = file->readBlock(kVibeDSFHeaderBytes);
+    VibeDSFLayout layout;
+    if (!VibeReadDSFLayout((const uint8_t *)header.data(), header.size(), &layout)) {
         Refuse(VibeTagWriteErrorNoParser, "the DSF's fmt and data chunks could not be found");
     }
-    const unsigned long long dataSize = u64((TagLib::offset_t)data + 4);
-    const unsigned long long place = pointer ? pointer : size;
-    if (dataSize < 12 || dataSize > place || data > place - dataSize) {
+    const uint64_t place = layout.metadataOffset ? layout.metadataOffset : layout.fileSize;
+    if (layout.dataSize > place || layout.dataOffset > place - layout.dataSize) {
         Refuse(VibeTagWriteErrorWouldLoseData, "the DSF's tag would go inside its audio");
     }
-    if (pointer && !is((TagLib::offset_t)pointer, "ID3\x02") && !is((TagLib::offset_t)pointer, "ID3\x03")
-            && !is((TagLib::offset_t)pointer, "ID3\x04")) {
-        Refuse(VibeTagWriteErrorWouldLoseData, "the DSF's metadata pointer names no ID3v2 tag");
+    if (layout.metadataOffset) {
+        file->seek((TagLib::offset_t)layout.metadataOffset);
+        const TagLib::ByteVector id = file->readBlock(4);
+        if (!id.startsWith("ID3") || id.size() != 4 || id[3] < 2 || id[3] > 4) {
+            Refuse(VibeTagWriteErrorWouldLoseData, "the DSF's metadata pointer names no ID3v2 tag");
+        }
     }
-    return pointer != 0;
+    return layout.metadataOffset != 0;
 }
 
 #pragma mark - Per file

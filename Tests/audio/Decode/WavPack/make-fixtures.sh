@@ -40,3 +40,6 @@ wavpack -q -y --blocksize=1024 -b4 -c "$work/long.wav" -o "$here/long.wv"
 # the WAV's length, and writes to a pipe, so it cannot go back to the first
 # block. The open then reads the last blocks.
 cat "$work/s16.wav" | wavpack -q -y --blocksize=1024 -i - -o - > "$here/unsized.wv" 2> /dev/null
+# The tag writer's file with an APE tag of another tool's making: ffmpeg's,
+# the fuzz seed tags-wv/plain.wv, which make-seeds.sh writes.
+cp "$here/../../../Fuzz/Seeds/tags-wv/plain.wv" "$here/ffmpeg.wv"

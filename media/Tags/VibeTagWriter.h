@@ -152,9 +152,10 @@ typedef NS_ENUM(NSInteger, VibeTagPictureType) {
 // Every picture with bytes in the file, in its order, and the index of the
 // one the art read shows (TagLibAudioFile.h), or NSNotFound. A picture with
 // no bytes is never shown or listed. An MPEG, WAV, AIFF, or DSF file's are
-// its ID3v2 tag's. A WavPack or Monkey's Audio file's are its APE tag's front
-// cover, then its back cover, with no MIME string, since APE stores none. YES with an empty array is a file with none. NO with an error
-// when no parser took the file or TagLib threw.
+// its ID3v2 tag's. A WavPack or Monkey's Audio file's are its APE tag's
+// front cover, then its back cover, with no MIME string, since APE stores
+// none. YES with an empty array is a file with none. NO with an error when
+// no parser took the file or TagLib threw.
 FOUNDATION_EXTERN BOOL VibeTagLibReadPictures(NSString *path,
                                               NSArray<VibeTagPicture *> *_Nullable __autoreleasing *_Nullable pictures,
                                               NSUInteger *_Nullable shownIndex,
@@ -162,8 +163,9 @@ FOUNDATION_EXTERN BOOL VibeTagLibReadPictures(NSString *path,
 
 // The picture home of a file's tag: an MPEG, WAV, AIFF, or DSF file's ID3v2
 // tag, a FLAC's picture blocks, an Ogg Vorbis or Opus file's Xiph comment, an
-// MP4's covr item, or a WavPack or Monkey's Audio file's APE tag. TRAP: VibeAudioFileFormat names the codec, so FLAC in an
-// MP4 reads FLAC, and cannot say this.
+// MP4's covr item, or a WavPack or Monkey's Audio file's APE tag. TRAP:
+// VibeAudioFileFormat names the codec, so FLAC in an MP4 reads FLAC, and
+// cannot say this.
 typedef NS_ENUM(NSInteger, VibeTagContainer) {
     VibeTagContainerUnknown = 0,
     VibeTagContainerID3v2 = 1,

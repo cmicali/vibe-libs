@@ -11,6 +11,7 @@
 //
 
 #import "VibeTagWriter.h"
+#include "VibeDSFLayout.h"
 #include "VibeMP4ItemNames.h"
 
 #include <CommonCrypto/CommonDigest.h>
@@ -170,15 +171,24 @@ uint64_t SkipID3v2(Bytes &f, uint64_t at) {
     return at;
 }
 
-// The end before the tags MPEG and FLAC files carry at their end: ID3v1,
-// then Lyrics3v2 or APE.
-uint64_t TrimTrailingTags(Bytes &f, uint64_t start, uint64_t end) {
-    if (end - start >= 128 && f.is(end - 128, "TAG")) end -= 128;
+// The end before the tags files carry at their end: ID3v1, then Lyrics3v2
+// or APE. As TagLib's findID3v1 does, "TAG" that is the end of an APE
+// footer's "APETAGEX" is no ID3v1 tag. *unheaded, when given, says whether
+// an APE tag was taken off with no header where its footer says it starts,
+// so the footer alone said where the audio ends.
+uint64_t TrimTrailingTags(Bytes &f, uint64_t start, uint64_t end, bool *unheaded = nullptr) {
+    if (end - start >= 128 && f.is(end - 128, "TAG") && !(end - start >= 131 && f.is(end - 131, "APETAGEX"))) {
+        end -= 128;
+    }
     for (int pass = 0; pass < 2; pass++) {
         if (end - start >= 32 && f.is(end - 32, "APETAGEX")) {
             const uint64_t size = f.le32(end - 32 + 12);
-            const uint64_t whole = size + ((f.le32(end - 32 + 20) & 0x80000000u) ? 32 : 0);
-            if (whole <= end - start) end -= whole;
+            const bool header = (f.le32(end - 32 + 20) & 0x80000000u) != 0;
+            const uint64_t whole = size + (header ? 32 : 0);
+            if (whole <= end - start) {
+                end -= whole;
+                if (unheaded && !(header && f.is(end, "APETAGEX"))) *unheaded = true;
+            }
         }
         if (end - start >= 15 && f.is(end - 9, "LYRICS200")) {
             uint64_t size = 0;
@@ -462,14 +472,19 @@ bool WalkOgg(Bytes &f, Sink &d) {
 // Each block, from the first byte to the tags at the end: a 32-byte header
 // whose size at byte 4 counts what follows its first 8 bytes. Bytes after
 // the last block, before the tags, go in too, so nothing a write could
-// touch is left out. A block that passes the tags is no audio. The
-// correction file of a hybrid file is another file, never read here.
+// touch is left out. A block that passes the tags is no audio. TRAP: a
+// footer can claim more than its tag, ending on a block's edge, and TagLib
+// writes where it claims, so an APE tag must have its header where its
+// footer says it starts, or the audio is not found. The correction file of
+// a hybrid file is another file, never read here.
 bool WalkWavPack(Bytes &f, Sink &d) {
-    const uint64_t end = TrimTrailingTags(f, 0, f.n);
+    bool unheaded = false;
+    const uint64_t end = TrimTrailingTags(f, 0, f.n, &unheaded);
+    if (unheaded) return false;
     d.text("WVPK");
     uint64_t at = 0;
     bool any = false;
-    while (f.has(at, 32) && at + 32 <= end && f.is(at, "wvpk")) {
+    while (at + 32 <= end && f.is(at, "wvpk")) {
         const uint64_t size = (uint64_t)f.le32(at + 4) + 8;
         if (size < 32 || size > end - at) return false;
         d.file(at, size);
@@ -483,12 +498,16 @@ bool WalkWavPack(Bytes &f, Sink &d) {
 // The descriptor, header, seek table, the WAV header it keeps, the frames,
 // and the WAV's terminating bytes, from "MAC " to the tags at the end. A
 // file from version 3.98 on states those lengths, which must fit before the
-// tags. An ID3v2 tag before it, which TagLib never writes, goes in too.
+// tags. An older one states none, so its APE tag must have its header where
+// its footer says it starts, or the audio is not found (WalkWavPack's
+// TRAP). An ID3v2 tag before it, which TagLib never writes, goes in too.
 bool WalkMonkeysAudio(Bytes &f, Sink &d) {
     const uint64_t start = SkipID3v2(f, 0);
-    const uint64_t end = TrimTrailingTags(f, start, f.n);
+    bool unheaded = false;
+    const uint64_t end = TrimTrailingTags(f, start, f.n, &unheaded);
     if (!f.has(start, 8)) return false;
     const uint32_t version = f.le32(start + 4) & 0xFFFF;
+    if (version < 3980 && unheaded) return false;
     if (version >= 3980) {
         if (!f.has(start, 36)) return false;
         uint64_t stated = (uint64_t)f.le32(start + 28) << 32;
@@ -502,18 +521,18 @@ bool WalkMonkeysAudio(Bytes &f, Sink &d) {
     return true;
 }
 
-// The fmt chunk and the data chunk, each whole. The header's file size and
-// tag pointer change when the tag does, so they are left out.
+// The fmt chunk and the data chunk, each whole, where VibeReadDSFLayout
+// finds them. The header's file size and tag pointer change when the tag
+// does, so they are left out.
 bool WalkDSF(Bytes &f, Sink &d) {
-    if (!f.has(0, 40) || f.le64(4) != 28 || !f.is(28, "fmt ")) return false;
-    const uint64_t format = f.le64(32);
-    if (format < 12 || !f.has(28, format) || !f.has(28 + format, 12) || !f.is(28 + format, "data")) return false;
-    const uint64_t data = 28 + format;
-    const uint64_t size = f.le64(data + 4);
-    if (size < 12 || !f.has(data, size)) return false;
+    VibeDSFLayout layout;
+    if (!f.has(0, kVibeDSFHeaderBytes) || !VibeReadDSFLayout(f.view(0, kVibeDSFHeaderBytes), kVibeDSFHeaderBytes, &layout) ||
+        !f.has(layout.dataOffset, layout.dataSize)) {
+        return false;
+    }
     d.text("DSF");
-    d.file(28, format);
-    d.file(data, size);
+    d.file(28, 52);
+    d.file(layout.dataOffset, layout.dataSize);
     return true;
 }
 

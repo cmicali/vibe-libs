@@ -623,13 +623,20 @@ std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file) {
     else if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
         ListMP4(mp4->tag(), &pictures);
     }
-    else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
-        ListAPE(wavpack->hasAPETag() ? wavpack->APETag() : nullptr, &pictures);
-    }
-    else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
-        ListAPE(ape->hasAPETag() ? ape->APETag(false) : nullptr, &pictures);
+    else {
+        ListAPE(VibeAPETagOfFile(file, false), &pictures);
     }
     return pictures;
+}
+
+TagLib::APE::Tag *_Nullable VibeAPETagOfFile(TagLib::File *file, bool create) {
+    if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
+        return create || wavpack->hasAPETag() ? wavpack->APETag(create) : nullptr;
+    }
+    if (auto monkeys = dynamic_cast<TagLib::APE::File *>(file)) {
+        return create || monkeys->hasAPETag() ? monkeys->APETag(create) : nullptr;
+    }
+    return nullptr;
 }
 
 TagLib::ID3v2::Tag *_Nullable VibeID3v2TagOfFile(TagLib::File *file) {
@@ -690,13 +697,7 @@ NSDictionary<VibeTagField, NSString *> *_Nullable VibeTagRatingFields(TagLib::Fi
     }
     // A WavPack or Monkey's Audio file's own tag is its APE tag, read alone,
     // never the ID3v1 tag the map may answer from.
-    TagLib::APE::Tag *ape = nullptr;
-    if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
-        ape = wavpack->hasAPETag() ? wavpack->APETag() : nullptr;
-    }
-    else if (auto monkeys = dynamic_cast<TagLib::APE::File *>(file)) {
-        ape = monkeys->hasAPETag() ? monkeys->APETag(false) : nullptr;
-    }
+    TagLib::APE::Tag *ape = VibeAPETagOfFile(file, false);
     // Only each format's own tag holds a rating: never an MP3's APE tag, an
     // ID3v1 tag, or an INFO tag the map may answer from, and RATING:<email>
     // only in a Xiph comment or a WavPack or Monkey's Audio file's APE tag,

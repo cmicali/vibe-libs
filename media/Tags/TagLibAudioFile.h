@@ -22,6 +22,9 @@
 namespace TagLib::ID3v2 {
 class Tag;
 }
+namespace TagLib::APE {
+class Tag;
+}
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -129,13 +132,17 @@ int VibeWavPackHybridBitsFromTagLibFile(TagLib::File *file);
 // value as stored, from the file's own tag only: an ID3v2 tag's POPM frames
 // whose rating is not 0, the first of each email, its email untrimmed; an
 // MP4's rate atom as RATING, a number of 0 or less as none; RATING and
-// FMPS_RATING from properties, the file's property map; and RATING:<email>
-// from a Xiph comment. At most 32, and no email over 256 bytes. nil for
+// FMPS_RATING from properties, the file's property map, or from a WavPack or
+// Monkey's Audio file's APE tag; and RATING:<email> from a Xiph comment or
+// that APE tag. At most 32, and no email over 256 bytes. nil for
 // none (media/Tags/AGENTS.md, Ratings).
 NSDictionary<VibeTagField, NSString *> *_Nullable VibeTagRatingFields(TagLib::File *file,
                                                                       const TagLib::PropertyMap &properties);
 // The ID3v2 tag of an MPEG, WAV, AIFF, or DSF file, or null for none.
 TagLib::ID3v2::Tag *_Nullable VibeID3v2TagOfFile(TagLib::File *file);
+// The APE tag of a WavPack or Monkey's Audio file, its own tag, made when
+// create is true and it has none. Null for another format, or for none.
+TagLib::APE::Tag *_Nullable VibeAPETagOfFile(TagLib::File *file, bool create);
 
 // The embedded art's bytes, read without audio properties. NO is a failed
 // read: no parser took the file, or TagLib threw. YES with nil art is a file
