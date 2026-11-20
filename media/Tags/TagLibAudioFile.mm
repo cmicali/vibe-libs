@@ -641,13 +641,20 @@ std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file) {
     else if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
         ListMP4(mp4->tag(), &pictures);
     }
-    else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
-        ListAPE(wavpack->hasAPETag() ? wavpack->APETag() : nullptr, &pictures);
-    }
-    else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
-        ListAPE(ape->hasAPETag() ? ape->APETag(false) : nullptr, &pictures);
+    else {
+        ListAPE(VibeAPETagOfFile(file, false), &pictures);
     }
     return pictures;
+}
+
+TagLib::APE::Tag *_Nullable VibeAPETagOfFile(TagLib::File *file, bool create) {
+    if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
+        return create || wavpack->hasAPETag() ? wavpack->APETag(create) : nullptr;
+    }
+    if (auto monkeys = dynamic_cast<TagLib::APE::File *>(file)) {
+        return create || monkeys->hasAPETag() ? monkeys->APETag(create) : nullptr;
+    }
+    return nullptr;
 }
 
 TagLib::ID3v2::Tag *_Nullable VibeID3v2TagOfFile(TagLib::File *file) {
@@ -706,13 +713,18 @@ NSDictionary<VibeTagField, NSString *> *_Nullable VibeTagRatingFields(TagLib::Fi
             if (value.doubleValue > 0) keep(VibeTagFieldRating, value);
         }
     }
-    // Only each format's own tag holds a rating: never an APE, ID3v1, or
-    // INFO tag the map may answer from, and RATING:<email> only in a Xiph
-    // comment, as the writer takes them.
+    // A WavPack or Monkey's Audio file's own tag is its APE tag, read alone,
+    // never the ID3v1 tag the map may answer from.
+    TagLib::APE::Tag *ape = VibeAPETagOfFile(file, false);
+    // Only each format's own tag holds a rating: never an MP3's APE tag, an
+    // ID3v1 tag, or an INFO tag the map may answer from, and RATING:<email>
+    // only in a Xiph comment or a WavPack or Monkey's Audio file's APE tag,
+    // as the writer takes them.
     const bool mapHome = xiph || mp4 || (id3v2 && !id3v2->isEmpty());
-    for (const auto &[key, values] : mapHome ? properties : TagLib::PropertyMap()) {
+    const TagLib::PropertyMap apeProperties = ape ? ape->properties() : TagLib::PropertyMap();
+    for (const auto &[key, values] : ape ? apeProperties : mapHome ? properties : TagLib::PropertyMap()) {
         const bool plain = (key == "RATING" && !hasRate) || key == "FMPS_RATING";
-        const bool owned = xiph && key.startsWith("RATING:") && key.size() > 7 &&
+        const bool owned = (xiph || ape) && key.startsWith("RATING:") && key.size() > 7 &&
                            key.size() - 7 <= kMaxRatingEmailBytes;
         if ((plain || owned) && !values.isEmpty()) keep(RatingText(key), RatingText(values.front()));
     }
