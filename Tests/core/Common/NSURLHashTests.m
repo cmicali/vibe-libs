@@ -1,6 +1,7 @@
 #import <XCTest/XCTest.h>
 
 #import "NSURL+Hash.h"
+#import "VibeTestVolumes.h"
 
 @interface NSURLHashTests : XCTestCase
 @end
@@ -20,7 +21,6 @@
 }
 
 - (void)tearDown {
-    [NSURL setVolumeLookupForTesting:nil];
     [NSFileManager.defaultManager removeItemAtURL:_dir error:NULL];
 }
 
@@ -134,19 +134,11 @@ static NSString *PlaceHash(NSString *key) {
     return [key componentsSeparatedByString:@"-"].lastObject;
 }
 
-// The volume the test names for every file, mounted at mountPath.
-- (void)useVolume:(nullable NSString *)uuid mountedAt:(nullable NSString *)mountPath {
-    [NSURL setVolumeLookupForTesting:^(NSString *path, dev_t device, NSString **found, NSString **mount) {
-        *found = uuid;
-        *mount = mountPath;
-    }];
-}
-
 // A file on a volume with a UUID is keyed by the UUID and its path within
 // the volume.
 - (void)testAFileIsKeyedByItsVolumeAndItsPathWithin {
     NSString *mount = _dir.path.stringByResolvingSymlinksInPath;
-    [self useVolume:@"0e1d2c3b-4a59-6877-8695-a4b3c2d1e0f0" mountedAt:mount];
+    VibeTestUseVolume(self, @"0e1d2c3b-4a59-6877-8695-a4b3c2d1e0f0", mount);
     NSURL *file = [self writeFileNamed:@"a.mp3" contents:@"hello"];
     XCTAssertEqualObjects(PlaceHash(file.cacheKey), SHA1(@"0e1d2c3b-4a59-6877-8695-a4b3c2d1e0f0:/a.mp3"));
 }
@@ -164,18 +156,18 @@ static NSString *PlaceHash(NSString *key) {
         XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: date}
                                                      ofItemAtPath:file.path error:NULL]);
     }
-    [self useVolume:@"uuid-of-the-drive" mountedAt:first.path.stringByResolvingSymlinksInPath];
+    VibeTestUseVolume(self, @"uuid-of-the-drive", first.path.stringByResolvingSymlinksInPath);
     NSString *key = [first URLByAppendingPathComponent:@"Album/a.flac"].cacheKey;
-    [self useVolume:@"uuid-of-the-drive" mountedAt:second.path.stringByResolvingSymlinksInPath];
+    VibeTestUseVolume(self, @"uuid-of-the-drive", second.path.stringByResolvingSymlinksInPath);
     XCTAssertEqualObjects([second URLByAppendingPathComponent:@"Album/a.flac"].cacheKey, key);
-    [self useVolume:@"uuid-of-another-drive" mountedAt:second.path.stringByResolvingSymlinksInPath];
+    VibeTestUseVolume(self, @"uuid-of-another-drive", second.path.stringByResolvingSymlinksInPath);
     XCTAssertNotEqualObjects([second URLByAppendingPathComponent:@"Album/a.flac"].cacheKey, key,
                              @"another drive is another place");
 }
 
 // A volume with no UUID keeps the absolute path, so its keys are as before.
 - (void)testAVolumeWithNoUUIDKeepsTheAbsolutePath {
-    [self useVolume:nil mountedAt:@"/"];
+    VibeTestUseVolume(self, nil, @"/");
     NSURL *file = [self writeFileNamed:@"a.mp3" contents:@"hello"];
     NSString *key = file.cacheKey;
     XCTAssertEqualObjects(PlaceHash(key), SHA1(file.path.stringByResolvingSymlinksInPath));
@@ -185,7 +177,7 @@ static NSString *PlaceHash(NSString *key) {
 // A file under the app's home is keyed by its path from the home, so a move
 // of the home, as iOS makes at each install, keeps its keys.
 - (void)testAFileUnderTheHomeIsKeyedFromTheHome {
-    [self useVolume:@"uuid-of-the-home-volume" mountedAt:@"/"];
+    VibeTestUseVolume(self, @"uuid-of-the-home-volume", @"/");
     NSString *relative = [@"Library/Caches/" stringByAppendingString:_dir.lastPathComponent];
     NSURL *folder = [[NSURL fileURLWithPath:NSHomeDirectory()] URLByAppendingPathComponent:relative];
     XCTAssertTrue([NSFileManager.defaultManager createDirectoryAtURL:folder withIntermediateDirectories:YES
@@ -200,7 +192,7 @@ static NSString *PlaceHash(NSString *key) {
 // The previous key is the same version's key as it was before the place, the
 // absolute path's hash, and it keeps a suffix such as a cue window.
 - (void)testThePreviousKeyHashesTheAbsolutePath {
-    [self useVolume:@"uuid" mountedAt:@"/"];
+    VibeTestUseVolume(self, @"uuid", @"/");
     NSURL *file = [self writeFileNamed:@"a.mp3" contents:@"hello"];
     NSString *key = file.cacheKey;
     NSString *previous = [file previousCacheKeyForKey:key];
@@ -218,7 +210,7 @@ static NSString *PlaceHash(NSString *key) {
 
 // A date before 1970 is a negative time, which the key still reads.
 - (void)testAKeyBefore1970HasAPreviousKey {
-    [self useVolume:@"uuid" mountedAt:@"/"];
+    VibeTestUseVolume(self, @"uuid", @"/");
     NSURL *file = [self writeFileNamed:@"a.mp3" contents:@"hello"];
     XCTAssertTrue([NSFileManager.defaultManager setAttributes:@{NSFileModificationDate: [NSDate dateWithTimeIntervalSince1970:-86400]}
                                                  ofItemAtPath:file.path error:NULL]);

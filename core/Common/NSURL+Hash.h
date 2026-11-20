@@ -7,11 +7,6 @@
 
 #include <sys/stat.h>
 
-// The mark a store records for the change of the key's place
-// (files/DiskCache's mayHoldEntriesFromBeforeMark:), so it stops looking under
-// previous keys once none can be left.
-FOUNDATION_EXPORT NSString *const _Nonnull VibeCacheKeyPlaceMark;
-
 @interface NSData (Hash)
 
 // Lowercase hex SHA-1: the one spelling cacheKey and the app's own hashed
@@ -30,15 +25,11 @@ FOUNDATION_EXPORT NSString *const _Nonnull VibeCacheKeyPlaceMark;
 @interface NSURL (Hash)
 
 // "<size>-<mtime_us>-<sha1(place)>" from one stat and no content read. The
-// place is the symlink-resolved path, said so it survives a move of the
-// volume or of the app's home: "~" and the path from the home for a file
-// under it, as pathKey does, or the volume's UUID, a colon, and the path
-// within the volume, or the absolute path on a volume with no UUID. Changes
-// with size, mtime, or place. A rewrite that preserves size and mtime keeps
-// the key. nil when the stat fails; callers must then skip caching.
-// TRAP: a key from before the place, which hashed the absolute path, is the
-// file's previous key (previousCacheKeyForKey:). The caches look under it
-// once on a miss, for as long as one can be left.
+// place is the resolved path said so a move of the volume or the home keeps
+// it: "~/" and the path from the home, or "<volume UUID>:" and the path within
+// the volume, or the absolute path on a volume with no UUID. nil when the stat
+// fails; callers must then skip caching. A key from before the place is the
+// file's previous key (previousCacheKeyForKey:).
 - (nullable NSString *)cacheKey;
 
 // The same key, with the stat it was made from in *info, so a caller can
@@ -78,17 +69,3 @@ FOUNDATION_EXPORT NSString *const _Nonnull VibeCacheKeyPlaceMark;
 - (nullable NSString *)pathKey;
 
 @end
-
-// What a volume lookup answers for the file at path, on the device the file's
-// stat named: the volume's UUID, nil for none, and where it is mounted.
-typedef void (^VibeVolumeLookup)(NSString *_Nonnull path, dev_t device, NSString *_Nullable *_Nonnull uuid,
-                                 NSString *_Nullable *_Nonnull mountPath);
-
-@interface NSURL (HashTesting)
-
-// Replaces the volume lookup, nil for the real one, and forgets every volume
-// looked up. Empty outside DEBUG.
-+ (void)setVolumeLookupForTesting:(nullable VibeVolumeLookup)lookup;
-
-@end
-

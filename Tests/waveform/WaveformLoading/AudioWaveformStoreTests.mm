@@ -16,6 +16,7 @@
 #import "AudioWaveformCacheInternal.h"
 #import "LegacyCacheFixtures.h"
 #import "NSURL+Hash.h"
+#import "VibeTestVolumes.h"
 #import "VibeTestTrack.h"
 #import "VibeWaveformStore.h"
 #import "WaveformLoadingTestSupport.h"
@@ -58,7 +59,6 @@
 
 - (void)tearDown {
     [VibeWaveformStore holdImportsForTesting:NO];
-    [NSURL setVolumeLookupForTesting:nil];
     [NSFileManager.defaultManager removeItemAtURL:_directory error:nil];
     [super tearDown];
 }
@@ -207,10 +207,7 @@
 // cue row's with its window after it. A lookup finds each there once the
 // import has brought it over, and moves it to its key, so nothing decodes.
 - (void)testAWaveformUnderItsPreviousKeyIsFoundAndMoved {
-    [NSURL setVolumeLookupForTesting:^(NSString *path, dev_t device, NSString **uuid, NSString **mountPath) {
-        *uuid = @"uuid-of-the-test-volume";
-        *mountPath = @"/";
-    }];
+    VibeTestUseVolume(self, @"uuid-of-the-test-volume", @"/");
     NSString *root = [self rootNamed:@"caches"];
     VibeTestTrack *whole = [self trackNamed:@"a.wav" seed:8];
     NSURL *image = VibeWriteNoiseWAV([_directory URLByAppendingPathComponent:@"b.wav"], 2.0, 9);
@@ -230,7 +227,8 @@
     AudioWaveformCache *cache = [[AudioWaveformCache alloc] initWithRootPath:root];
     VibeWaveformStore *store = [VibeWaveformStore storeUnderRoot:root];
     XCTAssertTrue(WaveformSpinUntil(^BOOL { return !store.importing; }));
-    XCTAssertTrue(store.mayHoldPreviousKeys, @"the import filed its entries under previous keys");
+    XCTAssertTrue([store.entries mayHoldEntriesFromBeforeMark:VibeCacheKeyPlaceMark],
+                  @"the import filed its entries under previous keys");
     for (VibeTestTrack *track in tracks) {
         NSString *key = VibeWaveformEntryKey(track);
         XCTAssertTrue(WaveformEventuallyCached(cache, track));

@@ -10,7 +10,6 @@
 #import "AudioTrackMetadataLoaderInternal.h"
 #import "AudioTrackMetadataCacheInternal.h"
 #import "VibeMetadataStore.h"
-#import "NSURL+Hash.h"
 #import "AudioTrackMetadata.h"
 #import "AudioTrackMetadataInternal.h"
 #import "AudioTrackArtwork.h"
@@ -68,11 +67,7 @@ static void VibeInstallArchivedArtProviders(AudioTrackMetadata *metadata,
                                                   url:(nullable NSURL *)url
                                        acceptingOlder:(BOOL)acceptingOlder {
     VibeMetadataStore *store = _owner.metadataCache;
-    VibeCacheHit *hit = [store tagsHitForKey:cacheKey acceptingOlder:acceptingOlder];
-    if (!hit && url && store.mayHoldPreviousKeys) {
-        hit = [store tagsHitForKey:cacheKey movingFromKey:[url previousCacheKeyForKey:cacheKey]
-                    acceptingOlder:acceptingOlder];
-    }
+    VibeCacheHit *hit = [store tagsHitForKey:cacheKey url:url acceptingOlder:acceptingOlder];
     if (!hit) {
         return nil;
     }

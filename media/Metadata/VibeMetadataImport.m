@@ -5,7 +5,6 @@
 
 #import "VibeMetadataImport.h"
 #import "VibeMetadataStore.h"
-#import "NSURL+Hash.h"
 #import "VibeLegacyCacheNames.h"
 
 #import <pthread.h>

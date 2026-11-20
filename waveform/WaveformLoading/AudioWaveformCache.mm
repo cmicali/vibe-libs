@@ -5,7 +5,6 @@
 
 #import "AudioWaveformCacheInternal.h"
 #import "FilePaths.h"
-#import "NSURL+Hash.h"
 #import "AudioWaveform.h"
 #import "VibeWaveformStore.h"
 #import "AudioWaveformLoader.h"
@@ -415,10 +414,7 @@ static id _Nullable VibeWaveformUnarchive(NSData *data) {
                                    forKey:(NSString *)cacheKey
                                       url:(nullable NSURL *)url
                                  analysis:(VibeWaveformAnalysis)analysis {
-    NSData *data = [store dataForKey:cacheKey];
-    if (!data && url && store.mayHoldPreviousKeys) {
-        data = [store dataForKey:cacheKey movingFromKey:[url previousCacheKeyForKey:cacheKey]];
-    }
+    NSData *data = [store dataForKey:cacheKey url:url];
     CodableAudioWaveform *cachedWaveform = data ? VibeWaveformUnarchive(data) : nil;
     // The archive is read without secure coding, as PINCache wrote it, so a
     // corrupt or tampered entry with a different root class decodes cleanly

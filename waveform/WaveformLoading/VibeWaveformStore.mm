@@ -223,31 +223,40 @@ static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
     }
 }
 
+// Moves oldKey's entry to newKey, which holds none, from the old store during
+// the import. The reader's check spares a miss the writer's queue.
+- (BOOL)moveFrom:(NSString *)oldKey to:(NSString *)newKey {
+    return ([self.entries hasEntryForKey:oldKey] && [self.entries moveEntryFromKey:oldKey toKey:newKey])
+        || [self adoptLegacyEntryForKey:oldKey as:newKey];
+}
+
 - (BOOL)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey {
     // The store's move replaces an entry under newKey, which this keeps.
     if ([self hasEntryForKey:newKey]) {
         return NO;
     }
-    if ([self.entries moveEntryFromKey:oldKey toKey:newKey] || [self adoptLegacyEntryForKey:oldKey as:newKey]) {
+    if ([self moveFrom:oldKey to:newKey]) {
         return YES;
     }
     // The app made oldKey just before its write, so this process knows its
     // previous key.
-    NSString *previous = self.mayHoldPreviousKeys ? [NSURL previousCacheKeyForKey:oldKey] : nil;
-    return previous && ([self.entries moveEntryFromKey:previous toKey:newKey]
-                        || [self adoptLegacyEntryForKey:previous as:newKey]);
+    NSString *previous = [self mayHoldPreviousKeys] ? [NSURL previousCacheKeyForKey:oldKey] : nil;
+    return previous && [self moveFrom:previous to:newKey];
 }
 
+// CH34: an entry may be under a previous key during the import, whose
+// entries keep the old store's keys, and until one would have aged out.
 - (BOOL)mayHoldPreviousKeys {
     return self.importing || [self.entries mayHoldEntriesFromBeforeMark:VibeCacheKeyPlaceMark];
 }
 
-- (nullable NSData *)dataForKey:(NSString *)key movingFromKey:(nullable NSString *)previous {
-    if (!previous || [self.entries hasEntryForKey:key]) {
-        return nil;
+- (nullable NSData *)dataForKey:(NSString *)key url:(nullable NSURL *)url {
+    NSData *data = [self dataForKey:key];
+    if (data || !url || ![self mayHoldPreviousKeys]) {
+        return data;
     }
-    BOOL moved = [self.entries moveEntryFromKey:previous toKey:key] || [self adoptLegacyEntryForKey:previous as:key];
-    return moved ? [self dataForKey:key] : nil;
+    NSString *previous = [url previousCacheKeyForKey:key];
+    return previous && [self moveFrom:previous to:key] ? [self dataForKey:key] : nil;
 }
 
 - (void)setByteLimit:(unsigned long long)byteLimit ageLimit:(NSTimeInterval)ageLimit {

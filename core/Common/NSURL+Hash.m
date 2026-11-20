@@ -3,7 +3,7 @@
 //  vibe-libs
 //
 
-#import "NSURL+Hash.h"
+#import "NSURL+Hash+Testing.h"
 #import "FilePaths.h"
 #import "VibeMacros.h"
 #include <CommonCrypto/CommonDigest.h>
@@ -16,8 +16,6 @@
 #include <string.h>
 
 static _Atomic uint64_t sCacheKeyGeneration;
-
-NSString *const VibeCacheKeyPlaceMark = @"cache key place";
 
 @implementation NSData (Hash)
 
@@ -57,10 +55,13 @@ static NSString *VibeLowercaseHex(const unsigned char *bytes, size_t length) {
 
 // MARK: The place
 
-// A volume a device held when it was last looked up.
+// A volume a device held when it was last looked up: what a key hashes ahead
+// of a path on it, and the bytes of the path that name its mount.
 @interface VibeVolumeIdentity : NSObject
-@property (nonatomic, copy, nullable) NSString *uuid;
-@property (nonatomic, copy, nullable) NSString *mountPath;
+// "<uuid>:", nil for a volume with no UUID.
+@property (nonatomic, nullable) NSData *placePrefix;
+// The mount and a slash, for a volume mounted below the root.
+@property (nonatomic, nullable) NSData *mountPrefix;
 @property (nonatomic) uint64_t checked;
 @end
 
@@ -88,6 +89,10 @@ static void VibeLookUpVolume(NSString *path, dev_t device, NSString **uuid, NSSt
     *uuid = found.lowercaseString;
 }
 
+static NSData *VibeUTF8(NSString *text) {
+    return [text dataUsingEncoding:NSUTF8StringEncoding];
+}
+
 // The volume of the file at path, on its stat's device, looked up once for
 // each device a few seconds.
 static VibeVolumeIdentity *VibeVolumeOfFile(NSString *path, dev_t device) {
@@ -107,8 +112,9 @@ static VibeVolumeIdentity *VibeVolumeOfFile(NSString *path, dev_t device) {
         VibeLookUpVolume(path, device, &uuid, &mountPath);
     }
     volume = [[VibeVolumeIdentity alloc] init];
-    volume.uuid = uuid;
-    volume.mountPath = mountPath;
+    volume.placePrefix = uuid ? VibeUTF8([uuid stringByAppendingString:@":"]) : nil;
+    // A volume mounted at the root keeps the whole path.
+    volume.mountPrefix = mountPath.length > 1 ? VibeUTF8([mountPath stringByAppendingString:@"/"]) : nil;
     volume.checked = now;
     os_unfair_lock_lock(&sVolumesLock);
     if (!sVolumes) {
@@ -119,39 +125,58 @@ static VibeVolumeIdentity *VibeVolumeOfFile(NSString *path, dev_t device) {
     return volume;
 }
 
-// The app's home, resolved as a key's path is, so a file under it is keyed
-// from it, as pathKey's spelling is. iOS moves the home with each install.
-static NSString *VibeResolvedHome(void) {
-    static NSString *home;
+// The app's home and a slash, resolved as a key's path is, so a file under it
+// is keyed from it, as pathKey's spelling is. iOS moves the home with each
+// install.
+static NSData *VibeResolvedHome(void) {
+    static NSData *home;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        home = [NSHomeDirectory().stringByResolvingSymlinksInPath stringByAppendingString:@"/"];
+        home = VibeUTF8([NSHomeDirectory().stringByResolvingSymlinksInPath stringByAppendingString:@"/"]);
     });
     return home;
 }
 
-// CH32: what a key hashes for a resolved path on its stat's device.
-static NSString *VibeKeyPlace(NSString *path, dev_t device) {
-    NSString *home = VibeResolvedHome();
-    if ([path hasPrefix:home]) {
-        return [@"~/" stringByAppendingString:[path substringFromIndex:home.length]];
-    }
-    VibeVolumeIdentity *volume = VibeVolumeOfFile(path, device);
-    if (!volume.uuid) {
-        return path;
-    }
-    // A volume mounted at the root, or reached through a firmlink, as the
-    // startup disk's data volume is, keeps the whole path.
-    NSString *mount = volume.mountPath;
-    NSString *within = path;
-    if (mount.length > 1 && [path hasPrefix:[mount stringByAppendingString:@"/"]]) {
-        within = [path substringFromIndex:mount.length];
-    }
-    return [NSString stringWithFormat:@"%@:%@", volume.uuid, within];
+static BOOL VibeHasPrefix(const char *bytes, size_t length, NSData *_Nullable prefix) {
+    return prefix && length > prefix.length && memcmp(bytes, prefix.bytes, prefix.length) == 0;
 }
 
-static NSString *VibePlaceHash(NSString *place) {
-    return [[place dataUsingEncoding:NSUTF8StringEncoding] sha1Hex];
+static NSString *VibeSHA1HexOfString(NSString *text) {
+    return [VibeUTF8(text) sha1Hex];
+}
+
+// CH32: the hash of a resolved path's place, on its stat's device. The place
+// is "~/" and the path from the home, or "<uuid>:" and the path within the
+// volume, which keeps its leading slash, or the path itself. The pieces are
+// hashed where they lie, with no string built.
+static NSString *VibePlaceHash(NSString *path, dev_t device) {
+    const char *bytes = path.UTF8String;
+    size_t length = strlen(bytes);
+    const void *prefix = NULL;
+    size_t prefixLength = 0;
+    size_t skip = 0;
+    NSData *home = VibeResolvedHome();
+    if (VibeHasPrefix(bytes, length, home)) {
+        prefix = "~/";
+        prefixLength = 2;
+        skip = home.length;
+    } else {
+        VibeVolumeIdentity *volume = VibeVolumeOfFile(path, device);
+        if (volume.placePrefix) {
+            prefix = volume.placePrefix.bytes;
+            prefixLength = volume.placePrefix.length;
+            // A volume reached through a firmlink, as the startup disk's data
+            // volume is, keeps the whole path.
+            skip = VibeHasPrefix(bytes, length, volume.mountPrefix) ? volume.mountPrefix.length - 1 : 0;
+        }
+    }
+    unsigned char digest[CC_SHA1_DIGEST_LENGTH];
+    CC_SHA1_CTX context;
+    CC_SHA1_Init(&context);
+    CC_SHA1_Update(&context, prefix, (CC_LONG)prefixLength);
+    CC_SHA1_Update(&context, bytes + skip, (CC_LONG)(length - skip));
+    CC_SHA1_Final(digest, &context);
+    return VibeLowercaseHex(digest, sizeof digest);
 }
 
 // The hash's range in a key, "<size>-<mtime_us>-<hash>" and any suffix. The
@@ -180,40 +205,23 @@ static NSRange VibeKeyHashRange(NSString *key) {
     return NSMakeRange(i + 1, kHashLength);
 }
 
-// The absolute paths of the places this process keyed last, by their place
-// hash, for a caller with a key and no URL. A ring of the newest.
-enum { kVibePreviousPathCount = 1024 };
-static os_unfair_lock sPreviousLock = OS_UNFAIR_LOCK_INIT;
-static NSMutableDictionary<NSString *, NSString *> *sPreviousPaths;
-static NSString *__strong sPreviousOrder[kVibePreviousPathCount];
-static NSUInteger sPreviousNext;
-
-static void VibeNotePreviousPath(NSString *hash, NSString *path) {
-    os_unfair_lock_lock(&sPreviousLock);
-    if (!sPreviousPaths) {
-        sPreviousPaths = [NSMutableDictionary dictionaryWithCapacity:kVibePreviousPathCount];
-    }
-    if (!sPreviousPaths[hash]) {
-        NSString *evicted = sPreviousOrder[sPreviousNext];
-        if (evicted) {
-            [sPreviousPaths removeObjectForKey:evicted];
-        }
-        sPreviousOrder[sPreviousNext] = hash;
-        sPreviousNext = (sPreviousNext + 1) % kVibePreviousPathCount;
-    }
-    sPreviousPaths[hash] = path;
-    os_unfair_lock_unlock(&sPreviousLock);
+// The resolved paths this process keyed last, by their place hash, for a
+// caller with a key and no URL, and so a miss need not resolve links again.
+static NSCache<NSString *, NSString *> *VibeRecentPaths(void) {
+    static NSCache *paths;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        paths = [[NSCache alloc] init];
+        paths.countLimit = 1024;
+    });
+    return paths;
 }
 
-// key with its place hash replaced by the hash of path, as keys were made
-// before CH32. nil when they are equal, or key is no cache key.
-static NSString *VibePreviousKey(NSString *key, NSString *path) {
-    NSRange range = VibeKeyHashRange(key);
-    if (range.location == NSNotFound || !path) {
-        return nil;
-    }
-    NSString *previous = VibePlaceHash(path);
-    if ([[key substringWithRange:range] isEqualToString:previous]) {
+// key with its place hash, at range, replaced by the hash of path, as keys
+// were made before CH32. nil when they are equal.
+static NSString *VibePreviousKey(NSString *key, NSRange range, NSString *path) {
+    NSString *previous = VibeSHA1HexOfString(path);
+    if ([key compare:previous options:NSLiteralSearch range:range] == NSOrderedSame) {
         return nil;
     }
     return [key stringByReplacingCharactersInRange:range withString:previous];
@@ -238,34 +246,30 @@ static NSString *VibePreviousKey(NSString *key, NSString *path) {
     if ([path hasPrefix:[home stringByAppendingString:@"/"]]) {
         path = [@"~" stringByAppendingString:[path substringFromIndex:home.length]];
     }
-    return [[path dataUsingEncoding:NSUTF8StringEncoding] sha1Hex];
+    return VibeSHA1HexOfString(path);
 }
 
 - (nullable NSString *)cacheKey {
     return [self cacheKeyWithStat:NULL];
 }
 
-// The resolved path this process keyed under key's hash lately, or nil.
-static NSString *VibeRecentPathOfKey(NSString *key) {
+- (nullable NSString *)previousCacheKeyForKey:(NSString *)key {
     NSRange range = VibeKeyHashRange(key);
     if (range.location == NSNotFound) {
         return nil;
     }
-    os_unfair_lock_lock(&sPreviousLock);
-    NSString *path = sPreviousPaths[[key substringWithRange:range]];
-    os_unfair_lock_unlock(&sPreviousLock);
-    return path;
-}
-
-- (nullable NSString *)previousCacheKeyForKey:(NSString *)key {
     // Resolving the links again costs a few lstats, so a key made lately
     // takes the path it was made from.
-    NSString *path = VibeRecentPathOfKey(key) ?: [self.path stringByResolvingSymlinksInPath];
-    return VibePreviousKey(key, path);
+    NSString *path = [VibeRecentPaths() objectForKey:[key substringWithRange:range]]
+            ?: [self.path stringByResolvingSymlinksInPath];
+    return path ? VibePreviousKey(key, range, path) : nil;
 }
 
 + (nullable NSString *)previousCacheKeyForKey:(NSString *)key {
-    return VibePreviousKey(key, VibeRecentPathOfKey(key));
+    NSRange range = VibeKeyHashRange(key);
+    NSString *path = range.location == NSNotFound ? nil
+            : [VibeRecentPaths() objectForKey:[key substringWithRange:range]];
+    return path ? VibePreviousKey(key, range, path) : nil;
 }
 
 - (nullable NSString *)cacheKeyWithStat:(struct stat *_Nullable)info {
@@ -292,11 +296,8 @@ static NSString *VibeRecentPathOfKey(NSString *key) {
     if (info) {
         *info = st;
     }
-    NSString *place = VibeKeyPlace(path, st.st_dev);
-    NSString *hex = VibePlaceHash(place);
-    if (place != path) {
-        VibeNotePreviousPath(hex, path);
-    }
+    NSString *hex = VibePlaceHash(path, st.st_dev);
+    [VibeRecentPaths() setObject:path forKey:hex];
     return [NSString stringWithFormat:@"%llu-%lld-%@", (unsigned long long)st.st_size, mtimeUs, hex];
 }
 

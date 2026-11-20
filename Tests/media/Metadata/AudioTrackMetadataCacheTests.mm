@@ -25,6 +25,7 @@
 #import "VibeMetadataStore.h"
 #import "VibeCacheStore+Testing.h"
 #import "VibeTestNegativeWindow.h"
+#import "VibeTestVolumes.h"
 
 @interface AudioTrackMetadataCacheTests : XCTestCase
 @end
@@ -779,7 +780,7 @@ static NSString *PreviousKey(NSURL *url) {
     [VibeMetadataImport setStartDelayForTesting:-1];
     VibeMetadataStore *first = [VibeMetadataStore checkOutStoreUnderRootPath:root];
     NSURL *url = urls.firstObject;
-    XCTAssertNotNil([first tagsHitForKey:url.cacheKey movingFromKey:PreviousKey(url) acceptingOlder:NO]);
+    XCTAssertNotNil([first tagsHitForKey:url.cacheKey url:url acceptingOlder:NO]);
     [first checkIn];
     XCTAssertTrue([self oldStoresAreUnder:root]);
 
@@ -811,17 +812,6 @@ static NSString *PreviousKey(NSURL *url) {
 
 #pragma mark - Previous keys (CH33, CH34)
 
-// Every file on a volume with a UUID, so its key and its previous key differ.
-- (void)useAVolume {
-    [NSURL setVolumeLookupForTesting:^(NSString *path, dev_t device, NSString **uuid, NSString **mountPath) {
-        *uuid = @"uuid-of-the-test-volume";
-        *mountPath = @"/";
-    }];
-    [self addTeardownBlock:^{
-        [NSURL setVolumeLookupForTesting:nil];
-    }];
-}
-
 // The file's tags and art filed under its previous key, as a release before
 // the key's place filed them.
 - (NSString *)fileUnderPreviousKey:(NSURL *)url in:(AudioTrackMetadataCache *)cache {
@@ -837,7 +827,7 @@ static NSString *PreviousKey(NSURL *url) {
 // A miss under the key looks once under the previous key, and moves the
 // entry, its picture named still, so the file is not parsed again.
 - (void)testAnEntryUnderThePreviousKeyMovesToTheKey {
-    [self useAVolume];
+    VibeTestUseVolume(self, @"uuid-of-the-test-volume", @"/");
     NSURL *url = [self fileWithArt];
     AudioTrackMetadataCache *cache =
             [[AudioTrackMetadataCache alloc] initWithRootPath:[_dir URLByAppendingPathComponent:@"cache"].path];
@@ -856,15 +846,16 @@ static NSString *PreviousKey(NSURL *url) {
 // Once an entry from before the change would have aged out, a miss looks
 // nowhere else, and parses.
 - (void)testAfterTheAgeLimitNoPreviousKeyIsLookedUp {
-    [self useAVolume];
+    VibeTestUseVolume(self, @"uuid-of-the-test-volume", @"/");
     NSURL *url = [self fileWithArt];
     AudioTrackMetadataCache *cache =
             [[AudioTrackMetadataCache alloc] initWithRootPath:[_dir URLByAppendingPathComponent:@"cache"].path];
     NSString *previous = [self fileUnderPreviousKey:url in:cache];
     VibeMetadataStore *store = cache.metadataCache;
-    XCTAssertTrue(store.mayHoldPreviousKeys, @"the store held an entry at the change");
+    XCTAssertTrue([store.cacheStore mayHoldEntriesFromBeforeMark:VibeCacheKeyPlaceMark],
+                  @"the store held an entry at the change");
     [store.cacheStore setDayOffsetForTesting:181];
-    XCTAssertFalse(store.mayHoldPreviousKeys);
+    XCTAssertFalse([store.cacheStore mayHoldEntriesFromBeforeMark:VibeCacheKeyPlaceMark]);
     VibeMetadataReadResult *read = [self read:url through:cache policy:VibeMetadataReadPolicyLocal];
     XCTAssertFalse(read.fromCache);
     XCTAssertTrue([store.cacheStore hasEntryForKey:previous], @"left to age out");
@@ -873,7 +864,7 @@ static NSString *PreviousKey(NSURL *url) {
 // A tag edit's move finds the old version under its previous key, since the
 // app made the old key just before the write, and keeps its art.
 - (void)testAMoveFindsTheOldVersionUnderItsPreviousKey {
-    [self useAVolume];
+    VibeTestUseVolume(self, @"uuid-of-the-test-volume", @"/");
     NSURL *url = [self fileWithArt];
     NSString *root = [_dir URLByAppendingPathComponent:@"cache"].path;
     AudioTrackMetadataCache *cache = [[AudioTrackMetadataCache alloc] initWithRootPath:root];

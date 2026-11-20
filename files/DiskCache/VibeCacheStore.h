@@ -39,6 +39,10 @@ typedef struct {
     unsigned long long bytes;
 } VibeCacheUsage;
 
+// The mark of the change of the disk key's place (core/Common's NSURL+Hash),
+// after which the caches look once under a file's previous key on a miss.
+FOUNDATION_EXPORT NSString *const VibeCacheKeyPlaceMark;
+
 @interface VibeCacheStore : NSObject
 
 // 1 GiB, the default byte limit.

@@ -131,26 +131,28 @@ static NSString *VibeMetadataStoreDirectory(NSString *root) {
     return hit;
 }
 
+// CH34: an entry may be under a previous key during an import, whose entries
+// keep the old stores' keys, and until one would have aged out.
 - (BOOL)mayHoldPreviousKeys {
     return _import.importing || [_cacheStore mayHoldEntriesFromBeforeMark:VibeCacheKeyPlaceMark];
 }
 
-// Moves previous's entry to key, from the old stores during an import. NO
-// when previous has none, or key holds one already, which is newer.
-- (BOOL)moveEntryFromPreviousKey:(NSString *)previous toKey:(NSString *)key {
-    VibeCacheStore *store = _cacheStore;
-    if (!previous || [store hasEntryForKey:key]) {
+// Moves previous's entry to key, which holds none, from the old stores
+// during an import. NO when previous has none.
+- (BOOL)moveEntryFromPreviousKey:(nullable NSString *)previous toKey:(NSString *)key {
+    if (!previous || (![_cacheStore hasEntryForKey:previous] && ![_import importKey:previous into:self])) {
         return NO;
     }
-    if (![store hasEntryForKey:previous] && ![_import importKey:previous into:self]) {
-        return NO;
-    }
-    return [store moveEntryFromKey:previous toKey:key];
+    return [_cacheStore moveEntryFromKey:previous toKey:key];
 }
 
-- (VibeCacheHit *)tagsHitForKey:(NSString *)key movingFromKey:(NSString *)previous acceptingOlder:(BOOL)acceptingOlder {
-    return [self moveEntryFromPreviousKey:previous toKey:key] ? [self tagsHitForKey:key acceptingOlder:acceptingOlder]
-                                                               : nil;
+- (VibeCacheHit *)tagsHitForKey:(NSString *)key url:(NSURL *)url acceptingOlder:(BOOL)acceptingOlder {
+    VibeCacheHit *hit = [self tagsHitForKey:key acceptingOlder:acceptingOlder];
+    if (hit || !url || ![self mayHoldPreviousKeys]) {
+        return hit;
+    }
+    return [self moveEntryFromPreviousKey:[url previousCacheKeyForKey:key] toKey:key]
+            ? [self tagsHitForKey:key acceptingOlder:acceptingOlder] : nil;
 }
 
 - (NSString *)fileTags:(id<NSCoding>)tags
@@ -198,7 +200,7 @@ static NSString *VibeMetadataStoreDirectory(NSString *root) {
     // one under the old version's previous key moves to its key first. The
     // app made oldKey just before its write, so this process knows its
     // previous key.
-    if (![store hasEntryForKey:oldKey] && ![_import importKey:oldKey into:self] && self.mayHoldPreviousKeys) {
+    if (![store hasEntryForKey:oldKey] && ![_import importKey:oldKey into:self] && [self mayHoldPreviousKeys]) {
         [self moveEntryFromPreviousKey:[NSURL previousCacheKeyForKey:oldKey] toKey:oldKey];
     }
     BOOL sameKey = [oldKey isEqualToString:newKey];
