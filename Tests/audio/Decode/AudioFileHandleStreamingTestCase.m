@@ -240,6 +240,9 @@ static NSData *VibeXingVBR(void) {
     // No tool here encodes WavPack, so its fixture is the one kept beside these tests.
     add([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(@"s24.wv") toURL:[self sourceNamed:@"s24.wv"] error:NULL]
             ? [self sourceNamed:@"s24.wv"] : nil, @"libwavpack");
+    // Three and a half of Monkey's Audio's frames, made by the SDK's encoder.
+    add([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"long.ape") toURL:[self sourceNamed:@"long.ape"] error:NULL]
+            ? [self sourceNamed:@"long.ape"] : nil, @"MACLib");
     return fixtures;
 }
 

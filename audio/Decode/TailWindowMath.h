@@ -35,6 +35,11 @@ NS_ASSUME_NONNULL_BEGIN
 // seek_eof_information), and waits for its download. Such files are rare, and
 // a 1 MB window would cost every streamed .wv. Its APE tag and cover are read
 // by range, not through this window.
+// A Monkey's Audio open reads none: it reads only its head, and its APEv2 tag
+// waits for the last frame's read, near the end of a play. TagLib's read of
+// the tag for a scan reads the footer, the tag, and any ID3v1 tag after it.
+// The small window holds a tag of text. A tag with a cover larger than that
+// waits for the download.
 static inline uint64_t VibeAudioFileTailWindowBytes(NSString *extension, uint64_t size) {
     static const uint64_t kSmall = 128 * 1024, kChunkedFloor = 512 * 1024, kChunkedCap = 1536 * 1024;
     BOOL chunked = [@[@"m4a", @"m4b", @"m4r", @"mp4", @"qta", @"aif", @"aiff", @"wav", @"wave", @"bwf", @"w64", @"caf",

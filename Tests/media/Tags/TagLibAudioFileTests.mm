@@ -14,6 +14,8 @@
 #import "TagLibAudioFile.h"
 #import "AudioFileFixtures.h"
 
+#include <audioproperties.h>
+
 @interface TagLibAudioFileTests : XCTestCase
 @end
 
@@ -125,6 +127,36 @@ static VibeAudioFileFormat Detected(NSURL *url) {
         NSURL *url = [_dir URLByAppendingPathComponent:name];
         XCTAssertTrue([bytes writeToURL:url atomically:YES]);
         XCTAssertEqualObjects(Detected(url), VibeAudioFileFormatFLAC, @"%@", name);
+    }
+}
+
+// A Monkey's Audio file reads by its extension and by its content, behind an
+// ID3v2 tag too, with its APEv2 tag's fields and its depth. The fixtures are
+// audio/Decode's, made by the SDK's encoder.
+- (void)testMonkeysAudioReadsItsAPETag {
+    NSURL *tagged = [_dir URLByAppendingPathComponent:@"tagged.ape"];
+    NSURL *prefixed = [_dir URLByAppendingPathComponent:@"id3v2-before.ape"];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"tagged.ape")
+                                                        toURL:tagged error:NULL]);
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"id3v2-before.ape")
+                                                        toURL:prefixed error:NULL]);
+    NSURL *bare = [_dir URLByAppendingPathComponent:@"bare"];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:tagged toURL:bare error:NULL]);
+    for (NSURL *url in @[tagged, prefixed, bare]) {
+        NSString *name = url.lastPathComponent;
+        TagLibAudioFile file(url.fileSystemRepresentation);
+        XCTAssertFalse(file.isNull(), @"%@", name);
+        if (file.isNull()) {
+            continue;
+        }
+        XCTAssertEqualObjects(fileTypeForTagLibFile(file.file()), VibeAudioFileFormatMonkeysAudio, @"%@", name);
+        XCTAssertEqual(bitsPerSampleFromTagLibFile(file.file()), 16, @"%@", name);
+        XCTAssertEqual(file.file()->audioProperties()->sampleRate(), 44100, @"%@", name);
+        XCTAssertEqualObjects(@(file.tag()->title().toCString(true)), @"Seed Title", @"%@", name);
+        XCTAssertEqualObjects(@(file.tag()->artist().toCString(true)), @"Seed Artist", @"%@", name);
+        XCTAssertEqualObjects(@(file.tag()->album().toCString(true)), @"Seed Album", @"%@", name);
+        XCTAssertEqual(file.tag()->track(), 3u, @"%@", name);
+        XCTAssertEqual(file.tag()->year(), 2026u, @"%@", name);
     }
 }
 

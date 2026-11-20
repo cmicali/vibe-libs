@@ -115,7 +115,7 @@ uint32_t VibeID3v2TagBytes(const uint8_t header[10]) {
 
 - (NSString *)decoderName {
     return _mpeg ? @"dr_mp3" : _flac ? @"dr_flac" : _wav ? @"dr_wav" : _vorbis ? @"libvorbis"
-            : _wavpack ? @"libwavpack" : @"apple";
+            : _wavpack ? @"libwavpack" : _ape ? @"MACLib" : @"apple";
 }
 
 - (AudioFileID)parser {
@@ -1074,6 +1074,9 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     if (_wavpack) {
         return _wavpackPosition;
     }
+    if (_ape) {
+        return VibeAPEDecoderPosition(_ape);
+    }
     SInt64 position = 0;
     return ExtAudioFileTell(_codec, &position) == noErr ? position : 0;
 }
@@ -1112,12 +1115,15 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
         // Each lands at the end for a target past it, where reads return
         // nothing, as Apple's does. dr_flac and dr_wav clamp it themselves.
         // vorbisfile refuses it, so it is clamped here. libwavpack's seek
-        // does it there. vorbisfile's seek finds its page again from the
+        // does it there, and so does Monkey's Audio's, which restarts at the
+        // frame that holds the target, so it needs no restart after an
+        // interrupted read. vorbisfile's seek finds its page again from the
         // bytes. An interrupted read leaves nothing.
         SInt64 target = MAX(0, frame);
         BOOL landed = (_flac ? drflac_seek_to_pcm_frame(_flac, (drflac_uint64)target)
                        : _wav ? drwav_seek_to_pcm_frame(_wav, (drwav_uint64)target)
                        : _wavpack ? [self seekWavPackToFrame:target]
+                       : _ape ? VibeAPEDecoderSeek(_ape, target)
                        : ov_pcm_seek(_vorbis, MIN(target, _length)) == 0) && !_streamReadFailed;
         if (landed && _vorbis) {
             _vorbisPosition = MIN(target, _length);

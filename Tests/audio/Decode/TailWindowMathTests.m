@@ -14,7 +14,7 @@
 // twice its window.
 - (void)testTheTailWindowIsSizedPerFormat {
     const uint64_t KB = 1024, MB = 1024 * KB;
-    for (NSString *extension in @[@"mp3", @"MP3", @"flac", @"ogg", @"opus", @"aac", @"mp2", @"wv", @"xyz", @""]) {
+    for (NSString *extension in @[@"mp3", @"MP3", @"flac", @"ogg", @"opus", @"aac", @"mp2", @"wv", @"ape", @"xyz", @""]) {
         XCTAssertEqual(VibeAudioFileTailWindowBytes(extension, 300 * MB), 128 * KB, @"%@", extension);
         XCTAssertEqual(VibeAudioFileTailWindowBytes(extension, 256 * KB + 1), 128 * KB, @"%@", extension);
         XCTAssertEqual(VibeAudioFileTailWindowBytes(extension, 256 * KB), 0u, @"%@: at twice the window", extension);

@@ -3,10 +3,11 @@
 //
 //  Malformed files through AudioFileHandle: open, read the facts, decode to the
 //  end, seek and decode again, close. Every decoder the handle chooses is fed:
-//  dr_wav, dr_flac, dr_mp3, libvorbis, libwavpack and Apple's (AAC, ALAC,
-//  Opus, and CAF). The sources are the generated fixtures, sliced to a few
-//  hundred KB, plus a few written here that no encoder on the machine makes,
-//  plus the WavPack fixtures kept beside this file.
+//  dr_wav, dr_flac, dr_mp3, libvorbis, libwavpack, Monkey's Audio's SDK, and
+//  Apple's (AAC, ALAC, Opus, and CAF). The sources are the generated fixtures,
+//  sliced to a few hundred KB, plus a few written here that no encoder on the
+//  machine makes, plus the WavPack and Monkey's Audio fixtures kept beside
+//  this file.
 //
 //  Seeded. The seed, the source and the mutator are in every failure message,
 //  and the failing mutant is attached to the result bundle.
@@ -35,6 +36,8 @@
 //  | AudioFileHandleFuzzWavPackTests   | every WavPack fixture: 8 to 32 bits, float, 5.1, hybrid,   | 10      | 8          |         |
 //  |                                   | DSD, and a file that never states its length. And hybrid's |         |            |         |
 //  |                                   | correction file, damaged beside its .wv                    |         |            |         |
+//  | AudioFileHandleFuzzAPETests       | Monkey's Audio: each level, 8 to 32 bits, float, 5.1, an   | 14      | 8          | 0.6     |
+//  |                                   | AIFF's samples, an APEv2 tag, an ID3v2 tag before it       |         |            |         |
 //
 //  Iterations is how often each random mutator runs per source. A named shape
 //  runs once per source it applies to, whatever the count.
@@ -47,10 +50,13 @@
 #import "AudioFileFixtures.h"
 #import "AudioFileHandle.h"
 
-typedef NS_ENUM(NSUInteger, FuzzFamily) { FuzzFamilyWAV, FuzzFamilyFLAC, FuzzFamilyMPEG, FuzzFamilyApple, FuzzFamilyWavPack };
+typedef NS_ENUM(NSUInteger, FuzzFamily) {
+    FuzzFamilyWAV, FuzzFamilyFLAC, FuzzFamilyMPEG, FuzzFamilyApple, FuzzFamilyWavPack, FuzzFamilyAPE
+};
 
 static const uint32_t kFuzzIterations[] = {
     [FuzzFamilyWAV] = 8, [FuzzFamilyFLAC] = 8, [FuzzFamilyMPEG] = 4, [FuzzFamilyApple] = 8, [FuzzFamilyWavPack] = 8,
+    [FuzzFamilyAPE] = 8,
 };
 
 // A source larger than this is sliced to kFuzzSliceBytes of audio, so a mutant decodes in milliseconds.
@@ -426,6 +432,7 @@ static NSArray<NSString *> *FuzzWrittenSources(NSURL *dir) {
 static FuzzFamily FuzzFamilyOf(NSString *decoder) {
     return [decoder isEqualToString:@"dr_wav"] ? FuzzFamilyWAV : [decoder isEqualToString:@"dr_flac"] ? FuzzFamilyFLAC
          : [decoder isEqualToString:@"dr_mp3"] ? FuzzFamilyMPEG : [decoder isEqualToString:@"libwavpack"] ? FuzzFamilyWavPack
+         : [decoder isEqualToString:@"MACLib"] ? FuzzFamilyAPE
          : FuzzFamilyApple;
 }
 
@@ -445,6 +452,12 @@ static NSArray<FuzzSource *> *FuzzCorpus(FuzzFamily family, NSURL *scratch, NSMu
     NSString *wavpack = VibeWavPackFixture(@"").path;
     for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:wavpack error:NULL] sortedArrayUsingSelector:@selector(compare:)]) {
         if ([name.pathExtension isEqualToString:@"wv"]) [paths addObject:[wavpack stringByAppendingPathComponent:name]];
+    }
+    // Monkey's Audio's, kept beside this file too, made by the SDK's encoder
+    // (APE/make-fixtures.py).
+    NSString *ape = VibeAPEFixture(@"").path;
+    for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:ape error:NULL] sortedArrayUsingSelector:@selector(compare:)]) {
+        if ([name.pathExtension isEqualToString:@"ape"]) [paths addObject:[ape stringByAppendingPathComponent:name]];
     }
     NSMutableDictionary<NSString *, FuzzSource *> *byKey = [NSMutableDictionary dictionary];
     for (NSString *path in paths) {
@@ -1468,6 +1481,12 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
 @end
 @implementation AudioFileHandleFuzzMPEGTests
 - (void)testMutants { [self fuzzFamily:FuzzFamilyMPEG]; }
+@end
+
+@interface AudioFileHandleFuzzAPETests : AudioFileHandleFuzzTestCase
+@end
+@implementation AudioFileHandleFuzzAPETests
+- (void)testMutants { [self fuzzFamily:FuzzFamilyAPE]; }
 @end
 
 @interface AudioFileHandleFuzzCoreAudioTests : AudioFileHandleFuzzTestCase

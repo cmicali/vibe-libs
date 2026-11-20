@@ -324,6 +324,25 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
     [self assertFixture:VibeTagFixtureMP3APE fileType:VibeAudioFileFormatMP3 rate:44100 duration:kMP3Duration];
 }
 
+// A Monkey's Audio file's APEv2 tag, through the scan's parse. Its kind,
+// depth, and losslessness come from TagLib. The fixture is audio/Decode's,
+// made by the SDK's encoder.
+- (void)testMonkeysAudioWithAnAPETag {
+    NSURL *url = [_dir URLByAppendingPathComponent:@"tagged.ape"];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"tagged.ape") toURL:url error:NULL]);
+    AudioTrackMetadata *metadata = Parse(url, NULL);
+    XCTAssertEqualObjects(metadata.fileType, VibeAudioFileFormatMonkeysAudio);
+    XCTAssertTrue(metadata.lossless);
+    XCTAssertEqual(metadata.bitDepth, 16);
+    XCTAssertEqualObjects(metadata.sampleRate, @44100);
+    XCTAssertEqualWithAccuracy(metadata.duration, 0.1, 0.001);
+    XCTAssertEqualObjects(metadata.title, @"Seed Title");
+    XCTAssertEqualObjects(metadata.artist, @"Seed Artist");
+    XCTAssertEqualObjects(metadata.album, @"Seed Album");
+    XCTAssertEqual(metadata.trackNumber, 3);
+    XCTAssertEqual(metadata.year, 2026);
+}
+
 // An entry that named an MP4's kind by its container misses, so the file
 // is parsed again. Every other older entry stays a hit.
 - (void)testAnOldMP4KindIsACacheMiss {
