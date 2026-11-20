@@ -280,9 +280,9 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
 // the declick; a retire at the declick length stops the voice's reads, so
 // its file may be handed on. Retired voices are tracked until they end.
 - (VibeVoiceRamp)rampOnQueueToGain:(float)gain milliseconds:(uint64_t)milliseconds action:(VibeVoiceAction)action;
-// The gain `item` plays at in `file`: its own, or the DSD gain for a DSD file
-// (VibeFileGainOfItemInFile).
-- (float)fileGainOnQueueOfItem:(nullable id<VibePlayableItem>)item inFile:(nullable AudioFileHandle *)file;
+// The gain `item` plays at in `file`: its dsdFileGain for a DSD file, and
+// its fileGain otherwise (VibeFileGainOfItemInFile).
+- (float)fileGainOfItem:(nullable id<VibePlayableItem>)item inFile:(nullable AudioFileHandle *)file;
 // `frame` and `endFrame` are file frames; the stream ends at `endFrame`, 0 for
 // the file's own end (VibeTrackEndFrameInFile). `fileGain` is applied.
 - (VibeVoiceID)startVoiceOnQueueForFile:(AudioFileHandle *)file atFrame:(AVAudioFramePosition)frame

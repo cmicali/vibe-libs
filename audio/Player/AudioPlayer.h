@@ -42,15 +42,6 @@ NS_ASSUME_NONNULL_BEGIN
 // the minimum unqueues a gapless successor unless it is a contiguous CUE
 // window. Lowering it re-queues the park.
 @property (atomic) NSInteger crossfadeMilliseconds;
-
-// The gain a DSD file plays at, linear, 1 by default. The DSD filters decode
-// 0 dB SACD at -6 dBFS (docs/dsd-to-pcm.md), so 2 plays it at full scale. It
-// applies only to an item with no file gain of its own
-// (VibeFileGainOfItemInFile), and from the next request, as an item's gain
-// does: a play, a seek, or a park. A parked successor takes it when parked
-// again.
-@property (atomic) float dsdGain;
-
 // What a transport edge does. YES (default): a ≤10 ms declick touching only
 // those frames. NO: a cut, every sample untouched. A longer crossfade fades
 // either way; under bit-perfect output the crossfade is held at the declick,

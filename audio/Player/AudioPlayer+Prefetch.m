@@ -63,7 +63,7 @@
     if (window.length == 0
             || ![_voiceBus queueSuccessor:_prefetchedFile startFrame:(AVAudioFramePosition)window.location
                                  endFrame:VibeTrackEndFrameInFile(_prefetchedTrack, _prefetchedFile)
-                                 fileGain:[self fileGainOnQueueOfItem:_prefetchedTrack inFile:_prefetchedFile]
+                                 fileGain:[self fileGainOfItem:_prefetchedTrack inFile:_prefetchedFile]
                                  forVoice:_voice]) {
         return;
     }
@@ -151,7 +151,7 @@
     [self retireVoiceOnQueue:outgoing milliseconds:milliseconds];
     VibeVoiceID voice = [self startVoiceOnQueueForFile:startedFile atFrame:(AVAudioFramePosition)window.location
                                               endFrame:VibeTrackEndFrameInFile(startedTrack, startedFile)
-                                              fileGain:[self fileGainOnQueueOfItem:startedTrack inFile:startedFile]
+                                              fileGain:[self fileGainOfItem:startedTrack inFile:startedFile]
                                       fadeMilliseconds:milliseconds paused:NO];
     [self adoptTrack:startedTrack requestIdentifier:startedRequestIdentifier file:startedFile window:window
            estimated:estimated voice:voice baseFrames:0 reason:@"track-end crossfade"];
@@ -170,7 +170,7 @@
     // item's, unless a re-prefetch moved it after the render took the old.
     // A crossfade's own voice has no boundary, and plays at the item's.
     VibeVoiceSnapshot snapshot = [_voiceBus snapshotOfVoice:voice];
-    float fileGain = snapshot.boundary == UINT64_MAX ? [self fileGainOnQueueOfItem:startedTrack inFile:file]
+    float fileGain = snapshot.boundary == UINT64_MAX ? [self fileGainOfItem:startedTrack inFile:file]
             : snapshot.consumed > snapshot.boundary ? snapshot.fileGain : snapshot.successorGain;
     [self publishState:_state voice:voice file:file fileGain:fileGain window:window startSeconds:0 baseFrames:baseFrames];
     self.currentTrack = startedTrack;
@@ -293,14 +293,13 @@
         // which the promote must deliver with its own request identifier,
         // and a gate may have opened since. Its gain moves the queued
         // successor's in place, unless the render already took the old one.
-        // The gain is set even when the item's is unchanged, since the DSD
-        // gain may have moved since the park.
         _prefetchedTrack = track;
         _prefetchedRequestIdentifier = trackRequestIdentifier;
         if (_successorTrack) {
-            [_voiceBus setSuccessorFileGain:[self fileGainOnQueueOfItem:track inFile:_successorFile] forVoice:_voice];
-        }
-        if (_successorTrack) {
+            float gain = [self fileGainOfItem:track inFile:_successorFile];
+            if (gain != [self fileGainOfItem:_successorTrack inFile:_successorFile]) {
+                [_voiceBus setSuccessorFileGain:gain forVoice:_voice];
+            }
             _successorTrack = track;
             _successorRequestIdentifier = trackRequestIdentifier;
         }

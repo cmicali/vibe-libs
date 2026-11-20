@@ -45,19 +45,21 @@
     XCTAssertEqual(VibeFileGainOfItem([VibeTestTrack withURL:url fileGain:NAN]), kVibeFileGainUnity);
 }
 
-// The DSD gain applies to a DSD file whose item plays at unity, through the
-// guard. A leveled item keeps its gain, and a PCM file never takes it.
-- (void)testTheDSDGainAppliesOnlyToAnUnleveledDSDFile {
+// A DSD file plays at the item's dsdFileGain, through the guard, and any
+// other file at its fileGain. An item without a DSD gain plays a DSD file at
+// its fileGain.
+- (void)testADSDFilePlaysAtTheItemsDSDGain {
     NSURL *url = [NSURL fileURLWithPath:@"/tmp/a.dsf"];
-    VibeTestTrack *plain = [VibeTestTrack withURL:url];
-    XCTAssertEqual(VibeFileGainOfItemInFile(plain, YES, 2), 2.0f);
-    XCTAssertEqual(VibeFileGainOfItemInFile(nil, YES, 2), 2.0f);
-    XCTAssertEqual(VibeFileGainOfItemInFile(plain, NO, 2), kVibeFileGainUnity);
-    XCTAssertEqual(VibeFileGainOfItemInFile([VibeTestTrack withURL:url fileGain:0.5f], YES, 2), 0.5f);
-    XCTAssertEqual(VibeFileGainOfItemInFile([VibeTestTrack withURL:url fileGain:NAN], YES, 2), 2.0f,
-                   @"NaN is unity, so the DSD gain applies");
-    XCTAssertEqual(VibeFileGainOfItemInFile(plain, YES, NAN), kVibeFileGainUnity);
-    XCTAssertEqual(VibeFileGainOfItemInFile(plain, YES, 1000), kVibeFileGainMaximum);
+    VibeTestTrack *track = [VibeTestTrack withURL:url fileGain:0.5f dsdFileGain:2];
+    XCTAssertEqual(VibeFileGainOfItemInFile(track, YES), 2.0f);
+    XCTAssertEqual(VibeFileGainOfItemInFile(track, NO), 0.5f);
+    XCTAssertEqual(VibeFileGainOfItemInFile([VibeTestTrack withURL:url fileGain:0.5f], YES), 0.5f,
+                   @"no DSD gain: its fileGain");
+    XCTAssertEqual(VibeFileGainOfItemInFile(nil, YES), kVibeFileGainUnity);
+    XCTAssertEqual(VibeFileGainOfItemInFile([VibeTestTrack withURL:url fileGain:1 dsdFileGain:NAN], YES),
+                   kVibeFileGainUnity);
+    XCTAssertEqual(VibeFileGainOfItemInFile([VibeTestTrack withURL:url fileGain:1 dsdFileGain:1000], YES),
+                   kVibeFileGainMaximum);
 }
 
 @end
