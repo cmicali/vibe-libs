@@ -43,4 +43,15 @@ static inline float VibeFileGainOfItem(id<VibePlayableItem> _Nullable item) {
     return [item respondsToSelector:@selector(fileGain)] ? VibeFileGainApplied(item.fileGain) : kVibeFileGainUnity;
 }
 
+// What the player applies for `item` in a file that is DSD or not, with the
+// player's dsdGain. A DSD file decodes 0 dB SACD at -6 dBFS
+// (docs/dsd-to-pcm.md), so an app may raise it. The DSD gain applies only to
+// a DSD file whose item plays at unity: an item that carries a gain of its
+// own was leveled already, by a loudness its app measured or read, and
+// raising it again would undo that leveling's peak protection.
+static inline float VibeFileGainOfItemInFile(id<VibePlayableItem> _Nullable item, BOOL dsd, float dsdGain) {
+    float gain = VibeFileGainOfItem(item);
+    return dsd && gain == kVibeFileGainUnity ? VibeFileGainApplied(dsdGain) : gain;
+}
+
 NS_ASSUME_NONNULL_END

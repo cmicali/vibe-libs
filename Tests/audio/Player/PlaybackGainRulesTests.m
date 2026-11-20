@@ -45,4 +45,19 @@
     XCTAssertEqual(VibeFileGainOfItem([VibeTestTrack withURL:url fileGain:NAN]), kVibeFileGainUnity);
 }
 
+// The DSD gain applies to a DSD file whose item plays at unity, through the
+// guard. A leveled item keeps its gain, and a PCM file never takes it.
+- (void)testTheDSDGainAppliesOnlyToAnUnleveledDSDFile {
+    NSURL *url = [NSURL fileURLWithPath:@"/tmp/a.dsf"];
+    VibeTestTrack *plain = [VibeTestTrack withURL:url];
+    XCTAssertEqual(VibeFileGainOfItemInFile(plain, YES, 2), 2.0f);
+    XCTAssertEqual(VibeFileGainOfItemInFile(nil, YES, 2), 2.0f);
+    XCTAssertEqual(VibeFileGainOfItemInFile(plain, NO, 2), kVibeFileGainUnity);
+    XCTAssertEqual(VibeFileGainOfItemInFile([VibeTestTrack withURL:url fileGain:0.5f], YES, 2), 0.5f);
+    XCTAssertEqual(VibeFileGainOfItemInFile([VibeTestTrack withURL:url fileGain:NAN], YES, 2), 2.0f,
+                   @"NaN is unity, so the DSD gain applies");
+    XCTAssertEqual(VibeFileGainOfItemInFile(plain, YES, NAN), kVibeFileGainUnity);
+    XCTAssertEqual(VibeFileGainOfItemInFile(plain, YES, 1000), kVibeFileGainMaximum);
+}
+
 @end

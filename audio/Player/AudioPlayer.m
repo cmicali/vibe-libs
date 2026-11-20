@@ -49,6 +49,7 @@ VibeAudioFileOpener const VibePlayerFileOpener =
 @implementation AudioPlayer {
     float                   _maxPitch;
     float                   _volume;
+    float                   _dsdGain;   // under _stateLock
     // The fade-in length for the play in flight: the user's crossfade when it
     // replaced an audibly playing track, the declick minimum otherwise.
     uint64_t                _incomingFadeMilliseconds;
@@ -98,6 +99,7 @@ VibeAudioFileOpener const VibePlayerFileOpener =
         _maxPitch = kDefaultMaxPitchPercent;
         _volume = 1.0f;
         _currentFileGain = kVibeFileGainUnity;
+        _dsdGain = kVibeFileGainUnity;
         _crossfadeMilliseconds = kFadeDurationMilliseconds;
         _declick = YES;
         _loadingConfiguration = [AudioLoadingConfiguration productionConfiguration];
@@ -526,7 +528,7 @@ submittedPlayIdentifier:(uint64_t)submittedPlayIdentifier {
     _windowEstimated = estimated;
     AVAudioFramePosition startFrame = VibeClampedStartFrame(startIntent.position, sampleRate, window);
     NSTimeInterval startSeconds = VibeWindowSecondsAtFrame(startFrame, sampleRate, window);
-    float fileGain = VibeFileGainOfItem(track);
+    float fileGain = [self fileGainOnQueueOfItem:track inFile:file];
     VibeVoiceID voice = [self startVoiceOnQueueForFile:file atFrame:startFrame
                                               endFrame:VibeTrackEndFrameInFile(track, file) fileGain:fileGain
                                       fadeMilliseconds:(_incomingFadeMilliseconds ?: kFadeDurationMilliseconds)
@@ -1272,6 +1274,10 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     return VibeVoiceRampMake(gain, frames, VibeFadeCurveForMilliseconds(milliseconds), action);
 }
 
+- (float)fileGainOnQueueOfItem:(nullable id<VibePlayableItem>)item inFile:(nullable AudioFileHandle *)file {
+    return VibeFileGainOfItemInFile(item, file.dsdSampleRate > 0, self.dsdGain);
+}
+
 - (VibeVoiceID)startVoiceOnQueueForFile:(AudioFileHandle *)file atFrame:(AVAudioFramePosition)frame
                                endFrame:(AVAudioFramePosition)endFrame fileGain:(float)fileGain
                        fadeMilliseconds:(uint64_t)milliseconds paused:(BOOL)paused {
@@ -1375,6 +1381,20 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
             [self unqueueSuccessorOnQueue];
         }
     });
+}
+
+- (float)dsdGain {
+    os_unfair_lock_lock(&_stateLock);
+    float gain = _dsdGain;
+    os_unfair_lock_unlock(&_stateLock);
+    return gain;
+}
+
+// Read at each request, so it applies from the next play, seek, or park.
+- (void)setDsdGain:(float)gain {
+    os_unfair_lock_lock(&_stateLock);
+    _dsdGain = gain;
+    os_unfair_lock_unlock(&_stateLock);
 }
 
 - (float)volume {
