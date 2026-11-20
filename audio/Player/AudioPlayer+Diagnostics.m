@@ -66,6 +66,11 @@ static NSString *VibeSampleFormatName(AVAudioFormat *format) {
                                 || asbd->mFormatID == kAudioFormatAppleLossless);
         source[@"sampleRate"] = @(file.fileFormat.sampleRate);
         source[@"channels"] = @(file.fileFormat.channelCount);
+        if (file.dsdSampleRate > 0) {
+            // The handle converts the DSD to the PCM the facts state.
+            source[@"codec"] = VibeAudioFileFormatDSD;
+            source[@"dsdSampleRate"] = @(file.dsdSampleRate);
+        }
         // Only PCM's flags say float: a lossless codec's flags are its source
         // depth, and the 24-bit one carries the float bit.
 #if TARGET_OS_OSX
