@@ -102,6 +102,7 @@ static const NSTimeInterval kDeviceReadWaitSeconds = 0.5;
 
 // Only the entry points used outside AudioPlayer+Devices.m.
 @interface AudioPlayer (DevicesInternal) <AudioDeviceManagerObserver>
++ (NSDictionary *)deviceStageWithPhysicalFormat:(NSDictionary *)stage;
 
 // The output unit, made now if it could not be made at init. A unit brings its
 // device's rate, so a source segment built at the fallback format follows

@@ -159,6 +159,13 @@ VibeAudioFileOpener const VibePlayerFileOpener =
 - (NSArray<NSDictionary<NSString *, id> *> *)audioPathSnapshot {
     __block NSArray *path;
     [self runSyncOnQueue:^{ path = [self audioPathOnQueue]; }];
+#if TARGET_OS_OSX
+    if ([path.lastObject[@"present"] boolValue]) {
+        NSMutableArray *stages = [path mutableCopy];
+        stages[stages.count - 1] = [AudioPlayer deviceStageWithPhysicalFormat:path.lastObject];
+        return stages;
+    }
+#endif
     return path;
 }
 

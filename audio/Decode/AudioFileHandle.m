@@ -115,7 +115,7 @@ uint32_t VibeID3v2TagBytes(const uint8_t header[10]) {
 
 - (NSString *)decoderName {
     return _mpeg ? @"dr_mp3" : _flac ? @"dr_flac" : _wav ? @"dr_wav" : _vorbis ? @"libvorbis"
-            : _wavpack ? @"libwavpack" : _ape ? @"MACLib" : _dsd ? @"dsd" : @"apple";
+            : _wavpackSamples ? @"libwavpack" : _ape ? @"MACLib" : _dsd ? @"dsd" : @"apple";
 }
 
 - (double)dsdSampleRate {
