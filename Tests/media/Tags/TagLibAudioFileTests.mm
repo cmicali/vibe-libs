@@ -373,14 +373,17 @@ static NSData *VibeDSFTag(NSData *jpeg) {
     XCTAssertEqualObjects(Detected([self rename:dsf to:@"noextension"]), VibeAudioFileFormatDSD);
 }
 
-// DSF tags are read-only for now: the writer takes no DSF.
-- (void)testTheWriterRefusesADSF {
-    NSURL *url = [self writeDSF:@"readonly.dsf" tag:VibeDSFTag([NSData dataWithBytes:"\xFF\xD8\xFF\xD9" length:4])];
-    NSData *before = [NSData dataWithContentsOfURL:url];
+// The writer takes a DSF's ID3v2 tag: a title written reads back through
+// the wrapper, and the picture it held stays.
+- (void)testTheWriterTakesADSF {
+    NSData *art = [NSData dataWithBytes:"\xFF\xD8\xFF\xD9" length:4];
+    NSURL *url = [self writeDSF:@"written.dsf" tag:VibeDSFTag(art)];
     NSError *error = nil;
-    XCTAssertFalse(VibeTagLibWriteTags(url.path, @{VibeTagFieldTitle: @[@"New"]}, NO, nil, nil, VibeTagWriteSyncFull, NULL, &error));
-    XCTAssertEqual(error.code, VibeTagWriteErrorNoParser);
-    XCTAssertEqualObjects([NSData dataWithContentsOfURL:url], before);
+    XCTAssertTrue(VibeTagLibWriteTags(url.path, @{VibeTagFieldTitle: @[@"New"]}, NO, nil, nil, VibeTagWriteSyncFull, NULL,
+                                      &error), @"%@", error);
+    XCTAssertEqualObjects(VibeTagLibReadFields(url.path, NULL)[VibeTagFieldTitle], @[@"New"]);
+    TagLibAudioFile file(url.fileSystemRepresentation, false);
+    XCTAssertEqualObjects(albumArtDataFromTagLibFile(file.file()), art);
 }
 
 @end
