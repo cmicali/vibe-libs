@@ -34,7 +34,8 @@
 //  | AudioFileHandleFuzzCoreAudioTests | AAC, ADTS, QuickTime, ALAC in MP4 and CAF, LPCM in CAF,    | 10      | 8          | 2.4     |
 //  |                                   | Ogg Vorbis (libvorbis), Opus, a WAV past dr_wav's 768 kHz  |         |            |         |
 //  | AudioFileHandleFuzzWavPackTests   | every WavPack fixture: 8 to 32 bits, float, 5.1, hybrid,   | 10      | 8          |         |
-//  |                                   | DSD, and a file that never states its length               |         |            |         |
+//  |                                   | DSD, and a file that never states its length. And hybrid's |         |            |         |
+//  |                                   | correction file, damaged beside its .wv                    |         |            |         |
 //  | AudioFileHandleFuzzAPETests       | Monkey's Audio: each level, 8 to 32 bits, float, 5.1, an   | 14      | 8          | 0.6     |
 //  |                                   | AIFF's samples, an APEv2 tag, an ID3v2 tag before it       |         |            |         |
 //  | AudioFileHandleFuzzDSDTests       | DSF written here: stereo LSB first, 5.1 MSB first, DSD128  | 3       | 8          | 0.9     |
@@ -1102,6 +1103,9 @@ static const FuzzMutator kFuzzMutators[] = {
 @property (atomic) BOOL finished;
 @property (nonatomic) BOOL opened;
 @property (nonatomic, copy) NSString *decoder;
+@property (nonatomic) AudioFormatID formatID; // the file's, as the open stated it
+// Set for a correction file's mutant: the .wv decoded with the mutant beside it.
+@property (nonatomic, strong, nullable) NSData *pairedWavPack;
 @property (nonatomic) AVAudioFramePosition length;
 @property (nonatomic) BOOL estimated;
 @property (nonatomic, strong) NSMutableData *pcm;        // every frame read to the end, interleaved, when captured
@@ -1177,6 +1181,7 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
         }
         result.opened = YES;
         result.decoder = handle.decoderName;
+        result.formatID = handle.fileFormat.streamDescription->mFormatID;
         // Apple's decoders read every packet their parser serves, past a damaged count, and can deliver
         // more after an end or a seek than a decode from the start did. A length of 0 is refused before
         // anything plays, and a player's bus stops at the length. So those are checked only of the handle's
@@ -1313,9 +1318,18 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
         dispatch_apply(mutants.count, DISPATCH_APPLY_AUTO, ^(size_t k) {
             FuzzDecode *mutant = mutants[k];
             NSURL *url = [root URLByAppendingPathComponent:mutant.name];
-            [mutant.bytes writeToURL:url atomically:NO];
-            FuzzDecodeURL(mutant, url, budget, kFuzzMutators[mutant.mutator].expect == FuzzExpectSourceDecode);
-            [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+            NSURL *written = url;
+            if (mutant.pairedWavPack) {
+                // A folder of its own: the .wv, with the mutant beside it as its .wvc.
+                [NSFileManager.defaultManager createDirectoryAtURL:url withIntermediateDirectories:YES attributes:nil error:NULL];
+                [mutant.bytes writeToURL:[url URLByAppendingPathComponent:@"song.wvc"] atomically:NO];
+                url = [url URLByAppendingPathComponent:@"song.wv"];
+                [mutant.pairedWavPack writeToURL:url atomically:NO];
+            } else {
+                [mutant.bytes writeToURL:url atomically:NO];
+            }
+            FuzzDecodeURL(mutant, url, budget, mutant.pairedWavPack || kFuzzMutators[mutant.mutator].expect == FuzzExpectSourceDecode);
+            [NSFileManager.defaultManager removeItemAtURL:written error:NULL];
             mutant.finished = YES;
             dispatch_semaphore_signal(finished);
         });
@@ -1336,21 +1350,12 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
     [self addAttachment:attachment];
 }
 
-- (void)fuzzSource:(FuzzSource *)source {
-    NSString *label = source.name;
-    NSURL *originalURL = [_root URLByAppendingPathComponent:[@"original." stringByAppendingString:source.extension]];
-    XCTAssertTrue([source.bytes writeToURL:originalURL atomically:NO]);
-    FuzzDecode *reference = [self decode:originalURL budget:kFuzzMaxSourceFrames];
-    XCTAssertNotNil(reference, @"%@: the source hung", label);
-    XCTAssertTrue(reference.opened, @"%@: the source does not open", label);
-    XCTAssertEqual(reference.problems.count, 0u, @"%@: the source: %@", label, reference.problems);
-    if (!reference.opened) return;
-    // Twice the source's samples, which bounds its frames from above.
-    AVAudioFramePosition budget = MAX(2 * (AVAudioFramePosition)(reference.pcm.length / sizeof(float)), 1 << 16);
+// Every mutant of a source, in order: each mutator its count of times, a
+// named shape once, under seeds from the base seed and the source's name. Each
+// is written to the export folder too, when one is named.
+- (NSArray<FuzzDecode *> *)mutantsOf:(FuzzSource *)source {
     uint64_t sourceHash = 0;
     for (const char *c = source.name.UTF8String; *c; c++) sourceHash = sourceHash * 131 + (uint8_t)*c;
-
-    // Every mutant is made here, in order, and decoded after.
     NSMutableArray<FuzzDecode *> *mutants = [NSMutableArray array];
     for (NSUInteger m = 0; m < sizeof(kFuzzMutators) / sizeof(*kFuzzMutators); m++) {
         FuzzMutator mutator = kFuzzMutators[m];
@@ -1374,6 +1379,21 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
             [mutants addObject:mutant];
         }
     }
+    return mutants;
+}
+
+- (void)fuzzSource:(FuzzSource *)source {
+    NSString *label = source.name;
+    NSURL *originalURL = [_root URLByAppendingPathComponent:[@"original." stringByAppendingString:source.extension]];
+    XCTAssertTrue([source.bytes writeToURL:originalURL atomically:NO]);
+    FuzzDecode *reference = [self decode:originalURL budget:kFuzzMaxSourceFrames];
+    XCTAssertNotNil(reference, @"%@: the source hung", label);
+    XCTAssertTrue(reference.opened, @"%@: the source does not open", label);
+    XCTAssertEqual(reference.problems.count, 0u, @"%@: the source: %@", label, reference.problems);
+    if (!reference.opened) return;
+    // Twice the source's samples, which bounds its frames from above.
+    AVAudioFramePosition budget = MAX(2 * (AVAudioFramePosition)(reference.pcm.length / sizeof(float)), 1 << 16);
+    NSArray<FuzzDecode *> *mutants = [self mutantsOf:source];
     BOOL returned = [self decodeMutants:mutants budget:budget];
     for (FuzzDecode *mutant in mutants) {
         FuzzMutator mutator = kFuzzMutators[mutant.mutator];
@@ -1417,6 +1437,58 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
     XCTAssertNotNil(again, @"%@: the source hung after its mutants", label);
     XCTAssertEqualObjects(again.pcm, reference.pcm, @"%@: the source decodes differently after its mutants", label);
     XCTAssertEqualObjects(again.seekReads, reference.seekReads, @"%@: the source seeks differently after its mutants", label);
+}
+
+// hybrid.wv beside a mutant of its correction file: every mutator of the
+// WavPack walk's blocks, run on hybrid.wvc, decoded across the cores. Each
+// opens lossless, or falls back to the lossy half and then decodes and seeks
+// exactly as hybrid.wv alone.
+- (void)fuzzCorrectionFile {
+    NSData *wv = [NSData dataWithContentsOfURL:VibeWavPackFixture(@"hybrid.wv")];
+    FuzzSource *source = [FuzzSource new];
+    source.name = @"hybrid.wvc";
+    source.extension = @"wvc";
+    source.bytes = [NSData dataWithContentsOfURL:VibeWavPackFixture(source.name)];
+    source.family = FuzzFamilyWavPack;
+    FuzzReadWalk(source);
+    FuzzDecode *alone = [FuzzDecode new], *whole = [FuzzDecode new];
+    alone.name = @"alone";
+    alone.bytes = [NSData data];
+    whole.name = @"whole";
+    whole.bytes = source.bytes;
+    alone.pairedWavPack = whole.pairedWavPack = wv;
+    NSArray<FuzzDecode *> *mutants = [self mutantsOf:source];
+    for (FuzzDecode *mutant in mutants) {
+        mutant.pairedWavPack = wv;
+    }
+    NSArray<FuzzDecode *> *references = @[alone, whole];
+    XCTAssertTrue([self decodeMutants:references budget:kFuzzMaxSourceFrames]);
+    XCTAssertEqual(alone.formatID, (AudioFormatID)'wvpk');
+    XCTAssertEqual(whole.formatID, kAudioFormatLinearPCM);
+    XCTAssertEqual(alone.problems.count + whole.problems.count, 0u, @"%@ %@", alone.problems, whole.problems);
+    BOOL returned = [self decodeMutants:mutants budget:kFuzzMaxSourceFrames];
+    for (FuzzDecode *mutant in mutants) {
+        NSString *context = [NSString stringWithFormat:@"hybrid.wvc, %s, seed 0x%016llx", kFuzzMutators[mutant.mutator].name, mutant.seed];
+        NSString *attachment = [@"hybrid-" stringByAppendingString:mutant.name];
+        if (!mutant.finished) {
+            XCTFail(@"%@: hung past %d s", context, VIBE_TEST_HANG_TIMEOUT);
+            [self attach:mutant.bytes name:attachment];
+            continue;
+        }
+        NSMutableArray<NSString *> *problems = mutant.problems;
+        if (!mutant.opened || mutant.length != alone.length) {
+            [problems addObject:[NSString stringWithFormat:@"opened %d, length %lld", mutant.opened, mutant.length]];
+        } else if (mutant.formatID == 'wvpk' && !([mutant.pcm isEqualToData:alone.pcm] && [mutant.seekReads isEqualToData:alone.seekReads])) {
+            [problems addObject:@"a fallback decodes other samples than the .wv alone"];
+        } else if (mutant.formatID != 'wvpk' && mutant.formatID != kAudioFormatLinearPCM) {
+            [problems addObject:[NSString stringWithFormat:@"format %u", (unsigned)mutant.formatID]];
+        }
+        if (problems.count) {
+            XCTFail(@"%@: %@", context, problems);
+            [self attach:mutant.bytes name:attachment];
+        }
+    }
+    XCTAssertTrue(returned, @"a worker still holds its file");
 }
 
 - (void)fuzzFamily:(FuzzFamily)family {
@@ -1470,4 +1542,5 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
 @end
 @implementation AudioFileHandleFuzzWavPackTests
 - (void)testMutants { [self fuzzFamily:FuzzFamilyWavPack]; }
+- (void)testDamagedCorrectionFiles { [self fuzzCorrectionFile]; }
 @end

@@ -41,6 +41,10 @@ static const uint64_t kReadAheadBlock = 256 * 1024;
 - (void)releaseStalls;
 // Reads at or past `offset` fail with `code`, once or every time.
 - (void)fail:(int)code from:(uint64_t)offset always:(BOOL)always;
+// The reads of the file named `name` from `offset` up to `end` fail with
+// `code` every time, until stopFailing. The thread retries such a read after
+// its pause, and serves a range a wait asks for elsewhere in between.
+- (void)fail:(int)code readsOf:(NSString *)name from:(uint64_t)offset until:(uint64_t)end;
 - (void)stopFailing;
 // A failing read then waits after signalling `failed`, until releaseStalls.
 // Its errno reaches the thread only then.

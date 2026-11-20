@@ -297,8 +297,9 @@ static NSString *Title(NSURL *url) {
     }
 }
 
-// A hybrid file plays its lossy half, and DSD plays decimated, so neither
-// states a PCM depth. A lossless float file states 32.
+// A hybrid file is lossless only with its correction file, another file, and
+// DSD plays decimated, so neither states a PCM depth. A hybrid file states its
+// source's apart. A lossless float file states 32.
 - (void)testWavPackStatesADepthOnlyForLosslessPCM {
     NSDictionary<NSString *, NSNumber *> *depths = @{@"hybrid.wv": @0, @"dsd.wv": @0, @"f32.wv": @32, @"s24.wv": @24, @"u8.wv": @8};
     for (NSString *name in depths) {
@@ -307,6 +308,7 @@ static NSString *Title(NSURL *url) {
         if (file.isNull()) continue;
         XCTAssertEqualObjects(fileTypeForTagLibFile(file.file()), VibeAudioFileFormatWavPack, @"%@", name);
         XCTAssertEqual(bitsPerSampleFromTagLibFile(file.file()), depths[name].intValue, @"%@", name);
+        XCTAssertEqual(VibeWavPackHybridBitsFromTagLibFile(file.file()), [name isEqualToString:@"hybrid.wv"] ? 16 : 0, @"%@", name);
     }
 }
 

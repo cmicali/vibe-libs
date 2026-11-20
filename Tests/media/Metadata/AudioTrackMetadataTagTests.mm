@@ -1033,6 +1033,24 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
     }
 }
 
+#pragma mark - WavPack
+
+// A hybrid WavPack file reads lossless, at its source's depth, only while its
+// correction file sits beside it, as audio/Decode then plays it.
+- (void)testAHybridWavPackFileIsLosslessOnlyWithItsCorrectionFile {
+    NSURL *url = [_dir URLByAppendingPathComponent:@"hybrid.wv"];
+    NSURL *wvc = [_dir URLByAppendingPathComponent:@"hybrid.wvc"];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(@"hybrid.wv") toURL:url error:NULL]);
+    AudioTrackMetadata *alone = Parse(url, NULL);
+    XCTAssertEqualObjects(alone.fileType, VibeAudioFileFormatWavPack);
+    XCTAssertFalse(alone.isLossless);
+    XCTAssertEqual(alone.bitDepth, 0);
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(@"hybrid.wvc") toURL:wvc error:NULL]);
+    AudioTrackMetadata *paired = Parse(url, NULL);
+    XCTAssertTrue(paired.isLossless);
+    XCTAssertEqual(paired.bitDepth, 16);
+}
+
 // A DSF: its ID3v2 tag, its kind, and the DSD rate, which the parse keeps
 // as the sample rate, as TagLib reads it.
 - (void)testADSFReadsAsLosslessDSDAtItsDSDRate {
