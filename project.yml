@@ -410,12 +410,13 @@ targets:
   DecodeTests:
     type: bundle.unit-test
     platform: macOS
-    templates: [VibeLibsDecode]
+    # Playlists for the CUE sheet beside a Monkey's Audio image.
+    templates: [VibeLibsDecode, VibeLibsPlaylists]
     templateAttributes:
       excludedPlatform: iOS
     sources:
       - path: Tests/audio/Decode
-        excludes: ["**/*.md"]
+        excludes: ["**/*.md", "**/*.py"]
       - path: Tests/Support/VibeReadAheadScript.m
     settings:
       base:
@@ -489,6 +490,7 @@ targets:
     sources:
       - path: Tests/media/Tags
         excludes: ["**/*.md"]
+      - path: Tests/audio/Decode/APE
     dependencies:
       - sdk: AVFoundation.framework
       - sdk: CoreGraphics.framework
@@ -525,6 +527,7 @@ targets:
     sources:
       - path: Tests/media/Metadata
         excludes: ["**/*.md"]
+      - path: Tests/audio/Decode/APE
     dependencies:
       - sdk: AVFoundation.framework
     settings:
@@ -1067,6 +1070,22 @@ targets:
     platform: iOS
     templates: [VibeLibsVorbis]
 
+  MonkeysAudioTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsMonkeysAudio]
+    sources:
+      - path: Tests/third_party/monkeys_audio
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  MonkeysAudio-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsMonkeysAudio]
+
   # Sparkle is macOS only, so it has no iOS target.
   SparkleTests:
     type: bundle.unit-test
@@ -1160,6 +1179,8 @@ schemes:
         Ogg-iOS: all
         VorbisTests: [test]
         Vorbis-iOS: all
+        MonkeysAudioTests: [test]
+        MonkeysAudio-iOS: all
         SparkleTests: [test]
     test:
       targets: [CommonTests, GraphicsTests, AudioTypesTests, DSPTests, AnalysisTests, OutputDevicesTests,
@@ -1169,4 +1190,4 @@ schemes:
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
                 SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, DebugVerbsTests,
                 TaglibTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
-                OggTests, VorbisTests, SparkleTests]
+                OggTests, VorbisTests, SparkleTests, MonkeysAudioTests]

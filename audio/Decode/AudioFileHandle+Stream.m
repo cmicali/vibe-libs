@@ -17,8 +17,9 @@
 // CoreAudio's parser, which never opens it. The file's first bytes name the
 // container. RIFF and RF64 WAVE, Wave64 and AIFF(-C) go to dr_wav. FLAC,
 // behind ID3v2 tags too, goes to dr_flac. Ogg goes to libvorbis, which finds
-// a Vorbis stream among the streams the file starts. MPEG frames go to dr_mp3,
-// behind ID3v2 tags or in a WAV's data chunk too. NO leaves the file to the
+// a Vorbis stream among the streams the file starts. Monkey's Audio's
+// descriptor, behind ID3v2 tags too, goes to its SDK (AudioFileHandle+APE.m).
+// MPEG frames go to dr_mp3, behind ID3v2 tags or in a WAV's data chunk too. NO leaves the file to the
 // parser: BW64, RIFX and every other container, a coding the decoder does not
 // decode, or a stream it cannot open.
 - (BOOL)openOwnDecoderInterleaved:(BOOL)interleaved {
@@ -46,6 +47,9 @@
     if (got >= 4 && memcmp(head, "OggS", 4) == 0) {
         return [self openVorbisInterleaved:interleaved];
     }
+    if (got >= 4 && (memcmp(head, "MAC ", 4) == 0 || memcmp(head, "MACF", 4) == 0)) {
+        return [self openAPEInterleaved:interleaved];
+    }
     AudioFileTypeID type = VibeFileTypeForExtension(_url.pathExtension);
     BOOL named = type == kAudioFileMP3Type || type == kAudioFileMP2Type || type == kAudioFileMP1Type;
     return [self openMPEGFrom:at to:_size junk:named interleaved:interleaved];
@@ -71,7 +75,7 @@
 // A WAVE channel mask as a layout, for more than two channels. CoreAudio's
 // parser names some masks with a tag and others by their bits. Each folds to
 // stereo as its bits do. Nil when the mask does not count the channels.
-static AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels) {
+AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels) {
     if (channels <= 2 || (UInt32)__builtin_popcount(mask) != channels) {
         return nil;
     }
@@ -319,6 +323,8 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         free(_vorbis);
         _vorbis = NULL;
     }
+    VibeAPEDecoderClose(_ape);
+    _ape = NULL;
 }
 
 // libvorbis's decode. vorbisfile hands out each packet's frames from buffers

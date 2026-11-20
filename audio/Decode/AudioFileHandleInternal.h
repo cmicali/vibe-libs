@@ -15,6 +15,7 @@
 #include "dr_flac/dr_flac.h"
 #include "dr_wav/dr_wav.h"
 #include <vorbis/vorbisfile.h>
+#include "VibeAPEDecoder.h"
 
 #include <stdatomic.h>
 
@@ -46,7 +47,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // goes, and read on any thread, hence the getter's atomic load.
     AVAudioFramePosition _length;
     AudioFileID _parser;
-    ExtAudioFileRef _codec; // NULL while dr_mp3, dr_flac, dr_wav or libvorbis decodes
+    ExtAudioFileRef _codec; // NULL while dr_mp3, dr_flac, dr_wav, libvorbis or MACLib decodes
     // A file still streaming, or reading ahead: every read waits for its
     // bytes. Set by the open and fixed from then on. Nil for a whole file.
     CloudFileAvailability *_availability;
@@ -96,6 +97,9 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     SInt64 _vorbisPosition;
     SInt64 _streamCursor;
     BOOL _streamReadFailed; // a pread failed, which no stream decoder can tell from the end
+    // Monkey's Audio's decode (AudioFileHandle+APE.m), reading through
+    // VibeStreamRead at _streamCursor. NULL while another decoder decodes.
+    VibeAPEDecoder *_ape;
 }
 
 - (BOOL)reportWaitFault:(NSError **)error;
@@ -126,6 +130,19 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 - (BOOL)readStreamIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
 
 @end
+
+// AudioFileHandle+APE.m. The stream open calls the open when the file starts
+// with a Monkey's Audio descriptor, and the core calls the rest.
+@interface AudioFileHandle (APE)
+
+- (BOOL)openAPEInterleaved:(BOOL)interleaved;
+- (BOOL)readAPEIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
+
+@end
+
+// AudioFileHandle+Stream.m's layout for a WAVE channel mask, which the APE
+// open shares.
+AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels);
 
 // AudioFileHandle.m's reads and waits, which the decode's open also uses.
 uint32_t VibeID3v2Syncsafe(const uint8_t bytes[4]);

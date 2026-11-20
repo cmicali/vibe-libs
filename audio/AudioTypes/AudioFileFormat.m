@@ -17,6 +17,7 @@ VibeAudioFileFormat const VibeAudioFileFormatW64 = @"W64";
 VibeAudioFileFormat const VibeAudioFileFormatCAF = @"CAF";
 VibeAudioFileFormat const VibeAudioFileFormatVorbis = @"Vorbis";
 VibeAudioFileFormat const VibeAudioFileFormatOpus = @"Opus";
+VibeAudioFileFormat const VibeAudioFileFormatMonkeysAudio = @"Monkey's Audio";
 
 VibeAudioFileFormat _Nullable VibeAudioFileFormatForCodec(AudioFormatID codec) {
     switch (codec) {
@@ -27,6 +28,7 @@ VibeAudioFileFormat _Nullable VibeAudioFileFormatForCodec(AudioFormatID codec) {
         case kAudioFormatAppleLossless: return VibeAudioFileFormatALAC;
         case kAudioFormatOpus:          return VibeAudioFileFormatOpus;
         case 'vorb':                    return VibeAudioFileFormatVorbis; // the SDK names no constant
+        case 'APE ':                    return VibeAudioFileFormatMonkeysAudio; // audio/Decode's, as 'vorb'
         default:                        return nil;
     }
 }

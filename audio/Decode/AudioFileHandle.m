@@ -115,7 +115,7 @@ uint32_t VibeID3v2TagBytes(const uint8_t header[10]) {
 }
 
 - (NSString *)decoderName {
-    return _mpeg ? @"dr_mp3" : _flac ? @"dr_flac" : _wav ? @"dr_wav" : _vorbis ? @"libvorbis" : @"apple";
+    return _mpeg ? @"dr_mp3" : _flac ? @"dr_flac" : _wav ? @"dr_wav" : _vorbis ? @"libvorbis" : _ape ? @"MACLib" : @"apple";
 }
 
 - (AudioFileID)parser {
@@ -1043,6 +1043,9 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     if (_vorbis) {
         return _vorbisPosition;
     }
+    if (_ape) {
+        return VibeAPEDecoderPosition(_ape);
+    }
     SInt64 position = 0;
     return ExtAudioFileTell(_codec, &position) == noErr ? position : 0;
 }
@@ -1089,6 +1092,11 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
             _vorbisPosition = MIN(target, _length);
         }
         status = landed ? noErr : kAudioFilePositionError;
+    } else if (_ape) {
+        // The SDK's seek restarts at the frame that holds the target, so it
+        // needs no restart after an interrupted read. It clamps a target
+        // past the end to the end.
+        status = VibeAPEDecoderSeek(_ape, MAX(0, frame)) && !_streamReadFailed ? noErr : kAudioFilePositionError;
     } else {
         status = !_codec || _writing ? kAudio_ParamError : ExtAudioFileSeek(_codec, MAX(0, frame));
     }
@@ -1177,6 +1185,9 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     }
     if (_flac || _wav || _vorbis) {
         return [self readStreamIntoBuffer:buffer frameCount:wanted error:error];
+    }
+    if (_ape) {
+        return [self readAPEIntoBuffer:buffer frameCount:wanted error:error];
     }
     // The list's data pointers span the whole allocation whatever frameLength
     // says; the copy below walks them by the frames already produced.

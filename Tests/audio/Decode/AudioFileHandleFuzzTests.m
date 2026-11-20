@@ -3,7 +3,8 @@
 //
 //  Malformed files through AudioFileHandle: open, read the facts, decode to the
 //  end, seek and decode again, close. Every decoder the handle chooses is fed:
-//  dr_wav, dr_flac, dr_mp3, libvorbis and Apple's (AAC, ALAC, Opus, and CAF).
+//  dr_wav, dr_flac, dr_mp3, libvorbis, Monkey's Audio's SDK, and Apple's (AAC,
+//  ALAC, Opus, and CAF).
 //  The sources are the generated fixtures, sliced to a few hundred KB, plus a
 //  few written here that no encoder on the machine makes.
 //
@@ -31,6 +32,8 @@
 //  |                                   | and iTunes gapless, free format, mode changes, junk, tags  |         |            |         |
 //  | AudioFileHandleFuzzCoreAudioTests | AAC, ADTS, QuickTime, ALAC in MP4 and CAF, LPCM in CAF,    | 10      | 8          | 2.4     |
 //  |                                   | Ogg Vorbis (libvorbis), Opus, a WAV past dr_wav's 768 kHz  |         |            |         |
+//  | AudioFileHandleFuzzAPETests       | Monkey's Audio: each level, 8 to 32 bits, float, 5.1, an   | 14      | 8          | 0.6     |
+//  |                                   | AIFF's samples, an APEv2 tag, an ID3v2 tag before it       |         |            |         |
 //
 //  Iterations is how often each random mutator runs per source. A named shape
 //  runs once per source it applies to, whatever the count.
@@ -43,10 +46,10 @@
 #import "AudioFileFixtures.h"
 #import "AudioFileHandle.h"
 
-typedef NS_ENUM(NSUInteger, FuzzFamily) { FuzzFamilyWAV, FuzzFamilyFLAC, FuzzFamilyMPEG, FuzzFamilyApple };
+typedef NS_ENUM(NSUInteger, FuzzFamily) { FuzzFamilyWAV, FuzzFamilyFLAC, FuzzFamilyMPEG, FuzzFamilyApple, FuzzFamilyAPE };
 
 static const uint32_t kFuzzIterations[] = {
-    [FuzzFamilyWAV] = 8, [FuzzFamilyFLAC] = 8, [FuzzFamilyMPEG] = 4, [FuzzFamilyApple] = 8,
+    [FuzzFamilyWAV] = 8, [FuzzFamilyFLAC] = 8, [FuzzFamilyMPEG] = 4, [FuzzFamilyApple] = 8, [FuzzFamilyAPE] = 8,
 };
 
 // A source larger than this is sliced to kFuzzSliceBytes of audio, so a mutant decodes in milliseconds.
@@ -409,7 +412,8 @@ static NSArray<NSString *> *FuzzWrittenSources(NSURL *dir) {
 
 static FuzzFamily FuzzFamilyOf(NSString *decoder) {
     return [decoder isEqualToString:@"dr_wav"] ? FuzzFamilyWAV : [decoder isEqualToString:@"dr_flac"] ? FuzzFamilyFLAC
-         : [decoder isEqualToString:@"dr_mp3"] ? FuzzFamilyMPEG : FuzzFamilyApple;
+         : [decoder isEqualToString:@"dr_mp3"] ? FuzzFamilyMPEG : [decoder isEqualToString:@"MACLib"] ? FuzzFamilyAPE
+         : FuzzFamilyApple;
 }
 
 // Every fixture of `family` the generator wrote, one per coding for dr_wav's and every one for
@@ -423,6 +427,10 @@ static NSArray<FuzzSource *> *FuzzCorpus(FuzzFamily family, NSURL *scratch, NSMu
         [paths addObject:[root stringByAppendingPathComponent:name]];
     }
     [paths addObjectsFromArray:FuzzWrittenSources(scratch)];
+    // Monkey's Audio's, which only the SDK's encoder makes (make-ape-fixtures.py).
+    for (NSURL *url in [[NSBundle bundleForClass:FuzzSource.class] URLsForResourcesWithExtension:@"ape" subdirectory:nil]) {
+        [paths addObject:url.path];
+    }
     NSMutableDictionary<NSString *, FuzzSource *> *byKey = [NSMutableDictionary dictionary];
     for (NSString *path in paths) {
         FuzzSource *source = [FuzzSource new];
@@ -1385,6 +1393,12 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
 @end
 @implementation AudioFileHandleFuzzMPEGTests
 - (void)testMutants { [self fuzzFamily:FuzzFamilyMPEG]; }
+@end
+
+@interface AudioFileHandleFuzzAPETests : AudioFileHandleFuzzTestCase
+@end
+@implementation AudioFileHandleFuzzAPETests
+- (void)testMutants { [self fuzzFamily:FuzzFamilyAPE]; }
 @end
 
 @interface AudioFileHandleFuzzCoreAudioTests : AudioFileHandleFuzzTestCase
