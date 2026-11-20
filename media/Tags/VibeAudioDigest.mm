@@ -171,12 +171,17 @@ uint64_t SkipID3v2(Bytes &f, uint64_t at) {
     return at;
 }
 
+// What TrimTrailingTags found of an APE tag it took off: one with no
+// header, so its footer alone said where it starts, and one whose footer
+// names a header that is not where the tag starts, which is damaged.
+struct APETrim {
+    bool footerOnly = false, headerMissing = false;
+};
+
 // The end before the tags files carry at their end: ID3v1, then Lyrics3v2
 // or APE. As TagLib's findID3v1 does, "TAG" that is the end of an APE
-// footer's "APETAGEX" is no ID3v1 tag. *unheaded, when given, says whether
-// an APE tag was taken off with no header where its footer says it starts,
-// so the footer alone said where the audio ends.
-uint64_t TrimTrailingTags(Bytes &f, uint64_t start, uint64_t end, bool *unheaded = nullptr) {
+// footer's "APETAGEX" is no ID3v1 tag.
+uint64_t TrimTrailingTags(Bytes &f, uint64_t start, uint64_t end, APETrim *ape = nullptr) {
     if (end - start >= 128 && f.is(end - 128, "TAG") && !(end - start >= 131 && f.is(end - 131, "APETAGEX"))) {
         end -= 128;
     }
@@ -187,7 +192,8 @@ uint64_t TrimTrailingTags(Bytes &f, uint64_t start, uint64_t end, bool *unheaded
             const uint64_t whole = size + (header ? 32 : 0);
             if (whole <= end - start) {
                 end -= whole;
-                if (unheaded && !(header && f.is(end, "APETAGEX"))) *unheaded = true;
+                if (ape && !header) ape->footerOnly = true;
+                if (ape && header && !f.is(end, "APETAGEX")) ape->headerMissing = true;
             }
         }
         if (end - start >= 15 && f.is(end - 9, "LYRICS200")) {
@@ -472,15 +478,16 @@ bool WalkOgg(Bytes &f, Sink &d) {
 // Each block, from the first byte to the tags at the end: a 32-byte header
 // whose size at byte 4 counts what follows its first 8 bytes. Bytes after
 // the last block, before the tags, go in too, so nothing a write could
-// touch is left out. A block that passes the tags is no audio. TRAP: a
-// footer can claim more than its tag, ending on a block's edge, and TagLib
-// writes where it claims, so an APE tag must have its header where its
-// footer says it starts, or the audio is not found. The correction file of
-// a hybrid file is another file, never read here.
+// touch is left out. A block that passes the tags is no audio. An APE tag
+// whose footer names a header that is not there is damaged, and a tag with
+// no header must start where the blocks end, or the audio is not found.
+// The writer's check holds a footer to its items, so one that claims a
+// last block whole is refused there. The correction file of a hybrid file
+// is another file, never read here.
 bool WalkWavPack(Bytes &f, Sink &d) {
-    bool unheaded = false;
-    const uint64_t end = TrimTrailingTags(f, 0, f.n, &unheaded);
-    if (unheaded) return false;
+    APETrim ape;
+    const uint64_t end = TrimTrailingTags(f, 0, f.n, &ape);
+    if (ape.headerMissing) return false;
     d.text("WVPK");
     uint64_t at = 0;
     bool any = false;
@@ -491,6 +498,9 @@ bool WalkWavPack(Bytes &f, Sink &d) {
         at += size;
         any = true;
     }
+    // A tag with no header starts where its footer says, so the blocks must
+    // end there, with nothing between.
+    if (ape.footerOnly && at != end) return false;
     d.file(at, end - at);
     return any;
 }
@@ -498,16 +508,16 @@ bool WalkWavPack(Bytes &f, Sink &d) {
 // The descriptor, header, seek table, the WAV header it keeps, the frames,
 // and the WAV's terminating bytes, from "MAC " to the tags at the end. A
 // file from version 3.98 on states those lengths, which must fit before the
-// tags. An older one states none, so its APE tag must have its header where
-// its footer says it starts, or the audio is not found (WalkWavPack's
-// TRAP). An ID3v2 tag before it, which TagLib never writes, goes in too.
+// tags. An APE tag whose footer names a header that is not there is
+// damaged, and its audio is not found. An older file states no lengths, so
+// the writer's check holds its tag's footer to its items. An ID3v2 tag
+// before it, which TagLib never writes, goes in too.
 bool WalkMonkeysAudio(Bytes &f, Sink &d) {
     const uint64_t start = SkipID3v2(f, 0);
-    bool unheaded = false;
-    const uint64_t end = TrimTrailingTags(f, start, f.n, &unheaded);
-    if (!f.has(start, 8)) return false;
+    APETrim ape;
+    const uint64_t end = TrimTrailingTags(f, start, f.n, &ape);
+    if (ape.headerMissing || !f.has(start, 8)) return false;
     const uint32_t version = f.le32(start + 4) & 0xFFFF;
-    if (version < 3980 && unheaded) return false;
     if (version >= 3980) {
         if (!f.has(start, 36)) return false;
         uint64_t stated = (uint64_t)f.le32(start + 28) << 32;

@@ -2600,6 +2600,14 @@ static NSData *VibeAPETag(NSArray<NSArray *> *items, BOOL header) {
     return tag;
 }
 
+// The tag with its header's and footer's item count set to `count`.
+static NSData *VibeAPETagCounting(NSData *tag, BOOL header, uint32_t count) {
+    NSMutableData *bytes = [tag mutableCopy];
+    [bytes replaceBytesInRange:NSMakeRange(bytes.length - 32 + 16, 4) withBytes:&count];
+    if (header) [bytes replaceBytesInRange:NSMakeRange(16, 4) withBytes:&count];
+    return bytes;
+}
+
 static NSArray *VibeTextItem(NSString *key, NSString *value) {
     return @[key, [value dataUsingEncoding:NSUTF8StringEncoding], @0];
 }
@@ -2633,8 +2641,20 @@ static NSArray *VibeTextItem(NSString *key, NSString *value) {
         @[VibeTextItem(@"Title", @"Title"), @[@"Empty", [NSData data], @0]],
         @[@[@"Title", [NSData dataWithBytes:latin1 length:sizeof latin1], @0]],
     ];
-    for (NSArray<NSArray *> *items in tags) {
-        for (NSURL *url in [self apeFilesWithTag:VibeAPETag(items, YES)]) {
+    NSMutableArray<NSData *> *bad = [NSMutableArray array];
+    for (NSArray<NSArray *> *items in tags) [bad addObject:VibeAPETag(items, YES)];
+    // A name with a byte below 0x20, which TagLib skips.
+    [bad addObject:VibeAPETag(@[VibeTextItem(@"Ti\x01tle", @"Title"), VibeTextItem(@"Artist", @"Artist")], YES)];
+    // An item whose length passes the tag, and the item after it.
+    NSMutableData *longItem = [VibeAPETag(@[VibeTextItem(@"Title", @"Title"), VibeTextItem(@"Artist", @"Artist")], YES)
+                                  mutableCopy];
+    const uint32_t tooLong = 0x10000;
+    [longItem replaceBytesInRange:NSMakeRange(32, 4) withBytes:&tooLong];
+    [bad addObject:longItem];
+    // A footer that counts one item more than the tag holds.
+    [bad addObject:VibeAPETagCounting(VibeAPETag(@[VibeTextItem(@"Title", @"Title")], YES), YES, 2)];
+    for (NSData *tag in bad) {
+        for (NSURL *url in [self apeFilesWithTag:tag]) {
             [self assertFailure:url code:VibeTagWriteErrorWouldLoseData write:^BOOL(NSError **error) {
                 return VibeWriteFrontCover(url.path, VibeJPEG(0.3), @"image/jpeg", error);
             }];
@@ -2657,11 +2677,17 @@ static NSDictionary<NSString *, NSString *> *VibeAPEItems(NSURL *url) {
         file.reset(wavpack);
         tag = wavpack->APETag();
     }
+    else if ([url.pathExtension isEqualToString:@"mp3"]) {
+        auto mpeg = new TagLib::MPEG::File(url.fileSystemRepresentation);
+        file.reset(mpeg);
+        tag = mpeg->APETag();
+    }
     else {
         auto monkeys = new TagLib::APE::File(url.fileSystemRepresentation);
         file.reset(monkeys);
         tag = monkeys->APETag();
     }
+    if (!tag) return items;
     for (const auto &[key, item] : tag->itemListMap()) {
         items[@(item.key().toCString(true))] = @(item.toString().toCString(true));
     }
@@ -2694,8 +2720,8 @@ static NSDictionary<NSString *, NSString *> *VibeAPEItems(NSURL *url) {
 // claims more bytes than its tag holds, with no header to show where the tag
 // starts, would put the write over the end of the audio, and the digest
 // would skip those same bytes. A Monkey's Audio file from before 3.98 states
-// no lengths, and a WavPack footer can end on a block's edge, so each is
-// refused, and its digest finds no audio.
+// no lengths, and a WavPack footer can end on a block's edge, so the bytes a
+// footer claims must be exactly its items, and these are refused.
 - (void)testAFooterThatClaimsTheAudiosEndRefuses {
     NSMutableData *ape = [[NSData dataWithContentsOfURL:VibeAPEFixture(@"level-normal.ape")] mutableCopy];
     const uint16_t old = 3970;
@@ -2724,8 +2750,6 @@ static NSDictionary<NSString *, NSString *> *VibeAPEItems(NSURL *url) {
         [bytes appendData:footer];
         XCTAssertTrue([bytes writeToURL:pair[0] atomically:YES]);
         [self assertFailure:pair[0] code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"Title"]}];
-        NSError *error = nil;
-        XCTAssertNil(VibeTagLibAudioDigest([pair[0] path], &error), @"%@", [pair[0] lastPathComponent]);
     }
 }
 
@@ -2757,6 +2781,146 @@ static NSDictionary<NSString *, NSString *> *VibeAPEItems(NSURL *url) {
         XCTAssertEqualObjects(VibeNS(ape->itemListMap()["COVER ART (BACK)"].binaryData()), bmp, @"%@",
                               url.lastPathComponent);
         XCTAssertTrue(ape->itemListMap().contains("COVER ART (FRONT)"), @"%@", url.lastPathComponent);
+    }
+}
+
+// The header is optional: Monkey's Audio's encoder writes a tag with a
+// footer alone, and so does APEv1. Such a tag takes a write on a WavPack
+// file, whose blocks end where it starts, and on Monkey's Audio files from
+// before and after 3.98.
+- (void)testAFooterOnlyTagWrites {
+    NSData *tag = VibeAPETag(@[VibeTextItem(@"Title", @"Old"), VibeTextItem(@"Artist", @"Kept")], NO);
+    NSMutableArray<NSURL *> *urls = [[self apeFilesWithTag:tag] mutableCopy];
+    NSMutableData *old = [NSMutableData dataWithContentsOfURL:urls[0]];
+    const uint16_t version = 3970;
+    [old replaceBytesInRange:NSMakeRange(4, 2) withBytes:&version];
+    NSURL *oldURL = [_dir URLByAppendingPathComponent:@"old.ape"];
+    XCTAssertTrue([old writeToURL:oldURL atomically:YES]);
+    [urls addObject:oldURL];
+    for (NSURL *url in urls) {
+        NSData *audio = VibeDigest(url);
+        XCTAssertNotNil(audio, @"%@", url.lastPathComponent);
+        NSError *error = nil;
+        XCTAssertTrue(VibeTagLibWriteTags(url.path, @{VibeTagFieldTitle: @[@"New"]}, YES, VibeJPEG(0.6), @"image/jpeg",
+                                          VibeTagWriteSyncFull, NULL, &error), @"%@: %@", url.lastPathComponent, error);
+        VibeTagFieldValues *read = [self read:url];
+        XCTAssertEqualObjects(read[VibeTagFieldTitle], @[@"New"], @"%@", url.lastPathComponent);
+        XCTAssertEqualObjects(read[VibeTagFieldArtist], @[@"Kept"], @"%@", url.lastPathComponent);
+        XCTAssertEqualObjects(VibeDigest(url), audio, @"%@", url.lastPathComponent);
+    }
+}
+
+// A footer that names a header that is not there, one whose size is under
+// its own 32 bytes, and one that claims more than the file holds, are
+// refused. The first is damaged, so its digest finds no audio.
+- (void)testAnAPEFooterThatLiesRefuses {
+    NSData *items = VibeAPETag(@[VibeTextItem(@"Title", @"Title")], NO);
+    NSMutableData *noHeader = [items mutableCopy];
+    const uint32_t headerFlag = 0x80000000u;
+    [noHeader replaceBytesInRange:NSMakeRange(noHeader.length - 32 + 20, 4) withBytes:&headerFlag];
+    for (NSURL *url in [self apeFilesWithTag:noHeader]) {
+        [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"New"]}];
+        XCTAssertNil(VibeTagLibAudioDigest(url.path, NULL), @"%@", url.lastPathComponent);
+    }
+    for (NSNumber *size in @[@0, @16, @31, @0x7FFFFFF0]) {
+        NSMutableData *lying = [items mutableCopy];
+        const uint32_t claim = size.unsignedIntValue;
+        [lying replaceBytesInRange:NSMakeRange(lying.length - 32 + 12, 4) withBytes:&claim];
+        for (NSURL *url in [self apeFilesWithTag:lying]) {
+            NSData *before = [NSData dataWithContentsOfURL:url];
+            NSError *error = nil;
+            const BOOL wrote = VibeWriteFields(url.path, @{VibeTagFieldTitle: @[@"New"]}, &error);
+            // TagLib may take no tag at all from a footer this small, and then
+            // writes a tag of its own after it, leaving the audio whole.
+            if (wrote) {
+                XCTAssertTrue([[NSData dataWithContentsOfURL:url] rangeOfData:[before subdataWithRange:NSMakeRange(0, before.length - items.length)]
+                                                                      options:NSDataSearchAnchored
+                                                                        range:NSMakeRange(0, before.length - items.length)].location == 0,
+                              @"%@ size %@ keeps its audio", url.lastPathComponent, size);
+            }
+            else {
+                XCTAssertEqual(error.code, VibeTagWriteErrorWouldLoseData, @"%@ size %@: %@", url.lastPathComponent, size, error);
+                XCTAssertEqualObjects([NSData dataWithContentsOfURL:url], before, @"%@", url.lastPathComponent);
+            }
+        }
+    }
+}
+
+// TRACK and DISC are TagLib's APE spellings of the number and the disc, and
+// the file's own spelling is kept. A file holding both spellings of a field
+// keeps one, the first, with the new value. A cleared field's item goes.
+- (void)testAnAPEEditTakesEachSpellingOfItsField {
+    NSData *tag = VibeAPETag(@[VibeTextItem(@"Track", @"3/12"), VibeTextItem(@"Disc", @"1"),
+                               VibeTextItem(@"ALBUMARTIST", @"One"), VibeTextItem(@"Album Artist", @"Two"),
+                               VibeTextItem(@"Title", @"Gone")], YES);
+    for (NSURL *url in [self apeFilesWithTag:tag]) {
+        [self assertWrite:url fields:@{VibeTagFieldTrackNumber: @[@"4"], VibeTagFieldDiscNumber: @[@"2"],
+                                       VibeTagFieldAlbumArtist: @[@"Three"], VibeTagFieldTitle: @[]}];
+        XCTAssertEqualObjects(VibeAPEItems(url), (@{@"Track": @"4/12", @"Disc": @"2", @"ALBUMARTIST": @"Three"}), @"%@",
+                              url.lastPathComponent);
+        VibeTagFieldValues *read = [self read:url];
+        XCTAssertEqualObjects(read[VibeTagFieldTrackNumber], @[@"4"]);
+        XCTAssertEqualObjects(read[VibeTagFieldTrackTotal], @[@"12"]);
+        XCTAssertNil(read[VibeTagFieldTitle]);
+    }
+}
+
+// An APE tag with an ID3v1 tag after it, as foobar2000 and Mp3tag can write
+// both: the APE tag is found before the ID3v1 tag, and both take the edit.
+- (void)testAnAPETagBeforeAnID3v1TagWrites {
+    NSMutableData *tag = [VibeAPETag(@[VibeTextItem(@"Title", @"Old")], YES) mutableCopy];
+    NSMutableData *id3v1 = [NSMutableData dataWithLength:128];
+    memcpy(id3v1.mutableBytes, "TAGOld", 6);
+    ((uint8_t *)id3v1.mutableBytes)[127] = 0xFF;
+    [tag appendData:id3v1];
+    for (NSURL *url in [self apeFilesWithTag:tag]) {
+        NSData *audio = VibeDigest(url);
+        [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"New"]}];
+        XCTAssertEqualObjects(VibeAPEItems(url), (@{@"Title": @"New"}), @"%@", url.lastPathComponent);
+        XCTAssertEqualObjects(VibeDigest(url), audio, @"%@", url.lastPathComponent);
+        NSData *bytes = [NSData dataWithContentsOfURL:url];
+        XCTAssertEqual(memcmp((const uint8_t *)bytes.bytes + bytes.length - 128, "TAGNew", 6), 0, @"%@",
+                       url.lastPathComponent);
+    }
+}
+
+// An MP3's APE tag takes the edit item by item too, keeping its spellings,
+// and when TagLib would change it beyond the edit, a write that changes it
+// is refused, while a cover's write, which leaves it alone, goes through.
+- (void)testAnMP3sAPETagTakesTheEditItemByItem {
+    NSURL *url = [_dir URLByAppendingPathComponent:@"ape.mp3"];
+    NSMutableData *mp3 = [VibeMP3WithInfoFrame(38, NO) mutableCopy];
+    [mp3 appendData:VibeAPETag(@[VibeTextItem(@"ALBUMARTIST", @"Albums"), VibeTextItem(@"Title", @"Old")], YES)];
+    XCTAssertTrue([mp3 writeToURL:url atomically:YES]);
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"New"]}];
+    XCTAssertEqualObjects(VibeAPEItems(url), (@{@"ALBUMARTIST": @"Albums", @"Title": @"New"}));
+
+    NSURL *twice = [_dir URLByAppendingPathComponent:@"twice.mp3"];
+    mp3 = [VibeMP3WithInfoFrame(38, NO) mutableCopy];
+    [mp3 appendData:VibeAPETag(@[VibeTextItem(@"Artist", @"One"), VibeTextItem(@"ARTIST", @"Two")], YES)];
+    XCTAssertTrue([mp3 writeToURL:twice atomically:YES]);
+    [self assertFailure:twice code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"New"]}];
+    XCTAssertTrue(VibeWriteFrontCover(twice.path, VibeJPEG(0.2), @"image/jpeg", NULL));
+}
+
+// A cover item that holds no image, a lone NUL, never shows. The back cover
+// shows, so a cover write takes it (TE121's rule in every format), and the
+// new front cover takes the empty item's place, where two front covers
+// would otherwise be refused.
+- (void)testAnEmptyCoverItemGivesWayToANewCover {
+    NSData *bmp = VibeImageOfType(@"image/bmp", 0);
+    NSData *tag = VibeAPETag(@[@[@"Cover Art (Front)", [NSData dataWithBytes:"" length:1], @2],
+                               @[@"Cover Art (Back)", bmp, @2]], YES);
+    for (NSURL *url in [self apeFilesWithTag:tag]) {
+        NSError *error = nil;
+        XCTAssertTrue(VibeWriteFrontCover(url.path, VibeJPEG(0.4), @"image/jpeg", &error), @"%@: %@",
+                      url.lastPathComponent, error);
+        NSData *art = nil;
+        XCTAssertTrue(VibeTagLibReadEmbeddedArt(url.path, nil, 0, &art));
+        XCTAssertEqualObjects(art, VibeJPEG(0.4), @"%@", url.lastPathComponent);
+        NSArray<VibeTagPicture *> *pictures = [self picturesOf:url shown:NULL];
+        XCTAssertEqual(pictures.count, 1u, @"%@", url.lastPathComponent);
+        XCTAssertEqual(pictures.firstObject.type, VibeTagPictureTypeFrontCover, @"%@", url.lastPathComponent);
     }
 }
 
