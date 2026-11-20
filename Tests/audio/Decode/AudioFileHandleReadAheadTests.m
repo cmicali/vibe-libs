@@ -701,4 +701,77 @@ static AVAudioFramePosition VibeFrameInBlock(uint64_t index) {
     XCTAssertEqual([script readsAt:partial], 2u, @"the failed read, then the retry from the held end");
 }
 
+#pragma mark - A WavPack correction file
+
+// long.wv and long.wvc, a hybrid pair, as network copies. Each is longer than
+// two read-ahead blocks. The open reads only the first and last block of each.
+- (NSURL *)networkWavPackPair {
+    [self networkCopyOf:VibeWavPackFixture(@"long.wvc")];
+    return [self networkCopyOf:VibeWavPackFixture(@"long.wv")];
+}
+
+// A read waiting on either file of a hybrid pair returns on interruptReads,
+// as an interruption. The wait is on a block that fails until stopFailing,
+// since a failed read leaves the thread free for the open's other reads.
+// After allowReads, a seek restarts the decode over both files, and it reads
+// lossless again, bit for bit.
+- (void)testAWavPackReadWaitingOnEitherFileReturnsOnInterruptReads {
+    NSURL *direct = VibeWavPackFixture(@"long.wv");
+    for (NSString *name in @[@"long.wv", @"long.wvc"]) {
+        VibeReadAheadScript *script = [self readAhead];
+        [script fail:EIO readsOf:name from:kReadAheadBlock until:2 * kReadAheadBlock];
+        NSError *error = nil;
+        AudioFileHandle *handle = VibeOpenInterruptibly([self networkWavPackPair], &error);
+        XCTAssertNotNil(handle.correctionFileURL, @"%@: %@", name, error);
+        XCTAssertEqual(handle.fileFormat.streamDescription->mFormatID, kAudioFormatLinearPCM, @"%@", name);
+        __block NSData *pcm = nil;
+        __block NSError *readError = nil;
+        dispatch_semaphore_t returned = dispatch_semaphore_create(0);
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            NSError *decodeError = nil;
+            pcm = VibeDecode(handle, 4096, INT64_MAX, &decodeError);
+            readError = decodeError;
+            dispatch_semaphore_signal(returned);
+        });
+        XCTAssertTrue([self eventually:^BOOL { return handle.waitingForBytes; }], @"%@: the read waits", name);
+        [handle interruptReads];
+        XCTAssertTrue([self await:returned], @"%@", name);
+        XCTAssertNil(pcm, @"%@", name);
+        XCTAssertTrue([AudioFileHandle isInterruption:readError], @"%@: %@", name, readError);
+
+        [script stopFailing];
+        [handle allowReads];
+        for (NSNumber *from in @[@1000, @300000]) {
+            AVAudioFramePosition frame = from.longLongValue;
+            XCTAssertTrue([handle seekToFrame:frame error:&error], @"%@: %@", name, error);
+            [self assertPCM:VibeDecode(handle, 4096, 20000, &error) equals:[self referenceOf:direct from:frame frames:20000]
+                    context:[NSString stringWithFormat:@"%@, from %lld", name, frame]];
+        }
+    }
+}
+
+// An open interrupted while it waits for a correction file's first bytes
+// fails as an interruption, never as a lossy open.
+- (void)testAnOpenInterruptedOnTheCorrectionFileFailsAsAnInterruption {
+    VibeReadAheadScript *script = [self readAhead];
+    [script stallReadsOf:@"long.wvc" from:0];
+    NSURL *url = [self networkWavPackPair];
+    __block _Atomic(bool) cancelled = false;
+    __block AudioFileHandle *handle = nil;
+    __block NSError *error = nil;
+    dispatch_semaphore_t returned = dispatch_semaphore_create(0);
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSError *openError = nil;
+        handle = [[AudioFileHandle alloc] initForReading:url interleaved:NO
+                                             interrupted:^BOOL { return atomic_load(&cancelled); } error:&openError];
+        error = openError;
+        dispatch_semaphore_signal(returned);
+    });
+    XCTAssertTrue([self await:script.stalled], @"the correction file's first read");
+    atomic_store(&cancelled, true);
+    XCTAssertTrue([self await:returned]);
+    XCTAssertNil(handle);
+    XCTAssertTrue([AudioFileHandle isInterruption:error], @"%@", error);
+}
+
 @end

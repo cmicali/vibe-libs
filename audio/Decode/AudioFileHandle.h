@@ -123,8 +123,20 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
                                   error:(NSError * _Nullable __autoreleasing * _Nullable)error NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
-// "dr_mp3", "dr_flac", "dr_wav", "libvorbis" or "apple", for a debug report.
+// "dr_mp3", "dr_flac", "dr_wav", "libvorbis", "libwavpack" or "apple", for a
+// debug report.
 @property (nonatomic, readonly) NSString *decoderName;
+// A hybrid WavPack file's correction file, when the open found one beside it
+// that holds, and decodes lossless with it. Nil for every other open, a
+// hybrid file played lossy included.
+@property (nonatomic, readonly, nullable) NSURL *correctionFileURL;
+// The correction file a hybrid WavPack file at `url` would decode with: the
+// first spelling beside it that opens for reading (this piece's AGENTS.md,
+// "A hybrid WavPack file"). Nil when none does. It opens and closes each
+// spelling, and never reads, so a caller such as an indexer answers whether a
+// hybrid file is lossless cheaply. Blocking. It does not check that the file
+// matches: a play does that, and falls back to the lossy half.
++ (nullable NSURL *)correctionFileForWavPack:(NSURL *)url;
 
 @property (nonatomic, readonly) NSURL *url;
 // For property reads while the handle lives. NULL once one of the handle's

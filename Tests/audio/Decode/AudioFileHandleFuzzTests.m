@@ -33,7 +33,8 @@
 //  | AudioFileHandleFuzzCoreAudioTests | AAC, ADTS, QuickTime, ALAC in MP4 and CAF, LPCM in CAF,    | 10      | 8          | 2.4     |
 //  |                                   | Ogg Vorbis (libvorbis), Opus, a WAV past dr_wav's 768 kHz  |         |            |         |
 //  | AudioFileHandleFuzzWavPackTests   | every WavPack fixture: 8 to 32 bits, float, 5.1, hybrid,   | 10      | 8          |         |
-//  |                                   | DSD, and a file that never states its length               |         |            |         |
+//  |                                   | DSD, and a file that never states its length. And hybrid's |         |            |         |
+//  |                                   | correction file, damaged beside its .wv                    |         |            |         |
 //
 //  Iterations is how often each random mutator runs per source. A named shape
 //  runs once per source it applies to, whatever the count.
@@ -1063,6 +1064,7 @@ static const FuzzMutator kFuzzMutators[] = {
 @property (atomic) BOOL finished;
 @property (nonatomic) BOOL opened;
 @property (nonatomic, copy) NSString *decoder;
+@property (nonatomic) AudioFormatID formatID; // the file's, as the open stated it
 @property (nonatomic) AVAudioFramePosition length;
 @property (nonatomic) BOOL estimated;
 @property (nonatomic, strong) NSMutableData *pcm;        // every frame read to the end, interleaved, when captured
@@ -1138,6 +1140,7 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
         }
         result.opened = YES;
         result.decoder = handle.decoderName;
+        result.formatID = handle.fileFormat.streamDescription->mFormatID;
         // Apple's decoders read every packet their parser serves, past a damaged count, and can deliver
         // more after an end or a seek than a decode from the start did. A length of 0 is refused before
         // anything plays, and a player's bus stops at the length. So those are checked only of the handle's
@@ -1380,6 +1383,64 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
     XCTAssertEqualObjects(again.seekReads, reference.seekReads, @"%@: the source seeks differently after its mutants", label);
 }
 
+// hybrid.wv beside a mutant of its correction file, each mutator of the
+// WavPack walk's blocks run on hybrid.wvc. Each opens lossless, or falls back
+// to the lossy half and then decodes and seeks exactly as hybrid.wv alone.
+- (void)fuzzCorrectionFile {
+    NSData *wv = [NSData dataWithContentsOfURL:VibeWavPackFixture(@"hybrid.wv")];
+    FuzzSource *source = [FuzzSource new];
+    source.name = @"hybrid.wvc";
+    source.extension = @"wvc";
+    source.bytes = [NSData dataWithContentsOfURL:VibeWavPackFixture(source.name)];
+    source.family = FuzzFamilyWavPack;
+    FuzzReadWalk(source);
+    NSURL *(^pair)(NSString *, NSData *) = ^NSURL *(NSString *name, NSData *wvc) {
+        NSURL *folder = [self->_root URLByAppendingPathComponent:name isDirectory:YES];
+        [NSFileManager.defaultManager createDirectoryAtURL:folder withIntermediateDirectories:YES attributes:nil error:NULL];
+        NSURL *url = [folder URLByAppendingPathComponent:@"song.wv"];
+        [wv writeToURL:url atomically:NO];
+        [wvc writeToURL:[folder URLByAppendingPathComponent:@"song.wvc"] atomically:NO];
+        return url;
+    };
+    FuzzDecode *lossy = [self decode:pair(@"alone", nil) budget:kFuzzMaxSourceFrames];
+    FuzzDecode *lossless = [self decode:pair(@"whole", source.bytes) budget:kFuzzMaxSourceFrames];
+    XCTAssertEqual(lossy.formatID, (AudioFormatID)'wvpk');
+    XCTAssertEqual(lossless.formatID, kAudioFormatLinearPCM);
+    XCTAssertEqual(lossy.problems.count + lossless.problems.count, 0u, @"%@ %@", lossy.problems, lossless.problems);
+    uint64_t sourceHash = 0x57C;
+    for (NSUInteger m = 0; m < sizeof(kFuzzMutators) / sizeof(*kFuzzMutators); m++) {
+        FuzzMutator mutator = kFuzzMutators[m];
+        NSUInteger iterations = mutator.named ? 1 : kFuzzIterations[FuzzFamilyWavPack] * _multiplier;
+        for (NSUInteger i = 0; i < iterations; i++) {
+            uint64_t seed = _baseSeed ^ sourceHash ^ ((uint64_t)m << 40) ^ ((uint64_t)i << 20);
+            VibeFuzzRandom random = {seed | 1};
+            NSMutableData *bytes = [source.bytes mutableCopy];
+            if (!mutator.mutate(bytes, source, &random, mutator.arg)) break;
+            if ([bytes isEqualToData:source.bytes]) continue;
+            NSString *name = [NSString stringWithFormat:@"%s-%lu", mutator.name, (unsigned long)i];
+            NSString *context = [NSString stringWithFormat:@"hybrid.wvc, %s, seed 0x%016llx", mutator.name, seed];
+            FuzzDecode *mutant = [self decode:pair(name, bytes) budget:kFuzzMaxSourceFrames];
+            if (!mutant) {
+                XCTFail(@"%@: hung past %d s", context, VIBE_TEST_HANG_TIMEOUT);
+                [self attach:bytes name:[name stringByAppendingString:@".wvc"]];
+                return; // a worker still holds its file
+            }
+            NSMutableArray<NSString *> *problems = mutant.problems;
+            if (!mutant.opened || mutant.length != lossy.length) {
+                [problems addObject:[NSString stringWithFormat:@"opened %d, length %lld", mutant.opened, mutant.length]];
+            } else if (mutant.formatID == 'wvpk' && !([mutant.pcm isEqualToData:lossy.pcm] && [mutant.seekReads isEqualToData:lossy.seekReads])) {
+                [problems addObject:@"a fallback decodes other samples than the .wv alone"];
+            } else if (mutant.formatID != 'wvpk' && mutant.formatID != kAudioFormatLinearPCM) {
+                [problems addObject:[NSString stringWithFormat:@"format %u", (unsigned)mutant.formatID]];
+            }
+            if (problems.count) {
+                XCTFail(@"%@: %@", context, problems);
+                [self attach:bytes name:[name stringByAppendingString:@".wvc"]];
+            }
+        }
+    }
+}
+
 - (void)fuzzFamily:(FuzzFamily)family {
     NSMutableArray<NSString *> *skipped = [NSMutableArray array];
     NSArray<FuzzSource *> *sources = FuzzCorpus(family, _root, skipped);
@@ -1419,4 +1480,5 @@ static void FuzzDecodeURL(FuzzDecode *result, NSURL *url, AVAudioFramePosition b
 @end
 @implementation AudioFileHandleFuzzWavPackTests
 - (void)testMutants { [self fuzzFamily:FuzzFamilyWavPack]; }
+- (void)testDamagedCorrectionFiles { [self fuzzCorrectionFile]; }
 @end

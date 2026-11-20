@@ -3,14 +3,17 @@
 //  vibe-libs
 //
 //  libwavpack's decode of a WavPack file: the open through a reader over the
-//  handle's stream reads, the facts, the reads, the seek, the restart after
-//  an interrupted read, and the close. The sniff that sends a file here is
-//  AudioFileHandle+Stream.m's. The ivars are AudioFileHandleInternal.h's.
+//  handle's stream reads, a hybrid file's correction file, the facts, the
+//  reads, the seek, the restart after an interrupted read, and the close.
+//  The sniff that sends a file here is AudioFileHandle+Stream.m's. The ivars
+//  are AudioFileHandleInternal.h's.
 //
 
 #import "AudioFileHandleInternal.h"
+#import "CloudFileMaterializer.h"
 
 #import <Accelerate/Accelerate.h>
+
 
 // The samples one unpack fills, across every channel: 64 KB. A file of many
 // channels unpacks fewer frames at a time.
@@ -19,8 +22,26 @@ static const uint32_t kVibeWavPackChunkSamples = 16384;
 // TRAP: OPEN_NORMALIZE scales a float file's samples to ±1 when its encoder
 // stored them at another exponent. OPEN_DSD_AS_PCM decimates DSD to 24-bit
 // PCM at an eighth of its rate. With neither, DSD would decode as 1-bit
-// bytes. No OPEN_WVC: a hybrid file plays its lossy half alone.
+// bytes. OPEN_WVC only names the file-name open's search: a reader open
+// takes the correction file when it is given one.
 static const int kVibeWavPackOpenFlags = OPEN_NORMALIZE | OPEN_DSD_AS_PCM;
+
+// The spellings of a hybrid file's correction file, in the order they are
+// tried: the same folder and name, with the .wv's extension and a c in its
+// case (wv to wvc, WV to WVC), then wvc, then WVC. A case-sensitive volume
+// needs all three. A case-insensitive one finds the file at the first.
+NSArray<NSURL *> *VibeWavPackCorrectionSpellings(NSURL *url) {
+    NSString *extension = url.pathExtension;
+    unichar last = extension.length ? [extension characterAtIndex:extension.length - 1] : 'v';
+    NSString *matched = [extension stringByAppendingString:[NSCharacterSet.uppercaseLetterCharacterSet characterIsMember:last]
+                                                           ? @"C" : @"c"];
+    NSURL *base = url.URLByDeletingPathExtension;
+    NSMutableArray<NSURL *> *spellings = [NSMutableArray array];
+    for (NSString *spelling in [NSOrderedSet orderedSetWithArray:@[matched, @"wvc", @"WVC"]]) {
+        [spellings addObject:[base URLByAppendingPathExtension:spelling]];
+    }
+    return spellings;
+}
 
 @implementation AudioFileHandle (WavPack)
 
@@ -67,10 +88,107 @@ static WavpackStreamReader64 kVibeWavPackReader = {
     .can_seek = VibeWavPackCanSeek,
 };
 
+// Over the correction file too, when the open found one. Both cursors start
+// over, and the correction file's interruption is cleared with this handle's
+// (the core's seek).
 - (WavpackContext *)newWavPackContext {
     _streamCursor = 0;
+    AudioFileHandle *correction = _wavpackCorrection;
+    if (correction) {
+        correction->_streamCursor = 0;
+        if ([AudioFileHandle isInterruption:correction->_waitError]) {
+            correction->_waitError = nil;
+        }
+    }
     char message[80];
-    return WavpackOpenFileInputEx64(&kVibeWavPackReader, (__bridge void *)self, NULL, message, kVibeWavPackOpenFlags, 0);
+    return WavpackOpenFileInputEx64(&kVibeWavPackReader, (__bridge void *)self, (__bridge void *)correction, message,
+                                    kVibeWavPackOpenFlags, 0);
+}
+
+// A correction file's lost or failed read is this file's: the read or seek it
+// happened in answers NO with its error, and the context is stale, so the
+// frames libwavpack made without the correction never play as lossless.
+- (void)takeCorrectionFault {
+    AudioFileHandle *correction = _wavpackCorrection;
+    if (!correction || !(correction->_waitError || correction->_streamReadFailed)) {
+        return;
+    }
+    if (correction->_waitError && !_waitError) {
+        _waitError = correction->_waitError;
+    }
+    _streamReadFailed = _streamReadFailed || correction->_streamReadFailed;
+    _wavpackStale = YES;
+}
+
+#pragma mark - The correction file
+
+// YES when the context decodes the file's last block lossless with the
+// correction file: the correction holds that block, and the block's checksum,
+// which is the lossless decode's, passes. So a correction file cut short, or
+// another song's, is caught. Then it seeks back to the start. One block's
+// decode, and the reads that find the last block in both files.
+static BOOL VibeWavPackCorrectionHolds(WavpackContext *context, int32_t *frame) {
+    int64_t total = WavpackGetNumSamples64(context);
+    return (WavpackGetMode(context) & MODE_WVC) && total > 0 && WavpackSeekSample64(context, total - 1)
+            && WavpackUnpackSamples(context, frame, 1) == 1 && WavpackGetNumErrors(context) == 0
+            && WavpackSeekSample64(context, 0);
+}
+
+// A hybrid file plays lossless when its correction file sits beside it, opens,
+// and holds (VibeWavPackCorrectionHolds). Otherwise it plays its lossy half,
+// as it did, with no error. A file still downloading never looks for one, nor
+// takes one still downloading: both play lossy until both are on disk. An
+// interruption is the open's, not a fallback.
+- (void)openWavPackCorrection {
+    int mode = WavpackGetMode(_wavpack);
+    if (!(mode & MODE_HYBRID) || (mode & MODE_LOSSLESS) || _availability.partURL) {
+        return;
+    }
+    for (NSURL *spelling in VibeWavPackCorrectionSpellings(_url)) {
+        if ([CloudFileMaterializer availabilityForURL:spelling]) {
+            return;
+        }
+        NSError *error = nil;
+        AudioFileHandle *correction = [[AudioFileHandle alloc] initBytesForReading:spelling interrupted:_openInterrupted
+                                                                             error:&error];
+        if ([AudioFileHandle isInterruption:error]) {
+            _waitError = error;
+            return;
+        }
+        if (correction) {
+            [self tryWavPackCorrection:correction];
+            return;
+        }
+    }
+}
+
+// The lossless context replaces the lossy one when the correction holds.
+// Otherwise the lossy one is opened again, since the try moved the cursor it
+// reads at.
+- (void)tryWavPackCorrection:(AudioFileHandle *)correction {
+    uint32_t channels = (uint32_t)MAX(1, WavpackGetNumChannels(_wavpack));
+    int32_t *frame = calloc(channels, sizeof(int32_t));
+    _wavpackCorrection = correction;
+    WavpackContext *lossless = frame ? [self newWavPackContext] : NULL;
+    BOOL holds = lossless && VibeWavPackCorrectionHolds(lossless, frame);
+    free(frame);
+    if ([AudioFileHandle isInterruption:correction->_waitError] && !_waitError) {
+        _waitError = correction->_waitError;
+    }
+    if (holds && !_waitError) {
+        WavpackCloseFile(_wavpack);
+        _wavpack = lossless;
+        return;
+    }
+    if (lossless) {
+        WavpackCloseFile(lossless);
+    }
+    _wavpackCorrection = nil;
+    if (!_waitError) {
+        WavpackContext *lossy = [self newWavPackContext];
+        WavpackCloseFile(_wavpack);
+        _wavpack = lossy;
+    }
 }
 
 #pragma mark - The open
@@ -78,14 +196,19 @@ static WavpackStreamReader64 kVibeWavPackReader = {
 // libwavpack answers the facts. A lossless file states them as the WAV it was
 // packed from: PCM of its width, high-aligned in its bytes, float or signed
 // integer, and an 8-bit sample unsigned unless its source's was signed. So
-// bit-perfect output keeps its depth. A hybrid file without its correction
-// file, and DSD, state WavPack's own format ID and no depth, as a lossy codec
-// does. A layout follows from the channel mask, as a WAV's does. The length
-// is the first block's count, or the last block's end for a file that never
-// stated it. A file whose length cannot be found is refused.
+// bit-perfect output keeps its depth. A hybrid file with its correction file
+// is lossless. One without it, and DSD, state WavPack's own format ID and no
+// depth, as a lossy codec does. A layout follows from the channel mask, as a
+// WAV's does. The length is the first block's count, or the last block's end
+// for a file that never stated it. A file whose length cannot be found is
+// refused.
 - (BOOL)openWavPackInterleaved:(BOOL)interleaved {
     _wavpack = [self newWavPackContext];
-    if (!_wavpack) {
+    if (_wavpack) {
+        [self openWavPackCorrection];
+    }
+    if (!_wavpack || _waitError) {
+        [self closeWavPack];
         return NO;
     }
     int mode = WavpackGetMode(_wavpack), qualify = WavpackGetQualifyMode(_wavpack);
@@ -113,11 +236,15 @@ static WavpackStreamReader64 kVibeWavPackReader = {
                                       layout:layout interleaved:interleaved];
 }
 
+// The context before the correction file's handle it reads. That handle
+// closes its file as any handle does: on the close queue, for an open with an
+// `interrupted` block (this piece's AGENTS.md, "Closing a file").
 - (void)closeWavPack {
     if (_wavpack) {
         WavpackCloseFile(_wavpack);
         _wavpack = NULL;
     }
+    _wavpackCorrection = nil;
     free(_wavpackSamples);
     _wavpackSamples = NULL;
 }
@@ -126,10 +253,11 @@ static WavpackStreamReader64 kVibeWavPackReader = {
 // short, and a seek inside that block decodes on from it. A failed seek has
 // freed its blocks. So after either, or a decode that ended short, the
 // context is stale (_wavpackStale), and the next seek swaps in a fresh one,
-// opened as the first was. One that fails to open keeps the old, still
-// stale, and that seek fails.
+// opened as the first was, over the correction file too. One that fails to
+// open keeps the old, still stale, and that seek fails.
 - (BOOL)restartWavPack {
     WavpackContext *fresh = [self newWavPackContext];
+    [self takeCorrectionFault];
     if (!fresh) {
         return NO;
     }
@@ -153,7 +281,9 @@ static WavpackStreamReader64 kVibeWavPackReader = {
     if (_wavpackStale && ![self restartWavPack]) {
         return NO;
     }
-    if (WavpackSeekSample64(_wavpack, frame)) {
+    BOOL landed = WavpackSeekSample64(_wavpack, frame);
+    [self takeCorrectionFault];
+    if (landed && !_wavpackStale) {
         _wavpackPosition = frame;
         return YES;
     }
@@ -174,6 +304,10 @@ static WavpackStreamReader64 kVibeWavPackReader = {
     AVAudioFrameCount got = 0;
     while (got < wanted && !_wavpackStale) {
         uint32_t frames = WavpackUnpackSamples(_wavpack, _wavpackSamples, MIN(chunk, wanted - got));
+        [self takeCorrectionFault];
+        if (_wavpackStale) {
+            break;
+        }
         if (frames == 0) {
             // TRAP: an unpack that stops short of the length is the decode's
             // end. libwavpack would go on at the next block that follows on,

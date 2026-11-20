@@ -450,11 +450,21 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file) {
         if (auto props = aiff->audioProperties()) bits = props->bitsPerSample();
     }
     else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
-        // A hybrid file read without its correction file is lossy, as the
-        // player plays it. DSD has 1 bit, which describes no PCM depth.
+        // A hybrid file is lossless only with its correction file, another
+        // file (VibeWavPackHybridBitsFromTagLibFile). DSD has 1 bit, which
+        // describes no PCM depth.
         auto props = wavpack->audioProperties();
         if (props && props->isLossless() && !props->isDsd()) bits = props->bitsPerSample();
     }
+    return bits > 0 && bits <= 64 ? bits : 0;
+}
+
+// TagLib calls every WavPack file that is not lossless hybrid: a lossy file
+// is a hybrid file's lossy half.
+int VibeWavPackHybridBitsFromTagLibFile(TagLib::File *file) {
+    auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file);
+    auto props = wavpack ? wavpack->audioProperties() : nullptr;
+    int bits = props && !props->isLossless() && !props->isDsd() ? props->bitsPerSample() : 0;
     return bits > 0 && bits <= 64 ? bits : 0;
 }
 

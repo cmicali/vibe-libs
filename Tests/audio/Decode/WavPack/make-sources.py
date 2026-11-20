@@ -34,11 +34,13 @@ def samples(frames, channels, bits):
             yield sample(f * channels + c, f, c, bits)
 
 
-def wav(path, rate, channels, frames, bits, container=None, float32=False, mask=None):
+def wav(path, rate, channels, frames, bits, container=None, float32=False, mask=None, negated=False):
+    """`negated` writes every sample's negative: another song of the same shape."""
     container = container or bits
     width = container // 8
     data = bytearray()
     for v in samples(frames, channels, bits):
+        v = -v if negated else v
         if float32:
             data += struct.pack('<f', v / float(1 << 23))
         elif container == 8:
@@ -106,6 +108,8 @@ def main():
     wav(out / 'f32.wav', 44100, 2, 4096, 24, container=32, float32=True)
     wav(out / 'u8.wav', 22050, 1, 4096, 8)
     wav(out / 'surround.wav', 48000, 6, 4096, 16, mask=0x3F)
+    wav(out / 'negated.wav', 44100, 2, 8192, 16, negated=True)
+    wav(out / 'long.wav', 44100, 2, 440000, 16)
     dsf(out / 'dsd.dsf', 0.05)
     dsf(out / 'dsd256.dsf', 0.005, rate=11289600)
 

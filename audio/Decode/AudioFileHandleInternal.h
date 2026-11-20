@@ -67,6 +67,9 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // end of data, never bytes after a gap, and its read or seek reports why:
     // the transfer's error, for good, or an interruption, until the next seek.
     NSError *_waitError;
+    // The open's caller's `interrupted`, while the open runs. A WavPack
+    // correction file's open takes it too.
+    BOOL (^_openInterrupted)(void);
     // dr_mp3's decode: the stream's frames, its packets, on a timeline of
     // packet × framesPerPacket, with _mpegSkip frames before logical frame 0.
     drmp3dec *_mpeg;
@@ -119,8 +122,19 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // short: the next seek starts a fresh context, and reads return nothing
     // until then.
     BOOL _wavpackStale;
+    // A hybrid file's correction file, when the open found one that holds:
+    // a second handle that only reads bytes (initBytesForReading:), which
+    // libwavpack reads at its own cursor. Fixed once open. Nil otherwise.
+    AudioFileHandle *_wavpackCorrection;
 }
 
+// A handle that only reads the file's bytes, with no decoder: a WavPack
+// correction file's (AudioFileHandle+WavPack.m). It reads through the same
+// seams as a decoding handle's: the read block, a read-ahead on a network
+// mount, the waits, and the close queue.
+- (instancetype)initBytesForReading:(NSURL *)url
+                        interrupted:(BOOL (^)(void))interrupted
+                              error:(NSError **)error NS_DESIGNATED_INITIALIZER;
 - (BOOL)reportWaitFault:(NSError **)error;
 - (BOOL)takeFileFormat:(AudioStreamBasicDescription)description layout:(AVAudioChannelLayout *)layout
            interleaved:(BOOL)interleaved;
@@ -157,6 +171,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 
 // AudioFileHandle+WavPack.m. The stream open calls the open, its close and
 // reads call the close and the reads, and the core's seek calls the seek.
+// The core forwards its interrupts to the correction file's handle.
 @interface AudioFileHandle (WavPack)
 
 - (BOOL)openWavPackInterleaved:(BOOL)interleaved;
@@ -166,6 +181,9 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 
 @end
 
+// AudioFileHandle+WavPack.m's spellings of a hybrid file's correction file,
+// in the order they are tried (this piece's AGENTS.md).
+NSArray<NSURL *> *VibeWavPackCorrectionSpellings(NSURL *url);
 // AudioFileHandle+Stream.m's layout for a WAVE channel mask, which a WavPack
 // file's mask is too.
 AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels);

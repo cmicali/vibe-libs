@@ -51,8 +51,9 @@ FOUNDATION_EXPORT NSArray<VibeTagField> *VibeMetadataExtraTagNames(void);
 @property (copy, nullable, readonly) NSNumber *bitrate;
 @property (copy, nullable, readonly) NSNumber *sampleRate;
 @property (assign, readonly) NSTimeInterval duration;
-// FLAC, ALAC, AIFF, WAV, W64, CAF, or lossless PCM WavPack. A lossless
-// bitrate is implied by the rate and depth, so the codec line leaves it out.
+// FLAC, ALAC, AIFF, WAV, W64, CAF, or lossless PCM WavPack, a hybrid file
+// with its correction file beside it included. A lossless bitrate is implied
+// by the rate and depth, so the codec line leaves it out.
 @property (readonly, getter=isLossless) BOOL lossless;
 // Bits per sample: FLAC, ALAC, PCM or float WAV, AIFF, lossless PCM
 // WavPack, and PCM or ALAC in CAF or W64. 0 for a lossy codec, such as MP3, AAC, Vorbis, or Opus.
