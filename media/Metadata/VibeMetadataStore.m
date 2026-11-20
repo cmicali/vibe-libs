@@ -10,7 +10,7 @@
 #import <pthread.h>
 #import <stdlib.h>
 
-const NSInteger VibeMetadataTagsFormat = 11;
+const NSInteger VibeMetadataTagsFormat = 12;
 const NSInteger VibeMetadataArtFormat = 1;
 NSString *const VibeMetadataStoreName = @"Audio Track Metadata";
 
