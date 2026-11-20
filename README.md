@@ -6,7 +6,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first forty-five pieces are here.** Each came from Vibe, but for libwavpack. The nine under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first forty-six pieces are here.** Each came from Vibe, but for libwavpack and the Monkey's Audio SDK. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |
@@ -54,6 +54,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `third_party/ogg` | libogg's page reader. |
 | `third_party/vorbis` | libvorbis, which decodes Ogg Vorbis. |
 | `third_party/wavpack` | libwavpack, which decodes WavPack. |
+| `third_party/monkeys_audio` | The Monkey's Audio SDK's decoder, which decodes `.ape`. |
 | `third_party/Sparkle` | Sparkle, the prebuilt updater framework. macOS only. |
 
 ## How an app uses it

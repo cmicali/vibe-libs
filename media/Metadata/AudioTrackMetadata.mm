@@ -823,6 +823,7 @@ static NSInteger CoreAudioBitDepth(const AudioStreamBasicDescription &format) {
     // A hybrid WavPack file plays its lossy half, and DSD plays decimated.
     // Neither has a PCM depth (bitsPerSampleFromTagLibFile).
     if ([VibeAudioFileFormatWavPack isEqualToString:self.fileType]) return self.bitDepth > 0;
+    if ([VibeAudioFileFormatMonkeysAudio isEqualToString:self.fileType]) return YES;
     return NO;
 }
 
