@@ -3,6 +3,7 @@
 //
 
 #import "AudioPlayerRenderTestCase.h"
+#import "AudioFileFixtures.h"
 #import "AudioFX.h"
 #import "AudioFX+Debug.h"
 #import "AudioLevelMeter+Debug.h"
@@ -241,6 +242,23 @@
         XCTAssertEqual([source[@"bitsPerChannel"] intValue], [expected[name][1] intValue], @"%@", name);
         XCTAssertEqual([source[@"float"] boolValue], [expected[name][2] boolValue], @"%@: %@", name, source);
         XCTAssertTrue([source[@"lossless"] boolValue], @"%@", name);
+    }
+}
+
+- (void)testAudioPathNamesWavPackAndKeepsItsNativeDSDRate {
+    for (NSString *name in @[@"s16.wv", @"dsd.wv"]) {
+        [self startPlayerAt:48000 channels:2 fx:NO bitPerfect:NO automatic:NO];
+        [self play:VibeWavPackFixture(name) paused:YES position:0];
+        NSDictionary *source = _player.audioPathSnapshot.firstObject;
+        XCTAssertEqualObjects(source[@"codec"], @"WavPack");
+        if ([name isEqualToString:@"dsd.wv"]) {
+            XCTAssertEqualObjects(source[@"dsdSampleRate"], @2822400);
+            XCTAssertEqualObjects(source[@"sampleRate"], @352800);
+            XCTAssertEqualObjects(source[@"decodedSampleFormat"], @"float32");
+        } else {
+            XCTAssertNil(source[@"dsdSampleRate"]);
+            XCTAssertEqualObjects(source[@"bitsPerChannel"], @16);
+        }
     }
 }
 

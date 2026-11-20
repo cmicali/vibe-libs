@@ -119,6 +119,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // libwavpack's decode, at the same cursor: its context, the frame its
     // next read delivers, counted here, and one unpack's samples.
     WavpackContext *_wavpack;
+    uint32_t _wavpackDSDRate; // Fixed at open. The context can restart on the decode queue.
     SInt64 _wavpackPosition;
     int32_t *_wavpackSamples;
     float _wavpackScale; // an integer sample's to ±1, a power of two, or 0 for float bits

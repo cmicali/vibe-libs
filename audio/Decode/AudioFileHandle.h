@@ -136,12 +136,8 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
 // that holds, and decodes lossless with it. Nil for every other open, a
 // hybrid file played lossy included.
 @property (nonatomic, readonly, nullable) NSURL *correctionFileURL;
-// A DSF file's DSD rate, a channel's samples a second, such as 2,822,400 for
-// DSD64. 0 for every other file, a WavPack DSD file included. The facts and the reads are the PCM the
-// handle converts the DSD to (AudioFileHandle+DSD.m): fileFormat states
-// 176.4 kHz. An app that shows a file's rate reads media/Metadata's
-// sampleRate, which TagLib states as the DSD rate. This is the rate for a
-// reader that has only the open handle, such as the player's diagnostics.
+// The native DSD rate in a DSF or WavPack file, in samples per channel per
+// second. Zero for other files. fileFormat gives the decoded PCM rate.
 // VibeDSD.h names a rate's multiple of DSD64.
 @property (nonatomic, readonly) double dsdSampleRate;
 
