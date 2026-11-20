@@ -85,7 +85,7 @@
     if (!cacheKey) {
         return [self answerFor:url outcome:VibeMetadataReadOutcomeMissing cacheKey:nil metadata:nil error:nil];
     }
-    AudioTrackMetadata *cached = [self cachedMetadataForKey:cacheKey acceptingOlder:YES];
+    AudioTrackMetadata *cached = [self cachedMetadataForKey:cacheKey url:url acceptingOlder:YES];
     // A remote placeholder answers dataless too. A read that may not open the
     // file takes an older row's answer, marked older (CH17). One that may
     // parses the file again (CH16).

@@ -8,6 +8,7 @@
 #import "VibeLegacyCacheNames.h"
 
 #import <pthread.h>
+#import <unistd.h>
 #import <stdatomic.h>
 
 // After an open, so a launch does none of it.
@@ -89,6 +90,7 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
                                                   options:NSDirectoryEnumerationSkipsSubdirectoryDescendants
                                                           | NSDirectoryEnumerationSkipsHiddenFiles
                                              errorHandler:nil];
+    BOOL imported = NO;
     for (NSURL *file in files) {
         if (atomic_load(&_stopped)) {
             return;
@@ -96,9 +98,14 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
         @autoreleasepool {
             NSString *key = file.lastPathComponent.stringByRemovingPercentEncoding;
             if (key.length && ![store.cacheStore hasEntryForKey:key]) {
-                [self importKey:key into:store];
+                imported = [self importKey:key into:store] || imported;
             }
         }
+    }
+    // The entries it filed are under previous keys, and used today, so a miss
+    // looks under those until they can have aged out (CH34).
+    if (imported) {
+        [store.cacheStore renewMark:VibeCacheKeyPlaceMark];
     }
     [self stopRemovingOldStores:YES];
 }
@@ -122,9 +129,18 @@ static NSData *_Nullable VibeUnarchivedArt(NSString *path) {
         // are copied as they are, and decoded only when read.
         [store fileArchive:tags thumbnail:thumbnail rendition:rendition pictureName:nil forKey:key];
         imported = YES;
+        // Gone from the old stores once filed, so no later import brings it
+        // over again after a miss moved it to the file's new key (CH33).
+        for (NSString *folder in @[_tags, _thumbnails, _renditions]) {
+            unlink([folder stringByAppendingPathComponent:name].fileSystemRepresentation);
+        }
     }
     pthread_mutex_unlock(&_lock);
     return imported;
+}
+
+- (BOOL)isImporting {
+    return !atomic_load(&_stopped);
 }
 
 - (void)cancel {

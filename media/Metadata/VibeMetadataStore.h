@@ -58,6 +58,14 @@ FOUNDATION_EXPORT id _Nullable VibeMetadataUnarchive(NSData *archive, Class tags
 // looks in the old stores first, and imports what it finds.
 - (nullable VibeCacheHit *)tagsHitForKey:(NSString *)key acceptingOlder:(BOOL)acceptingOlder;
 
+// The same, and a miss looks once under the previous key of url's file
+// (NSURL+Hash, CH33), while an entry may be filed under one: during an
+// import, and until such an entry would have aged out (CH34). The entry found
+// there, or in the old stores, moves to key and answers.
+- (nullable VibeCacheHit *)tagsHitForKey:(NSString *)key
+                                     url:(nullable NSURL *)url
+                          acceptingOlder:(BOOL)acceptingOlder;
+
 // Files the tags' archive under key, naming the picture, in one transaction.
 // A part the picture already has is not written again. With no name, the
 // picture is named by the digest of the rendition, or of the thumbnail with

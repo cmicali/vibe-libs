@@ -15,6 +15,8 @@
 #import "AudioWaveformCache.h"
 #import "AudioWaveformCacheInternal.h"
 #import "LegacyCacheFixtures.h"
+#import "NSURL+Hash.h"
+#import "VibeTestVolumes.h"
 #import "VibeTestTrack.h"
 #import "VibeWaveformStore.h"
 #import "WaveformLoadingTestSupport.h"
@@ -79,6 +81,15 @@
 // a PINCache store under root as the release before this one did. Returns
 // each entry's bytes on disk by its key.
 - (NSDictionary<NSString *, NSData *> *)legacyStoreUnder:(NSString *)root withTracks:(NSArray<VibeTestTrack *> *)tracks {
+    return [self legacyStoreUnder:root withTracks:tracks keyedBy:^NSString *(VibeTestTrack *track) {
+        return VibeWaveformEntryKey(track);
+    }];
+}
+
+// The same, each entry under the key keyFor gives.
+- (NSDictionary<NSString *, NSData *> *)legacyStoreUnder:(NSString *)root
+                                              withTracks:(NSArray<VibeTestTrack *> *)tracks
+                                                 keyedBy:(NSString *(^)(VibeTestTrack *track))keyFor {
     StoreTestRecorder *recorder = [StoreTestRecorder new];
     AudioWaveformCache *decoder = [[AudioWaveformCache alloc] initWithRootPath:[self rootNamed:@"decoder"]];
     decoder.delegate = recorder;
@@ -87,7 +98,7 @@
         NSUInteger before = recorder.complete.count;
         [decoder loadWaveformForTrack:track];
         XCTAssertTrue(WaveformSpinUntil(^BOOL { return recorder.complete.count > before; }));
-        NSString *key = VibeWaveformEntryKey(track);
+        NSString *key = keyFor(track);
         NSData *bytes = VibeWriteLegacyCacheEntry(root, VibeWaveformStore.legacyName, key, recorder.complete.lastObject);
         XCTAssertGreaterThan(bytes.length, 0u);
         files[key] = bytes;
@@ -190,6 +201,41 @@
         XCTAssertTrue(WaveformWasCached(cache, track));
     }
     XCTAssertEqual(store.entries.usage.entries, 1u);
+}
+
+// CH33: the release before keyed each waveform by its file's previous key, a
+// cue row's with its window after it. A lookup finds each there once the
+// import has brought it over, and moves it to its key, so nothing decodes.
+- (void)testAWaveformUnderItsPreviousKeyIsFoundAndMoved {
+    VibeTestUseVolume(self, @"uuid-of-the-test-volume", @"/");
+    NSString *root = [self rootNamed:@"caches"];
+    VibeTestTrack *whole = [self trackNamed:@"a.wav" seed:8];
+    NSURL *image = VibeWriteNoiseWAV([_directory URLByAppendingPathComponent:@"b.wav"], 2.0, 9);
+    VibeTestTrack *row = [[VibeTestTrack alloc] initWithURL:image cueStart:75 cueEnd:150];
+    NSArray<VibeTestTrack *> *tracks = @[whole, row];
+    NSMutableDictionary<NSString *, NSString *> *previousKeys = [NSMutableDictionary dictionary];
+    for (VibeTestTrack *track in tracks) {
+        NSString *key = VibeWaveformEntryKey(track);
+        previousKeys[key] = [track.url previousCacheKeyForKey:key];
+        XCTAssertNotNil(previousKeys[key]);
+        XCTAssertNotEqualObjects(previousKeys[key], key);
+    }
+    [self legacyStoreUnder:root withTracks:tracks keyedBy:^NSString *(VibeTestTrack *track) {
+        return previousKeys[VibeWaveformEntryKey(track)];
+    }];
+
+    AudioWaveformCache *cache = [[AudioWaveformCache alloc] initWithRootPath:root];
+    VibeWaveformStore *store = [VibeWaveformStore storeUnderRoot:root];
+    XCTAssertTrue(WaveformSpinUntil(^BOOL { return !store.importing; }));
+    XCTAssertTrue([store.entries mayHoldEntriesFromBeforeMark:VibeCacheKeyPlaceMark],
+                  @"the import filed its entries under previous keys");
+    for (VibeTestTrack *track in tracks) {
+        NSString *key = VibeWaveformEntryKey(track);
+        XCTAssertTrue(WaveformEventuallyCached(cache, track));
+        XCTAssertTrue(WaveformWasCached(cache, track), @"a hit, so nothing decoded");
+        XCTAssertTrue([store.entries hasEntryForKey:key]);
+        XCTAssertFalse([store.entries hasEntryForKey:previousKeys[key]], @"moved to its key");
+    }
 }
 
 @end

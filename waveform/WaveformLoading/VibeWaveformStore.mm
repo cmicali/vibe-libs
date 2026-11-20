@@ -8,6 +8,7 @@
 #import "PINCache+VibeAudioCache.h"
 #import "VibeLegacyCacheNames.h"
 #import "VibeMacros.h"
+#import "NSURL+Hash.h"
 
 #import <os/lock.h>
 #import <stdatomic.h>
@@ -171,6 +172,11 @@ static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
     }
     VibeWaveformStore *store = weakStore;
     if ([store endImport]) {
+        // Its entries are under previous keys, so a miss looks under those
+        // until they can have aged out (CH34).
+        if (imported > 0) {
+            [store.entries renewMark:VibeCacheKeyPlaceMark];
+        }
         [store.entries removeFolderAtPath:legacy];
         LogInfo(@"Waveform store: imported %lu entries from %@", (unsigned long)imported, VibeWaveformStore.legacyName);
     }
@@ -217,12 +223,40 @@ static NSCountedSet<NSString *> *VibeWaveformClosingRoots;
     }
 }
 
+// Moves oldKey's entry to newKey, which holds none, from the old store during
+// the import. The reader's check spares a miss the writer's queue.
+- (BOOL)moveFrom:(NSString *)oldKey to:(NSString *)newKey {
+    return ([self.entries hasEntryForKey:oldKey] && [self.entries moveEntryFromKey:oldKey toKey:newKey])
+        || [self adoptLegacyEntryForKey:oldKey as:newKey];
+}
+
 - (BOOL)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey {
     // The store's move replaces an entry under newKey, which this keeps.
     if ([self hasEntryForKey:newKey]) {
         return NO;
     }
-    return [self.entries moveEntryFromKey:oldKey toKey:newKey] || [self adoptLegacyEntryForKey:oldKey as:newKey];
+    if ([self moveFrom:oldKey to:newKey]) {
+        return YES;
+    }
+    // The app made oldKey just before its write, so this process knows its
+    // previous key.
+    NSString *previous = [self mayHoldPreviousKeys] ? [NSURL previousCacheKeyForKey:oldKey] : nil;
+    return previous && [self moveFrom:previous to:newKey];
+}
+
+// CH34: an entry may be under a previous key during the import, whose
+// entries keep the old store's keys, and until one would have aged out.
+- (BOOL)mayHoldPreviousKeys {
+    return self.importing || [self.entries mayHoldEntriesFromBeforeMark:VibeCacheKeyPlaceMark];
+}
+
+- (nullable NSData *)dataForKey:(NSString *)key url:(nullable NSURL *)url {
+    NSData *data = [self dataForKey:key];
+    if (data || !url || ![self mayHoldPreviousKeys]) {
+        return data;
+    }
+    NSString *previous = [url previousCacheKeyForKey:key];
+    return previous && [self moveFrom:previous to:key] ? [self dataForKey:key] : nil;
 }
 
 - (void)setByteLimit:(unsigned long long)byteLimit ageLimit:(NSTimeInterval)ageLimit {

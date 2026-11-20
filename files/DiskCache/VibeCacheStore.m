@@ -277,6 +277,10 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
     BOOL _remakeScheduled;
     BOOL _maintenanceScheduled;
     int64_t _maintenanceDay;
+    // Each mark's day, -1 for a store that held no entry then. Under
+    // _marksLock, so a miss's check never waits on the store's other locks.
+    NSMutableDictionary<NSString *, NSNumber *> *_marks;
+    os_unfair_lock _marksLock;
     int64_t _lastWritten;
 
     // The readers. Under _poolMutex.
@@ -329,6 +333,8 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
     _touchedEntries = [NSMutableSet set];
     _touchedShared = [NSMutableSet set];
     _touchLock = OS_UNFAIR_LOCK_INIT;
+    _marks = [NSMutableDictionary dictionary];
+    _marksLock = OS_UNFAIR_LOCK_INIT;
     pthread_mutex_init(&_poolMutex, NULL);
     pthread_cond_init(&_poolCondition, NULL);
     _queue = dispatch_queue_create("vibe.cache-store", dispatch_queue_attr_make_with_qos_class(
@@ -414,6 +420,69 @@ static int VibeCacheNoteJournal(void *context, sqlite3 *db, const char *name, in
         block();
     } else {
         dispatch_sync(_queue, block);
+    }
+}
+
+// MARK: Marks
+
+NSString *const VibeCacheKeyPlaceMark = @"cache key place";
+
+// A mark's day as the database keeps it: absent, or the day, or -1.
+static NSString *VibeCacheMarkName(NSString *mark) {
+    return [@"mark " stringByAppendingString:mark];
+}
+
+- (NSNumber *)dayOfMark:(NSString *)mark {
+    os_unfair_lock_lock(&_marksLock);
+    NSNumber *day = _marks[mark];
+    os_unfair_lock_unlock(&_marksLock);
+    return day;
+}
+
+- (void)setDay:(int64_t)day ofMark:(NSString *)mark {
+    os_unfair_lock_lock(&_marksLock);
+    _marks[mark] = @(day);
+    os_unfair_lock_unlock(&_marksLock);
+}
+
+- (BOOL)mayHoldEntriesFromBeforeMark:(NSString *)mark {
+    NSNumber *day = [self dayOfMark:mark];
+    if (!day) {
+        __block int64_t recorded = -1;
+        [self syncOnQueue:^{
+            if (!self->_writer) {
+                return;
+            }
+            NSString *name = VibeCacheMarkName(mark);
+            // Day 0, in 2001, is never today, so it means none yet.
+            recorded = [self integerForMeta:name];
+            if (recorded == 0) {
+                sqlite3_stmt *stmt = [self statement:"SELECT entries FROM totals"];
+                BOOL held = sqlite3_step(stmt) == SQLITE_ROW && sqlite3_column_int64(stmt, 0) > 0;
+                sqlite3_reset(stmt);
+                recorded = held ? [self today] : -1;
+                [self setInteger:recorded forMeta:name];
+            }
+        }];
+        [self setDay:recorded ofMark:mark];
+        day = @(recorded);
+    }
+    // An entry last used on the mark's day lasts as long as the daily work
+    // keeps it.
+    int64_t since = day.longLongValue;
+    return since >= 0 && [self ageCutoffOnDay:[self today]] <= since;
+}
+
+- (void)renewMark:(NSString *)mark {
+    __block int64_t today = 0;
+    [self syncOnQueue:^{
+        if (self->_writer) {
+            today = [self today];
+            [self setInteger:today forMeta:VibeCacheMarkName(mark)];
+        }
+    }];
+    if (today) {
+        [self setDay:today ofMark:mark];
     }
 }
 
@@ -1526,14 +1595,20 @@ static NSData *_Nullable VibeCacheReadFile(NSString *path, sqlite3_int64 size) {
     });
 }
 
+// The day the age limit removes the entries last used before, on `today`.
+// INT64_MIN with no age limit.
+- (int64_t)ageCutoffOnDay:(int64_t)today {
+    NSTimeInterval age = self.ageLimit;
+    return age > 0 ? today - (int64_t)ceil(age / VibeCacheSecondsPerDay) : INT64_MIN;
+}
+
 // The age limit, then the shared items no entry ever named, then the byte
 // limit, each in batches. Queue only.
 - (void)maintainWithCompletion:(nullable dispatch_block_t)completion {
     int64_t today = [self today];
     _maintenanceDay = today;
     [self setInteger:today forMeta:@"maintenance"];
-    NSTimeInterval age = self.ageLimit;
-    int64_t cutoff = age > 0 ? today - (int64_t)ceil(age / VibeCacheSecondsPerDay) : INT64_MIN;
+    int64_t cutoff = [self ageCutoffOnDay:today];
     [self repeatStep:^BOOL {
         return cutoff > INT64_MIN && [self removeOldestUsedBefore:cutoff untilBytes:0 ofPart:nil apart:nil];
     } then:^{

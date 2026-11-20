@@ -39,11 +39,17 @@ NS_ASSUME_NONNULL_BEGIN
 // The archive filed under key in the current format, from the old store
 // during the import, which then lists it here. Nil on a miss.
 - (nullable NSData *)dataForKey:(NSString *)key;
+// The same, and a miss looks once under the previous key of url's file, its
+// window kept (NSURL+Hash, CH33), while an entry may be filed under one:
+// during the import, and until such an entry would have aged out (CH34). The
+// entry found there, or in the old store, moves to key and answers.
+- (nullable NSData *)dataForKey:(NSString *)key url:(nullable NSURL *)url;
 - (void)setData:(NSData *)data forKey:(NSString *)key;
 - (BOOL)hasEntryForKey:(NSString *)key;
 - (void)removeEntryForKey:(NSString *)key;
-// Moves the entry, from the old store during the import. NO when there is
-// none, or newKey already holds one, which is kept.
+// Moves the entry, from the old store during the import, or from oldKey's
+// previous key, which this process knows when it made oldKey lately. NO when
+// there is none, or newKey already holds one, which is kept.
 - (BOOL)moveEntryFromKey:(NSString *)oldKey toKey:(NSString *)newKey;
 
 // The limits, over files/DiskCache's defaults.

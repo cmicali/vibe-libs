@@ -120,7 +120,11 @@ NS_ASSUME_NONNULL_BEGIN
 // The store's entry for a version, with its picture's providers installed.
 // nil on a miss. An older row is a miss unless acceptingOlder, and then its
 // answer is marked older and names no version. Reads no audio.
-- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey acceptingOlder:(BOOL)acceptingOlder;
+// A miss looks once under url's previous key while one may be filed (CH33,
+// VibeMetadataStore).
+- (nullable AudioTrackMetadata *)cachedMetadataForKey:(NSString *)cacheKey
+                                                  url:(nullable NSURL *)url
+                                       acceptingOlder:(BOOL)acceptingOlder;
 // Files a successful parse under its version, naming its picture by the
 // digest, unless the cache was invalidated since generation was taken.
 - (void)fileMetadata:(AudioTrackMetadata *)metadata

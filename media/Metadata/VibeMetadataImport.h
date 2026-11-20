@@ -37,6 +37,11 @@ NS_ASSUME_NONNULL_BEGIN
 // none does, or the import has ended. Any thread.
 - (BOOL)importKey:(NSString *)key into:(VibeMetadataStore *)store;
 
+// YES until the import ends, is stopped, or is cut short. Its entries are
+// filed under the keys the old stores named them by, which are previous keys
+// (NSURL+Hash), so a miss looks under those while it runs.
+@property (nonatomic, readonly, getter=isImporting) BOOL importing;
+
 // Stops, and keeps the old stores for the next open.
 - (void)cancel;
 // Stops, and removes the old stores, for a Clear. Blocks while it removes.

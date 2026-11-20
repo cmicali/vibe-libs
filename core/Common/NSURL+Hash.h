@@ -24,16 +24,30 @@
 
 @interface NSURL (Hash)
 
-// "<size>-<mtime_us>-<sha1(path)>" of the symlink-resolved path, from one stat
-// and no content read. Changes with size, mtime or resolved path. A rewrite
-// that preserves size and mtime keeps the key. nil when the stat fails;
-// callers must then skip caching.
+// "<size>-<mtime_us>-<sha1(place)>" from one stat and no content read. The
+// place is the resolved path said so a move of the volume or the home keeps
+// it: "~/" and the path from the home, or "<volume UUID>:" and the path within
+// the volume, or the absolute path on a volume with no UUID. nil when the stat
+// fails; callers must then skip caching. A key from before the place is the
+// file's previous key (previousCacheKeyForKey:).
 - (nullable NSString *)cacheKey;
 
 // The same key, with the stat it was made from in *info, so a caller can
 // take the file's size and date from the very version the key names. info
 // may be NULL.
 - (nullable NSString *)cacheKeyWithStat:(struct stat *_Nullable)info;
+
+// The same version's key as it was before the place, which hashed the
+// absolute path, with key's hash replaced: key may carry a suffix, as a cue
+// window's does. nil when the two hashes are equal, as on a volume with no
+// UUID, or when key is no cache key. Reads no file's content, and stats
+// nothing past resolving the path's links.
+- (nullable NSString *)previousCacheKeyForKey:(nonnull NSString *)key;
+
+// The same, for a caller that has a key and no URL, as an app's move after a
+// tag edit hands one. Answers for the keys this process made most recently,
+// about the last thousand files, and nil for any other.
++ (nullable NSString *)previousCacheKeyForKey:(nonnull NSString *)key;
 
 // What a memoized cacheKey is stamped with. A memo stamped below the current
 // generation is stale, so its next read stats the file again. Any thread.
