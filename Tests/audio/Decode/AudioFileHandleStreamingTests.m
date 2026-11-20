@@ -515,6 +515,81 @@ static NSData *VibeWithTrailingTag(NSData *file, NSString *extension, uint32_t l
     }
 }
 
+// A WavPack stream that never stated its length, of `blocks` audio blocks:
+// the fixture's first block, then its other blocks over and over. Each copy
+// takes its place's index, and its checksum again, since it covers the index.
+static NSData *VibeLongUnsizedWavPack(NSData *fixture, NSUInteger blocks) {
+    NSMutableArray<NSData *> *source = [NSMutableArray array];
+    for (NSUInteger at = 0; at + 32 <= fixture.length;) {
+        NSUInteger size = 8 + OSReadLittleInt32(fixture.bytes, at + 4);
+        [source addObject:[fixture subdataWithRange:NSMakeRange(at, MIN(size, fixture.length - at))]];
+        at += size;
+    }
+    NSMutableData *stream = [NSMutableData data];
+    uint32_t index = 0;
+    for (NSUInteger b = 0; b < blocks; b++) {
+        NSMutableData *block = [(b == 0 ? source[0] : source[1 + (b - 1) % (source.count - 1)]) mutableCopy];
+        uint8_t *bytes = block.mutableBytes;
+        OSWriteLittleInt32(bytes, 16, index);
+        index += OSReadLittleInt32(bytes, 20);
+        for (NSUInteger at = 32; at + 2 <= block.length;) {
+            uint8_t id = bytes[at];
+            NSUInteger header = id & 0x80 ? 4 : 2, length = bytes[at + 1] * 2u + (id & 0x80 ? (bytes[at + 2] << 9) + (bytes[at + 3] << 17) : 0);
+            if ((id & 0x3F) == 0x2F) {
+                uint32_t sum = UINT32_MAX;
+                for (NSUInteger w = 0; w < at; w += 2) sum = sum * 3 + bytes[w] + (bytes[w + 1] << 8);
+                if (length == 2) {
+                    sum ^= sum >> 16;
+                    OSWriteLittleInt16(bytes, at + header, (uint16_t)sum);
+                } else {
+                    OSWriteLittleInt32(bytes, at + header, sum);
+                }
+            }
+            at += header + length;
+        }
+        [stream appendData:block];
+    }
+    return stream;
+}
+
+// A WavPack stream that never stated its length reads its last 1 MB at open,
+// to find its last block. On the window its extension takes, it opens on its
+// head and the window with no wait. On the small window, it waits for the
+// download.
+- (void)testAWavPackStreamThatNeverStatedItsLengthOpensFromItsTail {
+    NSData *fixture = [NSData dataWithContentsOfFile:[@__FILE__.stringByDeletingLastPathComponent
+                                                      stringByAppendingPathComponent:@"WavPack/unsized.wv"]];
+    NSURL *source = [self sourceNamed:@"unsized.wv"];
+    XCTAssertTrue([VibeLongUnsizedWavPack(fixture, 900) writeToURL:source atomically:YES]);
+    AudioFileHandle *whole = [self openWhole:source];
+    XCTAssertEqual(whole.length, 900 * 1024);
+    uint64_t size = [NSData dataWithContentsOfURL:source].length;
+    uint64_t window = VibeAudioFileTailWindowBytes(@"wv", size), head = 64 * 1024;
+    XCTAssertGreaterThan(window, 0u, @"%llu bytes take a window", size);
+
+    VibeGrowingFile *cramped = [self stream:source prefix:head window:128 * 1024];
+    NSUInteger waits = [self drive:cramped step:0 reader:^{
+        XCTAssertNotNil([[AudioFileHandle alloc] initForReading:cramped.url error:NULL]);
+    }];
+    XCTAssertGreaterThan(waits, 0u, @"the open waits for the last blocks");
+    [cramped complete];
+
+    VibeGrowingFile *file = [self stream:source prefix:head window:window];
+    __block AudioFileHandle *handle = nil;
+    waits = [self drive:file step:0 reader:^{
+        handle = [[AudioFileHandle alloc] initForReading:file.url error:NULL];
+    }];
+    XCTAssertEqual(waits, 0u, @"it waited to open");
+    XCTAssertGreaterThanOrEqual(file.availability.furthestOffsetAsked, file.windowOffset, @"the open read the window");
+    XCTAssertEqualObjects(handle.decoderName, @"libwavpack");
+    XCTAssertEqual(handle.length, whole.length);
+    __block NSData *pcm = nil;
+    [self drive:file step:65536 reader:^{
+        pcm = VibeDecode(handle, 4096, INT64_MAX, NULL);
+    }];
+    [self assertPCM:pcm equals:[self referenceOf:source from:0 frames:INT64_MAX] context:@"unsized.wv"];
+}
+
 // An MP3 stream with no VBR header, whose frames are a byte short of its
 // rate's, so its rate counts two packets fewer than it holds: an estimate,
 // constant rate or not; read as the bus reads, ending at a short read or a

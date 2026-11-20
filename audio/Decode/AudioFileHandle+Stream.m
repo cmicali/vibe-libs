@@ -46,6 +46,9 @@
     if (got >= 4 && memcmp(head, "OggS", 4) == 0) {
         return [self openVorbisInterleaved:interleaved];
     }
+    if (got >= 4 && memcmp(head, "wvpk", 4) == 0) {
+        return [self openWavPackInterleaved:interleaved];
+    }
     AudioFileTypeID type = VibeFileTypeForExtension(_url.pathExtension);
     BOOL named = type == kAudioFileMP3Type || type == kAudioFileMP2Type || type == kAudioFileMP1Type;
     return [self openMPEGFrom:at to:_size junk:named interleaved:interleaved];
@@ -71,7 +74,7 @@
 // A WAVE channel mask as a layout, for more than two channels. CoreAudio's
 // parser names some masks with a tag and others by their bits. Each folds to
 // stereo as its bits do. Nil when the mask does not count the channels.
-static AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels) {
+AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels) {
     if (channels <= 2 || (UInt32)__builtin_popcount(mask) != channels) {
         return nil;
     }
@@ -319,6 +322,7 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         free(_vorbis);
         _vorbis = NULL;
     }
+    [self closeWavPack];
 }
 
 // libvorbis's decode. vorbisfile hands out each packet's frames from buffers
@@ -367,6 +371,8 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
     BOOL failed = NO;
     if (_vorbis) {
         got = [self readVorbisInto:planes frameCount:(AVAudioFrameCount)frames failed:&failed];
+    } else if (_wavpack) {
+        got = [self readWavPackInto:planes frameCount:(AVAudioFrameCount)frames];
     } else if (!_processingFormat.isInterleaved) {
         got = _flac ? drflac_read_pcm_frames_f32_planar(_flac, frames, planes) : drwav_read_pcm_frames_f32_planar(_wav, frames, planes);
     } else {
