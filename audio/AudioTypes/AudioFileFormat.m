@@ -19,6 +19,7 @@ VibeAudioFileFormat const VibeAudioFileFormatVorbis = @"Vorbis";
 VibeAudioFileFormat const VibeAudioFileFormatOpus = @"Opus";
 VibeAudioFileFormat const VibeAudioFileFormatWavPack = @"WavPack";
 VibeAudioFileFormat const VibeAudioFileFormatMonkeysAudio = @"Monkey's Audio";
+VibeAudioFileFormat const VibeAudioFileFormatDSD = @"DSD";
 
 VibeAudioFileFormat _Nullable VibeAudioFileFormatForCodec(AudioFormatID codec) {
     switch (codec) {

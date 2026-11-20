@@ -189,7 +189,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | audio/AudioTypes | nothing |
 | audio/DSP | third_party/r8brain |
 | audio/Analysis | audio/AudioTypes |
-| audio/Decode | files/FileLoading, third_party/dr_mp3, third_party/dr_flac, third_party/dr_wav, third_party/vorbis, third_party/wavpack, third_party/monkeys_audio |
+| audio/Decode | audio/AudioTypes, files/FileLoading, third_party/dr_mp3, third_party/dr_flac, third_party/dr_wav, third_party/vorbis, third_party/wavpack, third_party/monkeys_audio |
 | audio/Meter | nothing |
 | audio/FX | audio/DSP |
 | audio/OutputDevices | nothing |

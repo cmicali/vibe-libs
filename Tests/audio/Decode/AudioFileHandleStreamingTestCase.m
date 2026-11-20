@@ -3,6 +3,7 @@
 //
 
 #import "AudioFileHandleStreamingTestCase.h"
+#import "DSFFixtures.h"
 
 #pragma mark - Fixtures
 
@@ -243,6 +244,8 @@ static NSData *VibeXingVBR(void) {
     // Three and a half of Monkey's Audio's frames, made by the SDK's encoder.
     add([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"long.ape") toURL:[self sourceNamed:@"long.ape"] error:NULL]
             ? [self sourceNamed:@"long.ape"] : nil, @"MACLib");
+    NSURL *dsf = [self sourceNamed:@"tone.dsf"];
+    add([VibeDSFFile(2, 1, YES, 2822400 / 2, VibeDSFSine(1000, 0.5), nil) writeToURL:dsf atomically:YES] ? dsf : nil, @"dsd");
     return fixtures;
 }
 
