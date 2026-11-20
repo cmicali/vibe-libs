@@ -109,6 +109,17 @@ AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels) {
     return [self keepStreamDecoderWithLength:_flac->totalPCMFrameCount description:description layout:layout interleaved:interleaved];
 }
 
+void VibeDescribePCM(AudioStreamBasicDescription *description, UInt32 bits, UInt32 bytes, BOOL isFloat, BOOL isSigned,
+                     BOOL bigEndian) {
+    description->mFormatID = kAudioFormatLinearPCM;
+    description->mFormatFlags = (bits < bytes * 8 ? kAudioFormatFlagIsAlignedHigh : kAudioFormatFlagIsPacked)
+            | (isFloat ? kAudioFormatFlagIsFloat : 0) | (isSigned ? kAudioFormatFlagIsSignedInteger : 0)
+            | (bigEndian ? kAudioFormatFlagIsBigEndian : 0);
+    description->mBitsPerChannel = bits;
+    description->mBytesPerFrame = description->mBytesPerPacket = bytes * description->mChannelsPerFrame;
+    description->mFramesPerPacket = 1;
+}
+
 // Microsoft's ADPCM as CoreAudio names it. The SDK names no constant.
 static const AudioFormatID kVibeMicrosoftADPCMFormat = 0x6D730002;
 
@@ -169,12 +180,7 @@ static AudioStreamBasicDescription VibeWAVDescription(const drwav *wav, UInt16 a
             UInt32 bytes = (wav->bitsPerSample + 7) / 8;
             UInt32 stated = aiff ? ((aiffSampleSize + 7u) / 8 == bytes ? aiffSampleSize : 0) : wav->fmt.validBitsPerSample;
             UInt32 bits = !isFloat && stated > 0 && stated < wav->bitsPerSample ? stated : wav->bitsPerSample;
-            description.mFormatID = kAudioFormatLinearPCM;
-            description.mFormatFlags = (bits < bytes * 8 ? kAudioFormatFlagIsAlignedHigh : kAudioFormatFlagIsPacked)
-                    | (isFloat ? kAudioFormatFlagIsFloat : 0) | (isSigned ? kAudioFormatFlagIsSignedInteger : 0)
-                    | (aiff && !wav->aiff.isLE ? kAudioFormatFlagIsBigEndian : 0);
-            description.mBitsPerChannel = bits;
-            description.mBytesPerFrame = description.mBytesPerPacket = bytes * channels;
+            VibeDescribePCM(&description, bits, bytes, isFloat, isSigned, aiff && !wav->aiff.isLE);
             break;
         }
         default:
@@ -280,7 +286,7 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
 // encoder's padding too.
 - (BOOL)openVorbisInterleaved:(BOOL)interleaved {
     _vorbis = calloc(1, sizeof(OggVorbis_File));
-    ov_callbacks callbacks = { VibeVorbisRead, VibeVorbisSeek, NULL, VibeVorbisTell };
+    ov_callbacks callbacks = { VibeVorbisRead, VibeStreamSeekFrom, NULL, VibeVorbisTell };
     if (!_vorbis || ov_open_callbacks((__bridge void *)self, _vorbis, NULL, 0, callbacks) != 0) {
         [self closeStreamDecoder]; // a failed open has cleared it, and clearing again is safe
         return NO;
@@ -308,6 +314,10 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
     };
     return [self keepStreamDecoderWithLength:(UInt64)length description:description
                                       layout:VibeVorbisChannelLayout(description.mChannelsPerFrame) interleaved:interleaved];
+}
+
+- (BOOL)hasStreamDecoder {
+    return _flac || _wav || _vorbis || _wavpack;
 }
 
 - (void)closeStreamDecoder {

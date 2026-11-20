@@ -18,6 +18,7 @@ pack f32.wav
 pack u8.wav
 pack surround.wav
 pack dsd.dsf
+pack dsd256.dsf
 # A hybrid file plays its lossy half alone. Its correction file is kept beside
 # it, so a later version can test the lossless decode.
 wavpack -q -y --blocksize=1024 -b4 -c "$work/s16.wav" -o "$here/hybrid.wv"

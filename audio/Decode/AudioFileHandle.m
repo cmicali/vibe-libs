@@ -341,7 +341,8 @@ size_t VibeVorbisRead(void *buffer, size_t size, size_t count, void *user) {
     return size ? got / size : 0;
 }
 
-int VibeVorbisSeek(void *user, ogg_int64_t offset, int whence) {
+// vorbisfile's and libwavpack's seek: fseek's origins and answers.
+int VibeStreamSeekFrom(void *user, int64_t offset, int whence) {
     _Static_assert(SEEK_SET == 0 && SEEK_CUR == 1 && SEEK_END == 2, "VibeStreamSeek's origins");
     return VibeStreamSeek(user, offset, whence) ? 0 : -1;
 }
@@ -1081,7 +1082,7 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
         return [self seekMPEGToFrame:frame error:error];
     }
     OSStatus status;
-    if (_flac || _wav || _vorbis || _wavpack) {
+    if ([self hasStreamDecoder]) {
         // Each lands at the end for a target past it, where reads return
         // nothing, as Apple's does. dr_flac and dr_wav clamp it themselves.
         // vorbisfile refuses it, so it is clamped here. libwavpack's seek
@@ -1182,7 +1183,7 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     if (_mpeg) {
         return [self readMPEGIntoBuffer:buffer frameCount:wanted error:error];
     }
-    if (_flac || _wav || _vorbis || _wavpack) {
+    if ([self hasStreamDecoder]) {
         return [self readStreamIntoBuffer:buffer frameCount:wanted error:error];
     }
     // The list's data pointers span the whole allocation whatever frameLength

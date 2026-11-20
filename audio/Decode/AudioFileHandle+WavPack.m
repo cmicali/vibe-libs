@@ -10,13 +10,11 @@
 
 #import "AudioFileHandleInternal.h"
 
+#import <Accelerate/Accelerate.h>
+
 // The samples one unpack fills, across every channel: 64 KB. A file of many
 // channels unpacks fewer frames at a time.
 static const uint32_t kVibeWavPackChunkSamples = 16384;
-
-// The highest rate the handle plays, as dr_wav's (this piece's AGENTS.md). A
-// DSD file decodes to an eighth of its DSD rate, so DSD256 and up is refused.
-static const uint32_t kVibeWavPackMaxRate = 768000;
 
 // TRAP: OPEN_NORMALIZE scales a float file's samples to ±1 when its encoder
 // stored them at another exponent. OPEN_DSD_AS_PCM decimates DSD to 24-bit
@@ -36,17 +34,13 @@ static int32_t VibeWavPackRead(void *user, void *data, int32_t count) {
     return count > 0 ? (int32_t)VibeStreamRead(user, data, (size_t)count) : 0;
 }
 
+// Not vorbisfile's tell, which answers a long.
 static int64_t VibeWavPackPosition(void *user) {
     return ((__bridge AudioFileHandle *)user)->_streamCursor;
 }
 
-static int VibeWavPackMove(void *user, int64_t delta, int mode) {
-    _Static_assert(SEEK_SET == 0 && SEEK_CUR == 1 && SEEK_END == 2, "VibeStreamSeek's origins");
-    return VibeStreamSeek(user, delta, mode) ? 0 : -1;
-}
-
 static int VibeWavPackMoveTo(void *user, int64_t position) {
-    return VibeWavPackMove(user, position, SEEK_SET);
+    return VibeStreamSeekFrom(user, position, SEEK_SET);
 }
 
 // The library pushes back only the byte it has just read.
@@ -69,7 +63,7 @@ static int VibeWavPackCanSeek(void *user) {
 
 static WavpackStreamReader64 kVibeWavPackReader = {
     .read_bytes = VibeWavPackRead, .get_pos = VibeWavPackPosition, .set_pos_abs = VibeWavPackMoveTo,
-    .set_pos_rel = VibeWavPackMove, .push_back_byte = VibeWavPackPushBack, .get_length = VibeWavPackLength,
+    .set_pos_rel = VibeStreamSeekFrom, .push_back_byte = VibeWavPackPushBack, .get_length = VibeWavPackLength,
     .can_seek = VibeWavPackCanSeek,
 };
 
@@ -99,21 +93,18 @@ static WavpackStreamReader64 kVibeWavPackReader = {
     UInt32 bits = (UInt32)WavpackGetBitsPerSample(_wavpack), bytes = (UInt32)WavpackGetBytesPerSample(_wavpack);
     int64_t total = WavpackGetNumSamples64(_wavpack);
     BOOL isFloat = (mode & MODE_FLOAT) != 0, dsd = (qualify & QMODE_DSD_AUDIO) != 0;
-    _wavpackSamples = malloc(kVibeWavPackChunkSamples * sizeof(int32_t));
-    if (rate > kVibeWavPackMaxRate || bytes < 1 || bytes > 4 || bits > bytes * 8 || channels == 0 || !_wavpackSamples) {
+    // libwavpack gives 1 to 4 bytes and a channel or more, and the keep
+    // checks the rate and channels. A damaged header can state 0 bits.
+    // DSD decodes to an eighth of its DSD rate, so DSD256 and up is refused.
+    if (rate > kVibeDecodeMaxRate || bits < 1 || bits > bytes * 8
+            || !(_wavpackSamples = malloc(kVibeWavPackChunkSamples * sizeof(int32_t)))) {
         [self closeStreamDecoder];
         return NO;
     }
-    _wavpackScale = isFloat ? 0 : 1.0 / (double)(1u << (bytes * 8 - 1));
+    _wavpackScale = isFloat ? 0 : 1.0f / (float)(1u << (bytes * 8 - 1));
     AudioStreamBasicDescription description = {.mSampleRate = rate, .mChannelsPerFrame = channels};
     if ((mode & MODE_LOSSLESS) && !dsd) {
-        BOOL isSigned = !isFloat && (bytes > 1 || (qualify & QMODE_SIGNED_BYTES));
-        description.mFormatID = kAudioFormatLinearPCM;
-        description.mFormatFlags = (bits < bytes * 8 ? kAudioFormatFlagIsAlignedHigh : kAudioFormatFlagIsPacked)
-                | (isFloat ? kAudioFormatFlagIsFloat : 0) | (isSigned ? kAudioFormatFlagIsSignedInteger : 0);
-        description.mBitsPerChannel = bits;
-        description.mBytesPerFrame = description.mBytesPerPacket = bytes * channels;
-        description.mFramesPerPacket = 1;
+        VibeDescribePCM(&description, bits, bytes, isFloat, !isFloat && (bytes > 1 || (qualify & QMODE_SIGNED_BYTES)), NO);
     } else {
         description.mFormatID = kVibeWavPackFormat;
     }
@@ -144,7 +135,6 @@ static WavpackStreamReader64 kVibeWavPackReader = {
     }
     WavpackCloseFile(_wavpack);
     _wavpack = fresh;
-    _wavpackPosition = 0;
     _wavpackStale = NO;
     return YES;
 }
@@ -152,15 +142,16 @@ static WavpackStreamReader64 kVibeWavPackReader = {
 #pragma mark - Seeking and reading
 
 // A target at or past the end lands there without the library, which refuses
-// it. Reads there return nothing. A DSD file's seek decodes the 16 samples
-// before the target, so the decimation lands sample-exact.
+// it, and without a restart, so a stale unsized file reads no tail again.
+// Reads there return nothing. A DSD file's seek decodes the 16 samples before
+// the target, so the decimation lands sample-exact.
 - (BOOL)seekWavPackToFrame:(SInt64)frame {
-    if (_wavpackStale && ![self restartWavPack]) {
-        return NO;
-    }
     if (frame >= _length) {
         _wavpackPosition = _length;
         return YES;
+    }
+    if (_wavpackStale && ![self restartWavPack]) {
+        return NO;
     }
     if (WavpackSeekSample64(_wavpack, frame)) {
         _wavpackPosition = frame;
@@ -171,15 +162,15 @@ static WavpackStreamReader64 kVibeWavPackReader = {
 }
 
 // libwavpack unpacks interleaved 32-bit samples, right-aligned in the file's
-// bytes, or float bits. An integer is scaled to ±1 as dr_wav scales a WAV's,
-// so the two decode one file's samples to the same floats. A damaged block
+// bytes, or float bits. An integer is scaled to ±1 as dr_wav scales a WAV's:
+// the scale is a power of two, so rounding to float first changes nothing,
+// and the two decode one file's samples to the same floats. A damaged block
 // decodes as silence, and the decode goes on from the next. A cut file ends
 // at its last whole block.
 - (AVAudioFrameCount)readWavPackInto:(float *const *)planes frameCount:(AVAudioFrameCount)wanted {
     UInt32 channels = _processingFormat.channelCount;
     BOOL interleaved = _processingFormat.isInterleaved;
     uint32_t chunk = MAX(1u, kVibeWavPackChunkSamples / channels);
-    const int32_t *samples = _wavpackSamples;
     AVAudioFrameCount got = 0;
     while (got < wanted && !_wavpackStale) {
         uint32_t frames = WavpackUnpackSamples(_wavpack, _wavpackSamples, MIN(chunk, wanted - got));
@@ -190,19 +181,24 @@ static WavpackStreamReader64 kVibeWavPackReader = {
             _wavpackStale = YES;
             break;
         }
-        for (uint32_t f = 0; f < frames; f++) {
+        if (interleaved) {
+            float *to = planes[0] + (size_t)got * channels;
+            vDSP_Length count = (vDSP_Length)frames * channels;
+            if (_wavpackScale == 0) {
+                memcpy(to, _wavpackSamples, count * sizeof(float));
+            } else {
+                vDSP_vflt32(_wavpackSamples, 1, to, 1, count);
+                vDSP_vsmul(to, 1, &_wavpackScale, to, 1, count);
+            }
+        } else {
             for (UInt32 c = 0; c < channels; c++) {
-                int32_t sample = samples[(size_t)f * channels + c];
-                float value;
+                float *to = planes[c] + got;
                 if (_wavpackScale == 0) {
-                    memcpy(&value, &sample, sizeof value);
+                    static const float one = 1; // a strided copy
+                    vDSP_vsmul((const float *)_wavpackSamples + c, channels, &one, to, 1, frames);
                 } else {
-                    value = (float)(sample * _wavpackScale);
-                }
-                if (interleaved) {
-                    planes[0][(size_t)(got + f) * channels + c] = value;
-                } else {
-                    planes[c][got + f] = value;
+                    vDSP_vflt32(_wavpackSamples + c, channels, to, 1, frames);
+                    vDSP_vsmul(to, 1, &_wavpackScale, to, 1, frames);
                 }
             }
         }

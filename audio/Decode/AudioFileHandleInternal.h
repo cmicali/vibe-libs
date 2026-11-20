@@ -33,6 +33,10 @@
 // master's overs (this piece's AGENTS.md).
 static const float kVibeDecodeSampleBound = 4.0f;
 
+// The highest rate the handle's own decoders play: 768 kHz, the fastest an
+// output device runs. dr_wav.c raises dr_wav's limit to it, and must match.
+static const uint32_t kVibeDecodeMaxRate = 768000;
+
 // The format a lossy WavPack file states: a hybrid file without its correction
 // file, or DSD. The SDK names no constant (AudioFileFormat.m).
 static const AudioFormatID kVibeWavPackFormat = 'wvpk';
@@ -110,7 +114,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     WavpackContext *_wavpack;
     SInt64 _wavpackPosition;
     int32_t *_wavpackSamples;
-    double _wavpackScale; // an integer sample's to ±1, or 0 for float bits
+    float _wavpackScale; // an integer sample's to ±1, a power of two, or 0 for float bits
     // Set by an interrupted read, a failed seek, or a decode that ended
     // short: the next seek starts a fresh context, and reads return nothing
     // until then.
@@ -144,6 +148,9 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 - (BOOL)keepStreamDecoderWithLength:(UInt64)length description:(AudioStreamBasicDescription)description
                              layout:(AVAudioChannelLayout *)layout interleaved:(BOOL)interleaved;
 - (void)closeStreamDecoder;
+// Whether dr_flac, dr_wav, libvorbis, or libwavpack has the file. A new
+// stream decoder joins here, and the core's seek and read follow.
+- (BOOL)hasStreamDecoder;
 - (BOOL)readStreamIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
 
 @end
@@ -162,6 +169,12 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 // AudioFileHandle+Stream.m's layout for a WAVE channel mask, which a WavPack
 // file's mask is too.
 AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels);
+// AudioFileHandle+Stream.m's PCM facts, as CoreAudio's parser states a WAV's:
+// a sample narrower than its bytes is high-aligned in them (20 bits in 3).
+// Fills the format, the flags, the width, and the sizes, for the channels
+// `description` already holds.
+void VibeDescribePCM(AudioStreamBasicDescription *description, UInt32 bits, UInt32 bytes, BOOL isFloat, BOOL isSigned,
+                     BOOL bigEndian);
 
 // AudioFileHandle.m's reads and waits, which the decode's open also uses.
 uint32_t VibeID3v2Syncsafe(const uint8_t bytes[4]);
@@ -181,5 +194,5 @@ drwav_bool32 VibeWAVSeek(void *user, int offset, drwav_seek_origin origin);
 drflac_bool32 VibeStreamTell(void *user, drflac_int64 *cursor);
 drflac_bool32 VibeStreamSeek(void *user, SInt64 offset, int origin);
 size_t VibeVorbisRead(void *buffer, size_t size, size_t count, void *user);
-int VibeVorbisSeek(void *user, ogg_int64_t offset, int whence);
+int VibeStreamSeekFrom(void *user, int64_t offset, int whence);
 long VibeVorbisTell(void *user);

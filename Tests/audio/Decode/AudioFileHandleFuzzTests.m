@@ -441,7 +441,7 @@ static NSArray<FuzzSource *> *FuzzCorpus(FuzzFamily family, NSURL *scratch, NSMu
     [paths addObjectsFromArray:FuzzWrittenSources(scratch)];
     // The WavPack fixtures, kept beside this file, since no tool here encodes WavPack. A
     // hybrid file's .wvc is no file to play.
-    NSString *wavpack = [@__FILE__.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"WavPack"];
+    NSString *wavpack = VibeWavPackFixture(@"").path;
     for (NSString *name in [[NSFileManager.defaultManager contentsOfDirectoryAtPath:wavpack error:NULL] sortedArrayUsingSelector:@selector(compare:)]) {
         if ([name.pathExtension isEqualToString:@"wv"]) [paths addObject:[wavpack stringByAppendingPathComponent:name]];
     }

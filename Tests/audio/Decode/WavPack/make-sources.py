@@ -57,10 +57,10 @@ def wav(path, rate, channels, frames, bits, container=None, float32=False, mask=
     Path(path).write_bytes(b'RIFF' + struct.pack('<I', len(body)) + body)
 
 
-def dsf(path, seconds):
-    """A stereo DSD64 file of a 1 kHz sine at half scale, a different phase in
-    each channel, by a second-order delta-sigma modulator."""
-    rate, block = 2822400, 4096
+def dsf(path, seconds, rate=2822400):
+    """A stereo DSD file, DSD64 by default, of a 1 kHz sine at half scale, a
+    different phase in each channel, by a second-order delta-sigma modulator."""
+    block = 4096
     bits = int(rate * seconds)
     channels = []
     for c in range(2):
@@ -107,6 +107,7 @@ def main():
     wav(out / 'u8.wav', 22050, 1, 4096, 8)
     wav(out / 'surround.wav', 48000, 6, 4096, 16, mask=0x3F)
     dsf(out / 'dsd.dsf', 0.05)
+    dsf(out / 'dsd256.dsf', 0.005, rate=11289600)
 
 
 if __name__ == '__main__':

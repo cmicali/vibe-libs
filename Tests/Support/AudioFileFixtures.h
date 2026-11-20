@@ -109,6 +109,35 @@ static inline NSURL *VibeWriteSowtAIFF(NSURL *url, NSData *samples, double rate,
     return [aiff writeToURL:url atomically:YES] ? url : nil;
 }
 
+// A WavPack fixture, or with an empty name their folder: Tests/audio/Decode/
+// WavPack/, which its make-fixtures.sh made, since nothing here encodes
+// WavPack.
+static inline NSURL *VibeWavPackFixture(NSString *name) {
+    NSString *folder = [@__FILE__.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"../audio/Decode/WavPack"];
+    return [NSURL fileURLWithPath:[folder.stringByStandardizingPath stringByAppendingPathComponent:name]];
+}
+
+// Writes a WavPack block's checksum again, after a test changed its header or
+// body, since the checksum covers both (libwavpack's WavpackVerifySingleBlock).
+static inline void VibeWavPackResum(uint8_t *block, NSUInteger length) {
+    for (NSUInteger at = 32; at + 2 <= length;) {
+        uint8_t id = block[at];
+        NSUInteger header = id & 0x80 ? 4 : 2;
+        NSUInteger size = block[at + 1] * 2u + (id & 0x80 ? ((NSUInteger)block[at + 2] << 9) + ((NSUInteger)block[at + 3] << 17) : 0);
+        if ((id & 0x3F) == 0x2F) {
+            uint32_t sum = UINT32_MAX;
+            for (NSUInteger w = 0; w < at; w += 2) sum = sum * 3 + block[w] + (block[w + 1] << 8);
+            if (size == 2) {
+                sum ^= sum >> 16;
+                OSWriteLittleInt16(block, at + header, (uint16_t)sum);
+            } else {
+                OSWriteLittleInt32(block, at + header, sum);
+            }
+        }
+        at += header + size;
+    }
+}
+
 // An ID3v2 tag's whole length at `at`, its header, its size and any footer
 // counted. 0 when no tag starts there.
 static inline NSUInteger VibeID3v2Length(NSData *file, NSUInteger at) {

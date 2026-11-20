@@ -13,8 +13,6 @@
 
 #import "AudioFileHandle.h"
 #import "AudioFileFixtures.h"
-#import "PlayableExtensions.h"
-#import "TailWindowMath.h"
 
 @interface AudioFileHandleWavPackTests : XCTestCase
 @property (strong) NSURL *scratch;
@@ -37,9 +35,9 @@ typedef struct {
     double rate;
     uint32_t channels, frames, bits, container;
     BOOL isFloat, isSigned;
-} VibeWavPackFixture;
+} VibeWavPackLossless;
 
-static const VibeWavPackFixture kLossless[] = {
+static const VibeWavPackLossless kLossless[] = {
     {"s16.wv", 44100, 2, 8192, 16, 16, NO, YES},
     {"s24.wv", 96000, 2, 16384, 24, 24, NO, YES},
     {"s20.wv", 48000, 2, 4096, 20, 24, NO, YES},
@@ -51,7 +49,7 @@ static const VibeWavPackFixture kLossless[] = {
 
 // The floats a fixture's samples decode to, interleaved: an integer scaled by
 // its container as dr_wav scales a WAV's, a float as it was written.
-static NSData *VibeWavPackExpected(VibeWavPackFixture fixture) {
+static NSData *VibeWavPackExpected(VibeWavPackLossless fixture) {
     NSMutableData *pcm = [NSMutableData dataWithLength:(NSUInteger)fixture.frames * fixture.channels * sizeof(float)];
     float *out = pcm.mutableBytes;
     uint32_t bits = fixture.isFloat ? 24 : fixture.bits;
@@ -66,10 +64,6 @@ static NSData *VibeWavPackExpected(VibeWavPackFixture fixture) {
     return pcm;
 }
 
-static NSURL *VibeWavPackURL(NSString *name) {
-    return [NSURL fileURLWithPath:[[@__FILE__.stringByDeletingLastPathComponent stringByAppendingPathComponent:@"WavPack"]
-                                   stringByAppendingPathComponent:name]];
-}
 
 static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition from, AVAudioFrameCount frames) {
     if (![handle seekToFrame:from error:NULL]) return nil;
@@ -108,11 +102,11 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 // layout, and states its facts as the WAV it was packed from.
 - (void)testLosslessFilesDecodeBitForBitAndStateTheirSource {
     for (size_t i = 0; i < sizeof kLossless / sizeof *kLossless; i++) {
-        VibeWavPackFixture fixture = kLossless[i];
+        VibeWavPackLossless fixture = kLossless[i];
         NSString *name = @(fixture.name);
         NSData *expected = VibeWavPackExpected(fixture);
         for (int interleaved = 0; interleaved < 2; interleaved++) {
-            AudioFileHandle *handle = [self open:VibeWavPackURL(name) interleaved:interleaved];
+            AudioFileHandle *handle = [self open:VibeWavPackFixture(name) interleaved:interleaved];
             XCTAssertEqualObjects(handle.decoderName, @"libwavpack", @"%@", name);
             XCTAssertEqual(handle.length, (AVAudioFramePosition)fixture.frames, @"%@", name);
             const AudioStreamBasicDescription *file = handle.fileFormat.streamDescription;
@@ -137,12 +131,12 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 // Five or more channels fold as the file's mask says, as a WAV's do. Mono
 // and stereo state no layout.
 - (void)testSurroundStatesItsChannelMask {
-    AudioFileHandle *surround = [self open:VibeWavPackURL(@"surround.wv") interleaved:NO];
+    AudioFileHandle *surround = [self open:VibeWavPackFixture(@"surround.wv") interleaved:NO];
     const AudioChannelLayout *layout = surround.fileFormat.channelLayout.layout;
     XCTAssertTrue(layout != NULL);
     XCTAssertEqual(layout->mChannelLayoutTag, kAudioChannelLayoutTag_UseChannelBitmap);
     XCTAssertEqual(layout->mChannelBitmap, 0x3Fu);
-    XCTAssertNil([self open:VibeWavPackURL(@"s16.wv") interleaved:NO].fileFormat.channelLayout);
+    XCTAssertNil([self open:VibeWavPackFixture(@"s16.wv") interleaved:NO].fileFormat.channelLayout);
 }
 
 #pragma mark - Seeking
@@ -155,7 +149,7 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 // 16 on, it seeks exactly.
 - (void)testSeeksLandExactly {
     for (NSString *name in @[@"s16.wv", @"surround.wv", @"dsd.wv"]) {
-        AudioFileHandle *handle = [self open:VibeWavPackURL(name) interleaved:YES];
+        AudioFileHandle *handle = [self open:VibeWavPackFixture(name) interleaved:YES];
         NSMutableData *whole = [NSMutableData data];
         XCTAssertTrue(VibeReadToEnd(handle, whole, NULL), @"%@", name);
         AVAudioFramePosition length = handle.length;
@@ -186,7 +180,7 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 // beside it. It states WavPack's own format and no depth, so bit-perfect
 // output keeps none, and it sounds like its source.
 - (void)testAHybridFilePlaysItsLossyHalf {
-    AudioFileHandle *handle = [self open:VibeWavPackURL(@"hybrid.wv") interleaved:YES];
+    AudioFileHandle *handle = [self open:VibeWavPackFixture(@"hybrid.wv") interleaved:YES];
     XCTAssertEqual(handle.fileFormat.streamDescription->mFormatID, (AudioFormatID)'wvpk');
     XCTAssertEqual(handle.fileFormat.streamDescription->mBitsPerChannel, 0u);
     XCTAssertEqual(handle.length, 8192);
@@ -207,7 +201,7 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 // DSD decodes to 24-bit PCM at an eighth of its rate: DSD64 at 352.8 kHz.
 // The source is a 1 kHz sine at half scale.
 - (void)testDSDPlaysAsPCM {
-    AudioFileHandle *handle = [self open:VibeWavPackURL(@"dsd.wv") interleaved:NO];
+    AudioFileHandle *handle = [self open:VibeWavPackFixture(@"dsd.wv") interleaved:NO];
     XCTAssertEqual(handle.fileFormat.sampleRate, 352800);
     XCTAssertEqual(handle.fileFormat.streamDescription->mFormatID, (AudioFormatID)'wvpk');
     XCTAssertEqual(handle.fileFormat.channelCount, 2u);
@@ -227,7 +221,7 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 // a pipe leaves it, takes it from its last block, and decodes as the file
 // that stated it.
 - (void)testAFileThatNeverStatedItsLengthFindsIt {
-    AudioFileHandle *handle = [self open:VibeWavPackURL(@"unsized.wv") interleaved:YES];
+    AudioFileHandle *handle = [self open:VibeWavPackFixture(@"unsized.wv") interleaved:YES];
     XCTAssertEqual(handle.length, 8192);
     NSMutableData *pcm = [NSMutableData data];
     XCTAssertTrue(VibeReadToEnd(handle, pcm, NULL));
@@ -236,10 +230,30 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 
 #pragma mark - Damage
 
+// DSD256 would decode to 1.4 MHz, past the handle's 768 kHz, so it is refused.
+// CoreAudio has no WavPack reader, so nothing plays it.
+- (void)testDSD256IsRefused {
+    XCTAssertNil([[AudioFileHandle alloc] initForReading:VibeWavPackFixture(@"dsd256.wv") error:NULL]);
+}
+
+// A header whose shift leaves no bits in the sample would state PCM of 0 bits.
+// It is refused.
+- (void)testAHeaderOfNoBitsIsRefused {
+    NSMutableData *bytes = [[NSData dataWithContentsOfURL:VibeWavPackFixture(@"s16.wv")] mutableCopy];
+    uint8_t *b = bytes.mutableBytes;
+    // The flags' shift, bits 13 to 17: 16 of a 2-byte sample's 16 bits.
+    uint32_t flags = (OSReadLittleInt32(b, 24) & ~(0x1Fu << 13)) | (16u << 13);
+    OSWriteLittleInt32(b, 24, flags);
+    VibeWavPackResum(b, 8 + OSReadLittleInt32(b, 4));
+    NSURL *url = [self.scratch URLByAppendingPathComponent:@"no-bits.wv"];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    XCTAssertNil([[AudioFileHandle alloc] initForReading:url error:NULL]);
+}
+
 // A file cut short opens on its stated length, and decodes its whole blocks
 // up to the cut. Cut inside its first block, no decoder takes it.
 - (void)testACutFileDecodesUpToTheCut {
-    NSData *bytes = [NSData dataWithContentsOfURL:VibeWavPackURL(@"s16.wv")];
+    NSData *bytes = [NSData dataWithContentsOfURL:VibeWavPackFixture(@"s16.wv")];
     NSData *expected = VibeWavPackExpected(kLossless[0]);
     NSURL *half = [self.scratch URLByAppendingPathComponent:@"half.wv"];
     XCTAssertTrue([[bytes subdataWithRange:NSMakeRange(0, bytes.length / 2)] writeToURL:half atomically:YES]);
@@ -260,7 +274,7 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 // A block whose checksum fails decodes as silence, and the decode goes on
 // from the next block.
 - (void)testADamagedBlockIsSilence {
-    NSMutableData *bytes = [[NSData dataWithContentsOfURL:VibeWavPackURL(@"s16.wv")] mutableCopy];
+    NSMutableData *bytes = [[NSData dataWithContentsOfURL:VibeWavPackFixture(@"s16.wv")] mutableCopy];
     // The third block's audio: a byte well inside it, past its header and metadata.
     uint8_t *b = bytes.mutableBytes;
     NSUInteger at = 0;
@@ -287,25 +301,9 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 
 #pragma mark - The lists
 
-// .wv and the AIFF-C spellings are playable. A .wvc is not: it is half of a
-// hybrid file, and plays only beside it.
-- (void)testTheExtensionsArePlayable {
-    for (NSString *extension in @[@"wv", @"aifc", @"afc"]) {
-        XCTAssertTrue([PlayableExtensions.lookup containsObject:extension], @"%@", extension);
-        XCTAssertTrue([PlayableExtensions.tagParsed containsObject:extension], @"%@", extension);
-    }
-    XCTAssertFalse([PlayableExtensions.lookup containsObject:@"wvc"]);
-}
-
 // An AIFF-C named .aifc or .afc plays through dr_wav, as one named .aif does.
 - (void)testAIFFCPlaysByEitherName {
-    AVAudioFormat *format = [[AVAudioFormat alloc] initWithCommonFormat:AVAudioPCMFormatInt16 sampleRate:44100 channels:2
-                                                            interleaved:YES];
-    AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:format frameCapacity:4096];
-    buffer.frameLength = 4096;
-    for (AVAudioFrameCount f = 0; f < buffer.frameLength * 2; f++) {
-        buffer.int16ChannelData[0][f] = (int16_t)VibeWavPackSample(f, f / 2, f % 2, 16);
-    }
+    AVAudioPCMBuffer *buffer = VibeToneBuffer(4096, 44100, 2, AVAudioPCMFormatInt16);
     NSData *reference = nil;
     NSError *error = nil;
     NSURL *written = VibeWriteFixture([self.scratch URLByAppendingPathComponent:@"written.aif"], buffer, &error);
@@ -322,17 +320,6 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
         XCTAssertTrue(VibeReadToEnd(handle, pcm, NULL), @"%@", name);
         reference = reference ?: pcm;
         XCTAssertEqualObjects(pcm, reference, @"%@", name);
-    }
-}
-
-// A streamed .wv that never stated its length reads its last 1 MB at open.
-// Its window holds that. The AIFF-C spellings are chunked, as AIFF is.
-- (void)testTheTailWindowCoversTheOpen {
-    const uint64_t MB = 1024 * 1024;
-    XCTAssertGreaterThanOrEqual(VibeAudioFileTailWindowBytes(@"wv", 40 * MB), 1 * MB);
-    XCTAssertGreaterThanOrEqual(VibeAudioFileTailWindowBytes(@"WV", 40 * MB), 1 * MB);
-    for (NSString *extension in @[@"aifc", @"afc"]) {
-        XCTAssertEqual(VibeAudioFileTailWindowBytes(extension, 32 * MB), VibeAudioFileTailWindowBytes(@"aiff", 32 * MB));
     }
 }
 

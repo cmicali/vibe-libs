@@ -12,6 +12,7 @@
 #import <AVFoundation/AVFoundation.h>
 
 #import "TagLibAudioFile.h"
+#import "AudioFileFixtures.h"
 
 @interface TagLibAudioFileTests : XCTestCase
 @end
@@ -235,18 +236,10 @@ static NSString *Title(NSURL *url) {
 
 #pragma mark - WavPack
 
-// audio/Decode's WavPack fixtures, which make-fixtures.sh made with the
-// wavpack tool, since nothing here encodes WavPack.
-static NSURL *WavPackFixture(NSString *name) {
-    NSString *folder = [@__FILE__.stringByDeletingLastPathComponent
-                        stringByAppendingPathComponent:@"../../audio/Decode/WavPack"];
-    return [NSURL fileURLWithPath:[folder stringByAppendingPathComponent:name]];
-}
-
 // A WavPack file reads its APE tag, its kind, its depth, and its cover, by
 // its extension or by its content.
 - (void)testWavPackReadsItsAPETagDepthAndCover {
-    NSURL *named = WavPackFixture(@"s16.wv");
+    NSURL *named = VibeWavPackFixture(@"s16.wv");
     NSURL *unnamed = [_dir URLByAppendingPathComponent:@"s16-as.m4a"];
     XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:named toURL:unnamed error:NULL]);
     for (NSURL *url in @[named, unnamed]) {
@@ -273,7 +266,7 @@ static NSURL *WavPackFixture(NSString *name) {
 - (void)testWavPackStatesADepthOnlyForLosslessPCM {
     NSDictionary<NSString *, NSNumber *> *depths = @{@"hybrid.wv": @0, @"dsd.wv": @0, @"f32.wv": @32, @"s24.wv": @24, @"u8.wv": @8};
     for (NSString *name in depths) {
-        TagLibAudioFile file(WavPackFixture(name).fileSystemRepresentation);
+        TagLibAudioFile file(VibeWavPackFixture(name).fileSystemRepresentation);
         XCTAssertFalse(file.isNull(), @"%@", name);
         if (file.isNull()) continue;
         XCTAssertEqualObjects(fileTypeForTagLibFile(file.file()), VibeAudioFileFormatWavPack, @"%@", name);

@@ -28,6 +28,7 @@
 #include <opusfile.h>
 #include <wavpackfile.h>
 #include <apetag.h>
+#include <tpicturetype.h>
 #include <tdebuglistener.h>
 #include <tagutils.h>
 #include <infotag.h>
@@ -521,7 +522,7 @@ void ListAPE(TagLib::APE::Tag *tag, std::vector<VibeEmbeddedPicture> *pictures) 
         if (!data.isEmpty()) {
             VibeEmbeddedPicture item;
             item.index = index;
-            item.type = property.value("pictureType").toString() == "Back Cover" ? 4 : 3;
+            item.type = TagLib::Utils::pictureTypeFromString(property.value("pictureType").toString());
             item.data = data;
             item.description = property.value("description").toString();
             pictures->push_back(item);
