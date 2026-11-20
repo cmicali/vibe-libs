@@ -48,11 +48,11 @@
 //  tells these containers and FLAC by the file's first bytes. A coding
 //  dr_wav lacks, such as GSM, is CoreAudio's.
 //
-//  A DSF file's DSD is converted to PCM by the handle's own filters, to
-//  float at 176.4 kHz, or 192 kHz in the 48 kHz family, whatever its DSD rate
-//  (docs/dsd-to-pcm.md). The facts are that PCM's. dsdSampleRate keeps the
-//  DSD rate. DSD in WavPack is libwavpack's, at an eighth of its DSD rate,
-//  and states no DSD rate here. A DSDIFF file (.dff) is refused.
+//  DSD, in a DSF or a WavPack file, is converted to PCM by the handle's own
+//  filters, to float at 176.4 kHz, or 192 kHz in the 48 kHz family, whatever
+//  its DSD rate (docs/dsd-to-pcm.md). The same DSD decodes to the same
+//  samples in either. The facts are that PCM's. dsdSampleRate keeps the DSD
+//  rate. A DSDIFF file (.dff) is refused.
 //
 //  A file a remote transfer is still writing from byte 0
 //  (CloudFileMaterializer's availabilityForURL:) is read from its part file
@@ -136,9 +136,10 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
 // that holds, and decodes lossless with it. Nil for every other open, a
 // hybrid file played lossy included.
 @property (nonatomic, readonly, nullable) NSURL *correctionFileURL;
-// A DSF file's DSD rate, a channel's samples a second, such as 2,822,400 for
-// DSD64. 0 for every other file, a WavPack DSD file included. The facts and the reads are the PCM the
-// handle converts the DSD to (AudioFileHandle+DSD.m): fileFormat states
+// A DSD file's DSD rate, a DSF's or a WavPack file's, a channel's samples a
+// second, such as 2,822,400 for DSD64. 0 for every other file. The facts and
+// the reads are the PCM the handle converts the DSD to
+// (AudioFileHandle+DSD.m): fileFormat states
 // 176.4 kHz. An app that shows a file's rate reads media/Metadata's
 // sampleRate, which TagLib states as the DSD rate. This is the rate for a
 // reader that has only the open handle, such as the player's diagnostics.

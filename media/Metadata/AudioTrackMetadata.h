@@ -49,14 +49,17 @@ FOUNDATION_EXPORT NSArray<VibeTagField> *VibeMetadataExtraTagNames(void);
 // The kind: the codec's name, whatever the container (AudioFileFormat.h).
 @property (copy, nullable, readonly) VibeAudioFileFormat fileType;
 @property (copy, nullable, readonly) NSNumber *bitrate;
+// For DSD, in a DSF or a WavPack file, the DSD rate: 2,822,400 for DSD64.
 @property (copy, nullable, readonly) NSNumber *sampleRate;
 @property (assign, readonly) NSTimeInterval duration;
 // FLAC, ALAC, AIFF, WAV, W64, CAF, lossless PCM WavPack, a hybrid WavPack
-// file with its correction file beside it, or Monkey's Audio. A lossless
+// file with its correction file beside it, Monkey's Audio, or DSD, in a DSF
+// or a WavPack file. A lossless
 // bitrate is implied by the rate and depth, so the codec line leaves it out.
 @property (readonly, getter=isLossless) BOOL lossless;
 // Bits per sample: FLAC, ALAC, PCM or float WAV, AIFF, lossless PCM
-// WavPack, Monkey's Audio, and PCM or ALAC in CAF or W64. 0 for a lossy codec, such as MP3, AAC, Vorbis, or Opus.
+// WavPack, Monkey's Audio, and PCM or ALAC in CAF or W64. 1 for DSD, in a
+// DSF or a WavPack file. 0 for a lossy codec, such as MP3, AAC, Vorbis, or Opus.
 @property (assign, readonly) NSInteger bitDepth;
 
 // The tagged tempo (ID3 TBPM, MP4 tmpo, Vorbis/FLAC BPM); 0 when untagged.

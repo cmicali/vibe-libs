@@ -1066,14 +1066,15 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     if (_vorbis) {
         return _vorbisPosition;
     }
+    // Before libwavpack's: a DSD WavPack file's position there is a byte's.
+    if (_dsd) {
+        return _dsdPosition;
+    }
     if (_wavpack) {
         return _wavpackPosition;
     }
     if (_ape) {
         return VibeAPEDecoderPosition(_ape);
-    }
-    if (_dsd) {
-        return _dsdPosition;
     }
     SInt64 position = 0;
     return ExtAudioFileTell(_codec, &position) == noErr ? position : 0;
@@ -1109,7 +1110,8 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
         return [self seekMPEGToFrame:frame error:error];
     }
     if (_dsd) {
-        // A seek restarts the converter, whatever a read left.
+        // A seek restarts the converter, whatever a read left. A DSD WavPack
+        // file's decode restarts too, when an interruption left it stale.
         return [self seekDSDToFrame:frame error:error];
     }
     OSStatus status;
@@ -1217,11 +1219,12 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
     if (_mpeg) {
         return [self readMPEGIntoBuffer:buffer frameCount:wanted error:error];
     }
-    if ([self hasStreamDecoder]) {
-        return [self readStreamIntoBuffer:buffer frameCount:wanted error:error];
-    }
+    // Before the stream decoders: libwavpack hands a DSD file's bytes to it.
     if (_dsd) {
         return [self readDSDIntoBuffer:buffer frameCount:wanted error:error];
+    }
+    if ([self hasStreamDecoder]) {
+        return [self readStreamIntoBuffer:buffer frameCount:wanted error:error];
     }
     // The list's data pointers span the whole allocation whatever frameLength
     // says; the copy below walks them by the frames already produced.

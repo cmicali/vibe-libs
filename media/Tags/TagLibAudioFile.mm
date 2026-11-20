@@ -474,10 +474,11 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file) {
     }
     else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
         // A hybrid file is lossless only with its correction file, another
-        // file (VibeWavPackHybridBitsFromTagLibFile). DSD has 1 bit, which
-        // describes no PCM depth.
+        // file (VibeWavPackHybridBitsFromTagLibFile). DSD is one bit a
+        // sample, as a DSF's is: TagLib states 8, a byte a sample.
         auto props = wavpack->audioProperties();
-        if (props && props->isLossless() && !props->isDsd()) bits = props->bitsPerSample();
+        if (props && props->isDsd()) bits = 1;
+        else if (props && props->isLossless()) bits = props->bitsPerSample();
     }
     else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
         if (auto props = ape->audioProperties()) bits = props->bitsPerSample();
@@ -488,6 +489,19 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file) {
         bits = 1;
     }
     return bits > 0 && bits <= 64 ? bits : 0;
+}
+
+int VibeSampleRateFromTagLibFile(TagLib::File *file) {
+    auto props = file ? file->audioProperties() : nullptr;
+    if (!props || props->sampleRate() <= 0) {
+        return 0;
+    }
+    auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file);
+    if (wavpack && wavpack->audioProperties() && wavpack->audioProperties()->isDsd()) {
+        int64_t rate = (int64_t)props->sampleRate() * 8;
+        return rate <= INT_MAX ? (int)rate : 0;
+    }
+    return props->sampleRate();
 }
 
 // TagLib calls every WavPack file that is not lossless hybrid: a lossy file

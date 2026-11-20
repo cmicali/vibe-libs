@@ -17,8 +17,12 @@ pack s32.wav -hh
 pack f32.wav
 pack u8.wav
 pack surround.wav
-pack dsd.dsf
-pack dsd256.dsf
+# Each DSD source stays beside its .wv, so a test decodes the same DSD from
+# both containers.
+for source in dsd dsd-msb dsd128-48k dsd256 dsd512 dsd-surround; do
+    pack "$source.dsf"
+    cp "$work/$source.dsf" "$here/"
+done
 # A hybrid file and its correction file, which together decode lossless.
 wavpack -q -y --blocksize=1024 -b4 -c "$work/s16.wav" -o "$here/hybrid.wv"
 # Another song's correction file, of the same length and blocks: s16's

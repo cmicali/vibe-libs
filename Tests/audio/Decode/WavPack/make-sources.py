@@ -61,30 +61,33 @@ def wav(path, rate, channels, frames, bits, container=None, float32=False, mask=
     Path(path).write_bytes(b'RIFF' + struct.pack('<I', len(body)) + body)
 
 
-def dsf(path, seconds, rate=2822400):
-    """A stereo DSD file, DSD64 by default, of a 1 kHz sine at half scale, a
-    different phase in each channel, by a second-order delta-sigma modulator."""
+def dsf(path, samples, rate=2822400, channel_type=2, lsb_first=True):
+    """A DSD file of a 1 kHz sine at half scale, a different phase in each
+    channel, by a second-order delta-sigma modulator: DSD64 stereo by
+    default, `samples` a channel. The DSF fixtures beside this script are
+    these files, so a test can decode the same DSD from a DSF and a .wv."""
     block = 4096
-    bits = int(rate * seconds)
+    count = {1: 1, 2: 2, 7: 6}[channel_type]
     channels = []
-    for c in range(2):
-        out = bytearray((bits + 7) // 8)
+    for c in range(count):
+        out = bytearray((samples + 7) // 8)
         i1 = i2 = 0.0
         y = 0.0
-        for n in range(bits):
+        for n in range(samples):
             x = 0.5 * math.sin(2 * math.pi * 1000 * n / rate + c)
             i1 += x - y
             i2 += i1 - y
             y = 1.0 if i2 >= 0 else -1.0
             if y > 0:
-                out[n >> 3] |= 1 << (n & 7)  # LSB first
+                out[n >> 3] |= (1 << (n & 7)) if lsb_first else (0x80 >> (n & 7))
         out += b'\x00' * (-len(out) % block)  # zeros pad the last block, as the format asks
         channels.append(out)
     data = bytearray()
     for b in range(0, len(channels[0]), block):
         for c in channels:
             data += c[b:b + block]
-    fmt = struct.pack('<4sQIIIIIIQII', b'fmt ', 52, 1, 0, 2, 2, rate, 1, bits, block, 0)
+    fmt = struct.pack('<4sQIIIIIIQII', b'fmt ', 52, 1, 0, channel_type, count, rate, 1 if lsb_first else 8,
+                      samples, block, 0)
     data_chunk = b'data' + struct.pack('<Q', 12 + len(data)) + data
     total = 28 + len(fmt) + len(data_chunk)
     head = b'DSD ' + struct.pack('<QQQ', 28, total, 0)
@@ -113,8 +116,12 @@ def main():
     wav(out / 'negated.wav', 44100, 2, 8192, 16, negated=True)
     wav(out / 'long.wav', 44100, 2, 640000, 16)
     wav(out / 'fade.wav', 44100, 2, 8192, 16, silent_tail=2048)
-    dsf(out / 'dsd.dsf', 0.05)
-    dsf(out / 'dsd256.dsf', 0.005, rate=11289600)
+    dsf(out / 'dsd.dsf', 141120)
+    dsf(out / 'dsd-msb.dsf', 141120, lsb_first=False)
+    dsf(out / 'dsd128-48k.dsf', 122880, rate=6144000, channel_type=1)
+    dsf(out / 'dsd256.dsf', 56448, rate=11289600)
+    dsf(out / 'dsd512.dsf', 90112, rate=22579200)
+    dsf(out / 'dsd-surround.dsf', 45056, channel_type=7)
 
 
 if __name__ == '__main__':

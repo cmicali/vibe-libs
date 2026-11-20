@@ -82,6 +82,8 @@ cp "$seeds/tags-opus/tagged.opus" "$seeds/tags-ogg/opus.ogg"
 ff -i "$work/tone-8000.wav" -c:a wavpack "$seeds/tags-wv/plain.wv"
 ff -i "$work/tone-8000.wav" "${tags[@]}" -c:a wavpack "$seeds/tags-wv/tagged.wv"
 cp "$here/../audio/Decode/WavPack/s16.wv" "$seeds/tags-wv/cover.wv"
+# DSD, which the decode feeds to its DSD converter.
+cp "$here/../audio/Decode/WavPack/dsd128-48k.wv" "$seeds/tags-wv/dsd.wv"
 
 # Monkey's Audio: tagged at Normal, and at Extra High behind an ID3v2 tag,
 # which the SDK and TagLib both skip.

@@ -1,12 +1,12 @@
 # DSD to PCM
 
-How `audio/Decode` plays a DSF file, as opposed to DSD in WavPack, which libwavpack converts (below): the filters that turn its 1-bit DSD into PCM, the rate they come out at, and the level. The measurements below chose them. **Every choice here is open to change.** A change edits `scripts/dsd/design-filters.py` or `VibeDSDToPCM.c`, measures again, and updates this doc.
+How `audio/Decode` plays DSD, in a DSF file or a WavPack file: the filters that turn its 1-bit DSD into PCM, the rate they come out at, and the level. Both containers go through the same filters, so the same DSD decodes to the same samples in either. The measurements below chose them. **Every choice here is open to change.** A change edits `scripts/dsd/design-filters.py` or `VibeDSDToPCM.c`, measures again, and updates this doc.
 
 ## What plays
 
 - **DSF files (`.dsf`)**, in Sony's DSF container: DSD64, DSD128, DSD256, and DSD512, in the 44.1 kHz family (2.8224 MHz and its multiples) and the 48 kHz family (3.072 MHz and its multiples). Mono, stereo, and the five multichannel types the fmt chunk names, up to 5.1. Both bit orders.
 - **Refused:** DSDIFF (`.dff`), which can hold DST compression, and a DSF whose header fails `VibeDSF.c`'s checks. No decoder takes them, so the open fails.
-- **DSD in WavPack (`.wv`) does not go through these filters.** libwavpack decimates it itself, to 24-bit PCM at an eighth of its DSD rate: DSD64 at 352.8 kHz, and DSD128 at 705.6 kHz (`audio/Decode/AGENTS.md`). The measurements below say that a rate of 352.8 kHz passes the shaped noise above 88 kHz at about -39 dB. Sending WavPack's DSD through these filters, at 176.4 kHz, is an open follow-up.
+- **DSD in WavPack (`.wv`)**: the same rates and families, mono to 5.1. libwavpack unpacks the DSD bytes, and these filters convert them, as they do a DSF's. "DSD in WavPack", below, has the details.
 - **Not done:** DSD over PCM (DoP) and native DSD output. The section at the end says what they would need.
 
 ## The code
@@ -19,7 +19,8 @@ The container and the conversion are apart, so a second read path can reuse the 
 | `VibeDSDToPCM.c` | The two filter stages, with their history for each channel, a reset, and the delay. Its tables take the file's bit order. |
 | `VibeDSDFilterTaps.h` | The taps, which `scripts/dsd/design-filters.py` writes. |
 | `audio/AudioTypes/VibeDSD.h` | The DSD rates and their multiples, and the idle pattern, which an app shares. |
-| `AudioFileHandle+DSD.m` | The handle's open, facts, reads, and seeks. |
+| `AudioFileHandle+DSD.m` | The handle's open of a DSF, and for either container the facts, reads, and seeks. |
+| `AudioFileHandle+WavPack.m` | A WavPack DSD file's open, and its bytes from libwavpack. |
 
 ## The filters
 
@@ -74,7 +75,7 @@ dsd2pcm's first stage costs the same, within 2%. Both stages read a linear buffe
 ## The choices
 
 1. **This stage 1, not dsd2pcm's.** The two are equal where it matters: neither adds audible noise, and they cost the same. This one is flat across the whole band stage 2 keeps, and it has a design for every DSD rate from the same script, where dsd2pcm has only DSD64's. Nothing of dsd2pcm is vendored, so it adds no notice.
-2. **176.4 kHz output (192 kHz in the 48 kHz family), whatever a DSF's DSD rate.** It keeps everything to 40 kHz and holds back the shaped noise above 88 kHz, which 352.8 kHz would pass or carry as empty samples. It costs the rest of the chain half the samples: the player, its effects, analysis, and the waveform. More devices play it.
+2. **176.4 kHz output (192 kHz in the 48 kHz family), whatever the DSD rate, in a DSF or a WavPack file.** It keeps everything to 40 kHz and holds back the shaped noise above 88 kHz, which 352.8 kHz would pass or carry as empty samples. It costs the rest of the chain half the samples: the player, its effects, analysis, and the waveform. More devices play it.
 3. **No gain.** 0 dB SACD stays at -6 dBFS. A SACD's peaks may pass 0 dB SACD, so +6 dB would put them over full scale, and a bit-perfect integer output would clip them. A player that levels tracks makes up the 6 dB anyway. An app that wants the gain can apply it as a file gain.
 4. **r8brain is not used.** Stage 2 is a fixed 2:1 FIR of 97 taps that costs less than stage 1. r8brain's resampler would add a library to the piece and change nothing measured here.
 
@@ -83,6 +84,18 @@ dsd2pcm's first stage costs the same, within 2%. Both stages read a linear buffe
 - **The length** is the sample count over 16 times the multiple: one output frame for each 16 DSD samples at DSD64. The sample count trims the last block's padding. A file cut short keeps the samples its data holds.
 - **A seek is sample-accurate.** It clears the filters' history and feeds from 27 frames before the target, which covers both filters' span, then drops the first 53 outputs. So a seek's output equals a read's from the start, sample for sample, and a seek never clicks. `testASeekLandsOnTheSampleAReadFromTheStartGives` checks it at DSD64 and DSD512.
 - **The ends** read as silence: before the first sample, and after the last, including the padding bits of its byte.
+
+## DSD in WavPack
+
+**libwavpack hands out the DSD bytes, and these filters convert them** (`AudioFileHandle+WavPack.m`). Before, libwavpack's own decimator turned them into 24-bit PCM at an eighth of the DSD rate: DSD64 at 352.8 kHz, DSD128 at 705.6 kHz, and DSD256 and up refused, past the handle's 768 kHz. That passed the shaped noise above 88 kHz at about -39 dB, and a DSD64 `.wv` played differently from the same DSD in a `.dsf`.
+
+- **The open asks for native DSD** (`OPEN_DSD_NATIVE`). Then libwavpack states 8 bits in 1 byte, its rate is a byte's, an eighth of the DSD rate (`WavpackGetSampleRate`), and its count is the bytes a channel. `WavpackGetNativeSampleRate` answers the DSD rate, which `VibeDSDRateMultiple` must name, or the open refuses the file.
+- **Its bytes**, read in libwavpack 5.9.0's `unpack_dsd.c`: each unpacked 32-bit sample holds one byte, 0 to 255, interleaved by channel, as its PCM is. The first DSD sample is the byte's most significant bit, whatever the source's order: `common_utils.c` says so, and the decoders shift each bit in from the bottom. So the converter takes them most significant bit first. A damaged block unpacks as `0x55` in every byte, which these filters reject as a tone at half the DSD rate, so it plays as silence.
+- **The facts are a DSF's**: float PCM at 176.4 kHz, or 192 kHz in the 48 kHz family, the length in output frames, one for each 16 DSD samples at DSD64, and `dsdSampleRate` set. Up to 6 channels, as a DSF holds. A layout follows from the channel mask, as a PCM WavPack file's does.
+- **DSD256 and DSD512 play**, since the output rate no longer depends on the DSD rate.
+- **A seek primes the converter as a DSF's does**: libwavpack seeks to the lead's first byte, exactly, since a DSD block decodes from its start. So a seek equals a read from the start, sample for sample. An interrupted read leaves libwavpack's context stale, and the next seek opens a fresh one, as for PCM.
+- **A file cut short** opens on its stated length, and reads up to its last whole block, with no error. The bytes past the cut read as silence, so only the last 27 frames before it differ from the whole file's. Reads stop there until a seek.
+- **The same DSD decodes the same**, bit for bit: the tables add a byte's taps in time order, whichever bit order they index. `AudioFileHandleWavPackTests` decodes each fixture's `.wv` and the `.dsf` it was packed from, and requires equal samples, in both bit orders, mono, 5.1, the 48 kHz family, and DSD64 to DSD512.
 
 ## What DoP would still need
 
