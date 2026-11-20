@@ -208,11 +208,17 @@ targetTemplates:
   # TRAP: an app that also takes VibeLibsTaglib lists this template first, as
   # it would VibeLibsVorbis. The handle includes libvorbis's vorbisfile.h.
   VibeLibsDecode:
-    templates: [VibeLibsCommon, VibeLibsFileLoading, VibeLibsDrMp3, VibeLibsDrFlac, VibeLibsDrWav, VibeLibsVorbis,
-                VibeLibsWavpack, VibeLibsMonkeysAudio]
+    templates: [VibeLibsCommon, VibeLibsAudioTypes, VibeLibsFileLoading, VibeLibsDrMp3, VibeLibsDrFlac, VibeLibsDrWav,
+                VibeLibsVorbis, VibeLibsWavpack, VibeLibsMonkeysAudio]
     sources:
       - path: audio/Decode
-        excludes: ["**/*.md", "${excludedPlatform}/**"]
+        excludes: ["**/*.md", "${excludedPlatform}/**", "**/*.c"]
+      # The DSD parser and converter, optimized in every configuration, as the
+      # dr_ decoders are, so a Debug build converts as a shipped one does.
+      - path: audio/Decode
+        includes: ["**/*.c"]
+        excludes: ["${excludedPlatform}/**"]
+        compilerFlags: ["-O3"]
     settings:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/audio/Decode"]
@@ -609,6 +615,7 @@ targetTemplates:
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/vorbis"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/opus"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/wavpack"
+          - "$(VIBE_LIBS_ROOT)/third_party/taglib/dsf"
 
   # Header-only but for upstream's C entry points, DLL/r8bsrc.cpp, and its FFT.
   # Optimized in every configuration, since at -O0 it costs many times its

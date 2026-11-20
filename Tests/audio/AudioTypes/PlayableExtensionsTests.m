@@ -26,6 +26,8 @@
     XCTAssertLessThan([ordered indexOfObject:@"wav"], [ordered indexOfObject:@"mp3"]);
     XCTAssertLessThan([ordered indexOfObject:@"wv"], [ordered indexOfObject:@"m4a"]);
     XCTAssertLessThan([ordered indexOfObject:@"aifc"], [ordered indexOfObject:@"m4a"]);
+    // caf can hold either, so an app may take everything before it as lossless.
+    XCTAssertLessThan([ordered indexOfObject:@"dsf"], [ordered indexOfObject:@"caf"]);
 }
 
 - (void)testTagLibParsesAllButW64AndCaf {

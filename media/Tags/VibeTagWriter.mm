@@ -591,9 +591,6 @@ void CheckMP4Value(const TagLib::ByteVector &name, const TagLib::String &key, co
     }
 }
 
-// MP4's ratings: RATING is the rate atom, which TagLib's property map does
-// not name, and FMPS_RATING a freeform atom spelled as FMPS spells it. Each
-// replaces every item that reads as its key.
 // Takes out every item that reads as the key, and the extra items named.
 void RemoveMP4Items(TagLib::MP4::Tag *tag, const TagLib::String &key, const TagLib::StringList &extra) {
     TagLib::MP4::ItemFactory *factory = TagLib::MP4::ItemFactory::instance();
@@ -606,6 +603,9 @@ void RemoveMP4Items(TagLib::MP4::Tag *tag, const TagLib::String &key, const TagL
     for (const TagLib::String &name : remove) tag->removeItem(name);
 }
 
+// MP4's ratings: RATING is the rate atom, which TagLib's property map does
+// not name, and FMPS_RATING a freeform atom spelled as FMPS spells it. Each
+// replaces every item that reads as its key.
 void ApplyMP4Ratings(TagLib::MP4::Tag *tag, const Edits &named) {
     for (const auto &[key, values] : named) {
         if (!IsRatingKey(key)) continue;
@@ -667,8 +667,14 @@ void ApplyMP4Cover(TagLib::MP4::Tag *tag, const Cover &cover) {
 // TRAP: TagLib's MP4 save rewrites ilst from the items it parsed, so an
 // item it could not parse, or a second item of one name, is lost. Each of
 // the file's ilst children must be one of the parsed items.
-void CheckMP4ItemsSurvive(NSString *path, TagLib::MP4::Tag *tag) {
+void CheckMP4ItemsSurvive(NSString *path, TagLib::MP4::Tag *tag, const Edits &named) {
     NSData *bytes = [NSData dataWithContentsOfFile:path options:NSDataReadingMappedIfSafe error:NULL];
+    // TRAP: TagLib reads a 4-byte integer rate by its first two bytes, as 0,
+    // and saves the 0, so any other edit would destroy another app's rating.
+    if (bytes && !named.contains("RATING") &&
+        VibeMP4WideRate((const uint8_t *)bytes.bytes, bytes.length) >= 0) {
+        Refuse(VibeTagWriteErrorWouldLoseData, "TagLib would save the MP4's 4-byte rate atom as 0");
+    }
     std::vector<std::string> names;
     if (!bytes || !VibeMP4ItemNames((const uint8_t *)bytes.bytes, bytes.length, &names)) {
         Refuse(VibeTagWriteErrorNoParser, "the MP4's item list could not be read");
@@ -756,7 +762,7 @@ bool SaveFile(NSString *path, TagLib::File *file, const Edits &named, const Cove
         return file->save();
     }
     if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
-        CheckMP4ItemsSurvive(path, mp4->tag());
+        CheckMP4ItemsSurvive(path, mp4->tag(), named);
         ApplyMP4Edits(mp4->tag(), named);
         ApplyMP4Cover(mp4->tag(), cover);
         return mp4->save();
@@ -829,15 +835,17 @@ NSString *CanonicalMIMEType(NSString *mime) {
 // back; a POPM email over 256 bytes, with a NUL, or with a character past
 // Latin-1, which ID3v2 can't hold; and a RATING:<email> TagLib's Xiph key
 // check would drop.
-NSString *_Nullable RatingFault(NSString *field, unsigned int count) {
+// The email is checked as the caller gave it, before upper case would turn
+// a ß into SS.
+NSString *_Nullable RatingFault(NSString *field, NSString *given, unsigned int count) {
     if (!VibeTagFieldIsRating(field)) return nil;
     if (count > 1) return [NSString stringWithFormat:@"%@ holds one value", field];
     NSString *email = nil;
     BOOL xiph = NO;
     if ([field hasPrefix:VibeTagFieldPopularimeterPrefix]) {
-        email = [field substringFromIndex:VibeTagFieldPopularimeterPrefix.length];
+        email = [given substringFromIndex:VibeTagFieldPopularimeterPrefix.length];
     } else if ([field hasPrefix:VibeTagFieldRatingPrefix]) {
-        email = [field substringFromIndex:VibeTagFieldRatingPrefix.length];
+        email = [given substringFromIndex:VibeTagFieldRatingPrefix.length];
         xiph = YES;
     }
     if (!email) return nil;
@@ -940,7 +948,7 @@ BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *fields, BOOL change
         for (NSString *value in fields[key]) {
             if (value.length > 0) values.append(TL(value));
         }
-        NSString *why = RatingFault(field, values.size());
+        NSString *why = RatingFault(field, key, values.size());
         if (why) {
             return Fail(error, VibeTagWriteErrorUnsupportedValue, path, why);
         }
@@ -1150,7 +1158,7 @@ VibeTagFieldValues *VibeTagLibReadFields(NSString *path, NSError *__autoreleasin
         for (const auto &[key, values] : properties) {
             // Each rating comes from the rating read below, by the same
             // rules as the parse's.
-            if (key == "RATING" || key == "FMPS_RATING" || key.startsWith("RATING:")) continue;
+            if (VibeTagFieldIsRating(NS(key))) continue;
             NSMutableArray<NSString *> *strings = [NSMutableArray array];
             for (const TagLib::String &value : values) [strings addObject:NS(value)];
             fields[NS(key.upper())] = strings;

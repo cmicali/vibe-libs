@@ -2080,4 +2080,85 @@ static void VibeAddPOPM(NSURL *url, NSArray<NSArray *> *frames) {
     XCTAssertNil([self read:ape][VibeTagFieldRating], @"an APE tag holds no rating");
 }
 
+
+// MP4: rate wins over a freeform RATING, a text rate of 0 or less is none,
+// and a 4-byte integer rate refuses any edit that would save it as 0.
+- (void)testMP4RatesReadAndKeepAsTheyShould {
+    NSURL *url = [self write:@"audio.m4a"];
+    {
+        TagLib::MP4::File file(url.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(TagLib::StringList("60")));
+        file.tag()->setItem("----:com.apple.iTunes:RATING", TagLib::MP4::Item(TagLib::StringList("20")));
+        file.save();
+    }
+    XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"60"], @"rate wins");
+    for (NSString *none in @[@"0", @"-1"]) {
+        {
+            TagLib::MP4::File file(url.fileSystemRepresentation);
+            file.tag()->removeItem("----:com.apple.iTunes:RATING");
+            file.tag()->setItem("rate", TagLib::MP4::Item(TagLib::StringList(none.UTF8String)));
+            file.save();
+        }
+        XCTAssertNil([self read:url][VibeTagFieldRating], @"%@ is none", none);
+    }
+    // A 4-byte integer rate, as another tagger may write it: a text rate of
+    // four bytes whose type is made an integer's.
+    {
+        TagLib::MP4::File file(url.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(TagLib::StringList("ABCD")));
+        file.save();
+    }
+    NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:url];
+    // The rate atom's name, then its data atom: a size, "data", then the
+    // type's four bytes.
+    NSRange rate = [bytes rangeOfData:[@"rate" dataUsingEncoding:NSASCIIStringEncoding] options:0
+                                range:NSMakeRange(0, bytes.length)];
+    XCTAssertNotEqual(rate.location, (NSUInteger)NSNotFound);
+    if (rate.location == NSNotFound) {
+        return;
+    }
+    const uint8_t integer[4] = {0, 0, 0, 21};
+    [bytes replaceBytesInRange:NSMakeRange(rate.location + 12, 4) withBytes:integer];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"New"]}];
+    [self assertWrite:url fields:@{VibeTagFieldRating: @[@"80"]}];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"80"], @"a write of RATING replaces it");
+}
+
+// A custom field named POPM:x is no rating in the read-back, and a key is
+// checked as given, so RATING:ß@x is refused, never written upper case.
+- (void)testACustomPOPMFieldAndAnUpperCasedEmailAreNoRatings {
+    NSURL *url = [self write:@"plain.mp3"];
+    {
+        TagLib::MPEG::File file(url.fileSystemRepresentation);
+        file.ID3v2Tag(true)->addFrame(new TagLib::ID3v2::UserTextIdentificationFrame("POPM:x", TagLib::StringList("9")));
+        file.ID3v2Tag()->setTitle("Kept");
+        file.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone, TagLib::ID3v2::v4);
+    }
+    for (NSString *key in [self read:url]) {
+        XCTAssertFalse([key.uppercaseString hasPrefix:@"POPM:"], @"%@", key);
+    }
+    [self assertFailure:[self write:@"audio.flac"] code:VibeTagWriteErrorUnsupportedValue
+                 fields:@{@"rating:ß@x": @[@"4"]}];
+}
+
+// An MP3 with an APE RATING and no ID3v2: none shows; a first write of any
+// field brings it into the new ID3v2 tag; a removal takes it out again.
+- (void)testAnAPERatingFollowsTheFirstWriteAndARemovalTakesIt {
+    NSURL *url = [self write:@"plain.mp3"];
+    {
+        TagLib::MPEG::File mp3(url.fileSystemRepresentation);
+        TagLib::PropertyMap map;
+        map.insert("RATING", TagLib::StringList("80"));
+        map.insert("TITLE", TagLib::StringList("APE"));
+        mp3.APETag(true)->setProperties(map);
+        mp3.save(TagLib::MPEG::File::APE, TagLib::File::StripNone);
+    }
+    XCTAssertNil([self read:url][VibeTagFieldRating]);
+    [self assertWrite:url fields:@{VibeTagFieldArtist: @[@"New"]}];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"80"], @"now a TXXX:RATING");
+    [self assertWrite:url fields:@{VibeTagFieldRating: @[]}];
+    XCTAssertNil([self read:url][VibeTagFieldRating], @"the removal leaves nothing the read shows");
+}
+
 @end

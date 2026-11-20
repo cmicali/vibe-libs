@@ -22,6 +22,7 @@
 
 #import <XCTest/XCTest.h>
 #import <AVFoundation/AVFoundation.h>
+#include <float.h>
 #include <stdio.h>
 
 #import "AudioFileHandle.h"
@@ -133,7 +134,19 @@ static NSData *VibeMP3Frames(NSUInteger frames, BOOL original) {
     XCTAssertNotEqualObjects(replaced, expected, @"%@: the path holds the copy", name);
 
     XCTAssertTrue(VibeReadToEnd(handle, capture, &error), @"%@ swap %d: %@", name, swap, error);
-    XCTAssertEqualObjects(capture, expected, @"%@ swap %d: the open handle reads the original to its end", name, swap);
+    // TRAP: two of Apple's AAC decodes in one process can differ in rounding,
+    // by an ulp or two, depending on where the build puts its buffers. So AAC
+    // is held to four float epsilons, as the streaming tests hold it, and
+    // every other decoder to its exact samples.
+    XCTAssertEqual(capture.length, expected.length, @"%@ swap %d: the open handle reads the original to its end", name, swap);
+    const float *got = capture.bytes, *want = expected.bytes;
+    float tolerance = [name.pathExtension isEqualToString:@"m4a"] ? 4 * FLT_EPSILON : 0;
+    for (NSUInteger i = 0; i < MIN(capture.length, expected.length) / sizeof(float); i++) {
+        if (fabsf(got[i] - want[i]) > tolerance) {
+            XCTFail(@"%@ swap %d: the open handle reads the original to its end: sample %lu differs", name, swap, (unsigned long)i);
+            break;
+        }
+    }
 }
 
 - (NSArray<NSString *> *)formats {

@@ -4,10 +4,10 @@
 //
 //  The private header AudioFileHandle.m and its decodes share: dr_mp3's
 //  (AudioFileHandle+MPEG.m), dr_flac's, dr_wav's and libvorbis's
-//  (AudioFileHandle+Stream.m), libwavpack's (AudioFileHandle+WavPack.m), and
-//  Monkey's Audio's (AudioFileHandle+APE.m). It holds the ivars the decodes
-//  read, the reads and waits they call, and the decodes' methods the core
-//  calls. Only those five files import it.
+//  (AudioFileHandle+Stream.m), libwavpack's (AudioFileHandle+WavPack.m),
+//  Monkey's Audio's (AudioFileHandle+APE.m), and a DSF's (AudioFileHandle+DSD.m).
+//  It holds the ivars the decodes read, the reads and waits they call, and
+//  the decodes' methods the core calls. Only those six files import it.
 //
 
 #import "AudioFileHandle.h"
@@ -22,6 +22,8 @@
 #include <wavpack.h>
 #undef ChunkHeader
 #include "VibeAPEDecoder.h"
+#include "VibeDSF.h"
+#include "VibeDSDToPCM.h"
 
 #include <stdatomic.h>
 
@@ -61,7 +63,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // goes, and read on any thread, hence the getter's atomic load.
     AVAudioFramePosition _length;
     AudioFileID _parser;
-    ExtAudioFileRef _codec; // NULL while dr_mp3, dr_flac, dr_wav, libvorbis, libwavpack or MACLib decodes
+    ExtAudioFileRef _codec; // NULL while dr_mp3, dr_flac, dr_wav, libvorbis, libwavpack, MACLib or the DSD decode decodes
     // A file still streaming, or reading ahead: every read waits for its
     // bytes. Set by the open and fixed from then on. Nil for a whole file.
     CloudFileAvailability *_availability;
@@ -124,6 +126,15 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // Monkey's Audio's decode (AudioFileHandle+APE.m), reading through
     // VibeStreamRead at _streamCursor. NULL while another decoder decodes.
     VibeAPEDecoder *_ape;
+    // A DSF's decode (AudioFileHandle+DSD.m): its header, the converter, the
+    // frame the next read delivers, and its buffers.
+    VibeDSFInfo _dsf;
+    VibeDSDToPCM *_dsd;
+    SInt64 _dsdPosition;
+    BOOL _dsdRestarted;  // the next read feeds the lead first (restartDSDAtFrame:)
+    uint8_t *_dsdBytes;  // a read's bytes, a channel after another
+    uint8_t *_dsdSpan;   // what one read of the file takes (VibeDSFReadChannels)
+    size_t _dsdSpanBytes;
 }
 
 - (BOOL)reportWaitFault:(NSError **)error;
@@ -157,6 +168,9 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 // stream decoder joins here, and the core's seek and read follow.
 - (BOOL)hasStreamDecoder;
 - (BOOL)readStreamIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
+// A read's end: NO with a read failure's error for a read that failed, else
+// what reportWaitFault: answers. The DSD decode's reads end here too.
+- (BOOL)finishReadFailed:(BOOL)failed error:(NSError **)error;
 
 @end
 
@@ -198,6 +212,19 @@ static inline AudioFormatFlags VibeLosslessDepthFlag(UInt32 depth) {
     return depth <= 16 ? kAppleLosslessFormatFlag_16BitSourceData : depth <= 20 ? kAppleLosslessFormatFlag_20BitSourceData
             : depth <= 24 ? kAppleLosslessFormatFlag_24BitSourceData : kAppleLosslessFormatFlag_32BitSourceData;
 }
+// AudioFileHandle+DSD.m. The stream open calls the open on a DSF's "DSD "
+// chunk, and the core calls the rest from its own methods' DSD branches.
+@interface AudioFileHandle (DSD)
+
+- (BOOL)openDSFInterleaved:(BOOL)interleaved;
+- (void)closeDSD;
+- (BOOL)seekDSDToFrame:(AVAudioFramePosition)frame error:(NSError **)error;
+- (BOOL)readDSDIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
+
+@end
+
+// AudioFileHandle+Stream.m's: a layout of `channels` labels, in order.
+AVAudioChannelLayout *VibeLabeledLayout(const AudioChannelLabel *labels, UInt32 channels);
 
 // AudioFileHandle.m's reads and waits, which the decode's open also uses.
 uint32_t VibeID3v2Syncsafe(const uint8_t bytes[4]);

@@ -24,7 +24,7 @@ vibe-libs is licensed under Apache 2.0 (see `LICENSE`). Each library under `thir
 
 TagLib is **dual-licensed**: each source file offers the GNU Lesser General
 Public License 2.1 *or* the Mozilla Public License 1.1, at the recipient's
-choice. 180 of the 184 vendored source files carry both notices; the remaining
+choice. 184 of the 188 vendored source files carry both notices; the remaining
 four are `taglib_config.h`, `id3v2.h` (trivial configuration and umbrella
 headers with no license block of their own) and the two UTF8-CPP headers,
 which are separately licensed and covered below.
