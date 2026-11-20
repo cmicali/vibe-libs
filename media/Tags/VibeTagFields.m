@@ -48,3 +48,28 @@ NSArray<VibeTagField> *VibeTagFieldsEdited(void) {
         VibeTagFieldAlbumArtistSort,
     ];
 }
+
+VibeTagField const VibeTagFieldRating = @"RATING";
+VibeTagField const VibeTagFieldFMPSRating = @"FMPS_RATING";
+NSString *const VibeTagFieldPopularimeterPrefix = @"POPM:";
+NSString *const VibeTagFieldRatingPrefix = @"RATING:";
+
+static BOOL VibeHasPrefix(NSString *name, NSString *prefix) {
+    return name.length >= prefix.length &&
+           [name compare:prefix options:NSCaseInsensitiveSearch range:NSMakeRange(0, prefix.length)] == NSOrderedSame;
+}
+
+BOOL VibeTagFieldIsRating(NSString *name) {
+    return [name caseInsensitiveCompare:VibeTagFieldRating] == NSOrderedSame ||
+           [name caseInsensitiveCompare:VibeTagFieldFMPSRating] == NSOrderedSame ||
+           VibeHasPrefix(name, VibeTagFieldPopularimeterPrefix) ||
+           (VibeHasPrefix(name, VibeTagFieldRatingPrefix) && name.length > VibeTagFieldRatingPrefix.length);
+}
+
+NSString *VibeTagFieldKey(NSString *name) {
+    if (VibeHasPrefix(name, VibeTagFieldPopularimeterPrefix)) {
+        return [VibeTagFieldPopularimeterPrefix
+                stringByAppendingString:[name substringFromIndex:VibeTagFieldPopularimeterPrefix.length]];
+    }
+    return name.uppercaseString;
+}

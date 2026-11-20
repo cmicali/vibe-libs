@@ -20,6 +20,7 @@
 #import "AudioTrackMetadataTagFixtures.h"
 #import "DSFFixtures.h"
 #import "PlatformImage.h"
+#import "VibeTagWriter.h"
 #import "CloudFileMaterializer.h"
 
 #import <CommonCrypto/CommonDigest.h>
@@ -1031,6 +1032,32 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
         XCTAssertFalse(metadata.parsedOK, @"%@", name);
         XCTAssertEqualObjects(metadata.title, name.stringByDeletingPathExtension, @"%@", name);
     }
+}
+
+
+// The parse files every rating the file holds, as stored, and the cache's
+// round trip keeps them.
+- (void)testTheParseFilesTheRatings {
+    NSURL *directory = VibeTagFixtureDirectory();
+    NSURL *mp3 = [directory URLByAppendingPathComponent:@"rated.mp3"];
+    XCTAssertTrue([VibeMP3WithInfoFrame(38, NO) writeToURL:mp3 atomically:YES]);
+    NSError *error = nil;
+    XCTAssertTrue(VibeTagLibWriteTags(mp3.path, @{@"POPM:Windows Media Player 9 Series": @[@"196"],
+                                                  VibeTagFieldFMPSRating: @[@"0.8"]},
+                                      NO, nil, nil, VibeTagWriteSyncFull, NULL, &error), @"%@", error);
+    NSURL *flac = [directory URLByAppendingPathComponent:@"rated.flac"];
+    XCTAssertNotNil(VibeTagFixtureEncode(flac, kAudioFormatFLAC));
+    XCTAssertTrue(VibeTagLibWriteTags(flac.path, @{VibeTagFieldRating: @[@"80"]}, NO, nil, nil,
+                                      VibeTagWriteSyncFull, NULL, &error), @"%@", error);
+    NSURL *plain = [directory URLByAppendingPathComponent:@"plain.flac"];
+    XCTAssertNotNil(VibeTagFixtureEncode(plain, kAudioFormatFLAC));
+
+    NSDictionary *mp3Ratings = @{@"POPM:Windows Media Player 9 Series": @"196", VibeTagFieldFMPSRating: @"0.8"};
+    XCTAssertEqualObjects(Parse(mp3, NULL).ratings, mp3Ratings);
+    XCTAssertEqualObjects(CacheRoundTrip(Parse(mp3, NULL)).ratings, mp3Ratings);
+    XCTAssertEqualObjects(CacheRoundTrip(Parse(flac, NULL)).ratings, @{VibeTagFieldRating: @"80"});
+    XCTAssertNil(CacheRoundTrip(Parse(plain, NULL)).ratings);
+    [NSFileManager.defaultManager removeItemAtURL:directory error:NULL];
 }
 
 #pragma mark - WavPack
