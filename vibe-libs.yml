@@ -208,7 +208,8 @@ targetTemplates:
   # TRAP: an app that also takes VibeLibsTaglib lists this template first, as
   # it would VibeLibsVorbis. The handle includes libvorbis's vorbisfile.h.
   VibeLibsDecode:
-    templates: [VibeLibsCommon, VibeLibsFileLoading, VibeLibsDrMp3, VibeLibsDrFlac, VibeLibsDrWav, VibeLibsVorbis]
+    templates: [VibeLibsCommon, VibeLibsFileLoading, VibeLibsDrMp3, VibeLibsDrFlac, VibeLibsDrWav, VibeLibsVorbis,
+                VibeLibsWavpack]
     sources:
       - path: audio/Decode
         excludes: ["**/*.md", "${excludedPlatform}/**"]
@@ -607,6 +608,7 @@ targetTemplates:
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/vorbis"
           - "$(VIBE_LIBS_ROOT)/third_party/taglib/ogg/opus"
+          - "$(VIBE_LIBS_ROOT)/third_party/taglib/wavpack"
 
   # Header-only but for upstream's C entry points, DLL/r8bsrc.cpp, and its FFT.
   # Optimized in every configuration, since at -O0 it costs many times its
@@ -689,6 +691,24 @@ targetTemplates:
     settings:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/third_party/vorbis/include"]
+
+  # libwavpack's decoder, built as the dr_ decoders are. Only its C files join
+  # an app's project, as libvorbis's do. NO_TAGS leaves its tag reader out,
+  # since TagLib reads a WavPack file's tags. ENABLE_DSD keeps its DSD decode.
+  VibeLibsWavpack:
+    sources:
+      - path: third_party/wavpack/src
+        includes: ["*.c"]
+        compilerFlags:
+          - "-O3"
+          - "-w"
+          - "-Xclang"
+          - "-analyzer-disable-all-checks"
+          - "-DNO_TAGS"
+          - "-DENABLE_DSD"
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/third_party/wavpack/include"]
 
   # Sparkle's prebuilt framework, macOS only. It compiles nothing. It links
   # the framework, embeds it in the product's Frameworks, and signs it there

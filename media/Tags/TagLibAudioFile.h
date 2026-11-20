@@ -86,7 +86,8 @@ NSData *_Nullable albumArtDataFromTagLibFile(TagLib::File *file);
 // One embedded picture with bytes, as its tag stores it.
 struct VibeEmbeddedPicture {
     // Its place in the format's own list, empty pictures counted: the ID3v2
-    // tag's APIC frames, the picture blocks, or the covr entries.
+    // tag's APIC frames, the picture blocks, the covr entries, or an APE
+    // tag's front cover then back cover.
     size_t index = 0;
     // ID3v2's numbering, which FLAC and Xiph share. -1 in MP4.
     int type = 0;
@@ -99,8 +100,8 @@ struct VibeEmbeddedPicture {
 };
 
 // Every picture with bytes, in the file's order: an MPEG, WAV, or AIFF's
-// ID3v2 tag's, a FLAC's picture blocks, a Xiph comment's, or an MP4's covr
-// entries. A picture with no bytes is never shown, taken, or listed.
+// ID3v2 tag's, a FLAC's picture blocks, a Xiph comment's, an MP4's covr
+// entries, or a WavPack file's APE covers. A picture with no bytes is never shown, taken, or listed.
 std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file);
 // The picture the art read shows: the first front cover, else the first.
 // SIZE_MAX for none.
@@ -113,7 +114,8 @@ int VibeMP4FormatOfMIMEType(const TagLib::String &mimeType);
 // zeros an encoder writes when it computed none.
 NSData *_Nullable audioMD5FromTagLibFile(TagLib::File *file);
 // The bits per sample of a lossless stream: FLAC, ALAC or FLAC in MP4, PCM
-// or float WAV, and AIFF. 0 for a lossy codec, which has none.
+// or float WAV, AIFF, and lossless PCM WavPack. 0 for a lossy codec, which
+// has none.
 int bitsPerSampleFromTagLibFile(TagLib::File *file);
 
 // Every rating the file holds, by its VibeTagFields.h key, each its first
