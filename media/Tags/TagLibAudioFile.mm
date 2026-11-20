@@ -4,7 +4,9 @@
 //
 
 #import "TagLibAudioFile.h"
+#import "NSString+CPPStrings.h"
 #import "VibeMacros.h"
+#import "VibeTagFields.h"
 #include "VibeCheckedFileStream.h"
 
 #include <algorithm>
@@ -22,6 +24,7 @@
 #include <flacfile.h>
 #include <id3v2tag.h>
 #include <attachedpictureframe.h>
+#include <popularimeterframe.h>
 #include <aifffile.h>
 #include <wavfile.h>
 #include <vorbisfile.h>
@@ -34,6 +37,7 @@
 #include <dsffile.h>
 #include <tdebuglistener.h>
 #include <tagutils.h>
+#include <tpropertymap.h>
 #include <infotag.h>
 #include <utf8-cpp.core.h>
 
@@ -606,8 +610,8 @@ int VibeMP4FormatOfMIMEType(const TagLib::String &mimeType) {
 
 std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file) {
     std::vector<VibeEmbeddedPicture> pictures;
-    if (auto mp3 = dynamic_cast<TagLib::MPEG::File *>(file)) {
-        ListID3v2(mp3->hasID3v2Tag() ? mp3->ID3v2Tag(false) : nullptr, &pictures);
+    if (tagLibFileCarriesID3v2(file)) {
+        ListID3v2(VibeID3v2TagOfFile(file), &pictures);
     }
     else if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
         ListPictures(flac->pictureList(), &pictures);
@@ -619,22 +623,93 @@ std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file) {
     else if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
         ListMP4(mp4->tag(), &pictures);
     }
-    else if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
-        ListID3v2(aiff->hasID3v2Tag() ? aiff->tag() : nullptr, &pictures);
-    }
-    else if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
-        ListID3v2(wav->hasID3v2Tag() ? wav->ID3v2Tag() : nullptr, &pictures);
-    }
     else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
         ListAPE(wavpack->hasAPETag() ? wavpack->APETag() : nullptr, &pictures);
     }
     else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
         ListAPE(ape->hasAPETag() ? ape->APETag(false) : nullptr, &pictures);
     }
-    else if (auto dsf = dynamic_cast<TagLib::DSF::File *>(file)) {
-        ListID3v2(dsf->tag(), &pictures);
-    }
     return pictures;
+}
+
+TagLib::ID3v2::Tag *_Nullable VibeID3v2TagOfFile(TagLib::File *file) {
+    if (auto mp3 = dynamic_cast<TagLib::MPEG::File *>(file)) {
+        return mp3->hasID3v2Tag() ? mp3->ID3v2Tag(false) : nullptr;
+    }
+    if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
+        return aiff->hasID3v2Tag() ? aiff->tag() : nullptr;
+    }
+    if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
+        return wav->hasID3v2Tag() ? wav->ID3v2Tag() : nullptr;
+    }
+    if (auto dsf = dynamic_cast<TagLib::DSF::File *>(file)) {
+        return dsf->tag();
+    }
+    return nullptr;
+}
+
+namespace {
+
+// What a hostile file can make a read keep (media/Tags/AGENTS.md, Ratings).
+constexpr NSUInteger kMaxRatings = 32;
+constexpr unsigned int kMaxRatingEmailBytes = 256;
+
+NSString *RatingText(const TagLib::String &string) {
+    return [NSString stringWithStdString:string.stripWhiteSpace().to8Bit(true)] ?: @"";
+}
+
+} // namespace
+
+NSDictionary<VibeTagField, NSString *> *_Nullable VibeTagRatingFields(TagLib::File *file,
+                                                                      const TagLib::PropertyMap &properties) {
+    NSMutableDictionary<VibeTagField, NSString *> *ratings = [NSMutableDictionary dictionary];
+    auto keep = [&](NSString *name, NSString *text) {
+        if (text.length > 0 && !ratings[name] && ratings.count < kMaxRatings) ratings[name] = text;
+    };
+    auto xiph = dynamic_cast<TagLib::Ogg::XiphComment *>(file->tag()) || dynamic_cast<TagLib::FLAC::File *>(file);
+    auto mp4 = dynamic_cast<TagLib::MP4::File *>(file);
+    TagLib::ID3v2::Tag *id3v2 = VibeID3v2TagOfFile(file);
+    // A freeform RATING reads only when the MP4 has no rate at all, whatever
+    // the rate holds.
+    bool hasRate = false;
+    if (mp4) {
+        // MP4's rate first, so it wins over a freeform RATING atom. TRAP:
+        // TagLib's property map has no name for rate, so it reads nowhere
+        // else. TRAP: TagLib parses a numeric rate by its first two bytes, so
+        // a 4-byte integer reads as 0. A rate of 0 or less, as text or a
+        // number, is none.
+        const TagLib::MP4::ItemMap &items = mp4->tag()->itemMap();
+        auto rate = items.find("rate");
+        hasRate = rate != items.end();
+        if (hasRate) {
+            const TagLib::StringList text = rate->second.toStringList();
+            NSString *value = text.isEmpty() ? [NSString stringWithFormat:@"%d", rate->second.toInt()]
+                                             : RatingText(text.front());
+            if (value.doubleValue > 0) keep(VibeTagFieldRating, value);
+        }
+    }
+    // Only each format's own tag holds a rating: never an APE, ID3v1, or
+    // INFO tag the map may answer from, and RATING:<email> only in a Xiph
+    // comment, as the writer takes them.
+    const bool mapHome = xiph || mp4 || (id3v2 && !id3v2->isEmpty());
+    for (const auto &[key, values] : mapHome ? properties : TagLib::PropertyMap()) {
+        const bool plain = (key == "RATING" && !hasRate) || key == "FMPS_RATING";
+        const bool owned = xiph && key.startsWith("RATING:") && key.size() > 7 &&
+                           key.size() - 7 <= kMaxRatingEmailBytes;
+        if ((plain || owned) && !values.isEmpty()) keep(RatingText(key), RatingText(values.front()));
+    }
+    if (id3v2) {
+        for (TagLib::ID3v2::Frame *frame : id3v2->frameListMap().value("POPM")) {
+            auto popm = dynamic_cast<TagLib::ID3v2::PopularimeterFrame *>(frame);
+            const TagLib::ByteVector email = popm ? popm->email().data(TagLib::String::UTF8) : TagLib::ByteVector();
+            if (!popm || popm->rating() <= 0 || email.size() > kMaxRatingEmailBytes) continue;
+            // The email untrimmed, as a write compares it.
+            NSString *name = [VibeTagFieldPopularimeterPrefix
+                    stringByAppendingString:[NSString stringWithStdString:popm->email().to8Bit(true)] ?: @""];
+            keep(name, [NSString stringWithFormat:@"%d", popm->rating()]);
+        }
+    }
+    return ratings.count ? ratings : nil;
 }
 
 // The first front cover wins, since a 32x32 file icon can precede it.

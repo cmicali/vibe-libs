@@ -333,6 +333,15 @@ static NSData *VibeDSFTag(NSData *jpeg) {
     return url;
 }
 
+// A DSF's rating: its ID3v2 tag's POPM, which the rating read finds.
+- (void)testADSFReadsItsRating {
+    NSMutableData *popm = [NSMutableData dataWithBytes:"me@x\0\xC4\0\0\0\x03" length:10];
+    NSData *tag = VibeID3v2Tag(3, 0, VibeID3v2Frame("POPM", 3, (uint32_t)popm.length, 0, popm));
+    NSURL *url = [self writeDSF:@"rated.dsf" tag:tag];
+    TagLibAudioFile file(url.fileSystemRepresentation);
+    XCTAssertEqualObjects(VibeTagRatingFields(file.file(), file.file()->properties()), (@{@"POPM:me@x": @"196"}));
+}
+
 - (void)testADSFReadsItsTagCoverAndProperties {
     NSData *jpeg = [NSData dataWithBytes:"\xFF\xD8\xFF\xE0 not a real picture \xFF\xD9" length:26];
     NSURL *url = [self writeDSF:@"tone.dsf" tag:VibeDSFTag(jpeg)];
