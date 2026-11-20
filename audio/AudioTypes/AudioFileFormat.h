@@ -27,6 +27,7 @@ FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatW64;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatCAF;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatVorbis;
 FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatOpus;
+FOUNDATION_EXPORT VibeAudioFileFormat const VibeAudioFileFormatWavPack;
 
 // The codec's name, or nil for one without a constant here (PCM among them:
 // its name is its container's).

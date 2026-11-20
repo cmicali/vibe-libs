@@ -29,10 +29,16 @@ NS_ASSUME_NONNULL_BEGIN
 // reached from 48 MB. A longer index-last M4A, or a larger chunk on a shorter
 // file, waits for its download. A file no bigger than twice its window takes
 // none: a download from its start reaches the tail as soon.
+// A WavPack file that states its length reads nothing at its end, so it takes
+// the small window. One that never stated it, as an encoder writing to a pipe
+// leaves it, reads its last 1 MB at open to find its last block (libwavpack's
+// seek_eof_information), and waits for its download. Such files are rare, and
+// a 1 MB window would cost every streamed .wv. Its APE tag and cover are read
+// by range, not through this window.
 static inline uint64_t VibeAudioFileTailWindowBytes(NSString *extension, uint64_t size) {
     static const uint64_t kSmall = 128 * 1024, kChunkedFloor = 512 * 1024, kChunkedCap = 1536 * 1024;
-    BOOL chunked = [@[@"m4a", @"m4b", @"m4r", @"mp4", @"qta", @"aif", @"aiff", @"wav", @"wave", @"bwf", @"w64", @"caf"]
-            containsObject:extension.lowercaseString];
+    BOOL chunked = [@[@"m4a", @"m4b", @"m4r", @"mp4", @"qta", @"aif", @"aiff", @"wav", @"wave", @"bwf", @"w64", @"caf",
+                      @"aifc", @"afc"] containsObject:extension.lowercaseString];
     uint64_t window = chunked ? MIN(kChunkedCap, MAX(kChunkedFloor, size / 32)) : kSmall;
     return size > 2 * window ? window : 0;
 }

@@ -1,5 +1,5 @@
 // A play's open of one file: audio/Decode's handle, which takes the file
-// from CoreAudio's parser to dr_flac, dr_mp3, dr_wav, or libvorbis. It reads
+// from CoreAudio's parser to dr_flac, dr_mp3, dr_wav, libvorbis, or libwavpack. It reads
 // a few buffers, then seeks to the middle and reads again, as a scrub does.
 // FUZZ_EXTENSION names the file, which picks the parser's hint.
 

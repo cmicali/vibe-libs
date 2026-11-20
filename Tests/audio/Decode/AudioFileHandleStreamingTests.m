@@ -515,6 +515,55 @@ static NSData *VibeWithTrailingTag(NSData *file, NSString *extension, uint32_t l
     }
 }
 
+// A WavPack stream that never stated its length, of `blocks` audio blocks:
+// the fixture's first block, then its other blocks over and over. Each copy
+// takes its place's index, and its checksum again, since it covers the index.
+static NSData *VibeLongUnsizedWavPack(NSData *fixture, NSUInteger blocks) {
+    NSMutableArray<NSData *> *source = [NSMutableArray array];
+    for (NSUInteger at = 0; at + 32 <= fixture.length;) {
+        NSUInteger size = 8 + OSReadLittleInt32(fixture.bytes, at + 4);
+        [source addObject:[fixture subdataWithRange:NSMakeRange(at, MIN(size, fixture.length - at))]];
+        at += size;
+    }
+    NSMutableData *stream = [NSMutableData data];
+    uint32_t index = 0;
+    for (NSUInteger b = 0; b < blocks; b++) {
+        NSMutableData *block = [(b == 0 ? source[0] : source[1 + (b - 1) % (source.count - 1)]) mutableCopy];
+        uint8_t *bytes = block.mutableBytes;
+        OSWriteLittleInt32(bytes, 16, index);
+        index += OSReadLittleInt32(bytes, 20);
+        VibeWavPackResum(bytes, block.length);
+        [stream appendData:block];
+    }
+    return stream;
+}
+
+// A WavPack stream that never stated its length reads its last 1 MB at open,
+// to find its last block. Its window is the small one (TailWindowMath.h), so
+// its open waits for the download to reach its tail, then opens and decodes
+// as the whole file.
+- (void)testAWavPackStreamThatNeverStatedItsLengthWaitsForItsTail {
+    NSData *fixture = [NSData dataWithContentsOfURL:VibeWavPackFixture(@"unsized.wv")];
+    NSURL *source = [self sourceNamed:@"unsized.wv"];
+    XCTAssertTrue([VibeLongUnsizedWavPack(fixture, 900) writeToURL:source atomically:YES]);
+    AudioFileHandle *whole = [self openWhole:source];
+    XCTAssertEqual(whole.length, 900 * 1024);
+    uint64_t size = [NSData dataWithContentsOfURL:source].length;
+    VibeGrowingFile *file = [self stream:source prefix:64 * 1024 window:VibeAudioFileTailWindowBytes(@"wv", size)];
+    __block AudioFileHandle *handle = nil;
+    NSUInteger waits = [self drive:file step:65536 reader:^{
+        handle = [[AudioFileHandle alloc] initForReading:file.url error:NULL];
+    }];
+    XCTAssertGreaterThan(waits, 0u, @"the open waits for the last blocks");
+    XCTAssertEqualObjects(handle.decoderName, @"libwavpack");
+    XCTAssertEqual(handle.length, whole.length);
+    __block NSData *pcm = nil;
+    [self drive:file step:65536 reader:^{
+        pcm = VibeDecode(handle, 4096, INT64_MAX, NULL);
+    }];
+    [self assertPCM:pcm equals:[self referenceOf:source from:0 frames:INT64_MAX] context:@"unsized.wv"];
+}
+
 // An MP3 stream with no VBR header, whose frames are a byte short of its
 // rate's, so its rate counts two packets fewer than it holds: an estimate,
 // constant rate or not; read as the bus reads, ending at a short read or a

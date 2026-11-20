@@ -604,6 +604,17 @@ static NSArray<NSString *> *CueRowSummaries(NSString *text) {
     XCTAssertEqualObjects([self rowFilesForSheet:@"Mix.cue" inDir:dir], @[@"Mix.flac"]);
 }
 
+// A WavPack image, the way collectors keep a CD: named by its sheet, or found
+// by the sheet's own name when the one it names is gone.
+- (void)testCueResolvesAWavPackImage {
+    NSURL *dir = [self makeTempDirWithFiles:@[@"Album.wv", @"Album.wvc"] playlistName:@"Album.cue"
+                                       text:@"FILE \"Album.wv\" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n"];
+    XCTAssertEqualObjects([self rowFilesForSheet:@"Album.cue" inDir:dir], @[@"Album.wv"]);
+    dir = [self makeTempDirWithFiles:@[@"Album.wv", @"Album.wvc"] playlistName:@"Album.cue"
+                                text:@"FILE \"CDImage.wav\" WAVE\n  TRACK 01 AUDIO\n    INDEX 01 00:00:00\n"];
+    XCTAssertEqualObjects([self rowFilesForSheet:@"Album.cue" inDir:dir], @[@"Album.wv"]);
+}
+
 - (void)testCueSheetWithNoFileLineRescuesFromItsOwnBasename {
     NSURL *dir = [self makeTempDirWithFiles:@[@"Mix.aif"] playlistName:@"Mix.cue"
                                        text:@"TRACK 01 AUDIO\n  INDEX 01 00:00:00\nTRACK 02 AUDIO\n  INDEX 01 01:00:00\n"];

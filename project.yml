@@ -415,7 +415,7 @@ targets:
       excludedPlatform: iOS
     sources:
       - path: Tests/audio/Decode
-        excludes: ["**/*.md"]
+        excludes: ["**/*.md", "WavPack/**"]
       - path: Tests/Support/VibeReadAheadScript.m
     settings:
       base:
@@ -1067,6 +1067,22 @@ targets:
     platform: iOS
     templates: [VibeLibsVorbis]
 
+  WavpackTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsWavpack]
+    sources:
+      - path: Tests/third_party/wavpack
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  Wavpack-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsWavpack]
+
   # Sparkle is macOS only, so it has no iOS target.
   SparkleTests:
     type: bundle.unit-test
@@ -1160,6 +1176,8 @@ schemes:
         Ogg-iOS: all
         VorbisTests: [test]
         Vorbis-iOS: all
+        WavpackTests: [test]
+        Wavpack-iOS: all
         SparkleTests: [test]
     test:
       targets: [CommonTests, GraphicsTests, AudioTypesTests, DSPTests, AnalysisTests, OutputDevicesTests,
@@ -1169,4 +1187,4 @@ schemes:
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
                 SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, DebugVerbsTests,
                 TaglibTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
-                OggTests, VorbisTests, SparkleTests]
+                OggTests, VorbisTests, SparkleTests, WavpackTests]

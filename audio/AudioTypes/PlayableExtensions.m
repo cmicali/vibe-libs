@@ -11,7 +11,7 @@
     static NSArray<NSString *> *ordered;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        ordered = @[@"wav", @"wave", @"bwf", @"w64", @"aif", @"aiff", @"flac", @"caf",
+        ordered = @[@"wav", @"wave", @"bwf", @"w64", @"aif", @"aiff", @"aifc", @"afc", @"flac", @"wv", @"caf",
                     @"m4a", @"mp4", @"qta", @"m4b", @"m4r", @"aac", @"adts",
                     @"ogg", @"oga", @"opus", @"mp3", @"mp2"];
     });

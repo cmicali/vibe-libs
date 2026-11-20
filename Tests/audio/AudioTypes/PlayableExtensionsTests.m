@@ -24,6 +24,8 @@
     NSArray<NSString *> *ordered = PlayableExtensions.ordered;
     XCTAssertLessThan([ordered indexOfObject:@"flac"], [ordered indexOfObject:@"m4a"]);
     XCTAssertLessThan([ordered indexOfObject:@"wav"], [ordered indexOfObject:@"mp3"]);
+    XCTAssertLessThan([ordered indexOfObject:@"wv"], [ordered indexOfObject:@"m4a"]);
+    XCTAssertLessThan([ordered indexOfObject:@"aifc"], [ordered indexOfObject:@"m4a"]);
 }
 
 - (void)testTagLibParsesAllButW64AndCaf {

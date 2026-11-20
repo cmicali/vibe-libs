@@ -237,6 +237,9 @@ static NSData *VibeXingVBR(void) {
     add([VibeMP3WithInfoFrame(400, NO) writeToURL:mp3 atomically:YES] ? mp3 : nil, @"dr_mp3");
     NSURL *xing = [self sourceNamed:@"xing.mp3"];
     add([VibeXingVBR() writeToURL:xing atomically:YES] ? xing : nil, @"dr_mp3");
+    // No tool here encodes WavPack, so its fixture is the one kept beside these tests.
+    add([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(@"s24.wv") toURL:[self sourceNamed:@"s24.wv"] error:NULL]
+            ? [self sourceNamed:@"s24.wv"] : nil, @"libwavpack");
     return fixtures;
 }
 
