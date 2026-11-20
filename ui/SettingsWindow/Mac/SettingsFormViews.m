@@ -438,9 +438,22 @@ static void AddCaptionedControls(NSStackView *row, NSArray<NSView *> *controls, 
                                                 kRowPaddingV + 2, kSettingsRowInset)];
 }
 
+// TRAP: a row keeps the spacing and style its table had when it was made, and
+// a table can tile before its card exists. So a list's table takes its look
+// where it is made, before it has a delegate to ask for rows.
+static void ApplyListLook(NSTableView *table) {
+    table.headerView = nil;
+    table.style = NSTableViewStyleFullWidth;
+    table.rowHeight = kListRowHeight;
+    table.intercellSpacing = NSZeroSize;
+    table.gridStyleMask = NSTableViewGridNone;
+    table.backgroundColor = ListColor(0);
+}
+
 + (NSTableView *)listTableWithColumnIdentifiers:(NSArray<NSUserInterfaceItemIdentifier> *)identifiers
                                      delegate:(id<NSTableViewDelegate, NSTableViewDataSource>)delegate {
     NSTableView *table = [[NSTableView alloc] initWithFrame:NSZeroRect];
+    ApplyListLook(table);
     table.dataSource = delegate;
     table.delegate = delegate;
     table.allowsColumnReordering = NO;
@@ -459,12 +472,11 @@ static void AddCaptionedControls(NSStackView *row, NSArray<NSView *> *controls, 
 
 + (instancetype)rowWithTableView:(NSTableView *)table rowCount:(NSUInteger)rowCount {
     BOOL hasHeader = table.tableColumns.count > 1;
-    table.headerView = nil;
-    table.style = NSTableViewStyleFullWidth;
-    table.rowHeight = kListRowHeight;
-    table.intercellSpacing = NSZeroSize;
-    table.gridStyleMask = NSTableViewGridNone;
-    table.backgroundColor = ListColor(0);
+    // A table the pane made itself arrives without the look, and any row it
+    // already made keeps the old spacing until the table reloads.
+    BOOL madeElsewhere = !NSEqualSizes(table.intercellSpacing, NSZeroSize);
+    ApplyListLook(table);
+    if (madeElsewhere) [table reloadData];
     NSScrollView *scrollView = [[SettingsListScrollView alloc] initWithFrame:NSZeroRect];
     scrollView.documentView = table;
     scrollView.hasVerticalScroller = YES;
