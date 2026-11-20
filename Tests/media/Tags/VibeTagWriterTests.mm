@@ -25,6 +25,10 @@
 #include "VibeCheckedFileStream.h"
 
 #include <id3v2header.h>
+#include <apetag.h>
+#include <mp4file.h>
+#include <mpegfile.h>
+#include <popularimeterframe.h>
 #include <privateframe.h>
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdocumentation-html"
@@ -1822,6 +1826,371 @@ static NSString *const kVibeLatin1Artist = @"Café Artist";
     }
     [self assertWrite:url fields:@{@"title": @[@"Lower case names the field"]}];
     XCTAssertEqualObjects([self read:url][VibeTagFieldTitle], @[@"Lower case names the field"]);
+}
+
+
+#pragma mark - Ratings
+
+static NSString *const VibeWMPEmail = @"Windows Media Player 9 Series";
+
+// Every POPM frame of the file's ID3v2 tag: its email, rating, and counter.
+static NSArray<NSArray *> *VibePOPMFrames(NSURL *url) {
+    NSMutableArray<NSArray *> *frames = [NSMutableArray array];
+    TagLibAudioFile file(url.fileSystemRepresentation, false);
+    if (TagLib::ID3v2::Tag *tag = VibeID3v2TagOfFile(file.file())) {
+        for (TagLib::ID3v2::Frame *frame : tag->frameListMap().value("POPM")) {
+            auto popm = dynamic_cast<TagLib::ID3v2::PopularimeterFrame *>(frame);
+            [frames addObject:@[@(popm->email().toCString(true)), @(popm->rating()), @(popm->counter())]];
+        }
+    }
+    return frames;
+}
+
+// Adds POPM frames to an MP3's tag with TagLib, as another tagger would.
+static void VibeAddPOPM(NSURL *url, NSArray<NSArray *> *frames) {
+    TagLib::MPEG::File file(url.fileSystemRepresentation);
+    const bool had = file.hasID3v2Tag();
+    TagLib::ID3v2::Tag *tag = file.ID3v2Tag(true);
+    // The fixture's own version, or 2.3 for a file with no tag.
+    const TagLib::ID3v2::Version version =
+        had && tag->header()->majorVersion() == 4 ? TagLib::ID3v2::v4 : TagLib::ID3v2::v3;
+    for (NSArray *each in frames) {
+        auto popm = new TagLib::ID3v2::PopularimeterFrame();
+        popm->setEmail(TagLib::String([each[0] UTF8String], TagLib::String::UTF8));
+        popm->setRating([each[1] intValue]);
+        popm->setCounter([each[2] unsignedIntValue]);
+        tag->addFrame(popm);
+    }
+    file.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone, version);
+}
+
+- (NSArray<NSString *> *)id3v2Formats {
+    return @[@"plain.mp3", @"id3v23.mp3", @"audio.wav", @"audio.aif"];
+}
+
+- (NSArray<NSString *> *)xiphFormats {
+    return @[@"audio.flac", @"audio.ogg", @"audio.opus"];
+}
+
+- (void)testEachRatingRoundTripsWhereTheFormatHoldsIt {
+    NSString *popm = [VibeTagFieldPopularimeterPrefix stringByAppendingString:VibeWMPEmail];
+    for (NSString *name in self.id3v2Formats) {
+        NSURL *url = [self write:name];
+        NSData *audio = VibeDigest(url);
+        BOOL mp3 = [name.pathExtension isEqualToString:@"mp3"];
+        uint8_t version = [name hasPrefix:@"id3v23"] ? VibeID3v2Version(url) : 4;
+        [self assertWrite:url fields:@{popm: @[@"196"], VibeTagFieldFMPSRating: @[@"0.8"]}];
+        VibeTagFieldValues *read = [self read:url];
+        XCTAssertEqualObjects(read[popm], @[@"196"], @"%@", name);
+        XCTAssertEqualObjects(read[VibeTagFieldFMPSRating], @[@"0.8"], @"%@", name);
+        XCTAssertEqualObjects(VibePOPMFrames(url), (@[@[VibeWMPEmail, @196, @0]]), @"%@", name);
+        if (mp3) XCTAssertEqual(VibeID3v2Version(url), version, @"%@ keeps its version", name);
+        XCTAssertEqualObjects(VibeDigest(url), audio, @"%@", name);
+    }
+    for (NSString *name in self.xiphFormats) {
+        NSURL *url = [self write:name];
+        VibeTagFieldValues *ratings = @{VibeTagFieldRating: @[@"80"], @"RATING:SOMEONE@EXAMPLE.COM": @[@"4"],
+                                        VibeTagFieldFMPSRating: @[@"0.8"]};
+        [self assertWrite:url fields:ratings];
+        VibeTagFieldValues *read = [self read:url];
+        for (NSString *key in ratings) XCTAssertEqualObjects(read[key], ratings[key], @"%@ %@", name, key);
+    }
+    NSURL *url = [self write:@"audio.m4a"];
+    [self assertWrite:url fields:@{VibeTagFieldRating: @[@"80"], VibeTagFieldFMPSRating: @[@"0.8"]}];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"80"]);
+    XCTAssertEqualObjects([self read:url][VibeTagFieldFMPSRating], @[@"0.8"]);
+    TagLib::MP4::File file(url.fileSystemRepresentation);
+    XCTAssertTrue(file.tag()->contains("rate"), @"RATING is the rate atom");
+    XCTAssertTrue(file.tag()->contains("----:com.apple.iTunes:FMPS_Rating"), @"FMPS spells its atom so");
+}
+
+- (void)testARatingRemovalTakesItInEveryFormat {
+    NSString *popm = [VibeTagFieldPopularimeterPrefix stringByAppendingString:VibeWMPEmail];
+    for (NSString *name in self.formats) {
+        NSURL *url = [self write:name];
+        BOOL id3v2 = [self.id3v2Formats containsObject:name];
+        NSString *key = id3v2 ? popm : VibeTagFieldRating;
+        [self assertWrite:url fields:@{key: @[id3v2 ? @"64" : @"40"], VibeTagFieldFMPSRating: @[@"0.4"]}];
+        [self assertWrite:url fields:@{key: @[], VibeTagFieldFMPSRating: @[]}];
+        VibeTagFieldValues *read = [self read:url];
+        XCTAssertNil(read[key], @"%@", name);
+        XCTAssertNil(read[VibeTagFieldFMPSRating], @"%@", name);
+        if (id3v2) XCTAssertEqualObjects(VibePOPMFrames(url), @[], @"%@: the frame goes", name);
+    }
+}
+
+// Another app's POPM keeps its email and its counter, and a frame of
+// another email is not touched.
+- (void)testAPOPMKeepsItsCounterAndOtherEmails {
+    NSURL *url = [self write:@"plain.mp3"];
+    VibeAddPOPM(url, @[@[@"traktor@native-instruments.de", @102, @7], @[@"someone@example.com", @50, @0]]);
+    NSString *traktor = [VibeTagFieldPopularimeterPrefix stringByAppendingString:@"traktor@native-instruments.de"];
+    NSString *other = [VibeTagFieldPopularimeterPrefix stringByAppendingString:@"someone@example.com"];
+    XCTAssertEqualObjects([self read:url][traktor], @[@"102"]);
+    [self assertWrite:url fields:@{traktor: @[@"204"]}];
+    XCTAssertEqualObjects(VibePOPMFrames(url),
+                          (@[@[@"traktor@native-instruments.de", @204, @7], @[@"someone@example.com", @50, @0]]));
+    [self assertWrite:url fields:@{traktor: @[]}];
+    XCTAssertEqualObjects(VibePOPMFrames(url),
+                          (@[@[@"traktor@native-instruments.de", @0, @7], @[@"someone@example.com", @50, @0]]),
+                          @"a counted frame keeps its count, its rating 0");
+    XCTAssertNil([self read:url][traktor], @"a rating of 0 reads as none");
+    [self assertWrite:url fields:@{other: @[]}];
+    XCTAssertEqualObjects(VibePOPMFrames(url), (@[@[@"traktor@native-instruments.de", @0, @7]]));
+}
+
+// TE128 in another app: a POPM frame is no frame a save drops, so an MP3
+// that holds one can still be edited, and keeps it.
+- (void)testAnMP3WithAPOPMCanBeEdited {
+    NSURL *url = [self write:@"plain.mp3"];
+    VibeAddPOPM(url, @[@[VibeWMPEmail, @196, @3]]);
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"New"]}];
+    XCTAssertEqualObjects(VibePOPMFrames(url), (@[@[VibeWMPEmail, @196, @3]]));
+    XCTAssertEqual(VibeID3v2Version(url), 3);
+}
+
+- (void)testARatingAFormatCantHoldIsRefused {
+    NSString *popm = [VibeTagFieldPopularimeterPrefix stringByAppendingString:VibeWMPEmail];
+    for (NSString *name in @[@"audio.m4a", @"audio.flac", @"audio.ogg"]) {
+        [self assertFailure:[self write:name] code:VibeTagWriteErrorUnsupportedValue fields:@{popm: @[@"196"]}];
+    }
+    [self assertFailure:[self write:@"audio.m4a"] code:VibeTagWriteErrorUnsupportedValue
+                 fields:@{@"RATING:SOMEONE@EXAMPLE.COM": @[@"4"]}];
+    [self assertFailure:[self write:@"audio.m4a"] code:VibeTagWriteErrorUnsupportedValue
+                 fields:@{VibeTagFieldRating: @[@"80", @"60"]}];
+    for (NSArray<NSString *> *values in @[@[@"0"], @[@"256"], @[@"4.5"], @[@"x"], @[@"64", @"128"]]) {
+        [self assertFailure:[self write:@"plain.mp3"] code:VibeTagWriteErrorUnsupportedValue fields:@{popm: values}];
+    }
+}
+
+// The rating read the parse shares: a POPM of rating 0 is none, MP4's rate
+// as a number reads as text, and another tagger's TXXX:FMPS_Rating reads.
+- (void)testTheRatingReadFindsEachForm {
+    NSURL *url = [self write:@"plain.mp3"];
+    VibeAddPOPM(url, @[@[@"", @0, @9], @[@"traktor@native-instruments.de", @153, @0]]);
+    {
+        TagLib::MPEG::File file(url.fileSystemRepresentation);
+        file.ID3v2Tag()->addFrame(new TagLib::ID3v2::UserTextIdentificationFrame("FMPS_Rating",
+                                                                                  TagLib::StringList("0.6")));
+        file.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone, TagLib::ID3v2::v4);
+    }
+    {
+        TagLibAudioFile file(url.fileSystemRepresentation, false);
+        XCTAssertEqualObjects(VibeTagRatingFields(file.file(), file.file()->properties()),
+                              (@{@"POPM:traktor@native-instruments.de": @"153", VibeTagFieldFMPSRating: @"0.6"}));
+    }
+    NSURL *m4a = [self write:@"audio.m4a"];
+    {
+        TagLib::MP4::File file(m4a.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(60));
+        file.save();
+    }
+    TagLibAudioFile file(m4a.fileSystemRepresentation, false);
+    XCTAssertEqualObjects(VibeTagRatingFields(file.file(), file.file()->properties()), (@{VibeTagFieldRating: @"60"}));
+    XCTAssertEqualObjects([self read:m4a][VibeTagFieldRating], @[@"60"]);
+}
+
+- (void)testARatingsKeyKeepsOnlyAnEmailsCase {
+    XCTAssertEqualObjects(VibeTagFieldKey(@"popm:Windows Media Player 9 Series"),
+                          @"POPM:Windows Media Player 9 Series");
+    XCTAssertEqualObjects(VibeTagFieldKey(@"rating:someone@example.com"), @"RATING:SOMEONE@EXAMPLE.COM");
+    XCTAssertTrue(VibeTagFieldIsRating(@"POPM:"));
+    XCTAssertTrue(VibeTagFieldIsRating(@"fmps_rating"));
+    XCTAssertFalse(VibeTagFieldIsRating(@"RATING:"));
+    XCTAssertFalse(VibeTagFieldIsRating(VibeTagFieldTitle));
+}
+
+
+// One place refuses a rating it can't keep: two values in any format, an
+// email a POPM or a Xiph key can't hold, and RATING:<email> outside Xiph.
+- (void)testARatingItCantKeepIsRefused {
+    for (NSString *name in self.formats) {
+        BOOL id3v2 = [self.id3v2Formats containsObject:name];
+        NSString *key = id3v2 ? [VibeTagFieldPopularimeterPrefix stringByAppendingString:VibeWMPEmail] : VibeTagFieldRating;
+        [self assertFailure:[self write:name] code:VibeTagWriteErrorUnsupportedValue fields:@{key: @[@"64", @"128"]}];
+        [self assertFailure:[self write:name] code:VibeTagWriteErrorUnsupportedValue
+                     fields:@{VibeTagFieldFMPSRating: @[@"0.2", @"0.4"]}];
+    }
+    for (NSString *email in @[@"a☃b", @"nul\u0000", [@"" stringByPaddingToLength:257 withString:@"a" startingAtIndex:0]]) {
+        [self assertFailure:[self write:@"plain.mp3"] code:VibeTagWriteErrorUnsupportedValue
+                     fields:@{[VibeTagFieldPopularimeterPrefix stringByAppendingString:email]: @[@"64"]}];
+    }
+    for (NSString *email in @[@"A=B", @"A~B", @"ÉTÉ"]) {
+        [self assertFailure:[self write:@"audio.flac"] code:VibeTagWriteErrorUnsupportedValue
+                     fields:@{[VibeTagFieldRatingPrefix stringByAppendingString:email]: @[@"4"]}];
+    }
+    [self assertFailure:[self write:@"plain.mp3"] code:VibeTagWriteErrorUnsupportedValue
+                 fields:@{@"RATING:A@B.C": @[@"4"]}];
+}
+
+// An email with spaces at its ends is read as stored, so a second write
+// finds the same frame.
+- (void)testAPOPMEmailIsReadUntrimmed {
+    NSURL *url = [self write:@"plain.mp3"];
+    NSString *key = [VibeTagFieldPopularimeterPrefix stringByAppendingString:@" padded "];
+    [self assertWrite:url fields:@{key: @[@"64"]}];
+    XCTAssertEqualObjects([self read:url][key], @[@"64"]);
+    [self assertWrite:url fields:@{key: @[@"128"]}];
+    XCTAssertEqualObjects(VibePOPMFrames(url), (@[@[@" padded ", @128, @0]]), @"one frame");
+}
+
+// A read keeps at most 32 ratings, and none of an email over 256 bytes; a
+// custom field named POPM:x is no POPM; an MP4 rate of 0 is none; an MP3's
+// APE RATING with no ID3v2 is none; and MP4's freeform RATING:x is none.
+- (void)testTheReadKeepsOnlyRatingsOfTheFilesOwnForms {
+    NSURL *url = [self write:@"plain.mp3"];
+    NSMutableArray *frames = [NSMutableArray array];
+    for (int i = 0; i < 40; i++) [frames addObject:@[[NSString stringWithFormat:@"%d@x", i], @64, @0]];
+    [frames addObject:@[[@"" stringByPaddingToLength:300 withString:@"b" startingAtIndex:0], @64, @0]];
+    VibeAddPOPM(url, frames);
+    {
+        TagLib::MPEG::File file(url.fileSystemRepresentation);
+        file.ID3v2Tag()->addFrame(new TagLib::ID3v2::UserTextIdentificationFrame("POPM:fake", TagLib::StringList("9")));
+        file.ID3v2Tag()->setTitle("Kept");
+        file.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone, TagLib::ID3v2::v4);
+    }
+    NSDictionary *ratings = nil;
+    {
+        TagLibAudioFile file(url.fileSystemRepresentation, false);
+        ratings = VibeTagRatingFields(file.file(), file.file()->properties());
+    }
+    XCTAssertEqual(ratings.count, 32u);
+    XCTAssertNil(ratings[@"POPM:fake"]);
+    for (NSString *key in ratings) XCTAssertLessThanOrEqual(key.length, 256u + 5);
+
+    NSURL *m4a = [self write:@"audio.m4a"];
+    {
+        TagLib::MP4::File file(m4a.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(0));
+        file.tag()->setItem("----:com.apple.iTunes:RATING:A@B.C", TagLib::MP4::Item(TagLib::StringList("4")));
+        file.save();
+    }
+    TagLibAudioFile file(m4a.fileSystemRepresentation, false);
+    XCTAssertNil(VibeTagRatingFields(file.file(), file.file()->properties()));
+
+    NSURL *ape = [self write:@"plain.mp3"];
+    {
+        TagLib::MPEG::File mp3(ape.fileSystemRepresentation);
+        TagLib::PropertyMap map;
+        map.insert("RATING", TagLib::StringList("80"));
+        map.insert("TITLE", TagLib::StringList("APE"));
+        mp3.APETag(true)->setProperties(map);
+        mp3.save(TagLib::MPEG::File::APE, TagLib::File::StripNone);
+    }
+    XCTAssertNil([self read:ape][VibeTagFieldRating], @"an APE tag holds no rating");
+}
+
+
+// MP4: rate wins over a freeform RATING, a text rate of 0 or less is none,
+// and a 4-byte integer rate refuses any edit that would save it as 0.
+- (void)testMP4RatesReadAndKeepAsTheyShould {
+    NSURL *url = [self write:@"audio.m4a"];
+    {
+        TagLib::MP4::File file(url.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(TagLib::StringList("60")));
+        file.tag()->setItem("----:com.apple.iTunes:RATING", TagLib::MP4::Item(TagLib::StringList("20")));
+        file.save();
+    }
+    XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"60"], @"rate wins");
+    for (NSString *none in @[@"0", @"-1"]) {
+        {
+            TagLib::MP4::File file(url.fileSystemRepresentation);
+            file.tag()->removeItem("----:com.apple.iTunes:RATING");
+            file.tag()->setItem("rate", TagLib::MP4::Item(TagLib::StringList(none.UTF8String)));
+            file.save();
+        }
+        XCTAssertNil([self read:url][VibeTagFieldRating], @"%@ is none", none);
+    }
+    // A 4-byte integer rate, as another tagger may write it: a text rate of
+    // four bytes whose type is made an integer's.
+    {
+        TagLib::MP4::File file(url.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(TagLib::StringList("ABCD")));
+        file.save();
+    }
+    NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:url];
+    // The rate atom's name, then its data atom: a size, "data", then the
+    // type's four bytes.
+    NSRange rate = [bytes rangeOfData:[@"rate" dataUsingEncoding:NSASCIIStringEncoding] options:0
+                                range:NSMakeRange(0, bytes.length)];
+    XCTAssertNotEqual(rate.location, (NSUInteger)NSNotFound);
+    if (rate.location == NSNotFound) {
+        return;
+    }
+    const uint8_t integer[4] = {0, 0, 0, 21};
+    [bytes replaceBytesInRange:NSMakeRange(rate.location + 12, 4) withBytes:integer];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"New"]}];
+    [self assertWrite:url fields:@{VibeTagFieldRating: @[@"80"]}];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"80"], @"a write of RATING replaces it");
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"Text rate"]}];
+    {
+        TagLib::MP4::File file(url.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(60));
+        file.save();
+    }
+    [self assertWrite:url fields:@{VibeTagFieldTitle: @[@"Two-byte rate"]}];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"60"], @"a 2-byte rate is kept");
+}
+
+// An 8-byte rate is refused too, and a freeform RATING never answers while
+// a rate is there, a 0 or no number included.
+- (void)testAnyRateTagLibCantKeepIsRefusedAndRateAloneAnswers {
+    NSURL *url = [self write:@"audio.m4a"];
+    {
+        TagLib::MP4::File file(url.fileSystemRepresentation);
+        file.tag()->setItem("rate", TagLib::MP4::Item(TagLib::StringList("ABCDEFGH")));
+        file.tag()->setItem("----:com.apple.iTunes:RATING", TagLib::MP4::Item(TagLib::StringList("20")));
+        file.save();
+    }
+    XCTAssertNil([self read:url][VibeTagFieldRating], @"rate is no number, and the freeform atom stays quiet");
+    NSMutableData *bytes = [NSMutableData dataWithContentsOfURL:url];
+    NSRange rate = [bytes rangeOfData:[@"rate" dataUsingEncoding:NSASCIIStringEncoding] options:0
+                                range:NSMakeRange(0, bytes.length)];
+    if (rate.location == NSNotFound) {
+        XCTFail(@"no rate atom");
+        return;
+    }
+    const uint8_t integer[4] = {0, 0, 0, 21};
+    [bytes replaceBytesInRange:NSMakeRange(rate.location + 12, 4) withBytes:integer];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    [self assertFailure:url code:VibeTagWriteErrorWouldLoseData fields:@{VibeTagFieldTitle: @[@"New"]}];
+}
+
+// A custom field named POPM:x is no rating in the read-back, and a key is
+// checked as given, so RATING:ß@x is refused, never written upper case.
+- (void)testACustomPOPMFieldAndAnUpperCasedEmailAreNoRatings {
+    NSURL *url = [self write:@"plain.mp3"];
+    {
+        TagLib::MPEG::File file(url.fileSystemRepresentation);
+        file.ID3v2Tag(true)->addFrame(new TagLib::ID3v2::UserTextIdentificationFrame("POPM:x", TagLib::StringList("9")));
+        file.ID3v2Tag()->setTitle("Kept");
+        file.save(TagLib::MPEG::File::ID3v2, TagLib::File::StripNone, TagLib::ID3v2::v4);
+    }
+    for (NSString *key in [self read:url]) {
+        XCTAssertFalse([key.uppercaseString hasPrefix:@"POPM:"], @"%@", key);
+    }
+    [self assertFailure:[self write:@"audio.flac"] code:VibeTagWriteErrorUnsupportedValue
+                 fields:@{@"rating:ß@x": @[@"4"]}];
+}
+
+// An MP3 with an APE RATING and no ID3v2: none shows; a first write of any
+// field brings it into the new ID3v2 tag; a removal takes it out again.
+- (void)testAnAPERatingFollowsTheFirstWriteAndARemovalTakesIt {
+    NSURL *url = [self write:@"plain.mp3"];
+    {
+        TagLib::MPEG::File mp3(url.fileSystemRepresentation);
+        TagLib::PropertyMap map;
+        map.insert("RATING", TagLib::StringList("80"));
+        map.insert("TITLE", TagLib::StringList("APE"));
+        mp3.APETag(true)->setProperties(map);
+        mp3.save(TagLib::MPEG::File::APE, TagLib::File::StripNone);
+    }
+    XCTAssertNil([self read:url][VibeTagFieldRating]);
+    [self assertWrite:url fields:@{VibeTagFieldArtist: @[@"New"]}];
+    XCTAssertEqualObjects([self read:url][VibeTagFieldRating], @[@"80"], @"now a TXXX:RATING");
+    [self assertWrite:url fields:@{VibeTagFieldRating: @[]}];
+    XCTAssertNil([self read:url][VibeTagFieldRating], @"the removal leaves nothing the read shows");
 }
 
 @end

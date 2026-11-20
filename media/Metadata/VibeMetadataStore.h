@@ -22,7 +22,8 @@ NS_ASSUME_NONNULL_BEGIN
 // The tags' archive format. Bump it whenever the archived fields, the
 // rendition, or their meaning change. An older row then misses for a read
 // that may open its file, and answers, marked older, for one that may not.
-// 11 is the PINCache store's last version, "Audio Track Metadata v11".
+// 11 is the PINCache store's last version, "Audio Track Metadata v11". 12
+// since the ratings.
 FOUNDATION_EXPORT const NSInteger VibeMetadataTagsFormat;
 // The picture's parts' format.
 FOUNDATION_EXPORT const NSInteger VibeMetadataArtFormat;
