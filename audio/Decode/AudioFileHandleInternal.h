@@ -42,7 +42,7 @@ static const float kVibeDecodeSampleBound = 4.0f;
 static const uint32_t kVibeDecodeMaxRate = 768000;
 
 // The format a lossy WavPack file states: a hybrid file without its correction
-// file, or DSD. The SDK names no constant (AudioFileFormat.m).
+// file. The SDK names no constant (AudioFileFormat.m).
 static const AudioFormatID kVibeWavPackFormat = 'wvpk';
 
 // Small reads go through one block: the parser's under kVibeReadBlock, filling
@@ -117,12 +117,13 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     SInt64 _streamCursor;
     BOOL _streamReadFailed; // a pread failed, which no stream decoder can tell from the end
     // libwavpack's decode, at the same cursor: its context, the frame its
-    // next read delivers, counted here, and one unpack's samples.
+    // next read delivers, counted here, and one unpack's samples. For DSD,
+    // the position is the byte its next unpack delivers, a channel's.
     WavpackContext *_wavpack;
-    uint32_t _wavpackDSDRate; // Fixed at open. The context can restart on the decode queue.
     SInt64 _wavpackPosition;
     int32_t *_wavpackSamples;
     float _wavpackScale; // an integer sample's to ±1, a power of two, or 0 for float bits
+    BOOL _wavpackClips;  // an 8-bit file's samples are clipped to ±1 (readWavPackInto:)
     // Set by an interrupted read, a failed seek, or a decode that ended
     // short: the next seek starts a fresh context, and reads return nothing
     // until then.
@@ -134,15 +135,19 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // Monkey's Audio's decode (AudioFileHandle+APE.m), reading through
     // VibeStreamRead at _streamCursor. NULL while another decoder decodes.
     VibeAPEDecoder *_ape;
-    // A DSF's decode (AudioFileHandle+DSD.m): its header, the converter, the
-    // frame the next read delivers, and its buffers.
+    // The DSD decode (AudioFileHandle+DSD.m), a DSF's or a WavPack file's:
+    // its header, the converter, the frame the next read delivers, and its
+    // buffers. A WavPack file fills the header's rate, channels, and count.
     VibeDSFInfo _dsf;
     VibeDSDToPCM *_dsd;
     SInt64 _dsdPosition;
     BOOL _dsdRestarted;  // the next read feeds the lead first (restartDSDAtFrame:)
     uint8_t *_dsdBytes;  // a read's bytes, a channel after another
-    uint8_t *_dsdSpan;   // what one read of the file takes (VibeDSFReadChannels)
+    uint8_t *_dsdSpan;   // what one read of the file takes (VibeDSFReadChannels), a DSF's
     size_t _dsdSpanBytes;
+    // A channel's bytes the file holds: the count's, or where a WavPack
+    // file's decode ended short. Frames past it read nothing until a seek.
+    SInt64 _dsdBytesEnd;
 }
 
 // A handle that only reads the file's bytes, with no decoder: a WavPack
@@ -198,6 +203,9 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 - (void)closeWavPack;
 - (BOOL)seekWavPackToFrame:(SInt64)frame;
 - (AVAudioFrameCount)readWavPackInto:(float *const *)planes frameCount:(AVAudioFrameCount)wanted;
+// A DSD file's: the DSD decode's seek and its bytes (AudioFileHandle+DSD.m).
+- (BOOL)seekWavPackDSDToByte:(SInt64)byte;
+- (BOOL)readWavPackDSDBytes:(uint8_t *const *)channels from:(SInt64)first count:(size_t)count;
 
 @end
 
@@ -229,15 +237,22 @@ static inline AudioFormatFlags VibeLosslessDepthFlag(UInt32 depth) {
             : depth <= 24 ? kAppleLosslessFormatFlag_24BitSourceData : kAppleLosslessFormatFlag_32BitSourceData;
 }
 // AudioFileHandle+DSD.m. The stream open calls the open on a DSF's "DSD "
-// chunk, and the core calls the rest from its own methods' DSD branches.
+// chunk, the WavPack open calls the start on a DSD file, and the core calls
+// the rest from its own methods' DSD branches.
 @interface AudioFileHandle (DSD)
 
 - (BOOL)openDSFInterleaved:(BOOL)interleaved;
+- (BOOL)startDSDWithLayout:(AVAudioChannelLayout *)layout interleaved:(BOOL)interleaved;
 - (void)closeDSD;
 - (BOOL)seekDSDToFrame:(AVAudioFramePosition)frame error:(NSError **)error;
 - (BOOL)readDSDIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
 
 @end
+
+// A DSD decode's bytes a channel, which the count holds.
+static inline SInt64 VibeDSDBytes(const VibeDSFInfo *info) {
+    return (SInt64)(info->sampleCount / 8);
+}
 
 // AudioFileHandle+Stream.m's: a layout of `channels` labels, in order.
 AVAudioChannelLayout *VibeLabeledLayout(const AudioChannelLabel *labels, UInt32 channels);
@@ -247,6 +262,7 @@ uint32_t VibeID3v2Syncsafe(const uint8_t bytes[4]);
 uint32_t VibeID3v2TagBytes(const uint8_t header[10]);
 AudioFileTypeID VibeFileTypeForExtension(NSString *extension);
 NSError *VibeHandleError(OSStatus status, NSString *description);
+NSError *VibeSeekError(NSURL *url, OSStatus status);
 BOOL VibeHandleAwaitWhole(AudioFileHandle *handle, BOOL wait);
 ssize_t VibeHandleFetch(AudioFileHandle *handle, SInt64 position, SInt64 requested, void *buffer, size_t capacity);
 OSStatus VibeHandleRead(void *clientData, SInt64 position, UInt32 requestCount, void *buffer, UInt32 *actualCount);

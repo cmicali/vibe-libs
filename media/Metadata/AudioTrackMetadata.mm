@@ -643,7 +643,8 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedTexts(NSCoder *c
             int bitrate = dynamic_cast<TagLib::DSF::File *>(file)
                     ? (int)(((int64_t)props->sampleRate() * props->channels() + 500) / 1000) : props->bitrate();
             if (bitrate > 0) self.bitrate = @(bitrate);
-            if (props->sampleRate() > 0) self.sampleRate = @(props->sampleRate());
+            int sampleRate = VibeSampleRateFromTagLibFile(file);
+            if (sampleRate > 0) self.sampleRate = @(sampleRate);
         }
         // TagLib takes a FLAC's length from STREAMINFO alone, which may leave it
         // unknown (0); the handle's dr_flac finds it from the stream's last frames.
@@ -837,7 +838,7 @@ static NSInteger CoreAudioBitDepth(const AudioStreamBasicDescription &format) {
     if ([VibeAudioFileFormatW64 isEqualToString:self.fileType]) return YES;
     if ([VibeAudioFileFormatCAF isEqualToString:self.fileType]) return YES;
     // A hybrid WavPack file without its correction file plays its lossy half,
-    // and DSD plays decimated. Neither has a PCM depth (loadFromURL:).
+    // and has no depth (loadFromURL:). DSD has 1 bit, as a DSF's does.
     if ([VibeAudioFileFormatWavPack isEqualToString:self.fileType]) return self.bitDepth > 0;
     if ([VibeAudioFileFormatMonkeysAudio isEqualToString:self.fileType]) return YES;
     if ([VibeAudioFileFormatDSD isEqualToString:self.fileType]) return YES;

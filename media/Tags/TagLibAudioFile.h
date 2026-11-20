@@ -119,10 +119,15 @@ int VibeMP4FormatOfMIMEType(const TagLib::String &mimeType);
 // zeros an encoder writes when it computed none.
 NSData *_Nullable audioMD5FromTagLibFile(TagLib::File *file);
 // The bits per sample of a lossless stream: FLAC, ALAC or FLAC in MP4, PCM
-// or float WAV, AIFF, and lossless PCM WavPack. 0 for a lossy codec, which
+// or float WAV, AIFF, and lossless PCM WavPack. 1 for DSD, in a DSF or a
+// WavPack file. 0 for a lossy codec, which
 // has none, and for a hybrid WavPack file, which is lossless only with its
 // correction file.
 int bitsPerSampleFromTagLibFile(TagLib::File *file);
+// The file's sample rate, as a person would name it. For DSD, in a DSF or a
+// WavPack file, the DSD rate, such as 2,822,400 for DSD64: TagLib states a
+// WavPack file's as a byte's, an eighth of it. 0 when unknown.
+int VibeSampleRateFromTagLibFile(TagLib::File *file);
 // A hybrid PCM WavPack file's source bits per sample: what it decodes to with
 // its correction file. 0 for any other file. Whether that file is there is
 // the caller's to ask (media/Metadata asks audio/Decode).

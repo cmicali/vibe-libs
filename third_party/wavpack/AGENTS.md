@@ -11,7 +11,7 @@ Only the decoder: `include/wavpack.h`, and the ten `src/` files that decode, see
 The template searches `include/`, so callers include `<wavpack.h>`. Only `src/`'s C files join an app's project, as libvorbis's do. They build as the dr_ decoders do: `-O3` in every configuration, `-w`, and the static analyzer off. Two defines pick the build:
 
 - `NO_TAGS` leaves the ID3v1 and APEv2 reader out. TagLib reads a WavPack file's tags (`media/Tags`).
-- `ENABLE_DSD` keeps the DSD decode, and its decimation to PCM (`OPEN_DSD_AS_PCM`).
+- `ENABLE_DSD` keeps the DSD decode. `audio/Decode` opens DSD as bytes (`OPEN_DSD_NATIVE`) and converts them with its own filters, so libwavpack's decimation to PCM (`OPEN_DSD_AS_PCM`) is built but never runs.
 
 `ENABLE_THREADS` is off, so a decode never starts threads. Apple silicon has no assembly in the release, so the C decode is the one that runs.
 

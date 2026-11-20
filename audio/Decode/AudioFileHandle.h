@@ -48,11 +48,11 @@
 //  tells these containers and FLAC by the file's first bytes. A coding
 //  dr_wav lacks, such as GSM, is CoreAudio's.
 //
-//  A DSF file's DSD is converted to PCM by the handle's own filters, to
-//  float at 176.4 kHz, or 192 kHz in the 48 kHz family, whatever its DSD rate
-//  (docs/dsd-to-pcm.md). The facts are that PCM's. dsdSampleRate keeps the
-//  DSD rate. DSD in WavPack is libwavpack's, at an eighth of its DSD rate,
-//  and states no DSD rate here. A DSDIFF file (.dff) is refused.
+//  DSD, in a DSF or a WavPack file, is converted to PCM by the handle's own
+//  filters, to float at 176.4 kHz, or 192 kHz in the 48 kHz family, whatever
+//  its DSD rate (docs/dsd-to-pcm.md). The same DSD decodes to the same
+//  samples in either. The facts are that PCM's. dsdSampleRate keeps the DSD
+//  rate. A DSDIFF file (.dff) is refused.
 //
 //  A file a remote transfer is still writing from byte 0
 //  (CloudFileMaterializer's availabilityForURL:) is read from its part file

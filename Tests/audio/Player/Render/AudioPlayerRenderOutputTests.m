@@ -253,7 +253,8 @@
         XCTAssertEqualObjects(source[@"codec"], @"WavPack");
         if ([name isEqualToString:@"dsd.wv"]) {
             XCTAssertEqualObjects(source[@"dsdSampleRate"], @2822400);
-            XCTAssertEqualObjects(source[@"sampleRate"], @352800);
+            XCTAssertEqualObjects(source[@"sampleRate"], @176400);
+            XCTAssertTrue([source[@"lossless"] boolValue]);
             XCTAssertEqualObjects(source[@"decodedSampleFormat"], @"float32");
         } else {
             XCTAssertNil(source[@"dsdSampleRate"]);
