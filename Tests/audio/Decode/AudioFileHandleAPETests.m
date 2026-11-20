@@ -6,20 +6,21 @@
 //  damaged frame, an ID3v2 tag before the descriptor, and an image with its
 //  CUE sheet. The fixtures in APE/ are a signal this file computes
 //  (APEFixtureSample), encoded by the SDK's own encoder
-//  (make-ape-fixtures.py), so every sample is checked against the formula.
+//  (APE/make-fixtures.py), so every sample is checked against the formula.
 //
 
 #import <XCTest/XCTest.h>
 #import <AVFoundation/AVFoundation.h>
 #include <libkern/OSByteOrder.h>
 
+#import "AudioFileFixtures.h"
 #import "AudioFileHandle.h"
 #import "CueWindowMath.h"
 #import "VibePlaylistEntry.h"
 #import "VibePlaylistFile.h"
 #include "VibeAPEDecoder.h"
 
-// make-ape-fixtures.py's sample16: a triangle and two bits of hashed noise,
+// APE/make-fixtures.py's sample16: a triangle and two bits of hashed noise,
 // in [-8194, 8192].
 static int32_t APEFixtureSample(int64_t frame, uint32_t channel) {
     uint32_t phase = (uint32_t)((uint64_t)frame * (300 + 97 * channel)) & 0xFFFF;
@@ -55,9 +56,7 @@ static float APEFixtureFloat(int64_t frame, uint32_t channel, uint32_t bits) {
 }
 
 - (NSURL *)fixture:(NSString *)name {
-    NSURL *url = [[NSBundle bundleForClass:self.class] URLForResource:name withExtension:@"ape"];
-    XCTAssertNotNil(url, @"%@.ape is not in the bundle", name);
-    return url;
+    return VibeAPEFixture([name stringByAppendingPathExtension:@"ape"]);
 }
 
 - (AudioFileHandle *)open:(NSURL *)url {

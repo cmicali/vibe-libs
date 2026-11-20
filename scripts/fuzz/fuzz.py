@@ -41,9 +41,9 @@ def target(template, main, extension=None, seeds=None, dictionary=None):
 
 # Each target names its piece's template. The build takes the templates it lists.
 TARGETS = {}
-for ext in ["flac", "mp3", "m4a", "wav", "aiff", "ogg", "opus", "ape"]:
+for ext in ["flac", "mp3", "m4a", "wav", "aiff", "ogg", "opus", "wv", "ape"]:
     TARGETS[f"tags-{ext}"] = target("VibeLibsMetadata", "FuzzTags.mm", ext, f"tags-{ext}", "tags.dict")
-for ext in ["flac", "mp3", "wav", "aiff", "ogg", "ape"]:
+for ext in ["flac", "mp3", "wav", "aiff", "ogg", "wv", "ape"]:
     TARGETS[f"decode-{ext}"] = target("VibeLibsDecode", "FuzzDecode.m", ext, f"tags-{ext}", "tags.dict")
 TARGETS["cue"] = target("VibeLibsPlaylists", "FuzzCue.m", dictionary="cue.dict")
 TARGETS["m3u"] = target("VibeLibsPlaylists", "FuzzM3U.m", dictionary="m3u.dict")

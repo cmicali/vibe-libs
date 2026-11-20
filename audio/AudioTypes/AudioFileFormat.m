@@ -17,6 +17,7 @@ VibeAudioFileFormat const VibeAudioFileFormatW64 = @"W64";
 VibeAudioFileFormat const VibeAudioFileFormatCAF = @"CAF";
 VibeAudioFileFormat const VibeAudioFileFormatVorbis = @"Vorbis";
 VibeAudioFileFormat const VibeAudioFileFormatOpus = @"Opus";
+VibeAudioFileFormat const VibeAudioFileFormatWavPack = @"WavPack";
 VibeAudioFileFormat const VibeAudioFileFormatMonkeysAudio = @"Monkey's Audio";
 
 VibeAudioFileFormat _Nullable VibeAudioFileFormatForCodec(AudioFormatID codec) {
@@ -28,6 +29,7 @@ VibeAudioFileFormat _Nullable VibeAudioFileFormatForCodec(AudioFormatID codec) {
         case kAudioFormatAppleLossless: return VibeAudioFileFormatALAC;
         case kAudioFormatOpus:          return VibeAudioFileFormatOpus;
         case 'vorb':                    return VibeAudioFileFormatVorbis; // the SDK names no constant
+        case 'wvpk':                    return VibeAudioFileFormatWavPack; // nor here: AudioFileHandle's own
         case kVibeAudioFormatMonkeysAudio: return VibeAudioFileFormatMonkeysAudio;
         default:                        return nil;
     }

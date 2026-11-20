@@ -19,6 +19,7 @@
     XCTAssertEqualObjects(VibeAudioFileFormatForCodec(kAudioFormatAppleLossless), VibeAudioFileFormatALAC);
     XCTAssertEqualObjects(VibeAudioFileFormatForCodec(kAudioFormatOpus), VibeAudioFileFormatOpus);
     XCTAssertEqualObjects(VibeAudioFileFormatForCodec('vorb'), VibeAudioFileFormatVorbis);
+    XCTAssertEqualObjects(VibeAudioFileFormatForCodec('wvpk'), VibeAudioFileFormatWavPack);
 }
 
 // PCM's name is its container's.

@@ -12,6 +12,7 @@
 #import <AVFoundation/AVFoundation.h>
 
 #import "TagLibAudioFile.h"
+#import "AudioFileFixtures.h"
 
 #include <audioproperties.h>
 
@@ -133,12 +134,11 @@ static VibeAudioFileFormat Detected(NSURL *url) {
 // ID3v2 tag too, with its APEv2 tag's fields and its depth. The fixtures are
 // audio/Decode's, made by the SDK's encoder.
 - (void)testMonkeysAudioReadsItsAPETag {
-    NSBundle *bundle = [NSBundle bundleForClass:self.class];
     NSURL *tagged = [_dir URLByAppendingPathComponent:@"tagged.ape"];
     NSURL *prefixed = [_dir URLByAppendingPathComponent:@"id3v2-before.ape"];
-    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:[bundle URLForResource:@"tagged" withExtension:@"ape"]
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"tagged.ape")
                                                         toURL:tagged error:NULL]);
-    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:[bundle URLForResource:@"id3v2-before" withExtension:@"ape"]
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"id3v2-before.ape")
                                                         toURL:prefixed error:NULL]);
     NSURL *bare = [_dir URLByAppendingPathComponent:@"bare"];
     XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:tagged toURL:bare error:NULL]);
@@ -264,6 +264,46 @@ static NSString *Title(NSURL *url) {
                           @"Café");
     XCTAssertEqualObjects(Title([self writeWAVTitled:[@"Plain" dataUsingEncoding:NSUTF8StringEncoding]]),
                           @"Plain");
+}
+
+#pragma mark - WavPack
+
+// A WavPack file reads its APE tag, its kind, its depth, and its cover, by
+// its extension or by its content.
+- (void)testWavPackReadsItsAPETagDepthAndCover {
+    NSURL *named = VibeWavPackFixture(@"s16.wv");
+    NSURL *unnamed = [_dir URLByAppendingPathComponent:@"s16-as.m4a"];
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:named toURL:unnamed error:NULL]);
+    for (NSURL *url in @[named, unnamed]) {
+        TagLibAudioFile file(url.fileSystemRepresentation);
+        XCTAssertFalse(file.isNull(), @"%@", url.lastPathComponent);
+        if (file.isNull()) continue;
+        XCTAssertEqualObjects(fileTypeForTagLibFile(file.file()), VibeAudioFileFormatWavPack, @"%@", url.lastPathComponent);
+        XCTAssertEqual(bitsPerSampleFromTagLibFile(file.file()), 16, @"%@", url.lastPathComponent);
+        XCTAssertTrue(file.file()->tag()->title() == "Triangle", @"%@", url.lastPathComponent);
+        XCTAssertTrue(file.file()->tag()->artist() == "Vibe Tests", @"%@", url.lastPathComponent);
+        XCTAssertEqual(file.file()->tag()->track(), 3u, @"%@", url.lastPathComponent);
+        const std::vector<VibeEmbeddedPicture> pictures = VibeEmbeddedPictures(file.file());
+        XCTAssertEqual(pictures.size(), 1u, @"%@", url.lastPathComponent);
+        if (pictures.empty()) continue;
+        XCTAssertEqual(pictures[0].type, 3, @"the front cover");
+        XCTAssertTrue(pictures[0].data.startsWith(TagLib::ByteVector("\x89PNG", 4)), @"the picture's bytes, after its name");
+        NSData *art = albumArtDataFromTagLibFile(file.file());
+        XCTAssertEqual(art.length, (NSUInteger)pictures[0].data.size());
+    }
+}
+
+// A hybrid file plays its lossy half, and DSD plays decimated, so neither
+// states a PCM depth. A lossless float file states 32.
+- (void)testWavPackStatesADepthOnlyForLosslessPCM {
+    NSDictionary<NSString *, NSNumber *> *depths = @{@"hybrid.wv": @0, @"dsd.wv": @0, @"f32.wv": @32, @"s24.wv": @24, @"u8.wv": @8};
+    for (NSString *name in depths) {
+        TagLibAudioFile file(VibeWavPackFixture(name).fileSystemRepresentation);
+        XCTAssertFalse(file.isNull(), @"%@", name);
+        if (file.isNull()) continue;
+        XCTAssertEqualObjects(fileTypeForTagLibFile(file.file()), VibeAudioFileFormatWavPack, @"%@", name);
+        XCTAssertEqual(bitsPerSampleFromTagLibFile(file.file()), depths[name].intValue, @"%@", name);
+    }
 }
 
 @end

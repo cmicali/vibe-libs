@@ -4,9 +4,10 @@
 //
 //  The private header AudioFileHandle.m and its decodes share: dr_mp3's
 //  (AudioFileHandle+MPEG.m), dr_flac's, dr_wav's and libvorbis's
-//  (AudioFileHandle+Stream.m), and Monkey's Audio's (AudioFileHandle+APE.m).
-//  It holds the ivars the decodes read, the reads and waits they call, and
-//  the decodes' methods the core calls. Only those four files import it.
+//  (AudioFileHandle+Stream.m), libwavpack's (AudioFileHandle+WavPack.m), and
+//  Monkey's Audio's (AudioFileHandle+APE.m). It holds the ivars the decodes
+//  read, the reads and waits they call, and the decodes' methods the core
+//  calls. Only those five files import it.
 //
 
 #import "AudioFileHandle.h"
@@ -15,6 +16,11 @@
 #include "dr_flac/dr_flac.h"
 #include "dr_wav/dr_wav.h"
 #include <vorbis/vorbisfile.h>
+// TRAP: wavpack.h names a struct ChunkHeader, as CoreServices' AIFF.h does,
+// which Foundation brings in. So it takes another name here.
+#define ChunkHeader VibeWavPackChunkHeader
+#include <wavpack.h>
+#undef ChunkHeader
 #include "VibeAPEDecoder.h"
 
 #include <stdatomic.h>
@@ -28,6 +34,14 @@
 // track's detected tempo moves. The bound, +12 dBFS, sits well above any real
 // master's overs (this piece's AGENTS.md).
 static const float kVibeDecodeSampleBound = 4.0f;
+
+// The highest rate the handle's own decoders play: 768 kHz, the fastest an
+// output device runs. dr_wav.c raises dr_wav's limit to it, and must match.
+static const uint32_t kVibeDecodeMaxRate = 768000;
+
+// The format a lossy WavPack file states: a hybrid file without its correction
+// file, or DSD. The SDK names no constant (AudioFileFormat.m).
+static const AudioFormatID kVibeWavPackFormat = 'wvpk';
 
 // Small reads go through one block: the parser's under kVibeReadBlock, filling
 // all of it — Apple's Ogg reader asks for about 200 bytes at a time on Opus,
@@ -47,7 +61,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // goes, and read on any thread, hence the getter's atomic load.
     AVAudioFramePosition _length;
     AudioFileID _parser;
-    ExtAudioFileRef _codec; // NULL while dr_mp3, dr_flac, dr_wav, libvorbis or MACLib decodes
+    ExtAudioFileRef _codec; // NULL while dr_mp3, dr_flac, dr_wav, libvorbis, libwavpack or MACLib decodes
     // A file still streaming, or reading ahead: every read waits for its
     // bytes. Set by the open and fixed from then on. Nil for a whole file.
     CloudFileAvailability *_availability;
@@ -97,6 +111,16 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     SInt64 _vorbisPosition;
     SInt64 _streamCursor;
     BOOL _streamReadFailed; // a pread failed, which no stream decoder can tell from the end
+    // libwavpack's decode, at the same cursor: its context, the frame its
+    // next read delivers, counted here, and one unpack's samples.
+    WavpackContext *_wavpack;
+    SInt64 _wavpackPosition;
+    int32_t *_wavpackSamples;
+    float _wavpackScale; // an integer sample's to ±1, a power of two, or 0 for float bits
+    // Set by an interrupted read, a failed seek, or a decode that ended
+    // short: the next seek starts a fresh context, and reads return nothing
+    // until then.
+    BOOL _wavpackStale;
     // Monkey's Audio's decode (AudioFileHandle+APE.m), reading through
     // VibeStreamRead at _streamCursor. NULL while another decoder decodes.
     VibeAPEDecoder *_ape;
@@ -126,17 +150,43 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
 @interface AudioFileHandle (Stream)
 
 - (BOOL)openOwnDecoderInterleaved:(BOOL)interleaved;
+- (BOOL)keepStreamDecoderWithLength:(UInt64)length description:(AudioStreamBasicDescription)description
+                             layout:(AVAudioChannelLayout *)layout interleaved:(BOOL)interleaved;
 - (void)closeStreamDecoder;
+// Whether dr_flac, dr_wav, libvorbis, libwavpack, or Monkey's Audio has the file. A new
+// stream decoder joins here, and the core's seek and read follow.
+- (BOOL)hasStreamDecoder;
 - (BOOL)readStreamIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
 
 @end
 
+// AudioFileHandle+WavPack.m. The stream open calls the open, its close and
+// reads call the close and the reads, and the core's seek calls the seek.
+@interface AudioFileHandle (WavPack)
+
+- (BOOL)openWavPackInterleaved:(BOOL)interleaved;
+- (void)closeWavPack;
+- (BOOL)seekWavPackToFrame:(SInt64)frame;
+- (AVAudioFrameCount)readWavPackInto:(float *const *)planes frameCount:(AVAudioFrameCount)wanted;
+
+@end
+
+// AudioFileHandle+Stream.m's layout for a WAVE channel mask, which a WavPack
+// file's mask is too, and a Monkey's Audio file's source WAV's.
+AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels);
+// AudioFileHandle+Stream.m's PCM facts, as CoreAudio's parser states a WAV's:
+// a sample narrower than its bytes is high-aligned in them (20 bits in 3).
+// Fills the format, the flags, the width, and the sizes, for the channels
+// `description` already holds.
+void VibeDescribePCM(AudioStreamBasicDescription *description, UInt32 bits, UInt32 bytes, BOOL isFloat, BOOL isSigned,
+                     BOOL bigEndian);
+
 // AudioFileHandle+APE.m. The stream open calls the open when the file starts
-// with a Monkey's Audio descriptor, and the core calls the rest.
+// with a Monkey's Audio descriptor, and the stream reads call the reads.
 @interface AudioFileHandle (APE)
 
 - (BOOL)openAPEInterleaved:(BOOL)interleaved;
-- (BOOL)readAPEIntoBuffer:(AVAudioPCMBuffer *)buffer frameCount:(AVAudioFrameCount)wanted error:(NSError **)error;
+- (AVAudioFrameCount)readAPEInto:(float *const *)planes frameCount:(AVAudioFrameCount)wanted failed:(BOOL *)failed;
 
 @end
 
@@ -149,10 +199,6 @@ static inline AudioFormatFlags VibeLosslessDepthFlag(UInt32 depth) {
             : depth <= 24 ? kAppleLosslessFormatFlag_24BitSourceData : kAppleLosslessFormatFlag_32BitSourceData;
 }
 
-// AudioFileHandle+Stream.m's layout for a WAVE channel mask, which the APE
-// open shares.
-AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels);
-
 // AudioFileHandle.m's reads and waits, which the decode's open also uses.
 uint32_t VibeID3v2Syncsafe(const uint8_t bytes[4]);
 uint32_t VibeID3v2TagBytes(const uint8_t header[10]);
@@ -162,13 +208,14 @@ BOOL VibeHandleAwaitWhole(AudioFileHandle *handle, BOOL wait);
 ssize_t VibeHandleFetch(AudioFileHandle *handle, SInt64 position, SInt64 requested, void *buffer, size_t capacity);
 OSStatus VibeHandleRead(void *clientData, SInt64 position, UInt32 requestCount, void *buffer, UInt32 *actualCount);
 
-// AudioFileHandle.m's byte reads for dr_flac, dr_wav and vorbisfile. The
+// AudioFileHandle.m's byte reads for dr_flac, dr_wav, vorbisfile and libwavpack. The
 // stream opens pass them to the decoders. They stay beside the parser's
 // reads, because the block read they call on every read is static there.
 size_t VibeStreamRead(void *user, void *buffer, size_t count);
 drflac_bool32 VibeFLACSeek(void *user, int offset, drflac_seek_origin origin);
 drwav_bool32 VibeWAVSeek(void *user, int offset, drwav_seek_origin origin);
 drflac_bool32 VibeStreamTell(void *user, drflac_int64 *cursor);
+drflac_bool32 VibeStreamSeek(void *user, SInt64 offset, int origin);
 size_t VibeVorbisRead(void *buffer, size_t size, size_t count, void *user);
-int VibeVorbisSeek(void *user, ogg_int64_t offset, int whence);
+int VibeStreamSeekFrom(void *user, int64_t offset, int whence);
 long VibeVorbisTell(void *user);

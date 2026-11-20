@@ -19,6 +19,8 @@ Vibe moved TagLib 2.1.0 in-tree on 2026-07-13 (this repo's `19912617`). Vibe's h
 
 On 2026-10-03, `5341fe88` replaced the files with 2.3.2's and re-applied the same edits. Its commit message names the release. It does not name an upstream commit. The byte-for-byte match above ties the files to tag `v2.3.2`.
 
+On 2026-11-20, the subset gained `wavpack/`'s four files from the same tag, unchanged, for WavPack's tags and properties. Upstream's later fixes to them, `f4117f8` and `cf86f20` among them, are already in that tag.
+
 ## Changes to TagLib's own files
 
 | Date | Files | Change |

@@ -237,12 +237,12 @@ static NSData *VibeXingVBR(void) {
     add([VibeMP3WithInfoFrame(400, NO) writeToURL:mp3 atomically:YES] ? mp3 : nil, @"dr_mp3");
     NSURL *xing = [self sourceNamed:@"xing.mp3"];
     add([VibeXingVBR() writeToURL:xing atomically:YES] ? xing : nil, @"dr_mp3");
-    // Three and a half of the file's frames, made by the SDK's encoder
-    // (make-ape-fixtures.py).
-    NSURL *ape = [self sourceNamed:@"long.ape"];
-    NSData *apeBytes = [NSData dataWithContentsOfURL:[[NSBundle bundleForClass:AudioFileHandleStreamingTestCase.class]
-                                                      URLForResource:@"long" withExtension:@"ape"]];
-    add([apeBytes writeToURL:ape atomically:YES] ? ape : nil, @"MACLib");
+    // No tool here encodes WavPack, so its fixture is the one kept beside these tests.
+    add([NSFileManager.defaultManager copyItemAtURL:VibeWavPackFixture(@"s24.wv") toURL:[self sourceNamed:@"s24.wv"] error:NULL]
+            ? [self sourceNamed:@"s24.wv"] : nil, @"libwavpack");
+    // Three and a half of Monkey's Audio's frames, made by the SDK's encoder.
+    add([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"long.ape") toURL:[self sourceNamed:@"long.ape"] error:NULL]
+            ? [self sourceNamed:@"long.ape"] : nil, @"MACLib");
     return fixtures;
 }
 

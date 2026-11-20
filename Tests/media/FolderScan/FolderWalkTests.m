@@ -155,11 +155,11 @@
     XCTAssertEqualObjects(supported, ([NSSet setWithArray:@[@"mp2", @"mp3", @"aac", @"adts", @"aif", @"aiff",
                                                             @"wav", @"wave", @"bwf", @"w64", @"flac", @"ape", @"caf",
                                                             @"m4a", @"mp4", @"qta", @"m4b", @"m4r",
-                                                            @"ogg", @"oga", @"opus"]]));
+                                                            @"ogg", @"oga", @"opus", @"aifc", @"afc", @"wv"]]));
     NSArray<NSString *> *ordered = PlayableExtensions.ordered;
     XCTAssertEqualObjects([NSSet setWithArray:ordered], supported);
     XCTAssertEqual(ordered.count, supported.count);
-    for (NSString *rejected in @[@"tta", @"wv", @"m3u", @"m3u8", @"cue", @"aifc", @"txt", @""]) {
+    for (NSString *rejected in @[@"tta", @"wvc", @"m3u", @"m3u8", @"cue", @"txt", @""]) {
         XCTAssertFalse([supported containsObject:rejected], @"%@", rejected);
     }
 }

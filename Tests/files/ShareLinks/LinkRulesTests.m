@@ -296,6 +296,7 @@ static const uint8_t kFLAC[] = {'f', 'L', 'a', 'C', 0, 0, 0, 34};
     const uint8_t aifc[] = {'F', 'O', 'R', 'M', 1, 2, 3, 4, 'A', 'I', 'F', 'C'};
     const uint8_t caf[] = {'c', 'a', 'f', 'f', 0, 1, 0, 0};
     const uint8_t qt[] = {0, 0, 0, 0x14, 'f', 't', 'y', 'p', 'q', 't', ' ', ' '};
+    const uint8_t wavpack[] = {'w', 'v', 'p', 'k', 0x2C, 0x10, 0, 0};
 
     NSDictionary<NSData *, NSString *> *cases = @{
         Bytes(kID3, sizeof kID3): @"mp3",
@@ -317,6 +318,7 @@ static const uint8_t kFLAC[] = {'f', 'L', 'a', 'C', 0, 0, 0, 34};
         Bytes(kFtyp, sizeof kFtyp): @"m4a",
         Bytes(qt, sizeof qt): @"m4a",
         Bytes(caf, sizeof caf): @"caf",
+        Bytes(wavpack, sizeof wavpack): @"wv",
     };
     [cases enumerateKeysAndObjectsUsingBlock:^(NSData *head, NSString *expected, BOOL *stop) {
         NSSet *family = nil;
@@ -464,6 +466,7 @@ static const uint8_t kFLAC[] = {'f', 'L', 'a', 'C', 0, 0, 0, 34};
         @"audio/wav": @"wav", @"audio/x-wav": @"wav", @"audio/wave": @"wav", @"audio/vnd.wave": @"wav",
         @"audio/aiff": @"aiff", @"audio/x-aiff": @"aiff",
         @"audio/ogg": @"ogg", @"audio/opus": @"opus",
+        @"audio/wavpack": @"wv", @"audio/x-wavpack": @"wv",
         @"AUDIO/MPEG": @"mp3", @" audio/flac ; charset=binary": @"flac", @"audio/ogg; codecs=opus": @"ogg",
     };
     [map enumerateKeysAndObjectsUsingBlock:^(NSString *type, NSString *extension, BOOL *stop) {

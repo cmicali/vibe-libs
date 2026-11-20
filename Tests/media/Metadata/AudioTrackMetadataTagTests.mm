@@ -14,6 +14,7 @@
 #import <XCTest/XCTest.h>
 
 #import "ArchivedArtShare.h"
+#import "AudioFileFixtures.h"
 #import "AudioFileHandle.h"
 #import "AudioTrackMetadataInternal.h"
 #import "AudioTrackMetadataTagFixtures.h"
@@ -328,9 +329,7 @@ static const NSTimeInterval kMP3Duration = 38 * 1152 / 44100.0;
 // made by the SDK's encoder.
 - (void)testMonkeysAudioWithAnAPETag {
     NSURL *url = [_dir URLByAppendingPathComponent:@"tagged.ape"];
-    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:[[NSBundle bundleForClass:self.class]
-                                                                  URLForResource:@"tagged" withExtension:@"ape"]
-                                                        toURL:url error:NULL]);
+    XCTAssertTrue([NSFileManager.defaultManager copyItemAtURL:VibeAPEFixture(@"tagged.ape") toURL:url error:NULL]);
     AudioTrackMetadata *metadata = Parse(url, NULL);
     XCTAssertEqualObjects(metadata.fileType, VibeAudioFileFormatMonkeysAudio);
     XCTAssertTrue(metadata.lossless);

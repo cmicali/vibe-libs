@@ -201,7 +201,7 @@ static inline NSString *_Nullable VibeLinkExtensionOfMagic(NSData *head,
     } else if (n >= 12 && memcmp(b, "FORM", 4) == 0
                && (memcmp(b + 8, "AIFF", 4) == 0 || memcmp(b + 8, "AIFC", 4) == 0)) {
         extension = @"aiff";
-        members = @[@"aiff", @"aif"];
+        members = @[@"aiff", @"aif", @"aifc", @"afc"];
     } else if (n >= 4 && memcmp(b, "OggS", 4) == 0) {
         // Opus and Vorbis share the container. The head is too short to tell
         // them apart. The link's own extension decides.
@@ -213,6 +213,9 @@ static inline NSString *_Nullable VibeLinkExtensionOfMagic(NSData *head,
     } else if (n >= 4 && memcmp(b, "caff", 4) == 0) {
         extension = @"caf";
         members = @[@"caf"];
+    } else if (n >= 4 && memcmp(b, "wvpk", 4) == 0) {
+        extension = @"wv";
+        members = @[@"wv"];
     }
     if (family != NULL) *family = members != nil ? [NSSet setWithArray:members] : nil;
     return extension;
@@ -235,6 +238,7 @@ static inline NSString *_Nullable VibeLinkExtensionOfContentType(NSString *_Null
             @"audio/wav": @"wav", @"audio/x-wav": @"wav", @"audio/wave": @"wav", @"audio/vnd.wave": @"wav",
             @"audio/aiff": @"aiff", @"audio/x-aiff": @"aiff",
             @"audio/ogg": @"ogg", @"audio/opus": @"opus",
+            @"audio/wavpack": @"wv", @"audio/x-wavpack": @"wv",
         };
     });
     return map[type];

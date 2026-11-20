@@ -1,5 +1,5 @@
 #!/usr/bin/env python3 -I
-"""Writes the Monkey's Audio fixtures in Tests/audio/Decode/APE.
+"""Writes the Monkey's Audio fixtures in this folder, Tests/audio/Decode/APE.
 
 Each is the signal APEFixtureSample() in AudioFileHandleAPETests.m computes,
 a triangle and a little hashed noise, made with integer math only, so the
@@ -7,7 +7,7 @@ tests rebuild every sample and compare the decode bit for bit. None is anyone's
 recording. The SDK's own `mac` encoder compresses each source: build it from
 the SDK (third_party/monkeys_audio/AGENTS.md says how) and pass its path.
 
-    python3 -I Tests/audio/Decode/make-ape-fixtures.py /path/to/mac
+    python3 -I Tests/audio/Decode/APE/make-fixtures.py /path/to/mac
 
 Re-run it only to change the fixtures, then commit them.
 """
@@ -19,7 +19,7 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(HERE, "APE")
+OUT = HERE
 
 
 def sample16(n, c):
@@ -123,7 +123,7 @@ def main():
     id3 = b"ID3\x04\x00\x00\x00\x00\x00\x0a" + b"\x00" * 10
     with open(os.path.join(OUT, "id3v2-before.ape"), "wb") as f:
         f.write(id3 + tagged)
-    for name in sorted(os.listdir(OUT)):
+    for name in sorted(n for n in os.listdir(OUT) if n.endswith(".ape")):
         print(f"{os.path.getsize(os.path.join(OUT, name)):8d}  {name}")
 
 

@@ -416,7 +416,7 @@ targets:
       excludedPlatform: iOS
     sources:
       - path: Tests/audio/Decode
-        excludes: ["**/*.md", "**/*.py"]
+        excludes: ["**/*.md", "WavPack/**", "APE/**"]
       - path: Tests/Support/VibeReadAheadScript.m
     settings:
       base:
@@ -490,7 +490,6 @@ targets:
     sources:
       - path: Tests/media/Tags
         excludes: ["**/*.md"]
-      - path: Tests/audio/Decode/APE
     dependencies:
       - sdk: AVFoundation.framework
       - sdk: CoreGraphics.framework
@@ -527,7 +526,6 @@ targets:
     sources:
       - path: Tests/media/Metadata
         excludes: ["**/*.md"]
-      - path: Tests/audio/Decode/APE
     dependencies:
       - sdk: AVFoundation.framework
     settings:
@@ -1070,6 +1068,22 @@ targets:
     platform: iOS
     templates: [VibeLibsVorbis]
 
+  WavpackTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsWavpack]
+    sources:
+      - path: Tests/third_party/wavpack
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  Wavpack-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsWavpack]
+
   MonkeysAudioTests:
     type: bundle.unit-test
     platform: macOS
@@ -1179,6 +1193,8 @@ schemes:
         Ogg-iOS: all
         VorbisTests: [test]
         Vorbis-iOS: all
+        WavpackTests: [test]
+        Wavpack-iOS: all
         MonkeysAudioTests: [test]
         MonkeysAudio-iOS: all
         SparkleTests: [test]
@@ -1190,4 +1206,4 @@ schemes:
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
                 SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, DebugVerbsTests,
                 TaglibTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
-                OggTests, VorbisTests, SparkleTests, MonkeysAudioTests]
+                OggTests, VorbisTests, SparkleTests, WavpackTests, MonkeysAudioTests]

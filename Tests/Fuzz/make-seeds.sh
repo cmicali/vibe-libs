@@ -36,7 +36,7 @@ tags=(-metadata title="Fuzz Tone" -metadata artist="Seed Artist" -metadata album
 with_cover() { ff -i "$1" -i "$work/cover.$2" -map 0:a -map 1:v -c:v copy -disposition:v attached_pic "${@:4}" "$3"; }
 
 rm -rf "$seeds"
-mkdir -p "$seeds"/{tags-flac,tags-mp3,tags-m4a,tags-wav,tags-aiff,tags-ogg,tags-opus,tags-ape,flac-cue,cue,m3u,art}
+mkdir -p "$seeds"/{tags-flac,tags-mp3,tags-m4a,tags-wav,tags-aiff,tags-ogg,tags-opus,tags-wv,tags-ape,flac-cue,cue,m3u,art}
 
 # FLAC: plain, tagged, with a picture, with a sheet as a comment, and with a
 # binary CUESHEET block, which metaflac takes only for a 44.1 kHz stream.
@@ -76,6 +76,12 @@ ff -i "$work/tone-8000.wav" -c:a pcm_s16be "$seeds/tags-aiff/plain.aiff"
 ff -i "$work/tone-8000.wav" "${tags[@]}" -c:a vorbis -strict -2 -ac 2 "$seeds/tags-ogg/vorbis.ogg"
 ff -i "$work/tone-48000.wav" "${tags[@]}" -c:a libopus -b:a 8k "$seeds/tags-opus/tagged.opus"
 cp "$seeds/tags-opus/tagged.opus" "$seeds/tags-ogg/opus.ogg"
+
+# WavPack: plain, and tagged with APEv2. ffmpeg writes no cover, so a cover's
+# seed is audio/Decode's fixture, which the wavpack tool made.
+ff -i "$work/tone-8000.wav" -c:a wavpack "$seeds/tags-wv/plain.wv"
+ff -i "$work/tone-8000.wav" "${tags[@]}" -c:a wavpack "$seeds/tags-wv/tagged.wv"
+cp "$here/../audio/Decode/WavPack/s16.wv" "$seeds/tags-wv/cover.wv"
 
 # Monkey's Audio: tagged at Normal, and at Extra High behind an ID3v2 tag,
 # which the SDK and TagLib both skip.

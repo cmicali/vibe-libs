@@ -47,6 +47,9 @@
     if (got >= 4 && memcmp(head, "OggS", 4) == 0) {
         return [self openVorbisInterleaved:interleaved];
     }
+    if (got >= 4 && memcmp(head, "wvpk", 4) == 0) {
+        return [self openWavPackInterleaved:interleaved];
+    }
     if (got >= 4 && (memcmp(head, "MAC ", 4) == 0 || memcmp(head, "MACF", 4) == 0)) {
         return [self openAPEInterleaved:interleaved];
     }
@@ -109,6 +112,17 @@ AVAudioChannelLayout *VibeMaskLayout(UInt32 mask, UInt32 channels) {
     return [self keepStreamDecoderWithLength:_flac->totalPCMFrameCount description:description layout:layout interleaved:interleaved];
 }
 
+void VibeDescribePCM(AudioStreamBasicDescription *description, UInt32 bits, UInt32 bytes, BOOL isFloat, BOOL isSigned,
+                     BOOL bigEndian) {
+    description->mFormatID = kAudioFormatLinearPCM;
+    description->mFormatFlags = (bits < bytes * 8 ? kAudioFormatFlagIsAlignedHigh : kAudioFormatFlagIsPacked)
+            | (isFloat ? kAudioFormatFlagIsFloat : 0) | (isSigned ? kAudioFormatFlagIsSignedInteger : 0)
+            | (bigEndian ? kAudioFormatFlagIsBigEndian : 0);
+    description->mBitsPerChannel = bits;
+    description->mBytesPerFrame = description->mBytesPerPacket = bytes * description->mChannelsPerFrame;
+    description->mFramesPerPacket = 1;
+}
+
 // Microsoft's ADPCM as CoreAudio names it. The SDK names no constant.
 static const AudioFormatID kVibeMicrosoftADPCMFormat = 0x6D730002;
 
@@ -169,12 +183,7 @@ static AudioStreamBasicDescription VibeWAVDescription(const drwav *wav, UInt16 a
             UInt32 bytes = (wav->bitsPerSample + 7) / 8;
             UInt32 stated = aiff ? ((aiffSampleSize + 7u) / 8 == bytes ? aiffSampleSize : 0) : wav->fmt.validBitsPerSample;
             UInt32 bits = !isFloat && stated > 0 && stated < wav->bitsPerSample ? stated : wav->bitsPerSample;
-            description.mFormatID = kAudioFormatLinearPCM;
-            description.mFormatFlags = (bits < bytes * 8 ? kAudioFormatFlagIsAlignedHigh : kAudioFormatFlagIsPacked)
-                    | (isFloat ? kAudioFormatFlagIsFloat : 0) | (isSigned ? kAudioFormatFlagIsSignedInteger : 0)
-                    | (aiff && !wav->aiff.isLE ? kAudioFormatFlagIsBigEndian : 0);
-            description.mBitsPerChannel = bits;
-            description.mBytesPerFrame = description.mBytesPerPacket = bytes * channels;
+            VibeDescribePCM(&description, bits, bytes, isFloat, isSigned, aiff && !wav->aiff.isLE);
             break;
         }
         default:
@@ -280,7 +289,7 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
 // encoder's padding too.
 - (BOOL)openVorbisInterleaved:(BOOL)interleaved {
     _vorbis = calloc(1, sizeof(OggVorbis_File));
-    ov_callbacks callbacks = { VibeVorbisRead, VibeVorbisSeek, NULL, VibeVorbisTell };
+    ov_callbacks callbacks = { VibeVorbisRead, VibeStreamSeekFrom, NULL, VibeVorbisTell };
     if (!_vorbis || ov_open_callbacks((__bridge void *)self, _vorbis, NULL, 0, callbacks) != 0) {
         [self closeStreamDecoder]; // a failed open has cleared it, and clearing again is safe
         return NO;
@@ -310,6 +319,10 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
                                       layout:VibeVorbisChannelLayout(description.mChannelsPerFrame) interleaved:interleaved];
 }
 
+- (BOOL)hasStreamDecoder {
+    return _flac || _wav || _vorbis || _wavpack || _ape;
+}
+
 - (void)closeStreamDecoder {
     drflac_close(_flac);
     _flac = NULL;
@@ -322,6 +335,7 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
         free(_vorbis);
         _vorbis = NULL;
     }
+    [self closeWavPack];
     // Off this thread: the close joins the SDK's worker, and a handle's last
     // release can land where main waits (audio/Decode/AGENTS.md).
     VibeAPEDecoderCloseLater(_ape);
@@ -374,6 +388,10 @@ static AVAudioChannelLayout *VibeVorbisChannelLayout(UInt32 channels) {
     BOOL failed = NO;
     if (_vorbis) {
         got = [self readVorbisInto:planes frameCount:(AVAudioFrameCount)frames failed:&failed];
+    } else if (_wavpack) {
+        got = [self readWavPackInto:planes frameCount:(AVAudioFrameCount)frames];
+    } else if (_ape) {
+        got = [self readAPEInto:planes frameCount:(AVAudioFrameCount)frames failed:&failed];
     } else if (!_processingFormat.isInterleaved) {
         got = _flac ? drflac_read_pcm_frames_f32_planar(_flac, frames, planes) : drwav_read_pcm_frames_f32_planar(_wav, frames, planes);
     } else {

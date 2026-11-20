@@ -85,7 +85,7 @@ A loader snapshots `AudioLoadingConfiguration`, so a settings change reaches onl
 
 **One parse per standardized path** (`VibeStandardizedAudioOpenPath`, the spelling every loader identity uses). `MetadataParseCoordinator` holds duplicate rows weakly as waiters. The owner rechecks the disk cache after claiming, since another lane may have won. Its answer is copied into every unresolved waiter while the holder still gates new owners, and the last empty drain releases the claim before publication. Each copy has its own artwork state.
 
-**A file TagLib has no parser for takes its facts from CoreAudio's**: CAF and W64 among the playable ones, and any file TagLib refuses that CoreAudio reads. Those are duration, rate, bitrate, the codec or container name, and the info dictionary's title and artist, with no art. It parses OK, caches, and the folder's cover can stand in (`loadCoreAudioFactsFromURL:`). It reads them through `AudioFileHandle`'s `initParserForReading:`, CoreAudio's parser with no decoder. **TRAP: the handle closes its parser when it is released, so its lifetime is pinned to the read's scope.** ARC may release it right after its last message. The verdict is CoreAudio's. Playback opens FLAC, WAV, W64, RF64, AIFF, Ogg Vorbis and MPEG with `audio/Decode`'s own decoders. It can disagree with CoreAudio on those.
+**A file TagLib has no parser for takes its facts from CoreAudio's**: CAF and W64 among the playable ones, and any file TagLib refuses that CoreAudio reads. CoreAudio has no WavPack reader, so a `.wv` TagLib refuses fails its parse, though `audio/Decode`'s libwavpack may still play it. Those are duration, rate, bitrate, the codec or container name, and the info dictionary's title and artist, with no art. It parses OK, caches, and the folder's cover can stand in (`loadCoreAudioFactsFromURL:`). It reads them through `AudioFileHandle`'s `initParserForReading:`, CoreAudio's parser with no decoder. **TRAP: the handle closes its parser when it is released, so its lifetime is pinned to the read's scope.** ARC may release it right after its last message. The verdict is CoreAudio's. Playback opens FLAC, WAV, W64, RF64, AIFF, Ogg Vorbis and MPEG with `audio/Decode`'s own decoders. It can disagree with CoreAudio on those.
 
 **TRAP: a CAF's info chunk and an MP4's item list are checked before CoreAudio reads them.** CoreAudio's CAF info parser loops without end on a forged entry count, and the hang holds a metadata worker forever. Its MP4 reader sizes an item's copy from the item's claim, so a small file can make it allocate gigabytes. `loadCoreAudioFactsFromURL:` reads the info dictionary only when the handle's `infoDictionaryReadable` says so (`audio/Decode/AGENTS.md`). The format facts still come from CoreAudio.
 
@@ -103,7 +103,7 @@ A loader snapshots `AudioLoadingConfiguration`, so a settings change reaches onl
 
 **The parse reads them from the property map it builds once for the tempo and the key.** TagLib turns each format's frame or atom into one key, and its keys ignore case. So one lookup serves every format. These are the names each format's tag carries:
 
-| Field | ID3v2: MP3, WAV, AIFF | MP4: AAC, ALAC, FLAC | Xiph comment: FLAC, Vorbis, Opus | APE: on MP3, and Monkey's Audio's own | RIFF INFO | ID3v1 |
+| Field | ID3v2: MP3, WAV, AIFF | MP4: AAC, ALAC, FLAC | Xiph comment: FLAC, Vorbis, Opus | APEv2: MP3, WavPack, Monkey's Audio | RIFF INFO | ID3v1 |
 | --- | --- | --- | --- | --- | --- | --- |
 | album | `TALB` | `©alb` | `ALBUM` | `Album` | `IPRD` | album |
 | album artist | `TPE2` | `aART` | `ALBUMARTIST` | `Album Artist` | | |
@@ -140,7 +140,7 @@ Opus defines the R128 gains. The parse reads them from any Xiph comment, since t
 
 **FLAC's audio MD5 comes from STREAMINFO**, through the wrapper's `audioMD5FromTagLibFile`. It is the MD5 of the decoded samples, so a retag never changes it. An encoder that computed none writes zeros, which read as nil.
 
-**The bit depth comes from the stream, through the wrapper's `bitsPerSampleFromTagLibFile`**: FLAC, ALAC or FLAC in MP4, PCM or float WAV, and AIFF. CoreAudio's facts give it for PCM, and for ALAC by its flags. A lossy codec has none, so it reads 0, though an AAC sample entry names 16 bits.
+**The bit depth comes from the stream, through the wrapper's `bitsPerSampleFromTagLibFile`**: FLAC, ALAC or FLAC in MP4, PCM or float WAV, AIFF, and lossless PCM WavPack. A hybrid WavPack file and WavPack DSD read 0, and so as not lossless. CoreAudio's facts give it for PCM, and for ALAC by its flags. A lossy codec has none, so it reads 0, though an AAC sample entry names 16 bits.
 
 **CoreAudio's facts carry none of the fields.** A CAF or a W64 reads its title and artist from the info dictionary, and no other tag.
 

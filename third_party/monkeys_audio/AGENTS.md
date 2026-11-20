@@ -70,7 +70,7 @@ xcrun clang++ -std=c++11 -O2 -DPLATFORM_APPLE -w -I Source/MACLib -I Source/Shar
     Source/MACLib/*.cpp Source/MACLib/Old/*.cpp Source/MACDll/MACDll.cpp Source/Shared/{BufferIO,CharacterHelper,CircleBuffer,CPUFeatures,CRC,GlobalFunctions,MemoryIO,Semaphore,Thread,WholeFileIO,StdLibFileIO}.cpp -o mac
 ```
 
-`Tests/audio/Decode/make-ape-fixtures.py` and `Tests/Fuzz/make-seeds.sh` take its path.
+`Tests/audio/Decode/APE/make-fixtures.py` and `Tests/Fuzz/make-seeds.sh` take its path.
 
 ## Updating
 
