@@ -129,7 +129,7 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file);
 // none (media/Tags/AGENTS.md, Ratings).
 NSDictionary<VibeTagField, NSString *> *_Nullable VibeTagRatingFields(TagLib::File *file,
                                                                       const TagLib::PropertyMap &properties);
-// The ID3v2 tag of an MPEG, WAV, or AIFF file, or null for none.
+// The ID3v2 tag of an MPEG, WAV, AIFF, or DSF file, or null for none.
 TagLib::ID3v2::Tag *_Nullable VibeID3v2TagOfFile(TagLib::File *file);
 
 // The embedded art's bytes, read without audio properties. NO is a failed

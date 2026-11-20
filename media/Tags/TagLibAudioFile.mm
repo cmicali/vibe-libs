@@ -619,9 +619,6 @@ std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file) {
     else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
         ListAPE(ape->hasAPETag() ? ape->APETag(false) : nullptr, &pictures);
     }
-    else if (auto dsf = dynamic_cast<TagLib::DSF::File *>(file)) {
-        ListID3v2(dsf->tag(), &pictures);
-    }
     return pictures;
 }
 
@@ -634,6 +631,9 @@ TagLib::ID3v2::Tag *_Nullable VibeID3v2TagOfFile(TagLib::File *file) {
     }
     if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
         return wav->hasID3v2Tag() ? wav->ID3v2Tag() : nullptr;
+    }
+    if (auto dsf = dynamic_cast<TagLib::DSF::File *>(file)) {
+        return dsf->tag();
     }
     return nullptr;
 }
