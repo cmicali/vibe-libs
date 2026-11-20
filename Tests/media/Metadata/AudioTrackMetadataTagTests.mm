@@ -1096,6 +1096,9 @@ static NSURL *EncodeLossless(NSURL *url, AudioFormatID codec, NSInteger depth) {
     }
     XCTAssertEqualObjects(Parse(VibeWavPackFixture(@"dsd.wv"), NULL).sampleRate, @2822400);
     XCTAssertEqualObjects(Parse(VibeWavPackFixture(@"dsd128-48k.wv"), NULL).sampleRate, @6144000);
+    AudioTrackMetadata *hybrid = Parse(VibeWavPackFixture(@"dsd-hybrid.wv"), NULL);
+    XCTAssertFalse(hybrid.isLossless, @"a DSD file that says hybrid, which audio/Decode refuses");
+    XCTAssertEqual(hybrid.bitDepth, 0);
 }
 
 // A DSF: its ID3v2 tag, its kind, and the DSD rate, which the parse keeps

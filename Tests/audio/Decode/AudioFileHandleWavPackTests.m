@@ -157,7 +157,7 @@ static NSData *VibeDecodeRange(AudioFileHandle *handle, AVAudioFramePosition fro
 // and across many blocks, both ways. Past the end, it lands at the end, and
 // reads nothing.
 - (void)testSeeksLandExactly {
-    for (NSString *name in @[@"s16.wv", @"surround.wv", @"dsd.wv", @"hybrid.wv"]) {
+    for (NSString *name in @[@"s16.wv", @"surround.wv", @"hybrid.wv"]) {
         AudioFileHandle *handle = [self open:VibeWavPackFixture(name) interleaved:YES];
         NSMutableData *whole = [NSMutableData data];
         XCTAssertTrue(VibeReadToEnd(handle, whole, NULL), @"%@", name);
@@ -414,21 +414,6 @@ static NSArray<NSString *> *VibeDSDFixtures(void) {
     XCTAssertEqual(family48.fileFormat.channelCount, 1u);
 }
 
-// The level is a DSF's, with no gain: the fixtures' sine at half scale, 0 dB
-// SACD, peaks near 0.5, -6 dBFS.
-- (void)testDSDKeepsItsLevel {
-    AudioFileHandle *handle = [self open:VibeWavPackFixture(@"dsd.wv") interleaved:YES];
-    NSMutableData *pcm = [NSMutableData data];
-    XCTAssertTrue(VibeReadToEnd(handle, pcm, NULL));
-    const float *samples = pcm.bytes;
-    float peak = 0;
-    for (NSUInteger i = pcm.length / sizeof(float) / 4; i < pcm.length / sizeof(float); i++) {
-        peak = MAX(peak, fabsf(samples[i]));
-    }
-    XCTAssertGreaterThan(peak, 0.45f);
-    XCTAssertLessThan(peak, 0.55f);
-}
-
 // A seek primes the converter as a DSF's does, so a seek's output equals a
 // read's from the start, sample for sample, at every frame, the first ones
 // included, and across libwavpack's blocks both ways.
@@ -528,6 +513,47 @@ static NSArray<NSString *> *VibeDSDFixtures(void) {
     XCTAssertEqualObjects([pcm subdataWithRange:NSMakeRange(2048 * frameBytes, 1024 * frameBytes)], silence);
     XCTAssertEqualObjects([pcm subdataWithRange:NSMakeRange(3072 * frameBytes, pcm.length - 3072 * frameBytes)],
                           [expected subdataWithRange:NSMakeRange(3072 * frameBytes, pcm.length - 3072 * frameBytes)]);
+}
+
+// A source DSF whose sample count is not a multiple of 8: WavPack's encoder
+// drops the last byte's few samples, with a warning, where the DSF keeps them
+// and reads its padding as silence. So the two have the same length, and
+// only the last frames, whose filters reach that byte, differ, by those
+// samples' share alone.
+- (void)testADSFsLastPartByteIsDroppedInWavPack {
+    NSData *wv = VibeDecodeFile(VibeWavPackFixture(@"dsd-odd.wv"));
+    NSData *dsf = VibeDecodeFile(VibeWavPackFixture(@"dsd-odd.dsf"));
+    XCTAssertEqual(wv.length, dsf.length);
+    XCTAssertEqual(wv.length, 141123 / 16 * 2 * sizeof(float));
+    NSUInteger same = wv.length - 27 * 2 * sizeof(float);
+    XCTAssertEqualObjects([wv subdataWithRange:NSMakeRange(0, same)], [dsf subdataWithRange:NSMakeRange(0, same)]);
+    const float *a = wv.bytes, *b = dsf.bytes;
+    float most = 0;
+    for (NSUInteger i = same / sizeof(float); i < wv.length / sizeof(float); i++) {
+        most = MAX(most, fabsf(a[i] - b[i]));
+    }
+    XCTAssertGreaterThan(most, 0);
+    XCTAssertLessThan(most, 0.05f); // 0.023, -33 dBFS, for the fixture's 3 samples
+}
+
+// DSD is told by its blocks' DSD flag, as libwavpack decodes it, not by the
+// source's bit order in the config, which damage can clear. Without it, the
+// file still plays as DSD, the same samples.
+- (void)testDSDWithoutItsBitOrderStillPlaysAsDSD {
+    AudioFileHandle *handle = [self open:VibeWavPackFixture(@"dsd-no-qmode.wv") interleaved:YES];
+    XCTAssertEqual(handle.dsdSampleRate, 2822400);
+    XCTAssertEqualObjects(VibeDecodeFile(VibeWavPackFixture(@"dsd-no-qmode.wv")), VibeDecodeFile(VibeWavPackFixture(@"dsd.wv")));
+}
+
+// WavPack's encoder has no hybrid DSD, so a DSD file that says hybrid is
+// damaged, and refused (recommended, open to change). It never looks for a
+// correction file, even one beside it.
+- (void)testAHybridDSDFileIsRefused {
+    NSURL *url = [self.scratch URLByAppendingPathComponent:@"dsd-hybrid.wv"];
+    XCTAssertTrue([[NSData dataWithContentsOfURL:VibeWavPackFixture(@"dsd-hybrid.wv")] writeToURL:url atomically:YES]);
+    XCTAssertTrue([[NSData dataWithContentsOfURL:VibeWavPackFixture(@"hybrid.wvc")]
+                   writeToURL:[self.scratch URLByAppendingPathComponent:@"dsd-hybrid.wvc"] atomically:YES]);
+    XCTAssertNil([[AudioFileHandle alloc] initForReading:url error:NULL]);
 }
 
 // A DSD file cut short opens on its stated length, as a PCM one does, and

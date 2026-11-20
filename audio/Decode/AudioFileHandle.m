@@ -146,6 +146,10 @@ NSError *VibeHandleError(OSStatus status, NSString *description) {
                            userInfo:@{NSLocalizedDescriptionKey: description}];
 }
 
+NSError *VibeSeekError(NSURL *url, OSStatus status) {
+    return VibeHandleError(status, [NSString stringWithFormat:@"Seeking %@ failed (%d)", url.lastPathComponent, (int)status]);
+}
+
 static NSError *VibeInterruptedError(NSURL *url) {
     return VibeHandleError(kVibeReadInterrupted, [NSString stringWithFormat:@"Reading %@ was interrupted", url.lastPathComponent]);
 }
@@ -1137,7 +1141,7 @@ static BOOL VibeMP4ItemsInside(void *context, uint64_t fileSize) {
         status = !_codec || _writing ? kAudio_ParamError : ExtAudioFileSeek(_codec, MAX(0, frame));
     }
     if (status != noErr && !_waitError && error) {
-        *error = VibeHandleError(status, [NSString stringWithFormat:@"Seeking %@ failed (%d)", _url.lastPathComponent, (int)status]);
+        *error = VibeSeekError(_url, status);
     }
     return [self reportWaitFault:error] && status == noErr;
 }

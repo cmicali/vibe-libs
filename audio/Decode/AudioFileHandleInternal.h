@@ -123,6 +123,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     SInt64 _wavpackPosition;
     int32_t *_wavpackSamples;
     float _wavpackScale; // an integer sample's to ±1, a power of two, or 0 for float bits
+    BOOL _wavpackClips;  // an 8-bit file's samples are clipped to ±1 (readWavPackInto:)
     // Set by an interrupted read, a failed seek, or a decode that ended
     // short: the next seek starts a fresh context, and reads return nothing
     // until then.
@@ -248,6 +249,11 @@ static inline AudioFormatFlags VibeLosslessDepthFlag(UInt32 depth) {
 
 @end
 
+// A DSD decode's bytes a channel, which the count holds.
+static inline SInt64 VibeDSDBytes(const VibeDSFInfo *info) {
+    return (SInt64)(info->sampleCount / 8);
+}
+
 // AudioFileHandle+Stream.m's: a layout of `channels` labels, in order.
 AVAudioChannelLayout *VibeLabeledLayout(const AudioChannelLabel *labels, UInt32 channels);
 
@@ -256,6 +262,7 @@ uint32_t VibeID3v2Syncsafe(const uint8_t bytes[4]);
 uint32_t VibeID3v2TagBytes(const uint8_t header[10]);
 AudioFileTypeID VibeFileTypeForExtension(NSString *extension);
 NSError *VibeHandleError(OSStatus status, NSString *description);
+NSError *VibeSeekError(NSURL *url, OSStatus status);
 BOOL VibeHandleAwaitWhole(AudioFileHandle *handle, BOOL wait);
 ssize_t VibeHandleFetch(AudioFileHandle *handle, SInt64 position, SInt64 requested, void *buffer, size_t capacity);
 OSStatus VibeHandleRead(void *clientData, SInt64 position, UInt32 requestCount, void *buffer, UInt32 *actualCount);

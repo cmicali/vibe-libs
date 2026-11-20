@@ -82,7 +82,7 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
         [self closeDSD];
         return NO;
     }
-    _dsdBytesEnd = (SInt64)(_dsf.sampleCount / 8);
+    _dsdBytesEnd = VibeDSDBytes(&_dsf);
     _length = _dsdBytesEnd / perFrame;
     [self restartDSDAtFrame:0];
     return YES;
@@ -113,13 +113,11 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
     SInt64 target = MIN(MAX(0, frame), _length);
     [self restartDSDAtFrame:target];
     unsigned perFrame = VibeDSDToPCMBytesPerFrame(_dsd);
-    if (_wavpack && ![self seekWavPackDSDToByte:MAX(0, target - kVibeDSDToPCMLeadFrames) * perFrame] && !_waitError
-            && error) {
-        *error = VibeHandleError(kAudioFilePositionError,
-                                 [NSString stringWithFormat:@"Seeking %@ failed", _url.lastPathComponent]);
-        return NO;
+    BOOL landed = !_wavpack || [self seekWavPackDSDToByte:MAX(0, target - kVibeDSDToPCMLeadFrames) * perFrame];
+    if (!landed && !_waitError && error) {
+        *error = VibeSeekError(_url, kAudioFilePositionError);
     }
-    return [self reportWaitFault:error] && !_wavpackStale;
+    return [self reportWaitFault:error] && landed;
 }
 
 // Feeds the converter `frames` frames from frame `feed`, writing each
@@ -155,18 +153,22 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
     UInt32 channels = _dsf.channels;
     unsigned perFrame = VibeDSDToPCMBytesPerFrame(_dsd);
     float *const *planes = buffer.floatChannelData;
+    // The length, or where a WavPack file's decode ended short, which a feed
+    // can move. _dsdBytesEnd holds the length's bytes, or fewer.
+    SInt64 end = _dsdBytesEnd / perFrame;
     AVAudioFrameCount done = 0;
     BOOL failed = NO;
     // After a restart, the lead's outputs go to a scratch buffer. Then the
     // feed runs kVibeDSDToPCMDelayFrames ahead of the frame delivered.
-    if (_dsdRestarted && wanted > 0 && _dsdPosition < MIN(_length, _dsdBytesEnd / perFrame)) {
+    if (_dsdRestarted && wanted > 0 && _dsdPosition < end) {
         float scratch[kDropped * kVibeDSFMaxChannels];
         float *scratchPlanes[1] = {scratch};
         failed = ![self feedDSDFrames:kDropped from:_dsdPosition - kVibeDSDToPCMLeadFrames into:scratchPlanes interleaved:YES];
         _dsdRestarted = failed;
+        end = _dsdBytesEnd / perFrame;
     }
     while (!failed) {
-        SInt64 left = MIN((SInt64)(wanted - done), MIN(_length, _dsdBytesEnd / perFrame) - _dsdPosition);
+        SInt64 left = MIN((SInt64)(wanted - done), end - _dsdPosition);
         if (left <= 0) {
             break;
         }
@@ -178,7 +180,8 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
         failed = ![self feedDSDFrames:frames from:_dsdPosition + kVibeDSDToPCMDelayFrames into:at interleaved:interleaved];
         if (!failed) {
             // A decode that ended short in this chunk keeps the frames before it.
-            UInt32 kept = (UInt32)MIN((SInt64)frames, MAX(0, _dsdBytesEnd / perFrame - _dsdPosition));
+            end = _dsdBytesEnd / perFrame;
+            UInt32 kept = (UInt32)MIN((SInt64)frames, MAX(0, end - _dsdPosition));
             done += kept;
             _dsdPosition += kept;
         }

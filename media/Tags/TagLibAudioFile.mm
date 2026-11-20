@@ -454,6 +454,13 @@ NSData *_Nullable audioMD5FromTagLibFile(TagLib::File *file) {
     return [[NSData alloc] initWithBytes:md5.data() length:md5.size()];
 }
 
+// A WavPack DSD file's properties, or null for any other file.
+static const TagLib::WavPack::Properties *VibeWavPackDSDProperties(TagLib::File *file) {
+    auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file);
+    auto props = wavpack ? wavpack->audioProperties() : nullptr;
+    return props && props->isDsd() ? props : nullptr;
+}
+
 int bitsPerSampleFromTagLibFile(TagLib::File *file) {
     int bits = 0;
     if (auto flac = dynamic_cast<TagLib::FLAC::File *>(file)) {
@@ -479,10 +486,11 @@ int bitsPerSampleFromTagLibFile(TagLib::File *file) {
     else if (auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file)) {
         // A hybrid file is lossless only with its correction file, another
         // file (VibeWavPackHybridBitsFromTagLibFile). DSD is one bit a
-        // sample, as a DSF's is: TagLib states 8, a byte a sample.
+        // sample, as a DSF's is: TagLib states 8, a byte a sample. A DSD file
+        // that says hybrid is damaged, and audio/Decode refuses it, so it
+        // states none.
         auto props = wavpack->audioProperties();
-        if (props && props->isDsd()) bits = 1;
-        else if (props && props->isLossless()) bits = props->bitsPerSample();
+        if (props && props->isLossless()) bits = VibeWavPackDSDProperties(file) ? 1 : props->bitsPerSample();
     }
     else if (auto ape = dynamic_cast<TagLib::APE::File *>(file)) {
         if (auto props = ape->audioProperties()) bits = props->bitsPerSample();
@@ -500,12 +508,8 @@ int VibeSampleRateFromTagLibFile(TagLib::File *file) {
     if (!props || props->sampleRate() <= 0) {
         return 0;
     }
-    auto wavpack = dynamic_cast<TagLib::WavPack::File *>(file);
-    if (wavpack && wavpack->audioProperties() && wavpack->audioProperties()->isDsd()) {
-        int64_t rate = (int64_t)props->sampleRate() * 8;
-        return rate <= INT_MAX ? (int)rate : 0;
-    }
-    return props->sampleRate();
+    int64_t rate = (int64_t)props->sampleRate() * (VibeWavPackDSDProperties(file) ? 8 : 1);
+    return rate <= INT_MAX ? (int)rate : 0;
 }
 
 // TagLib calls every WavPack file that is not lossless hybrid: a lossy file

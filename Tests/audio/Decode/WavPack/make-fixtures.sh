@@ -19,10 +19,13 @@ pack u8.wav
 pack surround.wav
 # Each DSD source stays beside its .wv, so a test decodes the same DSD from
 # both containers.
-for source in dsd dsd-msb dsd128-48k dsd256 dsd512 dsd-surround; do
+for source in dsd dsd-msb dsd128-48k dsd256 dsd512 dsd-surround dsd-odd; do
     pack "$source.dsf"
     cp "$work/$source.dsf" "$here/"
 done
+# Damaged DSD: no bit order in its config, and a hybrid flag no encoder writes.
+python3 -I "$here/make-sources.py" --damage no-qmode "$here/dsd.wv" "$here/dsd-no-qmode.wv"
+python3 -I "$here/make-sources.py" --damage hybrid "$here/dsd.wv" "$here/dsd-hybrid.wv"
 # A hybrid file and its correction file, which together decode lossless.
 wavpack -q -y --blocksize=1024 -b4 -c "$work/s16.wav" -o "$here/hybrid.wv"
 # Another song's correction file, of the same length and blocks: s16's
