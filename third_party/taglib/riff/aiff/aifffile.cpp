@@ -1,3 +1,4 @@
+// Local changes are recorded in third_party/taglib/CHANGES.md.
 /***************************************************************************
     copyright            : (C) 2008 by Scott Wheeler
     email                : wheeler@kde.org
@@ -24,6 +25,8 @@
  ***************************************************************************/
 
 #include "aifffile.h"
+#include "attachedpictureframe.h"
+#include "textidentificationframe.h"
 
 #include "tdebug.h"
 #include "tpropertymap.h"
@@ -150,18 +153,69 @@ bool RIFF::AIFF::File::hasID3v2Tag() const
 // private members
 ////////////////////////////////////////////////////////////////////////////////
 
+namespace {
+  // A chunk has its own end. The ordinary file reader looks past the tag
+  // for adjacent ID3 headers, which can match the next RIFF chunk name.
+  class ChunkTag final : public ID3v2::Tag
+  {
+  public:
+    ChunkTag(TagLib::File &file, unsigned int size, const ID3v2::FrameFactory *factory) :
+      ID3v2::Tag(nullptr, 0, factory)
+    {
+      if(size < ID3v2::Header::size())
+        return;
+      const ByteVector bytes = file.readBlock(ID3v2::Header::size());
+      if(!bytes.startsWith(ID3v2::Header::fileIdentifier()))
+        return;
+      header()->setData(bytes);
+      const auto bodySize = header()->tagSize();
+      if(bodySize && bodySize <= size - ID3v2::Header::size())
+        parse(file.readBlock(bodySize));
+    }
+  };
+
+  // Later chunks record edits. Keep earlier fields and distinct pictures.
+  bool hasNewerFrame(const ID3v2::Tag &tag, ID3v2::Frame *frame)
+  {
+    if(auto *userText = dynamic_cast<ID3v2::UserTextIdentificationFrame *>(frame))
+      return ID3v2::UserTextIdentificationFrame::find(&tag, userText->description()) != nullptr;
+
+    if(dynamic_cast<ID3v2::TextIdentificationFrame *>(frame))
+      return !tag.frameList(frame->frameID()).isEmpty();
+
+    if(auto *picture = dynamic_cast<ID3v2::AttachedPictureFrame *>(frame)) {
+      for(auto *candidate : tag.frameList("APIC")) {
+        auto *other = dynamic_cast<ID3v2::AttachedPictureFrame *>(candidate);
+        if(other && other->type() == picture->type() && other->description() == picture->description()
+           && other->mimeType() == picture->mimeType() && other->picture() == picture->picture())
+          return true;
+      }
+    }
+    return false;
+  }
+}
+
 void RIFF::AIFF::File::read(bool readProperties)
 {
-  for(unsigned int i = 0; i < chunkCount(); ++i) {
-    if(const ByteVector name = chunkName(i); name == "ID3 " || name == "id3 ") {
-      if(!d->tag) {
-        d->tag = std::make_unique<ID3v2::Tag>(this, chunkOffset(i),
-                                              d->ID3v2FrameFactory);
-        d->hasID3v2 = true;
-      }
-      else {
-        debug("RIFF::AIFF::File::read() - Duplicate ID3v2 tag found.");
-      }
+  for(unsigned int i = chunkCount(); i-- > 0;) {
+    if(const ByteVector name = chunkName(i); name != "ID3 " && name != "id3 ")
+      continue;
+    d->hasID3v2 = true;
+    seek(chunkOffset(i));
+    auto chunk = std::make_unique<ChunkTag>(*this, chunkDataSize(i), d->ID3v2FrameFactory);
+    if(!d->tag || d->tag->isEmpty()) {
+      d->tag = std::move(chunk);
+      continue;
+    }
+
+    ID3v2::FrameList missing;
+    for(auto *frame : chunk->frameList()) {
+      if(!hasNewerFrame(*d->tag, frame))
+        missing.append(frame);
+    }
+    for(auto *frame : missing) {
+      chunk->removeFrame(frame, false);
+      d->tag->addFrame(frame);
     }
   }
 

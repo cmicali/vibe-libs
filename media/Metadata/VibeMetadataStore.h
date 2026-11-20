@@ -23,7 +23,7 @@ NS_ASSUME_NONNULL_BEGIN
 // rendition, or their meaning change. An older row then misses for a read
 // that may open its file, and answers, marked older, for one that may not.
 // 11 is the PINCache store's last version, "Audio Track Metadata v11". 12
-// since the ratings.
+// added ratings. 13 reads split AIFF tags and additional field spellings.
 FOUNDATION_EXPORT const NSInteger VibeMetadataTagsFormat;
 // The picture's parts' format.
 FOUNDATION_EXPORT const NSInteger VibeMetadataArtFormat;
