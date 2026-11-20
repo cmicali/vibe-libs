@@ -8,6 +8,7 @@
 #import "NSURL+Hash.h"
 
 #import <pthread.h>
+#import <stdlib.h>
 
 const NSInteger VibeMetadataTagsFormat = 11;
 const NSInteger VibeMetadataArtFormat = 1;
@@ -54,10 +55,24 @@ id VibeMetadataUnarchive(NSData *archive, Class tagsClass) {
     NSTimeInterval _ageLimits[VibeMetadataCacheStoreDisplayArt + 1];
 }
 
+// The registry's key: the root's real path, made first, then the store's
+// name. TRAP: stringByStandardizingPath strips /private only from a path that
+// exists, so a key made before the store's folder named another store after
+// it, whose open then failed on the folder's lock.
+static NSString *VibeMetadataStoreDirectory(NSString *root) {
+    if (!root) {
+        return nil;
+    }
+    [NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:NULL];
+    char resolved[PATH_MAX];
+    NSString *real = realpath(root.fileSystemRepresentation, resolved) ? @(resolved) : root;
+    return [real stringByAppendingPathComponent:VibeMetadataStoreName];
+}
+
 + (VibeMetadataStore *)checkOutStoreUnderRootPath:(NSString *)rootPath {
     NSString *root = rootPath
             ?: NSSearchPathForDirectoriesInDomains(NSCachesDirectory, NSUserDomainMask, YES).firstObject;
-    NSString *directory = [root stringByAppendingPathComponent:VibeMetadataStoreName].stringByStandardizingPath;
+    NSString *directory = VibeMetadataStoreDirectory(root);
     pthread_mutex_lock(&sRegistryLock);
     if (!sStores) {
         sStores = [NSMutableDictionary dictionary];
