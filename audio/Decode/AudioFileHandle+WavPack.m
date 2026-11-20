@@ -209,8 +209,11 @@ static BOOL VibeWavPackCorrectionHolds(WavpackContext *context, uint32_t blockSa
 // takes one still downloading: both play lossy until both are on disk. Only
 // the spelling that is there opens. An interruption is the open's, not a
 // fallback.
+// DSD never takes one: WavPack's encoder has no hybrid DSD, so a DSD file
+// that says hybrid is damaged, and plays as the bytes it holds.
 - (void)openWavPackCorrection {
-    if (!(WavpackGetMode(_wavpack) & MODE_HYBRID) || _availability.partURL) {
+    if (!(WavpackGetMode(_wavpack) & MODE_HYBRID) || (WavpackGetQualifyMode(_wavpack) & QMODE_DSD_AUDIO)
+            || _availability.partURL) {
         return;
     }
     NSURL *spelling = VibeWavPackUsableCorrection(_url);
