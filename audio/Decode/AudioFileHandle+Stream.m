@@ -53,6 +53,7 @@
     }
     if (got >= 4 && (memcmp(head, "MAC ", 4) == 0 || memcmp(head, "MACF", 4) == 0)) {
         return [self openAPEInterleaved:interleaved];
+    }
     if (at == 0 && got >= 4 && memcmp(head, "DSD ", 4) == 0) {
         return [self openDSFInterleaved:interleaved];
     }
