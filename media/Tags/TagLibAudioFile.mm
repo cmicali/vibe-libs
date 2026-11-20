@@ -4,7 +4,9 @@
 //
 
 #import "TagLibAudioFile.h"
+#import "NSString+CPPStrings.h"
 #import "VibeMacros.h"
+#import "VibeTagFields.h"
 #include "VibeCheckedFileStream.h"
 
 #include <algorithm>
@@ -22,12 +24,14 @@
 #include <flacfile.h>
 #include <id3v2tag.h>
 #include <attachedpictureframe.h>
+#include <popularimeterframe.h>
 #include <aifffile.h>
 #include <wavfile.h>
 #include <vorbisfile.h>
 #include <opusfile.h>
 #include <tdebuglistener.h>
 #include <tagutils.h>
+#include <tpropertymap.h>
 #include <infotag.h>
 #include <utf8-cpp.core.h>
 
@@ -550,6 +554,56 @@ std::vector<VibeEmbeddedPicture> VibeEmbeddedPictures(TagLib::File *file) {
 }
 
 // The first front cover wins, since a 32x32 file icon can precede it.
+TagLib::ID3v2::Tag *_Nullable VibeID3v2TagOfFile(TagLib::File *file) {
+    if (auto mp3 = dynamic_cast<TagLib::MPEG::File *>(file)) {
+        return mp3->hasID3v2Tag() ? mp3->ID3v2Tag(false) : nullptr;
+    }
+    if (auto aiff = dynamic_cast<TagLib::RIFF::AIFF::File *>(file)) {
+        return aiff->hasID3v2Tag() ? aiff->tag() : nullptr;
+    }
+    if (auto wav = dynamic_cast<TagLib::RIFF::WAV::File *>(file)) {
+        return wav->hasID3v2Tag() ? wav->ID3v2Tag() : nullptr;
+    }
+    return nullptr;
+}
+
+static NSString *VibeRatingText(const TagLib::String &string) {
+    return [[NSString stringWithStdString:string.to8Bit(true)]
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] ?: @"";
+}
+
+NSDictionary<NSString *, NSString *> *_Nullable VibeTagRatingFields(TagLib::File *file) {
+    NSMutableDictionary<NSString *, NSString *> *ratings = [NSMutableDictionary dictionary];
+    for (const auto &[key, values] : file->properties()) {
+        NSString *name = VibeTagFieldKey(VibeRatingText(key));
+        NSString *text = values.isEmpty() ? @"" : VibeRatingText(values.front());
+        if (VibeTagFieldIsRating(name) && text.length > 0) {
+            ratings[name] = text;
+        }
+    }
+    if (auto mp4 = dynamic_cast<TagLib::MP4::File *>(file)) {
+        // TRAP: TagLib's property map has no name for rate, so it reads
+        // nowhere else. It may hold text or a number.
+        const TagLib::MP4::ItemMap &items = mp4->tag()->itemMap();
+        auto rate = items.find("rate");
+        if (rate != items.end()) {
+            const TagLib::StringList text = rate->second.toStringList();
+            NSString *value = text.isEmpty() ? [NSString stringWithFormat:@"%d", rate->second.toInt()]
+                                             : VibeRatingText(text.front());
+            if (value.length > 0) ratings[VibeTagFieldRating] = value;
+        }
+    }
+    if (TagLib::ID3v2::Tag *tag = VibeID3v2TagOfFile(file)) {
+        for (TagLib::ID3v2::Frame *frame : tag->frameListMap()["POPM"]) {
+            auto popm = dynamic_cast<TagLib::ID3v2::PopularimeterFrame *>(frame);
+            if (!popm || popm->rating() <= 0) continue;
+            NSString *name = [VibeTagFieldPopularimeterPrefix stringByAppendingString:VibeRatingText(popm->email())];
+            if (!ratings[name]) ratings[name] = [NSString stringWithFormat:@"%d", popm->rating()];
+        }
+    }
+    return ratings.count ? ratings : nil;
+}
+
 size_t VibeShownPicture(const std::vector<VibeEmbeddedPicture> &pictures) {
     for (size_t i = 0; i < pictures.size(); i++) {
         if (pictures[i].type == 3) return i;

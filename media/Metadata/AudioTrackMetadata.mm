@@ -80,6 +80,7 @@ static NSSet<VibeTagField> *ExtraTagNameSet(void) {
 @property (copy, nullable, readwrite) NSString *musicBrainzRecordingID;
 @property (copy, nullable, readwrite) NSString *isrc;
 @property (copy, nullable, readwrite) NSDictionary<VibeTagField, NSString *> *extraTags;
+@property (copy, nullable, readwrite) NSDictionary<NSString *, NSString *> *ratings;
 @property (copy, nullable, readwrite) NSData *audioMD5;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackGain;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackPeak;
@@ -312,6 +313,7 @@ static NSNumber *_Nullable SoundCheckGain(NSString *_Nullable text) {
     copy.musicBrainzRecordingID = self.musicBrainzRecordingID;
     copy.isrc = self.isrc;
     copy.extraTags = self.extraTags;
+    copy.ratings = self.ratings;
     copy.audioMD5 = self.audioMD5;
     copy.replayGainTrackGain = self.replayGainTrackGain;
     copy.replayGainTrackPeak = self.replayGainTrackPeak;
@@ -371,6 +373,7 @@ static void EncodePresentCount(NSCoder *coder, NSInteger value, NSString *key) {
     EncodePresent(coder, self.musicBrainzRecordingID, @"musicBrainzRecordingID");
     EncodePresent(coder, self.isrc, @"isrc");
     EncodePresent(coder, self.extraTags, @"extraTags");
+    EncodePresent(coder, self.ratings, @"ratings");
     EncodePresent(coder, self.audioMD5, @"audioMD5");
     EncodePresent(coder, self.replayGainTrackGain, @"replayGainTrackGain");
     EncodePresent(coder, self.replayGainTrackPeak, @"replayGainTrackPeak");
@@ -431,6 +434,33 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCode
     return tags;
 }
 
+// The ratings, each a rating's name with text. Anything else is a wrong
+// entry, which misses. The parse files no empty dictionary.
+static NSDictionary<NSString *, NSString *> *_Nullable DecodedRatings(NSCoder *coder, BOOL *wrong) {
+    static NSSet<Class> *classes;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        classes = [NSSet setWithObjects:NSDictionary.class, NSString.class, nil];
+    });
+    id ratings = [coder decodeObjectOfClasses:classes forKey:@"ratings"];
+    if (!ratings) {
+        return nil;
+    }
+    if (![ratings isKindOfClass:NSDictionary.class] || [ratings count] == 0) {
+        *wrong = YES;
+        return nil;
+    }
+    for (id name in ratings) {
+        id text = ratings[name];
+        if (![name isKindOfClass:NSString.class] || !VibeTagFieldIsRating(name) ||
+            ![text isKindOfClass:NSString.class] || [text length] == 0) {
+            *wrong = YES;
+            return nil;
+        }
+    }
+    return ratings;
+}
+
 + (void)setEmbeddedArtReadHandler:(VibeEmbeddedArtReadHandler)handler {
     [AudioTrackArtwork setArtReadHandler:handler];
 }
@@ -462,6 +492,7 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCode
         self.musicBrainzRecordingID = DecodedObject(coder, @"musicBrainzRecordingID", NSString.class, &wrong);
         self.isrc = DecodedObject(coder, @"isrc", NSString.class, &wrong);
         self.extraTags = DecodedExtraTags(coder, &wrong);
+        self.ratings = DecodedRatings(coder, &wrong);
         self.audioMD5 = DecodedObject(coder, @"audioMD5", NSData.class, &wrong);
         self.replayGainTrackGain = DecodedObject(coder, @"replayGainTrackGain", NSNumber.class, &wrong);
         self.replayGainTrackPeak = DecodedObject(coder, @"replayGainTrackPeak", NSNumber.class, &wrong);
@@ -666,6 +697,7 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCode
         }
         self.fileType = fileTypeForTagLibFile(file);
         [self readFieldsFromProperties:properties carriesID3v2:tagLibFileCarriesID3v2(file)];
+        self.ratings = VibeTagRatingFields(file);
         self.audioMD5 = audioMD5FromTagLibFile(file);
         self.bitDepth = bitsPerSampleFromTagLibFile(file);
 

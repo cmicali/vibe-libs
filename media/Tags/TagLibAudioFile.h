@@ -17,6 +17,10 @@
 #include <tiostream.h>
 #include <tag.h>
 
+namespace TagLib::ID3v2 {
+class Tag;
+}
+
 NS_ASSUME_NONNULL_BEGIN
 
 // A blocking read of `length` bytes at `offset` of the file at url, nil with
@@ -111,6 +115,15 @@ NSData *_Nullable audioMD5FromTagLibFile(TagLib::File *file);
 // The bits per sample of a lossless stream: FLAC, ALAC or FLAC in MP4, PCM
 // or float WAV, and AIFF. 0 for a lossy codec, which has none.
 int bitsPerSampleFromTagLibFile(TagLib::File *file);
+
+// Every rating the file holds, by its VibeTagFields.h key, each its first
+// value as stored: an ID3v2 tag's POPM frames whose rating is not 0, the
+// first of each email, an MP4's rate atom as RATING, and any RATING,
+// RATING:<email>, or FMPS_RATING the property map holds. nil for none
+// (media/Tags/AGENTS.md, Ratings).
+NSDictionary<NSString *, NSString *> *_Nullable VibeTagRatingFields(TagLib::File *file);
+// The ID3v2 tag of an MPEG, WAV, or AIFF file, or null for none.
+TagLib::ID3v2::Tag *_Nullable VibeID3v2TagOfFile(TagLib::File *file);
 
 // The embedded art's bytes, read without audio properties. NO is a failed
 // read: no parser took the file, or TagLib threw. YES with nil art is a file

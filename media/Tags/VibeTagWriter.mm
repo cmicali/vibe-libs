@@ -26,6 +26,7 @@
 #include <mp4file.h>
 #include <mp4itemfactory.h>
 #include <mpegfile.h>
+#include <popularimeterframe.h>
 #include <opusfile.h>
 // TagLib's own doc comment in this header fails -Wdocumentation-html.
 #pragma clang diagnostic push
@@ -176,6 +177,63 @@ void SplitPair(const TagLib::StringList &values, TagLib::String *number, TagLib:
     *total = value.substr(slash + 1).stripWhiteSpace();
 }
 
+#pragma mark - Ratings
+
+bool IsRatingKey(const TagLib::String &key) {
+    return VibeTagFieldIsRating(NS(key));
+}
+
+bool IsPopularimeterKey(const TagLib::String &key) {
+    return key.startsWith(TL(VibeTagFieldPopularimeterPrefix));
+}
+
+// The edits without the ratings, for a tag that holds none: APE, ID3v1, and
+// INFO, beside the tag that does.
+Edits WithoutRatings(const Edits &named) {
+    Edits kept;
+    for (const auto &[key, values] : named) {
+        if (!IsRatingKey(key)) kept[key] = values;
+    }
+    return kept;
+}
+
+// A POPM rating byte, 1 to 255, from its one value, or 0 for none.
+int PopularimeterRating(const TagLib::String &key, const TagLib::StringList &values) {
+    if (values.isEmpty()) return 0;
+    const TagLib::String value = First(values);
+    bool digits = values.size() == 1 && !value.isEmpty() && value.size() <= 3;
+    for (unsigned int i = 0; digits && i < value.size(); i++) digits = value[i] >= '0' && value[i] <= '9';
+    if (!digits || value.toInt() < 1 || value.toInt() > 255) {
+        Refuse(VibeTagWriteErrorUnsupportedValue,
+               Text(key) + " holds one rating from 1 to 255, not " + Text(values.toString(", ")));
+    }
+    return value.toInt();
+}
+
+// Sets every POPM frame of the email to the rating, keeping its counter. A
+// removal takes a frame with no plays counted, and sets a counted one's
+// rating to 0, so its count stays.
+void ApplyPopularimeter(TagLib::ID3v2::Tag *tag, const TagLib::String &key, const TagLib::StringList &values) {
+    const TagLib::String email = key.substr(TL(VibeTagFieldPopularimeterPrefix).size());
+    const int rating = PopularimeterRating(key, values);
+    TagLib::ID3v2::FrameList remove;
+    bool found = false;
+    for (TagLib::ID3v2::Frame *frame : tag->frameListMap().value("POPM")) {
+        auto popm = dynamic_cast<TagLib::ID3v2::PopularimeterFrame *>(frame);
+        if (!popm || popm->email() != email) continue;
+        found = true;
+        if (rating == 0 && popm->counter() == 0) remove.append(frame);
+        else popm->setRating(rating);
+    }
+    for (TagLib::ID3v2::Frame *frame : remove) tag->removeFrame(frame, true);
+    if (!found && rating > 0) {
+        auto popm = new TagLib::ID3v2::PopularimeterFrame();
+        popm->setEmail(email);
+        popm->setRating(rating);
+        tag->addFrame(popm);
+    }
+}
+
 // How a tag holds numbers: in one frame, in two fields, or as ID3v1's bare
 // number and year.
 enum class Style { Folded, Xiph, ID3v1 };
@@ -255,7 +313,7 @@ Edits Resolve(const Edits &named, const TagLib::PropertyMap &current, Style styl
 bool ApplyByPropertyMap(TagLib::Tag *tag, const Edits &named, Style style) {
     const TagLib::PropertyMap before = tag->properties();
     TagLib::PropertyMap properties = before;
-    for (const auto &[key, values] : Resolve(named, before, style, false)) {
+    for (const auto &[key, values] : Resolve(WithoutRatings(named), before, style, false)) {
         if (values.isEmpty()) properties.erase(key);
         else properties.replace(key, values);
     }
@@ -287,6 +345,10 @@ bool FrameHoldsKey(TagLib::ID3v2::Frame *frame, const TagLib::String &key) {
 // TMCL hold several keys, and none of the edited fields.
 void ApplyID3v2Ops(TagLib::ID3v2::Tag *tag, const Edits &ops, TagLib::ID3v2::Version version) {
     for (const auto &[key, values] : ops) {
+        if (IsPopularimeterKey(key)) {
+            ApplyPopularimeter(tag, key, values);
+            continue;
+        }
         TagLib::ID3v2::FrameList remove;
         for (TagLib::ID3v2::Frame *frame : tag->frameList()) {
             const TagLib::ByteVector id = frame->frameID();
@@ -299,6 +361,11 @@ void ApplyID3v2Ops(TagLib::ID3v2::Tag *tag, const Edits &ops, TagLib::ID3v2::Ver
         // goes in a TXXX frame, as Picard writes it. It reads back as MOOD.
         if (version == TagLib::ID3v2::v3 && key == "MOOD") {
             tag->addFrame(new TagLib::ID3v2::UserTextIdentificationFrame("MOOD", values, TagLib::String::UTF8));
+            continue;
+        }
+        // FMPS spells its frame's description so. TagLib's would be upper case.
+        if (key == "FMPS_RATING") {
+            tag->addFrame(new TagLib::ID3v2::UserTextIdentificationFrame("FMPS_Rating", values, TagLib::String::UTF8));
             continue;
         }
         tag->addFrame(TagLib::ID3v2::FrameFactory::instance()->createFrameForProperty(key, values));
@@ -454,6 +521,9 @@ TagLib::ID3v2::Version ApplyID3v2Edits(TagLib::ID3v2::Tag *tag, bool existed, Ta
 #pragma mark - Xiph comments
 
 void ApplyXiphEdits(TagLib::Ogg::XiphComment *tag, const Edits &named) {
+    for (const auto &[key, values] : named) {
+        if (IsPopularimeterKey(key)) Refuse(VibeTagWriteErrorUnsupportedValue, "only ID3v2 holds " + Text(key));
+    }
     for (const auto &[key, values] : Resolve(named, tag->properties(), Style::Xiph, false)) {
         tag->removeFields(key);
         for (const TagLib::String &value : values) tag->addField(key, value, false);
@@ -518,9 +588,34 @@ void CheckMP4Value(const TagLib::ByteVector &name, const TagLib::String &key, co
     }
 }
 
+// MP4's ratings: RATING is the rate atom, which TagLib's property map does
+// not name, and FMPS_RATING a freeform atom spelled as FMPS spells it. Each
+// replaces every item that reads as its key.
+void ApplyMP4Ratings(TagLib::MP4::Tag *tag, const Edits &named) {
+    TagLib::MP4::ItemFactory *factory = TagLib::MP4::ItemFactory::instance();
+    for (const auto &[key, values] : named) {
+        if (!IsRatingKey(key)) continue;
+        if (key != "RATING" && key != "FMPS_RATING") {
+            Refuse(VibeTagWriteErrorUnsupportedValue, "MP4 does not hold " + Text(key));
+        }
+        if (values.size() > 1) Refuse(VibeTagWriteErrorUnsupportedValue, "MP4 holds one " + Text(key));
+        TagLib::StringList remove;
+        for (const auto &[name, item] : tag->itemMap()) {
+            if (factory->itemToProperty(name.data(TagLib::String::Latin1), item).first.upper() == key) {
+                remove.append(name);
+            }
+        }
+        if (key == "RATING") remove.append("rate");
+        for (const TagLib::String &name : remove) tag->removeItem(name);
+        if (values.isEmpty()) continue;
+        tag->setItem(key == "RATING" ? "rate" : "----:com.apple.iTunes:FMPS_Rating", TagLib::MP4::Item(values));
+    }
+}
+
 void ApplyMP4Edits(TagLib::MP4::Tag *tag, const Edits &named) {
     TagLib::MP4::ItemFactory *factory = TagLib::MP4::ItemFactory::instance();
-    const Edits ops = Resolve(named, tag->properties(), Style::Folded, false);
+    ApplyMP4Ratings(tag, named);
+    const Edits ops = Resolve(WithoutRatings(named), tag->properties(), Style::Folded, false);
     for (const auto &[key, values] : ops) {
         if (!values.isEmpty()) CheckMP4Value(factory->itemFromProperty(key, values).first, key, values);
     }
@@ -809,8 +904,8 @@ BOOL VibeTagLibWriteTags(NSString *path, VibeTagFieldValues *fields, BOOL change
     if (changes) *changes = VibeTagWriteChangeNone;
     Edits edits;
     for (NSString *key in fields) {
-        NSString *field = key.uppercaseString;
-        if (![EditedFields() containsObject:field]) {
+        NSString *field = VibeTagFieldKey(key);
+        if (![EditedFields() containsObject:field] && !VibeTagFieldIsRating(field)) {
             return Fail(error, VibeTagWriteErrorInvalidField, path,
                         [NSString stringWithFormat:@"\"%@\" is not a field the writer edits", key]);
         }
@@ -1037,6 +1132,14 @@ VibeTagFieldValues *VibeTagLibReadFields(NSString *path, NSError *__autoreleasin
             else fields[@(keys.number)] = @[NS(number)];
             if (!total.isEmpty()) fields[@(keys.total)] = @[NS(total)];
         }
+        // Each rating by its key, its first value, from the one read the
+        // parse makes too.
+        for (NSString *key in fields.allKeys) {
+            if (VibeTagFieldIsRating(key)) [fields removeObjectForKey:key];
+        }
+        [VibeTagRatingFields(fileRef.file()) enumerateKeysAndObjectsUsingBlock:^(NSString *key, NSString *value, BOOL *stop) {
+            fields[key] = @[value];
+        }];
         return fields;
     }
     catch (const std::exception &e) {
