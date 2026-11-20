@@ -100,7 +100,7 @@ FOUNDATION_EXPORT NSArray<VibeTagField> *VibeMetadataExtraTagNames(void);
 // POPM:<email>'s byte, RATING, RATING:<email>, and FMPS_RATING
 // (media/Tags' VibeTagRatingFields). nil when it holds none. Which one an
 // app trusts, and on what scale, is the app's to say.
-@property (copy, nullable, readonly) NSDictionary<NSString *, NSString *> *ratings;
+@property (copy, nullable, readonly) NSDictionary<VibeTagField, NSString *> *ratings;
 // The original date's leading year. 0 when untagged.
 @property (assign, readonly) NSInteger originalYear;
 

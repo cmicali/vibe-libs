@@ -80,7 +80,7 @@ static NSSet<VibeTagField> *ExtraTagNameSet(void) {
 @property (copy, nullable, readwrite) NSString *musicBrainzRecordingID;
 @property (copy, nullable, readwrite) NSString *isrc;
 @property (copy, nullable, readwrite) NSDictionary<VibeTagField, NSString *> *extraTags;
-@property (copy, nullable, readwrite) NSDictionary<NSString *, NSString *> *ratings;
+@property (copy, nullable, readwrite) NSDictionary<VibeTagField, NSString *> *ratings;
 @property (copy, nullable, readwrite) NSData *audioMD5;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackGain;
 @property (copy, nullable, readwrite) NSNumber *replayGainTrackPeak;
@@ -401,64 +401,35 @@ static NSInteger DecodedCount(NSCoder *coder, NSString *key) {
     return value > 0 ? value : 0;
 }
 
-// The extra tags, each a known name with text. Anything else is a wrong
-// entry, which misses. The parse files no empty dictionary.
+// A dictionary of names to text archived under key, each name one valid
+// says, or nil. Anything else is a wrong entry, which misses. The parse
+// files no empty dictionary.
 // TRAP: not DecodedObject. A secure unarchiver refuses a collection whose
 // classes the read does not name, though it takes a lone string or number.
-static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedExtraTags(NSCoder *coder, BOOL *wrong) {
+static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedTexts(NSCoder *coder, NSString *key,
+                                                                     BOOL (^valid)(NSString *name), BOOL *wrong) {
     static NSSet<Class> *classes;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         classes = [NSSet setWithObjects:NSDictionary.class, NSString.class, nil];
     });
-    id tags = [coder decodeObjectOfClasses:classes forKey:@"extraTags"];
-    if (!tags) {
+    id texts = [coder decodeObjectOfClasses:classes forKey:key];
+    if (!texts) {
         return nil;
     }
-    if (![tags isKindOfClass:NSDictionary.class]) {
+    if (![texts isKindOfClass:NSDictionary.class] || [texts count] == 0) {
         *wrong = YES;
         return nil;
     }
-    if ([tags count] == 0) {
-        *wrong = YES;
-        return nil;
-    }
-    NSSet<VibeTagField> *names = ExtraTagNameSet();
-    for (id name in tags) {
-        id text = tags[name];
-        if (![names containsObject:name] || ![text isKindOfClass:NSString.class] || [text length] == 0) {
+    for (id name in texts) {
+        id text = texts[name];
+        if (![name isKindOfClass:NSString.class] || !valid(name) || ![text isKindOfClass:NSString.class] ||
+            [text length] == 0) {
             *wrong = YES;
             return nil;
         }
     }
-    return tags;
-}
-
-// The ratings, each a rating's name with text. Anything else is a wrong
-// entry, which misses. The parse files no empty dictionary.
-static NSDictionary<NSString *, NSString *> *_Nullable DecodedRatings(NSCoder *coder, BOOL *wrong) {
-    static NSSet<Class> *classes;
-    static dispatch_once_t once;
-    dispatch_once(&once, ^{
-        classes = [NSSet setWithObjects:NSDictionary.class, NSString.class, nil];
-    });
-    id ratings = [coder decodeObjectOfClasses:classes forKey:@"ratings"];
-    if (!ratings) {
-        return nil;
-    }
-    if (![ratings isKindOfClass:NSDictionary.class] || [ratings count] == 0) {
-        *wrong = YES;
-        return nil;
-    }
-    for (id name in ratings) {
-        id text = ratings[name];
-        if (![name isKindOfClass:NSString.class] || !VibeTagFieldIsRating(name) ||
-            ![text isKindOfClass:NSString.class] || [text length] == 0) {
-            *wrong = YES;
-            return nil;
-        }
-    }
-    return ratings;
+    return texts;
 }
 
 + (void)setEmbeddedArtReadHandler:(VibeEmbeddedArtReadHandler)handler {
@@ -491,8 +462,12 @@ static NSDictionary<NSString *, NSString *> *_Nullable DecodedRatings(NSCoder *c
         self.musicBrainzReleaseID = DecodedObject(coder, @"musicBrainzReleaseID", NSString.class, &wrong);
         self.musicBrainzRecordingID = DecodedObject(coder, @"musicBrainzRecordingID", NSString.class, &wrong);
         self.isrc = DecodedObject(coder, @"isrc", NSString.class, &wrong);
-        self.extraTags = DecodedExtraTags(coder, &wrong);
-        self.ratings = DecodedRatings(coder, &wrong);
+        self.extraTags = DecodedTexts(coder, @"extraTags", ^BOOL(NSString *name) {
+            return [ExtraTagNameSet() containsObject:name];
+        }, &wrong);
+        self.ratings = DecodedTexts(coder, @"ratings", ^BOOL(NSString *name) {
+            return VibeTagFieldIsRating(name);
+        }, &wrong);
         self.audioMD5 = DecodedObject(coder, @"audioMD5", NSData.class, &wrong);
         self.replayGainTrackGain = DecodedObject(coder, @"replayGainTrackGain", NSNumber.class, &wrong);
         self.replayGainTrackPeak = DecodedObject(coder, @"replayGainTrackPeak", NSNumber.class, &wrong);
@@ -697,7 +672,7 @@ static NSDictionary<NSString *, NSString *> *_Nullable DecodedRatings(NSCoder *c
         }
         self.fileType = fileTypeForTagLibFile(file);
         [self readFieldsFromProperties:properties carriesID3v2:tagLibFileCarriesID3v2(file)];
-        self.ratings = VibeTagRatingFields(file);
+        self.ratings = VibeTagRatingFields(file, properties);
         self.audioMD5 = audioMD5FromTagLibFile(file);
         self.bitDepth = bitsPerSampleFromTagLibFile(file);
 

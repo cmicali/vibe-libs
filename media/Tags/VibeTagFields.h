@@ -60,8 +60,8 @@ FOUNDATION_EXTERN NSArray<VibeTagField> *VibeTagFieldsEdited(void);
 // takes these, and VibeTagLibReadFields answers them, but they are not in
 // VibeTagFieldsEdited(): a rating's scale is the app's to choose, and this
 // piece reads and writes the values as they are stored, as text.
-// A Xiph comment's RATING, an MP4's rate atom, an ID3v2 TXXX:RATING, and an
-// APE item, each as stored.
+// A Xiph comment's RATING, an MP4's rate atom, and an ID3v2 TXXX:RATING,
+// each as stored. An APE, ID3v1, or INFO tag never holds one.
 FOUNDATION_EXTERN VibeTagField const VibeTagFieldRating;           // RATING
 // FMPS's rating, 0.0 to 1.0: ID3v2's TXXX:FMPS_Rating, a Xiph comment's
 // FMPS_RATING, and MP4's ----:com.apple.iTunes:FMPS_Rating.
@@ -70,7 +70,7 @@ FOUNDATION_EXTERN VibeTagField const VibeTagFieldFMPSRating;       // FMPS_RATIN
 // case kept: its rating byte, 1 to 255, as text. Only ID3v2 holds it.
 FOUNDATION_EXTERN NSString *const VibeTagFieldPopularimeterPrefix; // POPM:
 // A Xiph comment's rating of one email, "RATING:" and the email, which a
-// Xiph comment holds upper case.
+// Xiph comment holds upper case. Only a Xiph comment holds it.
 FOUNDATION_EXTERN NSString *const VibeTagFieldRatingPrefix;        // RATING:
 
 // Whether the name is one of the rating fields above.

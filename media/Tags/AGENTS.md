@@ -144,14 +144,19 @@ Every format holds every field in `VibeTagFields.h`, with these limits:
 | --- | --- | --- | --- |
 | `POPM:<email>` | the `POPM` frames of that email, the rating byte 1 to 255 | refused | refused |
 | `RATING` | `TXXX:RATING` | `RATING` | the `rate` atom, as text |
-| `RATING:<email>` | `TXXX:RATING:<email>` | `RATING:<email>` | refused |
+| `RATING:<email>` | refused | `RATING:<email>` | refused |
 | `FMPS_RATING` | `TXXX:FMPS_Rating` | `FMPS_RATING` | `----:com.apple.iTunes:FMPS_Rating` |
 
 - **A POPM field's email keeps its case.** `VibeTagFieldKey` answers the key a read uses for a name: upper case, except a POPM's email. Every other name ignores case, as TagLib's keys do.
 - **A POPM write sets the rating of every frame of that email, and keeps each one's counter.** A frame of another email is never touched. With no frame of the email, it adds one with no plays counted. A removal takes each frame of the email whose counter is 0, and sets the rating of a counted one to 0, so its count stays. A rating of 0 reads as none. The rating is one whole number from 1 to 255. Anything else fails with `UnsupportedValue`.
 - **TRAP: TagLib's MP4 property map has no name for `rate`.** Through the map, `RATING` would become a freeform `----:com.apple.iTunes:RATING` atom. So the writer writes `rate` itself, as text, and takes out any item that reads as `RATING` with it. The read takes `rate` as text or as a number, before such a freeform atom.
 - **FMPS spells its frame and its atom `FMPS_Rating`.** The writer does too, and takes out every frame or atom whose name reads as `FMPS_RATING`, in any case.
-- **A rating changes only the format's own tag.** An MP3's APE and ID3v1 tags, and a WAV's INFO chunk, never take a rating, and a rating alone never rewrites them.
+- **A rating changes only the format's own tag, and a read answers only from it.** An MP3's APE and ID3v1 tags, a WAV's INFO chunk, and a WavPack's APE tag never take a rating, a rating alone never rewrites them, and the read never answers one of theirs, so a removal leaves nothing the read still shows. The read answers `RATING:<email>` from a Xiph comment alone, as the writer takes it.
+- **One value, in one place.** A rating field with more than one value fails with `UnsupportedValue`, in every format, since only the first reads back. So does a POPM email over 256 bytes, with a NUL, or past Latin-1, which an ID3v2 frame can't hold, and a `RATING:<email>` whose email TagLib's Xiph key check would drop: a character under 0x20 or over 0x7D, or `=`.
+- **A POPM email is read untrimmed**, as the write compares it, so a later write finds the same frame.
+- **A hostile file can make a read keep at most 32 ratings**, and none whose email is over 256 bytes.
+- **TRAP: TagLib parses a numeric `rate` atom by its first two bytes**, so a 4-byte integer reads as 0. A `rate` of 0 or less reads as none. The writer writes text. Which form other taggers write is taken on report, not checked here.
+- **Only `RATING`, `FMPS_RATING`, and `RATING:<email>` come from the property map.** A custom field named `POPM:x` never reads as a POPM rating.
 - **A POPM frame is no frame a save drops**, so it never refuses an edit (What the writer refuses). An MP3 that holds one can be edited, and keeps it.
 
 ## Tests
