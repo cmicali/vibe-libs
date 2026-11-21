@@ -25,6 +25,7 @@ NSNotificationName const FolderArtInCloudNotification = @"FolderArtInCloudNotifi
 NSString *const FolderArtPathKey = @"path";
 NSString *const FolderArtDirectoryKey = @"directory";
 
+// About 4 MB at 128 pixels a side, so they are kept under memory pressure.
 static const NSUInteger kThumbnailCacheLimit = 64;
 // Enough that alternating between a few albums does not re-decode each time.
 static const NSUInteger kDisplayCacheLimit = 4;
@@ -39,6 +40,79 @@ static const uint8_t kMaxArtReadFailures = 3;
 // The settled "none".
 static NSString *const kNoArtMarker = @"";
 
+#pragma mark - The thumbnail cache
+
+// TRAP: not an NSCache. An NSCache empties itself under memory pressure, and
+// a row reads the thumbnail right after the resolve posts. An empty answer
+// schedules the same resolve, which posts again, so the folder art queue
+// decoded the same cover in a loop. This one drops only its least recently
+// used thumbnail, and only past its limit. Any thread.
+@interface FolderArtThumbnailCache : NSObject
+- (instancetype)initWithLimit:(NSUInteger)limit;
+- (VibeImage *)objectForKey:(NSString *)directory;
+- (void)setObject:(VibeImage *)image forKey:(NSString *)directory;
+- (void)removeObjectForKey:(NSString *)directory;
+- (void)removeAllObjects;
+@end
+
+@implementation FolderArtThumbnailCache {
+    os_unfair_lock _lock;
+    NSUInteger _limit;
+    NSMutableDictionary<NSString *, VibeImage *> *_images;
+    // Least recently used first.
+    NSMutableOrderedSet<NSString *> *_order;
+}
+
+- (instancetype)initWithLimit:(NSUInteger)limit {
+    self = [super init];
+    if (self) {
+        _lock = OS_UNFAIR_LOCK_INIT;
+        _limit = limit;
+        _images = [NSMutableDictionary dictionaryWithCapacity:limit];
+        _order = [NSMutableOrderedSet orderedSetWithCapacity:limit];
+    }
+    return self;
+}
+
+- (VibeImage *)objectForKey:(NSString *)directory {
+    os_unfair_lock_lock(&_lock);
+    VibeImage *image = _images[directory];
+    if (image) {
+        [_order removeObject:directory];
+        [_order addObject:directory];
+    }
+    os_unfair_lock_unlock(&_lock);
+    return image;
+}
+
+- (void)setObject:(VibeImage *)image forKey:(NSString *)directory {
+    os_unfair_lock_lock(&_lock);
+    _images[directory] = image;
+    [_order removeObject:directory];
+    [_order addObject:directory];
+    while (_order.count > _limit) {
+        [_images removeObjectForKey:_order.firstObject];
+        [_order removeObjectAtIndex:0];
+    }
+    os_unfair_lock_unlock(&_lock);
+}
+
+- (void)removeObjectForKey:(NSString *)directory {
+    os_unfair_lock_lock(&_lock);
+    [_images removeObjectForKey:directory];
+    [_order removeObject:directory];
+    os_unfair_lock_unlock(&_lock);
+}
+
+- (void)removeAllObjects {
+    os_unfair_lock_lock(&_lock);
+    [_images removeAllObjects];
+    [_order removeAllObjects];
+    os_unfair_lock_unlock(&_lock);
+}
+
+@end
+
 #pragma mark - The resolver
 
 @implementation FolderArtResolver {
@@ -49,7 +123,9 @@ static NSString *const kNoArtMarker = @"";
     // A denial older than a grant change must not park a path it re-armed.
     // Guarded by _lock.
     uint64_t _accessGeneration;
-    NSCache<NSString *, VibeImage *> *_thumbnails;
+    FolderArtThumbnailCache *_thumbnails;
+    // An NSCache may empty itself here: no notice follows a display decode
+    // that finds its thumbnail, so no row asks again.
     NSCache<NSString *, VibeImage *> *_displayImages;
     dispatch_queue_t _queue;
     // useFolderArt, cached: every accessor gates on it on every cell draw.
@@ -157,8 +233,7 @@ static NSString *const kNoArtMarker = @"";
     if (self) {
         _lock = OS_UNFAIR_LOCK_INIT;
         _directories = [NSMutableDictionary dictionary];
-        _thumbnails = [[NSCache alloc] init];
-        _thumbnails.countLimit = kThumbnailCacheLimit;
+        _thumbnails = [[FolderArtThumbnailCache alloc] initWithLimit:kThumbnailCacheLimit];
         _displayImages = [[NSCache alloc] init];
         _displayImages.countLimit = kDisplayCacheLimit;
         atomic_init(&_enabledCache, enabledProvider());
@@ -571,14 +646,19 @@ static NSString *const kNoArtMarker = @"";
 }
 
 - (BOOL)storeImage:(VibeImage *)image
-           inCache:(NSCache<NSString *, VibeImage *> *)cache
+       asThumbnail:(BOOL)asThumbnail
          directory:(NSString *)directory
            artPath:(NSString *)artPath
           answerGeneration:(uint64_t)answerGeneration {
     os_unfair_lock_lock(&_lock);
     FolderArtEntry *entry = [self currentEntryLocked:directory answerGeneration:answerGeneration artPath:artPath];
+    if (entry && asThumbnail) {
+        [_thumbnails setObject:image forKey:directory];
+    }
+    else if (entry) {
+        [_displayImages setObject:image forKey:directory];
+    }
     if (entry) {
-        [cache setObject:image forKey:directory];
         [self touchLocked:entry];
     }
     os_unfair_lock_unlock(&_lock);
@@ -659,7 +739,7 @@ static NSString *const kNoArtMarker = @"";
     if (artPath) {
         VibeImage *thumbnail = [self loadThumbnailArtAtPath:artPath directory:directory
                                                  answerGeneration:answerGeneration];
-        stored = thumbnail != nil && [self storeImage:thumbnail inCache:_thumbnails
+        stored = thumbnail != nil && [self storeImage:thumbnail asThumbnail:YES
                                             directory:directory artPath:artPath answerGeneration:answerGeneration];
     }
     [self releaseDirectory:directory answerGeneration:answerGeneration];
@@ -874,11 +954,11 @@ static NSString *const kNoArtMarker = @"";
         // here must not settle the folder.
         VibeImage *thumbnail = [self decodeData:data atPath:artPath maxPixelSize:kVibeThumbnailArtDimension];
         if (thumbnail) {
-            [self storeImage:thumbnail inCache:_thumbnails
+            [self storeImage:thumbnail asThumbnail:YES
                    directory:directory artPath:artPath answerGeneration:answerGeneration];
         }
     }
-    return [self storeImage:display inCache:_displayImages
+    return [self storeImage:display asThumbnail:NO
                   directory:directory artPath:artPath answerGeneration:answerGeneration] ? display : nil;
 }
 

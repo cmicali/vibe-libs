@@ -3,6 +3,8 @@
 //
 
 #import <XCTest/XCTest.h>
+#import <dlfcn.h>
+#import <stdatomic.h>
 
 #import "ImageFixtures.h"
 #import "FolderArtRules.h"
@@ -932,6 +934,93 @@
     [self waitForExpectations:@[finished] timeout:VIBE_TEST_HANG_TIMEOUT];
 
     XCTAssertEqualObjects(result, decoded);
+}
+
+// A row asks for its thumbnail when the resolve posts. Memory pressure that
+// empties the thumbnails between the two must not make the row schedule the
+// same resolve again, and again.
+- (void)testMemoryPressureAfterAResolveDoesNotResolveItAgain {
+    // libcache's test hook: it tells every cache in this process that memory
+    // is short, as the system does. Exported, but in no header.
+    void (*simulateMemoryWarning)(uint64_t) =
+            (void (*)(uint64_t))dlsym(RTLD_DEFAULT, "cache_simulate_memory_warning_event");
+    XCTSkipIf(simulateMemoryWarning == NULL, @"libcache has no memory warning hook");
+    __block _Atomic(NSUInteger) reads = 0;
+    NSImage *decoded = [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        atomic_fetch_add(&reads, 1);
+        return [NSData dataWithBytes:"x" length:1];
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        return decoded;
+    }];
+    NSString *directory = @"/Library/Albums/Pressure";
+    NSString *track = [directory stringByAppendingPathComponent:@"track.mp3"];
+    [resolver noteListedDirectories:[NSSet setWithObject:directory]
+             artFilenameByDirectory:@{directory: @"cover.jpg"}];
+
+    // The hook purges on a queue of its own, so the row reads once this
+    // cache has emptied too.
+    NSCache *sentinel = [[NSCache alloc] init];
+    __block NSUInteger answers = 0;
+    __block BOOL purged = YES;
+    id observer = [NSNotificationCenter.defaultCenter addObserverForName:FolderArtDidResolveNotification
+                                                                  object:resolver
+                                                                   queue:nil
+                                                              usingBlock:^(NSNotification *notification) {
+        answers += 1;
+        [sentinel setObject:@YES forKey:@"sentinel"];
+        simulateMemoryWarning(DISPATCH_MEMORYPRESSURE_CRITICAL);
+        NSDate *purgeDeadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_GATE_TIMEOUT];
+        while ([sentinel objectForKey:@"sentinel"] && purgeDeadline.timeIntervalSinceNow > 0) {
+            usleep(1000);
+        }
+        purged = purged && [sentinel objectForKey:@"sentinel"] == nil;
+        [resolver cachedThumbnailForAudioFilePath:track];
+    }];
+    XCTAssertNil([resolver cachedThumbnailForAudioFilePath:track]);
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (answers == 0 && deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    // Long enough for a loop to go round many times.
+    [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.5]];
+    [NSNotificationCenter.defaultCenter removeObserver:observer];
+
+    XCTAssertTrue(purged);
+    XCTAssertEqual(answers, 1u);
+    XCTAssertEqual(atomic_load(&reads), 1u);
+    XCTAssertEqualObjects([resolver cachedThumbnailForAudioFilePath:track], decoded);
+}
+
+// Past 64 folders, the thumbnail read longest ago goes first.
+- (void)testTheThumbnailsKeepTheMostRecentlyUsed {
+    NSImage *decoded = [[NSImage alloc] initWithSize:NSMakeSize(1, 1)];
+    FolderArtResolver *resolver = [self resolverWithFileInfo:^BOOL(NSString *path, unsigned long long *size) {
+        return YES;
+    } dataReader:^NSData *(NSString *path) {
+        return [NSData dataWithBytes:"x" length:1];
+    } decoder:^NSImage *(NSData *data, CGFloat maxPixelSize) {
+        return decoded;
+    }];
+    NSMutableArray<NSString *> *tracks = [NSMutableArray array];
+    NSMutableDictionary<NSString *, NSString *> *covers = [NSMutableDictionary dictionary];
+    for (NSUInteger index = 0; index < 65; index++) {
+        NSString *directory = [NSString stringWithFormat:@"/Library/Albums/Recent%lu", index];
+        [tracks addObject:[directory stringByAppendingPathComponent:@"track.mp3"]];
+        covers[directory] = @"cover.jpg";
+    }
+    [resolver noteListedDirectories:[NSSet setWithArray:covers.allKeys] artFilenameByDirectory:covers];
+    for (NSUInteger index = 0; index < 64; index++) {
+        XCTAssertEqualObjects([resolver displayImageForAudioFilePath:tracks[index]], decoded);
+    }
+    XCTAssertEqualObjects([resolver cachedThumbnailForAudioFilePath:tracks[0]], decoded);
+    XCTAssertEqualObjects([resolver displayImageForAudioFilePath:tracks[64]], decoded);
+
+    XCTAssertEqualObjects([resolver cachedThumbnailForAudioFilePath:tracks[0]], decoded);
+    XCTAssertNil([resolver cachedThumbnailForAudioFilePath:tracks[1]]);
+    XCTAssertEqualObjects([resolver cachedThumbnailForAudioFilePath:tracks[64]], decoded);
 }
 
 @end
