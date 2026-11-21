@@ -43,8 +43,11 @@ enum {
     // How far past the tags the first frame may lie in a file named as
     // MPEG. Damage longer than this is a hole, which plays as silence.
     kVibeMPEGSyncSpan = 64 * 1024,
-    // The bytes a walk past a hole reads at a time.
-    kVibeMPEGHoleScanBytes = 4096,
+    // The bytes a walk past damage reads at a time.
+    kVibeMPEGDamageScanBytes = 4096,
+    // The frames before a hole whose mean size counts its packets: enough
+    // to average a frame's padding, and a variable rate's last second.
+    kVibeMPEGHoleRateFrames = 64,
     // Bytes after a stated stream that tags can fill, ID3v1, APE and the like,
     // at least: a sixteenth of the audio's bytes is allowed too.
     kVibeMPEGTrailingBytes = 1024,
@@ -195,12 +198,12 @@ static BOOL VibeMPEGParse(const uint8_t h[4], VibeMPEGFrame *frame) {
     return -1;
 }
 
-// The first frame after `from` that a chain follows, however far on, or -1.
-// Only a 0xFF starts a header, so the bytes are read a block at a time and
-// searched for one: a hole of zeros costs its read. A stream waits for each
-// block.
-- (SInt64)syncMPEGPastHoleFrom:(SInt64)from {
-    uint8_t block[kVibeMPEGHoleScanBytes];
+// The first frame at or after `from` that a chain follows, however far on, or
+// -1. Only a 0xFF starts a header, so the bytes are read a block at a time
+// and searched for one: a hole of zeros costs its read. A stream waits for
+// each block.
+- (SInt64)syncMPEGPastDamageFrom:(SInt64)from {
+    uint8_t block[kVibeMPEGDamageScanBytes];
     for (SInt64 at = from; at + 4 <= _mpegDataEnd;) {
         UInt32 got = 0;
         UInt32 wanted = (UInt32)MIN((SInt64)sizeof block, _mpegDataEnd - at);
@@ -246,7 +249,7 @@ static BOOL VibeMPEGParse(const uint8_t h[4], VibeMPEGFrame *frame) {
 // song. NO when the index cannot grow.
 - (BOOL)indexMPEGHoleAt:(SInt64)at bytes:(SInt64)bytes {
     SInt64 frames = 0, sum = 0;
-    for (SInt64 i = _mpegIndexed - 1; i >= 0 && frames < 64 && _mpegSizes[i] > 0; i--) {
+    for (SInt64 i = _mpegIndexed - 1; i >= 0 && frames < kVibeMPEGHoleRateFrames && _mpegSizes[i] > 0; i--) {
         frames++;
         sum += _mpegSizes[i];
     }
@@ -273,15 +276,12 @@ static BOOL VibeMPEGParse(const uint8_t h[4], VibeMPEGFrame *frame) {
     while (_mpegIndexed <= packet && !_mpegWalkEnded) {
         VibeMPEGFrame frame;
         if (![self mpegFrameAt:_mpegWalk frame:&frame]) {
-            SInt64 next = _waitError ? -1 : [self syncMPEGFrom:_mpegWalk + 1 span:kVibeMPEGSyncSpan];
-            BOOL hole = next < 0 && !_waitError;
-            if (hole) {
-                next = [self syncMPEGPastHoleFrom:_mpegWalk + 1 + kVibeMPEGSyncSpan];
-            }
+            SInt64 next = _waitError ? -1 : [self syncMPEGPastDamageFrom:_mpegWalk + 1];
             if (_waitError) {
                 return NO; // a lost wait, the walk not ended
             }
-            if (next < 0 || (hole && ![self indexMPEGHoleAt:_mpegWalk bytes:next - _mpegWalk])) {
+            SInt64 damage = next - _mpegWalk;
+            if (next < 0 || (damage > kVibeMPEGSyncSpan && ![self indexMPEGHoleAt:_mpegWalk bytes:damage])) {
                 _mpegWalkEnded = YES;
                 break;
             }
@@ -728,7 +728,6 @@ static BOOL VibeITunesGapless(AudioFileHandle *handle, SInt64 end, SInt64 *primi
         memset(_mpegPacket + sizeof(_mpeg->header), 0, _mpegPacketBytes - sizeof(_mpeg->header));
     } else if (hole) {
         memset(_mpeg, 0, sizeof(*_mpeg));
-        _mpegPacketBytes = 0;
     } else {
         UInt32 bytes = _mpegSizes[_mpegNextPacket], got = 0;
         OSStatus status = VibeHandleRead((__bridge void *)self, _mpegOffsets[_mpegNextPacket], bytes, _mpegPacket, &got);

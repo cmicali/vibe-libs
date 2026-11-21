@@ -266,12 +266,9 @@ static NSData *VibeMP3WithHole(NSData *bytes, NSUInteger first, NSUInteger frame
 }
 
 - (AVAudioFramePosition)framesReadToTheEndOf:(AudioFileHandle *)handle {
-    AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:handle.processingFormat frameCapacity:4096];
     AVAudioFramePosition start = handle.framePosition;
     NSError *error = nil;
-    while ([handle readIntoBuffer:buffer error:&error] && buffer.frameLength > 0) {
-    }
-    XCTAssertNil(error);
+    XCTAssertTrue(VibeReadToEnd(handle, [NSMutableData data], &error), @"%@", error);
     return handle.framePosition - start;
 }
 
@@ -299,18 +296,17 @@ static NSData *VibeMP3WithHole(NSData *bytes, NSUInteger first, NSUInteger frame
 // frames after it keep their place in the song. Damage within the span is
 // passed over as before, and the stream is that much shorter.
 - (void)testAnUncountedMP3CountsAHolesPacketsAndPassesOverShortDamage {
+    [self assertUncountedMP3Named:@"hole.mp3" withZerosOverFrames:200 holdsPackets:1000];
+    [self assertUncountedMP3Named:@"damage.mp3" withZerosOverFrames:10 holdsPackets:990];
+}
+
+- (void)assertUncountedMP3Named:(NSString *)name withZerosOverFrames:(NSUInteger)frames holdsPackets:(SInt64)packets {
     NSData *whole = VibeMP3WithoutVBRHeader(1000, 44100, ^uint8_t(uint32_t frame) { return 14; });
-    NSDictionary<NSString *, NSArray<NSNumber *> *> *cases = @{
-        @"hole.mp3": @[@200, @1000],
-        @"damage.mp3": @[@10, @990],
-    };
-    for (NSString *name in cases) {
-        NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:name];
-        XCTAssertTrue([VibeMP3WithHole(whole, 100, cases[name][0].unsignedIntegerValue) writeToURL:url atomically:YES]);
-        AudioFileHandle *handle = [self open:url];
-        XCTAssertEqual(handle.length, (AVAudioFramePosition)cases[name][1].longLongValue * 1152, @"%@", name);
-        XCTAssertEqual([self framesReadToTheEndOf:handle], handle.length, @"%@", name);
-    }
+    NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:name];
+    XCTAssertTrue([VibeMP3WithHole(whole, 100, frames) writeToURL:url atomically:YES]);
+    AudioFileHandle *handle = [self open:url];
+    XCTAssertEqual(handle.length, (AVAudioFramePosition)packets * 1152, @"%@", name);
+    XCTAssertEqual([self framesReadToTheEndOf:handle], handle.length, @"%@", name);
 }
 
 // Zeros that run to the file's end hold no frame to take up at, so the
