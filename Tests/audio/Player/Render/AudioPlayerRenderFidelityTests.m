@@ -691,7 +691,7 @@ static const NSUInteger kLayer3DecoderDelay = 529;
 // the frame it was, as CoreAudio's parser plays it. A free format frame whose
 // next header lies past dr_mp3's largest frame is damage. Taken whole, it
 // overran dr_mp3's reservoir copy into the side information beside it. The
-// stream plays on past it.
+// stream plays on past it, the damage as silence.
 - (void)testDrMP3MeasuresEachFreeFormatFrameUpToItsLargest {
     NSURL *url = [self optionalFixture:@"cbr-noinfo.mp3"];
     NSData *source = [NSData dataWithContentsOfURL:url];
@@ -712,7 +712,9 @@ static const NSUInteger kLayer3DecoderDelay = 529;
     // is past dr_mp3's largest free format frame.
     [bytes replaceBytesInRange:NSMakeRange(start + 15 * 576, 0) withBytes:[NSMutableData dataWithLength:3000].bytes length:3000];
     file = [self open:[self writeBytes:bytes name:@"free-far-apart.mp3"] decoder:@"dr_mp3"];
-    XCTAssertEqual(file.length, whole.length - 1152, @"the far frame dropped as damage");
+    // The frame's 576 bytes and the 3,000 after it are damage: 3,576 bytes,
+    // six packets of silence at the stream's 576 bytes a frame, for one frame.
+    XCTAssertEqual(file.length, whole.length + 5 * 1152, @"the far frame and the bytes after it as silence");
     XCTAssertEqual([self readToEnd:file].length, (NSUInteger)file.length * 2 * sizeof(float));
 }
 // A stated frame count is trusted only when it fits the file. Otherwise the
@@ -777,7 +779,9 @@ static const NSUInteger kLayer3DecoderDelay = 529;
 }
 // A damaged frame three from the end, then an ID3v1 tag. The walk takes up
 // again at the next frame that a chain follows. Only two frames follow, and
-// the chain ends at the tag. Each variant keeps every undamaged frame.
+// the chain ends at the tag. Each variant keeps every undamaged frame, and
+// plays the damaged one as a packet of silence, so the stream keeps its
+// length.
 - (void)testDrMP3KeepsTheFramesBetweenDamageAndATrailingTag {
     NSURL *url = [self optionalFixture:@"cbr-noinfo.mp3"];
     NSMutableData *bytes = [[NSData dataWithContentsOfURL:url] mutableCopy];
@@ -795,7 +799,7 @@ static const NSUInteger kLayer3DecoderDelay = 529;
         [file appendData:tail];
         NSURL *written = [self writeBytes:file name:[NSString stringWithFormat:@"damaged-end-%lu.mp3", (unsigned long)tail.length]];
         AudioFileHandle *handle = [self open:written decoder:@"dr_mp3"];
-        XCTAssertEqual(handle.length, (AVAudioFramePosition)(frames - 1) * 1152, @"a tail of %lu bytes", (unsigned long)tail.length);
+        XCTAssertEqual(handle.length, (AVAudioFramePosition)frames * 1152, @"a tail of %lu bytes", (unsigned long)tail.length);
         XCTAssertEqual([self readToEnd:handle].length, (NSUInteger)handle.length * 2 * sizeof(float), @"a tail of %lu bytes", (unsigned long)tail.length);
     }
 }
