@@ -292,12 +292,14 @@ static NSData *VibeMP3WithHole(NSData *bytes, NSUInteger first, NSUInteger frame
     }
 }
 
-// With no count stated, the walk counts the hole's packets itself, so the
-// frames after it keep their place in the song. Damage within the span is
-// passed over as before, and the stream is that much shorter.
-- (void)testAnUncountedMP3CountsAHolesPacketsAndPassesOverShortDamage {
+// With no count stated, the walk counts the packets damage took itself, so
+// the frames after it keep their place in the song, whether the damage is a
+// long hole or ten frames. Once, damage within the walk's span was passed
+// over, and the stream ended that much short of a stated length.
+- (void)testAnUncountedMP3CountsThePacketsDamageTook {
     [self assertUncountedMP3Named:@"hole.mp3" withZerosOverFrames:200 holdsPackets:1000];
-    [self assertUncountedMP3Named:@"damage.mp3" withZerosOverFrames:10 holdsPackets:990];
+    [self assertUncountedMP3Named:@"damage.mp3" withZerosOverFrames:10 holdsPackets:1000];
+    [self assertUncountedMP3Named:@"one-frame.mp3" withZerosOverFrames:1 holdsPackets:1000];
 }
 
 - (void)assertUncountedMP3Named:(NSString *)name withZerosOverFrames:(NSUInteger)frames holdsPackets:(SInt64)packets {
@@ -307,6 +309,26 @@ static NSData *VibeMP3WithHole(NSData *bytes, NSUInteger first, NSUInteger frame
     AudioFileHandle *handle = [self open:url];
     XCTAssertEqual(handle.length, (AVAudioFramePosition)packets * 1152, @"%@", name);
     XCTAssertEqual([self framesReadToTheEndOf:handle], handle.length, @"%@", name);
+}
+
+// Bytes between frames that held no audio add no silence: a tag, as two
+// files joined keep the second's, and stray bytes short of half a frame.
+- (void)testATagOrStrayBytesBetweenFramesAddNoSilence {
+    NSData *half = VibeMP3WithoutVBRHeader(100, 44100, ^uint8_t(uint32_t frame) { return 14; });
+    NSDictionary<NSString *, NSData *> *between = @{
+        @"tag.mp3": VibeID3v2Tag(3, 0, [NSMutableData dataWithLength:5000]),
+        @"stray.mp3": [NSMutableData dataWithLength:400],
+    };
+    for (NSString *name in between) {
+        NSMutableData *bytes = [half mutableCopy];
+        [bytes appendData:between[name]];
+        [bytes appendData:half];
+        NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:name];
+        XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+        AudioFileHandle *handle = [self open:url];
+        XCTAssertEqual(handle.length, (AVAudioFramePosition)200 * 1152, @"%@", name);
+        XCTAssertEqual([self framesReadToTheEndOf:handle], handle.length, @"%@", name);
+    }
 }
 
 // Zeros that run to the file's end hold no frame to take up at, so the
