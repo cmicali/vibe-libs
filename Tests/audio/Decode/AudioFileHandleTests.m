@@ -256,6 +256,75 @@ static NSData *VibeID3TagThen(NSUInteger size, NSData *next) {
     XCTAssertEqual(buffer.frameLength, (AVAudioFrameCount)handle.length, @"the read runs to the declared end");
 }
 
+// `bytes` with zeros over `frames` 1,044-byte frames from frame `first`,
+// starting 500 bytes into the frame before them: the hole a download leaves
+// where a block never arrived.
+static NSData *VibeMP3WithHole(NSData *bytes, NSUInteger first, NSUInteger frames) {
+    NSMutableData *holed = [bytes mutableCopy];
+    [holed resetBytesInRange:NSMakeRange(first * 1044 - 544, frames * 1044)];
+    return holed;
+}
+
+- (AVAudioFramePosition)framesReadToTheEndOf:(AudioFileHandle *)handle {
+    AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:handle.processingFormat frameCapacity:4096];
+    AVAudioFramePosition start = handle.framePosition;
+    NSError *error = nil;
+    while ([handle readIntoBuffer:buffer error:&error] && buffer.frameLength > 0) {
+    }
+    XCTAssertNil(error);
+    return handle.framePosition - start;
+}
+
+// A hole longer than the walk's span once ended the stream: a song with one
+// played to the hole and stopped, under a length that counted every frame.
+- (void)testAnMP3WithAHoleOfZerosPlaysThroughItAsSilence {
+    NSData *whole = VibeMP3WithInfoFrame(1000, YES);
+    NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:@"hole.mp3"];
+    // 200 frames, 208,800 bytes, from the 100th frame after the Info frame.
+    XCTAssertTrue([VibeMP3WithHole(whole, 101, 200) writeToURL:url atomically:YES]);
+    AudioFileHandle *handle = [self open:url];
+    XCTAssertEqual(handle.length, (AVAudioFramePosition)1000 * 1152, @"the Info frame's count stands");
+    XCTAssertEqual([self framesReadToTheEndOf:handle], handle.length, @"the reads cross the hole");
+
+    // A seek into the hole, and one past it, read on to the end.
+    for (NSNumber *packet in @[@150, @400]) {
+        AVAudioFramePosition target = packet.longLongValue * 1152 + 7;
+        NSError *error = nil;
+        XCTAssertTrue([handle seekToFrame:target error:&error], @"%@", error);
+        XCTAssertEqual([self framesReadToTheEndOf:handle], handle.length - target, @"from packet %@", packet);
+    }
+}
+
+// With no count stated, the walk counts the hole's packets itself, so the
+// frames after it keep their place in the song. Damage within the span is
+// passed over as before, and the stream is that much shorter.
+- (void)testAnUncountedMP3CountsAHolesPacketsAndPassesOverShortDamage {
+    NSData *whole = VibeMP3WithoutVBRHeader(1000, 44100, ^uint8_t(uint32_t frame) { return 14; });
+    NSDictionary<NSString *, NSArray<NSNumber *> *> *cases = @{
+        @"hole.mp3": @[@200, @1000],
+        @"damage.mp3": @[@10, @990],
+    };
+    for (NSString *name in cases) {
+        NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:name];
+        XCTAssertTrue([VibeMP3WithHole(whole, 100, cases[name][0].unsignedIntegerValue) writeToURL:url atomically:YES]);
+        AudioFileHandle *handle = [self open:url];
+        XCTAssertEqual(handle.length, (AVAudioFramePosition)cases[name][1].longLongValue * 1152, @"%@", name);
+        XCTAssertEqual([self framesReadToTheEndOf:handle], handle.length, @"%@", name);
+    }
+}
+
+// Zeros that run to the file's end hold no frame to take up at, so the
+// stream ends where they begin, as a file cut short does.
+- (void)testAnMP3ThatEndsInZerosEndsWhereTheyBegin {
+    NSMutableData *bytes = [VibeMP3WithoutVBRHeader(100, 44100, ^uint8_t(uint32_t frame) { return 14; }) mutableCopy];
+    [bytes increaseLengthBy:300 * 1024];
+    NSURL *url = [self.fixtureDirectory URLByAppendingPathComponent:@"zeros-after.mp3"];
+    XCTAssertTrue([bytes writeToURL:url atomically:YES]);
+    AudioFileHandle *handle = [self open:url];
+    XCTAssertEqual(handle.length, (AVAudioFramePosition)100 * 1152);
+    XCTAssertEqual([self framesReadToTheEndOf:handle], handle.length);
+}
+
 - (void)testMislabeledFileOpensByContent {
     NSURL *url = [self writePCMNamed:@"actually-a-wav.mp3" frames:2048 channels:2 rate:48000];
     AudioFileHandle *handle = [self open:url];
