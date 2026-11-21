@@ -712,8 +712,9 @@ static const NSUInteger kLayer3DecoderDelay = 529;
     // is past dr_mp3's largest free format frame.
     [bytes replaceBytesInRange:NSMakeRange(start + 15 * 576, 0) withBytes:[NSMutableData dataWithLength:3000].bytes length:3000];
     file = [self open:[self writeBytes:bytes name:@"free-far-apart.mp3"] decoder:@"dr_mp3"];
-    // The frame's 576 bytes and the 3,000 after it are damage: 3,576 bytes,
-    // six packets of silence at the stream's 576 bytes a frame, for one frame.
+    // The frame's 576 bytes and the 3,000 after it are damage: 3,576 bytes are
+    // six packets of silence at the stream's 576 bytes a frame, in place of
+    // the one frame lost, so five more than the whole file's.
     XCTAssertEqual(file.length, whole.length + 5 * 1152, @"the far frame and the bytes after it as silence");
     XCTAssertEqual([self readToEnd:file].length, (NSUInteger)file.length * 2 * sizeof(float));
 }

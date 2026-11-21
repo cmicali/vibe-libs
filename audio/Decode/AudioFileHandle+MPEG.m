@@ -41,13 +41,18 @@ enum {
     // is not.
     kVibeMPEGSyncFrames = 4,
     // How far past the tags the first frame may lie in a file named as
-    // MPEG. Damage longer than this is logged.
+    // MPEG.
     kVibeMPEGSyncSpan = 64 * 1024,
+    // Damage longer than this is logged. A badly damaged stream has thousands
+    // of short runs.
+    kVibeMPEGLoggedDamageBytes = 64 * 1024,
     // The bytes a walk past damage reads at a time.
     kVibeMPEGDamageScanBytes = 4096,
     // The frames before damage whose mean size counts its packets: enough
-    // to average a frame's padding, and a variable rate's last second.
+    // to average a frame's padding, and a variable rate's last second. They
+    // are looked for this many packets back, past earlier damage.
     kVibeMPEGDamageRateFrames = 64,
+    kVibeMPEGDamageRatePackets = 256,
     // Bytes after a stated stream that tags can fill, ID3v1, APE and the like,
     // at least: a sixteenth of the audio's bytes is allowed too.
     kVibeMPEGTrailingBytes = 1024,
@@ -150,23 +155,36 @@ static BOOL VibeMPEGParse(const uint8_t h[4], VibeMPEGFrame *frame) {
     return frame->bytes > 4 && at + frame->bytes <= _mpegDataEnd;
 }
 
-// Whether a tag starts at `at`: ID3v1, ID3v2, APE or Lyrics3.
-- (BOOL)mpegTagAt:(SInt64)at {
-    uint8_t tag[8];
+// The length of the tag that starts at `at`, or 0 for none: ID3v1's 128
+// bytes, an ID3v2 or APE tag's as its header states it, and the rest of the
+// data for Lyrics3, which states its length only at its end. Never past the
+// data's end.
+- (SInt64)mpegTagBytesAt:(SInt64)at {
+    uint8_t h[16];
     UInt32 got = 0;
-    return VibeHandleRead((__bridge void *)self, at, sizeof tag, tag, &got) == noErr && got >= 3
-            && (memcmp(tag, "TAG", 3) == 0 || memcmp(tag, "ID3", 3) == 0
-                || (got == sizeof tag && (memcmp(tag, "APETAGEX", 8) == 0 || memcmp(tag, "LYRICSBE", 8) == 0)));
+    if (VibeHandleRead((__bridge void *)self, at, sizeof h, h, &got) != noErr || got < 3) {
+        return 0;
+    }
+    SInt64 left = _mpegDataEnd - at, bytes = 0;
+    if (memcmp(h, "TAG", 3) == 0) {
+        bytes = 128;
+    } else if (memcmp(h, "ID3", 3) == 0) {
+        bytes = got >= 10 ? VibeID3v2TagBytes(h) : left;
+    } else if (got == sizeof h && memcmp(h, "APETAGEX", 8) == 0) {
+        bytes = 32 + (SInt64)OSReadLittleInt32(h, 12);
+    } else if (got >= 8 && memcmp(h, "LYRICSBE", 8) == 0) {
+        bytes = left;
+    }
+    return MIN(bytes, left);
 }
 
 // Whether kVibeMPEGSyncFrames frames of the stream chain from `at`, or reach
-// the data's end exactly, or a tag that ends a file: ID3v1, APE, Lyrics3 or
-// an ID3v2 tag appended. TRAP: without the tags, the frames between damage
+// the data's end exactly, or a tag that ends a file (mpegTagBytesAt:). TRAP: without the tags, the frames between damage
 // and a file's ID3v1 tag were dropped, since too few chained to the end.
 - (BOOL)mpegFramesChainFrom:(SInt64)at {
     VibeMPEGFrame frame;
     for (int n = 0; n < kVibeMPEGSyncFrames; n++) {
-        if (at == _mpegDataEnd || (n > 0 && [self mpegTagAt:at])) {
+        if (at == _mpegDataEnd || (n > 0 && [self mpegTagBytesAt:at] > 0)) {
             return n > 0;
         }
         // A free format frame measured only by the data's end is no evidence
@@ -248,24 +266,19 @@ static BOOL VibeMPEGParse(const uint8_t h[4], VibeMPEGFrame *frame) {
     return YES;
 }
 
-// Indexes the packets the damage of `bytes` at `at` took, at the size of the
-// frames before it, with no bytes: each decodes as silence, so the frames
-// after the damage keep their place in the song, and a stated count still
-// counts the stream. Bytes short of half a frame took none. Nor did a tag
-// between frames, which holds no audio: two files joined, the second's tag
-// kept. NO when the index cannot grow.
+// Indexes the packets that `bytes` of damage at `at` took, at the mean size
+// of the frames before it, with no bytes. Bytes short of half a frame took
+// none. NO when the index cannot grow.
 - (BOOL)indexMPEGDamageAt:(SInt64)at bytes:(SInt64)bytes {
-    if ([self mpegTagAt:at]) {
-        return YES;
-    }
     SInt64 frames = 0, sum = 0;
-    for (SInt64 i = _mpegIndexed - 1; i >= 0 && frames < kVibeMPEGDamageRateFrames && _mpegSizes[i] > 0; i--) {
-        frames++;
-        sum += _mpegSizes[i];
+    for (SInt64 i = _mpegIndexed - 1; i >= MAX(0, _mpegIndexed - kVibeMPEGDamageRatePackets) && frames < kVibeMPEGDamageRateFrames; i--) {
+        if (_mpegSizes[i] > 0) {
+            frames++;
+            sum += _mpegSizes[i];
+        }
     }
     SInt64 packets = sum > 0 ? (bytes * frames + sum / 2) / sum : 0;
-    // A badly damaged stream has thousands of short runs.
-    if (bytes > kVibeMPEGSyncSpan) {
+    if (bytes > kVibeMPEGLoggedDamageBytes) {
         LogWarn(@"MP3: %@ holds no frames for %lld bytes at byte %lld; they play as %lld packets of silence",
                 _url.lastPathComponent, bytes, at, packets);
     }
@@ -281,19 +294,26 @@ static BOOL VibeMPEGParse(const uint8_t h[4], VibeMPEGFrame *frame) {
 // end. Each header is read as any read is, so a stream's walk waits for its
 // bytes. A header that is not the stream's is damage, and the walk takes up
 // again at the next frame a chain follows, however far on. The packets the
-// damage took are indexed with no bytes, and decode as silence. YES when the
-// packet is indexed.
+// damage took are indexed with no bytes, and decode as silence. Tags where
+// the damage starts are no damage: two files joined keep the first's ID3v1
+// tag and the second's ID3v2 tag between their frames, and those held no
+// audio. YES when the packet is indexed.
 // TRAP: a wait that answers no ends no walk, or a lost read would shorten the
 // packet count for good.
 - (BOOL)indexMPEGThrough:(SInt64)packet {
     while (_mpegIndexed <= packet && !_mpegWalkEnded) {
         VibeMPEGFrame frame;
         if (![self mpegFrameAt:_mpegWalk frame:&frame]) {
+            // Read before the scan moves the read block on.
+            SInt64 tags = 0;
+            for (SInt64 tag; !_waitError && (tag = [self mpegTagBytesAt:_mpegWalk + tags]) > 0;) {
+                tags += tag;
+            }
             SInt64 next = _waitError ? -1 : [self syncMPEGPastDamageFrom:_mpegWalk + 1];
             if (_waitError) {
                 return NO; // a lost wait, the walk not ended
             }
-            if (next < 0 || ![self indexMPEGDamageAt:_mpegWalk bytes:next - _mpegWalk]) {
+            if (next < 0 || ![self indexMPEGDamageAt:_mpegWalk + tags bytes:next - _mpegWalk - tags]) {
                 _mpegWalkEnded = YES;
                 break;
             }
