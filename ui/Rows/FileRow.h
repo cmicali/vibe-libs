@@ -1,6 +1,6 @@
 //
 //  FileRow.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The pieces file and track rows share: the menu action, the not-downloaded
 //  mark, the file tile, the icon slot, the opening spinner and the viewport

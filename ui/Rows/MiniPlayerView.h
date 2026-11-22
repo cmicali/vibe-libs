@@ -1,6 +1,6 @@
 //
 //  MiniPlayerView.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The strip in the tab bar's bottomAccessory. Tapping it anywhere but a
 //  control, or swiping up, expands the card. It draws only what it is told,

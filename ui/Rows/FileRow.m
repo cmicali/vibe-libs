@@ -1,6 +1,6 @@
 //
 //  FileRow.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "FileRow.h"

@@ -1,6 +1,6 @@
 //
 //  MiniPlayerView.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "MiniPlayerView.h"

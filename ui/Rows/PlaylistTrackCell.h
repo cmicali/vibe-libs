@@ -1,6 +1,6 @@
 //
 //  PlaylistTrackCell.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import <UIKit/UIKit.h>

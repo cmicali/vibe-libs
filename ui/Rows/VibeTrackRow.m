@@ -1,6 +1,6 @@
 //
 //  VibeTrackRow.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "VibeTrackRow.h"
