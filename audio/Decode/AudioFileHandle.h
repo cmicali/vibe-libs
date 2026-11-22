@@ -152,6 +152,9 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
 @property (nonatomic, readonly) BOOL infoDictionaryReadable;
 // The file's own format: codec, native rate, channels, and for PCM the depth.
 @property (nonatomic, readonly) AVAudioFormat *fileFormat;
+// The source representation used to choose and check a device's precision.
+// A float APE carries float PCM, which its compressed format cannot express.
+@property (nonatomic, readonly) AVAudioFormat *sourceFormatForOutput;
 // What reads deliver.
 @property (nonatomic, readonly) AVAudioFormat *processingFormat;
 // Logical decoded frames, encoder priming and padding excluded.
@@ -227,6 +230,20 @@ FOUNDATION_EXPORT BOOL (^const VibeNeverWaitsForAStream)(void);
 // Writing only: flushes the last packet and finishes the container; the
 // status the encoder's end returns. Idempotent; dealloc closes silently.
 - (BOOL)closeWithError:(NSError * _Nullable __autoreleasing * _Nullable)error;
+
+@end
+
+@interface AudioFileHandle (DSDSplice)
+
+// First PCM frame whose filter needs bits past EOF. Returns -1 for a
+// non-DSD file or a playback window that ends inside the file.
+- (AVAudioFramePosition)dsdSpliceFrameBeforeEnd:(AVAudioFramePosition)end;
+
+// On the single queue that owns both readers, before reading the last filter
+// window. The files must have the same channel order. On success the
+// successor is positioned at zero with its lead ready.
+// An ordinary seek clears both edges.
+- (BOOL)prepareDSDSpliceToFile:(AudioFileHandle *)next;
 
 @end
 

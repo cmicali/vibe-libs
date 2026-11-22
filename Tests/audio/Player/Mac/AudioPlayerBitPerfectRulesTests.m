@@ -7,12 +7,35 @@
 
 #import <XCTest/XCTest.h>
 
+#import "AudioFileFormat.h"
 #import "AudioPlayerInternal.h"
+#import "AudioReferenceFixtures.h"
 
 @interface AudioPlayerBitPerfectRulesTests : XCTestCase
 @end
 
 @implementation AudioPlayerBitPerfectRulesTests
+
+- (void)testFloatAPEChoosesFloatAndKeepsPeaksPastFullScale {
+    AudioStreamRangedDescription offers[] = {VibeRangedPCMFormat(48000, 32, NO), VibeRangedPCMFormat(48000, 32, YES)};
+    for (NSString *name in @[@"float-peaks.ape", @"depth32.ape"]) {
+        AudioFileHandle *file = [[AudioFileHandle alloc] initForReading:VibeAPEFixture(name) error:NULL];
+        XCTAssertNotNil(file);
+        if (!file) return;
+        BOOL floating = [name isEqualToString:@"float-peaks.ape"];
+        XCTAssertEqual(file.fileFormat.streamDescription->mFormatID, (AudioFormatID)kVibeAudioFormatMonkeysAudio);
+        AudioStreamBasicDescription source = *file.sourceFormatForOutput.streamDescription, chosen = {0};
+        XCTAssertTrue(VibeBitPerfectChooseFormat(source, 48000, offers, 2, &chosen));
+        XCTAssertEqual(VibePhysicalFormatIsFloat(chosen), floating);
+        XCTAssertEqual(VibePhysicalFormatSatisfies(chosen, source, *file.processingFormat.streamDescription), floating);
+        if (floating) {
+            AVAudioPCMBuffer *buffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:file.processingFormat frameCapacity:1];
+            XCTAssertTrue([file readIntoBuffer:buffer error:NULL]);
+            XCTAssertEqual(buffer.frameLength, 1u);
+            XCTAssertEqual(buffer.floatChannelData[0][0], -8194.0f / 4096.0f);
+        }
+    }
+}
 
 #pragma mark - The fold
 

@@ -31,9 +31,10 @@ def sample16(n, c):
 
 
 def frames_bytes(frames, channels, depth, big_endian=False):
-    """Interleaved samples at the depth: 8 (unsigned), 16, 24, 32, or 'float'."""
+    """Interleaved integer or float samples, with optional peaks above full scale."""
     out = bytearray()
     order = ">" if big_endian else "<"
+    float_scale = 4096.0 if depth == "float-peaks" else 32768.0
     for n in range(frames):
         for c in range(channels):
             s = sample16(n, c)
@@ -46,15 +47,16 @@ def frames_bytes(frames, channels, depth, big_endian=False):
             elif depth == 32:
                 out += struct.pack(order + "i", s << 16)
             else:
-                out += struct.pack(order + "f", s / 32768.0)
+                out += struct.pack(order + "f", s / float_scale)
     return bytes(out)
 
 
 def write_wav(path, rate, channels, depth, frames, mask=0):
     data = frames_bytes(frames, channels, depth)
-    bits = 32 if depth == "float" else depth
+    floating = depth in ("float", "float-peaks")
+    bits = 32 if floating else depth
     align = channels * bits // 8
-    tag = 3 if depth == "float" else 1
+    tag = 3 if floating else 1
     if mask:
         fmt = struct.pack("<HHIIHHHHI16s", 0xFFFE, channels, rate, rate * align, align, bits, 22, bits, mask,
                           struct.pack("<H", tag) + b"\x00\x00\x00\x00\x10\x00\x80\x00\x00\xaa\x00\x38\x9b\x71")
@@ -109,6 +111,8 @@ def main():
     # Each depth, mono at 48 kHz, a tenth of a second.
     for depth, name in [(8, "depth8"), (24, "depth24"), (32, "depth32"), ("float", "float32")]:
         compress(wav(f"{name}.wav", 48000, 1, depth, 4800), f"{name}.ape", 2000)
+    # Float stereo with peaks past full scale, for the device format choice.
+    compress(wav("float-peaks.wav", 48000, 2, "float-peaks", 4096), "float-peaks.ape", 2000)
     # 5.1, which keeps its WAVE channel mask.
     compress(wav("surround.wav", 48000, 6, 16, 4800, mask=0x3F), "surround51.ape", 2000)
     # An AIFF's big-endian samples.

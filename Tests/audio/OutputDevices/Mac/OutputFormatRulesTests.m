@@ -361,6 +361,18 @@ static NSUInteger USBDACList(AudioStreamRangedDescription *out) {
     XCTAssertEqual(chosen.mSampleRate, 96000);
 }
 
+- (void)testDecodedDSDKeepsItsRateOnAnIntegerOnlyDevice {
+    AudioStreamBasicDescription source = VibePCM(176400, 32, YES), chosen = {0};
+    AudioStreamRangedDescription formats[] = {VibeRangedPCMFormat(48000, 32, NO),
+        VibeRangedPCMFormat(176400, 16, NO), VibeRangedPCMFormat(176400, 24, NO)};
+    double rate = VibeBitPerfectTargetRate(source.mSampleRate, source.mChannelsPerFrame, formats, 3);
+    XCTAssertEqual(rate, 176400);
+    XCTAssertTrue(VibeBitPerfectChooseFormat(source, rate, formats, 3, &chosen));
+    XCTAssertEqual(chosen.mSampleRate, rate);
+    XCTAssertEqual(chosen.mBitsPerChannel, 24u);
+    XCTAssertFalse(VibePhysicalFormatSatisfies(chosen, source, Decode(rate)));
+}
+
 - (void)testNothingAtTheRateIsNo {
     AudioStreamRangedDescription dac[16];
     UInt32 n = (UInt32)USBDACList(dac);

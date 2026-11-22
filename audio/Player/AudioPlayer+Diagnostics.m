@@ -75,12 +75,13 @@ static NSString *VibeSampleFormatName(AVAudioFormat *format) {
         }
         // Only PCM's flags say float: a lossless codec's flags are its source
         // depth, and the 24-bit one carries the float bit.
+        const AudioStreamBasicDescription *samples = file.sourceFormatForOutput.streamDescription;
 #if TARGET_OS_OSX
-        source[@"bitsPerChannel"] = @(VibeSourceBitDepth(*asbd));
-        source[@"float"] = @(VibeSourceIsFloat(*asbd));
+        source[@"bitsPerChannel"] = @(VibeSourceBitDepth(*samples));
+        source[@"float"] = @(VibeSourceIsFloat(*samples));
 #else
-        source[@"bitsPerChannel"] = @(asbd->mBitsPerChannel);
-        source[@"float"] = @(asbd->mFormatID == kAudioFormatLinearPCM && (asbd->mFormatFlags & kAudioFormatFlagIsFloat) != 0);
+        source[@"bitsPerChannel"] = @(samples->mBitsPerChannel);
+        source[@"float"] = @(samples->mFormatID == kAudioFormatLinearPCM && (samples->mFormatFlags & kAudioFormatFlagIsFloat) != 0);
 #endif
         source[@"frames"] = @(file.length);
         source[@"decodedSampleFormat"] = VibeSampleFormatName(file.processingFormat);

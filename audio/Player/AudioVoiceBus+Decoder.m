@@ -103,6 +103,8 @@ static void VibeApplyMixMap(const float *map, AVAudioPCMBuffer *source, AVAudioP
     record->mixBuffer = nil;
     record->mixMap = nil;
     record->stream = VibeStreamReading;
+    record->dsdSpliceFrame = [file dsdSpliceFrameBeforeEnd:record->endFrame];
+    record->dsdSuccessorPositioned = NO;
     record->fedFrames = 0;
     [self setConversion:nil forRecord:record];
     if (VibePCMFormatsMatch(source, _format)) {
@@ -352,7 +354,10 @@ static void VibeApplyMixMap(const float *map, AVAudioPCMBuffer *source, AVAudioP
     os_unfair_lock_unlock(&_tableLock);
     record->startFrame = record->successorStartFrame;
     record->endFrame = record->successorEndFrame;
-    record->positioned = NO;
+    record->positioned = record->dsdSuccessorPositioned;
+    record->dsdSuccessorPositioned = NO;
+    record->cursor = record->startFrame;
+    record->dsdSpliceFrame = [successor dsdSpliceFrameBeforeEnd:record->endFrame];
     return YES;
 }
 
@@ -386,11 +391,12 @@ typedef struct {
 
 // Of `wanted` frames, those the voice may read before its end frame.
 static AVAudioFrameCount VibeFramesBeforeEnd(AudioVoiceRecord *record, AVAudioFrameCount wanted) {
-    if (record->endFrame <= 0) {
-        return wanted;
+    AVAudioFramePosition end = record->dsdSpliceFrame;
+    if (end < 0) {
+        end = record->endFrame;
+        if (end <= 0) return wanted;
     }
-    AVAudioFramePosition left = record->endFrame - record->cursor;
-    return left <= 0 ? 0 : (AVAudioFrameCount)MIN((AVAudioFramePosition)wanted, left);
+    return (AVAudioFrameCount)MIN((AVAudioFramePosition)wanted, MAX(0, end - record->cursor));
 }
 
 // Supplies the resampler one read of the file, mixed to the bus's width
@@ -410,6 +416,7 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
         // Only the read stops at the end frame: the flush below must push its
         // silence whatever the window.
         AVAudioFrameCount readable = VibeFramesBeforeEnd(record, wanted);
+        if (readable == 0 && record->dsdSpliceFrame >= 0) return 0; // let the decode turn settle the DSD join
 #if DEBUG
         uint64_t started = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID);
 #endif
@@ -524,6 +531,16 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
     return frames;
 }
 
+// TRAP: call before the first seek, on the serial queue shared with any
+// retiring voice still reading this file. A stop can land just after
+// allowReads. Recheck the slot so a retired voice cannot start another read.
+static BOOL VibeAllowReadsForSlot(AudioFileHandle *file, VibeVoiceSlot *slot) {
+    [file allowReads];
+    if (atomic_load_explicit(&slot->readsAllowed, memory_order_seq_cst)) return YES;
+    [file interruptReads];
+    return NO;
+}
+
 // One chunk into the ring. YES when the voice could take another.
 - (BOOL)decodeChunkForSlot:(NSUInteger)slot {
     AudioVoiceRecord *record = _records[slot];
@@ -541,18 +558,7 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
         return NO;
     }
     if (!record->positioned && !record->failure) {
-        // TRAP: reads are allowed again here and nowhere else, at this voice's
-        // first seek of its file, on its own decode queue. The voice that read
-        // the file before was stopped and interrupted on the player queue
-        // before this one started, and a turn of it still in flight made this
-        // voice share its serial queue, so that turn has returned and no other
-        // read is inside the file. A stop of this voice landing between the
-        // allow and the seek is caught by the re-check, which interrupts again.
-        [record->file allowReads];
-        if (!atomic_load_explicit(&s->readsAllowed, memory_order_seq_cst)) {
-            [record->file interruptReads];
-            return NO;
-        }
+        if (!VibeAllowReadsForSlot(record->file, s)) return NO;
         NSError *error = nil;
         if (![record->file seekToFrame:record->startFrame error:&error]) {
             if ([self readWasInterrupted:error forSlot:slot]) {
@@ -567,6 +573,20 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
             record->cursor = record->startFrame;
         }
     }
+    if (record->stream == VibeStreamReading && record->dsdSpliceFrame >= 0 && record->cursor >= record->dsdSpliceFrame) {
+        AudioFileHandle *next = [self claimSuccessorForSlot:slot];
+        if (!next && VibeHasReserveToWaitForSuccessor(written, consumed)) {
+            atomic_store_explicit(&record->heldOpenAt, written, memory_order_release);
+            return NO;
+        }
+        record->dsdSpliceFrame = -1;
+        if (next && next != record->file && record->successorStartFrame == 0
+                && next.dsdSampleRate == record->file.dsdSampleRate
+                && VibePCMFormatsMatch(record->file.processingFormat, next.processingFormat)) {
+            if (!VibeAllowReadsForSlot(next, s)) return NO;
+            record->dsdSuccessorPositioned = [record->file prepareDSDSpliceToFile:next];
+        }
+    }
     if (record->stream == VibeStreamDrained) {
         // The file ran out with the stream open. A successor read the same
         // way continues it here. Its boundary counts frames fed at the bus
@@ -576,7 +596,8 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
         // resampler stays open while the render is far from the end, so a
         // successor named late still continues it; a bus-format file has
         // nothing to keep open and ends at once.
-        AudioFileHandle *successor = [self claimSuccessorForSlot:slot];
+        AudioFileHandle *successor = atomic_load_explicit(&s->successorState, memory_order_acquire) == VibeSuccessorSwitching
+                ? record->successorFile : [self claimSuccessorForSlot:slot];
         if (successor && [self continueRecord:record intoSuccessor:successor]) {
             record->stream = VibeStreamReading;
             atomic_store_explicit(&s->boundary, [self streamEndForRecord:record written:written], memory_order_release);

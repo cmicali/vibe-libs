@@ -189,8 +189,8 @@ static inline BOOL VibeBitPerfectOutputNeedsSwitch(AudioStreamBasicDescription c
 }
 
 // The depth rule at `rate`, as-is. This piece's AGENTS.md says why. The
-// integer pick is the widest integer depth not below the source's, and the
-// float pick the widest float. An integer source takes the integer pick. A
+// integer pick is the widest integer, at least as wide for an integer
+// source. The float pick is the widest float. An integer source takes the integer pick. A
 // float or lossy source takes the float pick first, since only a float format
 // carries a float decode unchanged. Only formats wide enough for all source
 // channels qualify. Returns NO when none is usable at `rate`. The caller
@@ -201,6 +201,7 @@ static inline BOOL VibeBitPerfectChooseFormat(AudioStreamBasicDescription source
                                               UInt32 count,
                                               AudioStreamBasicDescription *chosen) {
     UInt32 depth = VibeSourceBitDepth(source);
+    BOOL preferFloat = VibeSourceIsFloat(source) || depth == 0;
     AudioStreamBasicDescription integerPick = {0}, floatPick = {0};
     for (UInt32 i = 0; i < count; i++) {
         if (!VibeRangedFormatOffersRate(formats[i], rate)
@@ -211,8 +212,8 @@ static inline BOOL VibeBitPerfectChooseFormat(AudioStreamBasicDescription source
         AudioStreamBasicDescription candidate = formats[i].mFormat;
         candidate.mSampleRate = rate;
         BOOL isFloat = VibePhysicalFormatIsFloat(candidate);
-        if (!isFloat && candidate.mBitsPerChannel < depth) {
-            continue; // never below the source
+        if (!isFloat && !preferFloat && candidate.mBitsPerChannel < depth) {
+            continue;
         }
         AudioStreamBasicDescription *pick = isFloat ? &floatPick : &integerPick;
         if (candidate.mBitsPerChannel > pick->mBitsPerChannel) {
@@ -223,7 +224,6 @@ static inline BOOL VibeBitPerfectChooseFormat(AudioStreamBasicDescription source
     if (!haveInteger && !haveFloat) {
         return NO;
     }
-    BOOL preferFloat = (VibeSourceIsFloat(source) || depth == 0) ? haveFloat : !haveInteger;
-    *chosen = preferFloat ? floatPick : integerPick;
+    *chosen = haveFloat && (preferFloat || !haveInteger) ? floatPick : integerPick;
     return YES;
 }

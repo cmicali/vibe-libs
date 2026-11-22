@@ -148,6 +148,7 @@ enum { kVibeReadBlock = 64 * 1024, kVibeStreamReadSmall = 4096, kVibeStreamReadF
     // A channel's bytes the file holds: the count's, or where a WavPack
     // file's decode ended short. Frames past it read nothing until a seek.
     SInt64 _dsdBytesEnd;
+    NSData *_dsdLead, *_dsdLookahead; // adjacent track's bytes, planar, in this file's bit order
 }
 
 // A handle that only reads the file's bytes, with no decoder: a WavPack

@@ -37,6 +37,12 @@ enum {
     kOpenStreamReserveFrames = 2 * kDecodeChunkFrames,
 };
 
+// One chunk can start a voice. Once rendering starts, keep the full reserve
+// while waiting for a queued successor.
+static inline BOOL VibeHasReserveToWaitForSuccessor(uint64_t written, uint64_t consumed) {
+    return written - consumed >= (consumed == 0 ? kLiveThresholdFrames : kOpenStreamReserveFrames);
+}
+
 typedef NS_ENUM(int32_t, VibeSuccessorState) {
     VibeSuccessorNone = 0,
     VibeSuccessorQueued,
@@ -211,6 +217,8 @@ static inline AudioTimeStamp VibeStampRead(const VibeVoiceStamp *field) {
     // of the file: framePosition answers 0 when ExtAudioFileTell fails, and an
     // end clamped against that reads into the next window.
     AVAudioFramePosition cursor;
+    AVAudioFramePosition dsdSpliceFrame; // hold here until the next file is known or the render needs the tail
+    BOOL dsdSuccessorPositioned;
     BOOL positioned;
     VibeStreamState stream;
     BOOL readInterrupted;            // the decoder's: this turn's read or seek ended as an interruption

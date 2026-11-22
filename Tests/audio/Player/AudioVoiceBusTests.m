@@ -8,6 +8,8 @@
 //
 
 #import "AudioVoiceBusTestCase.h"
+#import "DSFFixtures.h"
+#include <libkern/OSByteOrder.h>
 
 @interface AudioVoiceBusTests : AudioVoiceBusTestCase
 @end
@@ -391,6 +393,92 @@
 }
 
 #pragma mark - Successors
+
+static void VibeSetDSFLengths(NSMutableData *file, uint64_t samples) {
+    uint8_t *header = file.mutableBytes;
+    OSWriteLittleInt64(header, 12, file.length);
+    OSWriteLittleInt64(header, 64, samples);
+    OSWriteLittleInt64(header, 84, 12 + file.length - kVibeDSFHeaderBytes);
+}
+
+- (void)testGaplessDSDMatchesTheUnsplitBitstream {
+    // Cut on a group of DSF blocks. The second file stores its bytes reversed.
+    const NSUInteger header = kVibeDSFHeaderBytes, frames = 40960, bits = frames * 16;
+    NSData *whole = VibeDSFFile(2, 1, NO, 2 * bits, ^double(uint32_t channel, double seconds) {
+        return 0.45 * cos(2 * M_PI * (997 + 123 * channel) * seconds);
+    }, nil);
+    NSURL *album = [_temporary URLByAppendingPathComponent:@"whole.dsf"];
+    XCTAssertTrue([whole writeToURL:album atomically:NO]);
+    NSMutableArray<NSURL *> *tracks = [NSMutableArray array];
+    NSUInteger half = (whole.length - header) / 2;
+    for (NSUInteger i = 0; i < 2; i++) {
+        NSMutableData *track = [[whole subdataWithRange:NSMakeRange(0, header)] mutableCopy];
+        [track appendData:[whole subdataWithRange:NSMakeRange(header + i * half, half)]];
+        VibeSetDSFLengths(track, bits);
+        if (i == 1) {
+            uint8_t *bytes = track.mutableBytes;
+            OSWriteLittleInt32(bytes, 60, 1);
+            for (NSUInteger j = header; j < track.length; j++) bytes[j] = __builtin_bitreverse8(bytes[j]);
+        }
+        NSURL *url = [_temporary URLByAppendingPathComponent:i ? @"second.dsf" : @"first.dsf"];
+        XCTAssertTrue([track writeToURL:url atomically:NO]);
+        [tracks addObject:url];
+    }
+    for (NSNumber *rate in @[@176400, @48000]) {
+        [self makeBusAtRate:rate.doubleValue channels:2];
+        VibeVoiceID voice = [self startFile:[self open:album] fileGain:kVibeFileGainUnity];
+        NSData *reference = [self renderUntilEnded:voice blockSize:257 limit:frames * 5];
+        uint64_t length = [self endedSnapshot:voice].endOfStream;
+        XCTAssertEqual(length, (uint64_t)llround(2 * frames * rate.doubleValue / 176400));
+        [self makeBusAtRate:rate.doubleValue channels:2];
+        voice = [self startFile:[self open:tracks[0]] fileGain:kVibeFileGainUnity];
+        [_bus fillInline]; // the next track arrives after the initial read-ahead
+        XCTAssertTrue([_bus queueSuccessor:[self open:tracks[1]] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
+        NSData *joined = [self renderUntilEnded:voice blockSize:257 limit:frames * 5];
+        XCTAssertEqual([self endedSnapshot:voice].endOfStream, length);
+        [self assertCapture:joined equalsSource:reference];
+    }
+}
+
+- (void)checkShortDSDJoin:(NSString *)fixture {
+    NSURL *dsf = VibeWavPackFixture([fixture stringByAppendingPathExtension:@"dsf"]);
+    NSURL *wv = VibeWavPackFixture([fixture stringByAppendingPathExtension:@"wv"]);
+    NSData *single = [NSData dataWithContentsOfURL:dsf];
+    VibeDSFInfo info;
+    XCTAssertTrue(VibeDSFParseHeader(single.bytes, single.length, single.length, &info));
+    const NSUInteger frames = info.sampleCount / (16 * info.rateMultiple), bytes = info.sampleCount / 8;
+    // Repeat the file's actual channel bytes, omitting its block padding.
+    NSMutableData *twice = [[single subdataWithRange:NSMakeRange(0, kVibeDSFHeaderBytes)] mutableCopy];
+    NSUInteger blocks = (2 * bytes + kVibeDSFBlockBytes - 1) / kVibeDSFBlockBytes;
+    twice.length += blocks * info.channels * kVibeDSFBlockBytes;
+    VibeSetDSFLengths(twice, info.sampleCount * 2);
+    uint8_t *joined = twice.mutableBytes;
+    for (uint32_t c = 0; c < info.channels; c++) {
+        for (NSUInteger i = 0; i < 2 * bytes; i++) {
+            joined[VibeDSFByteOffset(&info, c, i)] = ((const uint8_t *)single.bytes)[VibeDSFByteOffset(&info, c, i % bytes)];
+        }
+    }
+    NSURL *album = [_temporary URLByAppendingPathComponent:@"twice.dsf"];
+    XCTAssertTrue([twice writeToURL:album atomically:NO]);
+    [self makeBusAtRate:kRate channels:2];
+    VibeVoiceID voice = [self startFile:[self open:album] fileGain:kVibeFileGainUnity];
+    NSData *reference = [self renderUntilEnded:voice blockSize:257 limit:4 * frames + 514];
+    uint64_t length = [self endedSnapshot:voice].endOfStream;
+    XCTAssertGreaterThan(length, 0u);
+    for (NSArray<NSURL *> *order in @[@[dsf, wv], @[wv, dsf], @[wv, wv]]) {
+        [self makeBusAtRate:kRate channels:2];
+        voice = [self startFile:[self open:order[0]] fileGain:kVibeFileGainUnity];
+        XCTAssertTrue([_bus queueSuccessor:[self open:order[1]] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
+        [self assertCapture:[self renderUntilEnded:voice blockSize:257 limit:4 * frames + 514] equalsSource:reference];
+        XCTAssertEqual([self endedSnapshot:voice].endOfStream, length, @"%@", fixture);
+    }
+}
+
+- (void)testDSFAndWavPackCanShareEitherSideOfAShortDSDJoin {
+    for (NSString *fixture in @[@"dsd", @"dsd128-48k", @"dsd256", @"dsd512", @"dsd-surround"]) {
+        [self checkShortDSDJoin:fixture];
+    }
+}
 
 - (void)testASuccessorContinuesExactlyAtTheBoundaryAtEveryBlockSize {
     NSData *whole = [self noiseFrames:48001 channels:2 seed:6];
