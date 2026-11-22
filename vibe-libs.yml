@@ -590,6 +590,17 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/system/AppOpening/Mac"]
 
+  # iOS only, so no macOS target may list it. It lists Controls for the
+  # equalizer bars and the loading indicator in a track row's gutter.
+  VibeLibsRows:
+    templates: [VibeLibsControls]
+    sources:
+      - path: ui/Rows
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/Rows"]
+
   # ---- third_party/: other authors' code, one piece per library ----
   #
   # Each template carries the compiler flags its library builds with, so an
