@@ -142,8 +142,10 @@ vibe-libs/
 │   ├── Shortcuts ○      macOS only: a shortcut as a key code or character with modifiers,
 │   │                    its matching, its name and key equivalent under the current
 │   │                    layout, and the recorder pane over rows the app supplies
-│   └── DropWells        macOS only: the wells a drag of files over a window shows, each a
-│                        symbol, a label, and the app's action, lit under the pointer
+│   ├── DropWells        macOS only: the wells a drag of files over a window shows, each a
+│   │                    symbol, a label, and the app's action, lit under the pointer
+│   └── Rows             iOS only: the track row, the mini player strip, the file row
+│                        pieces, and the track row value they draw
 │
 ├── system/
 │   ├── NowPlaying       Now Playing info and remote commands, fed the track's values
@@ -207,6 +209,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | ui/SettingsWindow | ui/Controls, core/Graphics, macOS only |
 | ui/Shortcuts | ui/SettingsWindow, macOS only |
 | ui/DropWells | core/Graphics, macOS only |
+| ui/Rows | ui/Controls, iOS only |
 | system/NowPlaying | core/Graphics, media/PlayQueue |
 | system/AppOpening | nothing, macOS only |
 | system/Updates | third_party/Sparkle, macOS only |
@@ -632,6 +635,7 @@ Each remaining candidate moves when a second app needs it, with the cuts it was 
 - **The standard debug verbs and the debug client**, since Vibe, the other app, and the third app each need them. [debug-verbs.md](debug-verbs.md) is the plan: a new piece, `dev/DebugVerbs`, the client's move into DebugChannel's `Mac/` half, and each app taking them. Planned on 2026-10-30. They moved on 2026-10-30 (this repo's #87). The piece's 16 files, its doc, and the client's 2 files moved with their history, after a prep pull request in Vibe staged them. Their tests are new here. The consumer answers `dump_build` and `dump_health` from the standard table.
 
 - **The drop wells**, since Vibe and the other app each show them over a drop. Built on 2026-11-07 as a new piece, `ui/DropWells`, from Vibe's playlist drop zone. Its wells, their titles, symbols, and actions, and its style are values the app passes. Vibe's drop zone keeps its rest well and uses the piece for the drag.
+- **The iOS rows**, since the other app lists files and tracks on iOS as Vibe does. They moved on 2026-11-22 as a new piece, `ui/Rows`, which is iOS only. Its 8 files moved with their history: the track row, the mini player strip, the file row pieces, and `VibeTrackRow`, the value they draw. Two prep pull requests in Vibe came first (Vibe #448 and #450). The views stopped reading `AudioTrack` and Vibe's strings. They draw a `VibeTrackRow` that the app fills, and the strip takes its VoiceOver labels. The value got a header of its own. The views need a hosted app and a window, so their tests stay in Vibe's simulator suite, as the iOS scrubber's do. Here, `Rows-iOS` builds the piece and a probe of every header.
 
 **Wave 10 moved the rest but the pitch fader on 2026-10-23**, in this order:
 
@@ -663,6 +667,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | A server source | HTTP, RemoteFiles, and ShareLinks | move | 6 | Vibe's transfer, store, and link tests, moved here | 2f62ff4 (#46) |
 | Its debug channel's standard verbs and client | DebugVerbs, and the client in DebugChannel | move | 6 | the piece's and the client's tests, and the consumer's standard verbs | 49c8aa4 (#87) |
 | Full app: tag editing | Tags' in-place write of fields and the front cover, and the field names in `VibeTagFields.h` | behavior | 6 | `VibeTagWriterTests`, and Decode's `AudioFileHandleReplaceTests` for the swap | |
+| Full app on iOS: file and track rows | `ui/Rows` | move | 6 | Vibe's `RowViewsTests`, through the template | |
 
 Nothing else is scheduled for the other app. The shell pieces are scheduled for a third app, on the shell track. Portable rewrites wait until a consumer needs them.
 
