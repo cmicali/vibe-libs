@@ -154,16 +154,17 @@ static void VibeCopyDSDEdge(NSData *edge, SInt64 start, SInt64 first, size_t byt
 - (BOOL)feedDSDFrames:(UInt32)frames from:(SInt64)feed into:(float *const *)planes interleaved:(BOOL)interleaved {
     unsigned perFrame = VibeDSDToPCMBytesPerFrame(_dsd);
     size_t bytes = (size_t)frames * perFrame;
+    uint32_t count = _dsf.channels;
     uint8_t *channels[kVibeDSFMaxChannels];
-    for (uint32_t c = 0; c < _dsf.channels; c++) {
+    for (uint32_t c = 0; c < count; c++) {
         channels[c] = _dsdBytes + c * bytes;
     }
     if (![self readDSDBytes:channels from:feed * perFrame count:bytes]) {
         return NO;
     }
-    for (uint32_t c = 0; c < _dsf.channels; c++) {
+    for (uint32_t c = 0; c < count; c++) {
         float *out = interleaved ? planes[0] + c : planes[c];
-        VibeDSDToPCMProcess(_dsd, c, channels[c], frames, out, interleaved ? _dsf.channels : 1);
+        VibeDSDToPCMProcess(_dsd, c, channels[c], frames, out, interleaved ? count : 1);
     }
     return YES;
 }
