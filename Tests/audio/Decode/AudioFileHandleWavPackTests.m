@@ -544,7 +544,7 @@ static NSArray<NSString *> *VibeDSDFixtures(void) {
         XCTAssertTrue([handle seekToFrame:0 error:NULL]);
         NSMutableData *samples = [NSMutableData data];
         XCTAssertTrue(VibeReadToEnd(handle, samples, NULL));
-        XCTAssertEqualObjects(samples, VibeDecodeFile(handle == before ? left : right));
+        XCTAssertEqualObjects(samples, VibeDecodeFile(handle.url));
     }
 }
 

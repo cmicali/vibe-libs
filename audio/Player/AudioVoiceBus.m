@@ -872,7 +872,7 @@
                 // find the same. A successor queued since asks for its own.
                 BOOL idle = heldOpen
                         && atomic_load_explicit(&s->successorState, memory_order_relaxed) == VibeSuccessorNone
-                        && VibeCanHoldDSDTail(written, consumed);
+                        && VibeHasReserveToWaitForSuccessor(written, consumed);
                 if (VibeSlotCanWrite(s) && buffered < _mix->capacity / kLowWaterDivisor && !idle) {
                     [self scheduleFillForSlot:slot];
                 }

@@ -391,14 +391,12 @@ typedef struct {
 
 // Of `wanted` frames, those the voice may read before its end frame.
 static AVAudioFrameCount VibeFramesBeforeEnd(AudioVoiceRecord *record, AVAudioFrameCount wanted) {
-    if (record->dsdSpliceFrame >= 0) {
-        return (AVAudioFrameCount)MIN((AVAudioFramePosition)wanted, MAX(0, record->dsdSpliceFrame - record->cursor));
+    AVAudioFramePosition end = record->dsdSpliceFrame;
+    if (end < 0) {
+        end = record->endFrame;
+        if (end <= 0) return wanted;
     }
-    if (record->endFrame <= 0) {
-        return wanted;
-    }
-    AVAudioFramePosition left = record->endFrame - record->cursor;
-    return left <= 0 ? 0 : (AVAudioFrameCount)MIN((AVAudioFramePosition)wanted, left);
+    return (AVAudioFrameCount)MIN((AVAudioFramePosition)wanted, MAX(0, end - record->cursor));
 }
 
 // Supplies the resampler one read of the file, mixed to the bus's width
@@ -533,6 +531,16 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
     return frames;
 }
 
+// TRAP: call before the first seek, on the serial queue shared with any
+// retiring voice still reading this file. A stop can land just after
+// allowReads. Recheck the slot so a retired voice cannot start another read.
+static BOOL VibeAllowReadsForSlot(AudioFileHandle *file, VibeVoiceSlot *slot) {
+    [file allowReads];
+    if (atomic_load_explicit(&slot->readsAllowed, memory_order_seq_cst)) return YES;
+    [file interruptReads];
+    return NO;
+}
+
 // One chunk into the ring. YES when the voice could take another.
 - (BOOL)decodeChunkForSlot:(NSUInteger)slot {
     AudioVoiceRecord *record = _records[slot];
@@ -550,18 +558,7 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
         return NO;
     }
     if (!record->positioned && !record->failure) {
-        // TRAP: reads are allowed again here and nowhere else, at this voice's
-        // first seek of its file, on its own decode queue. The voice that read
-        // the file before was stopped and interrupted on the player queue
-        // before this one started, and a turn of it still in flight made this
-        // voice share its serial queue, so that turn has returned and no other
-        // read is inside the file. A stop of this voice landing between the
-        // allow and the seek is caught by the re-check, which interrupts again.
-        [record->file allowReads];
-        if (!atomic_load_explicit(&s->readsAllowed, memory_order_seq_cst)) {
-            [record->file interruptReads];
-            return NO;
-        }
+        if (!VibeAllowReadsForSlot(record->file, s)) return NO;
         NSError *error = nil;
         if (![record->file seekToFrame:record->startFrame error:&error]) {
             if ([self readWasInterrupted:error forSlot:slot]) {
@@ -578,7 +575,7 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
     }
     if (record->stream == VibeStreamReading && record->dsdSpliceFrame >= 0 && record->cursor >= record->dsdSpliceFrame) {
         AudioFileHandle *next = [self claimSuccessorForSlot:slot];
-        if (!next && VibeCanHoldDSDTail(written, consumed)) {
+        if (!next && VibeHasReserveToWaitForSuccessor(written, consumed)) {
             atomic_store_explicit(&record->heldOpenAt, written, memory_order_release);
             return NO;
         }
@@ -586,11 +583,7 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
         if (next && next != record->file && record->successorStartFrame == 0
                 && next.dsdSampleRate == record->file.dsdSampleRate
                 && VibePCMFormatsMatch(record->file.processingFormat, next.processingFormat)) {
-            [next allowReads];
-            if (!atomic_load_explicit(&s->readsAllowed, memory_order_seq_cst)) {
-                [next interruptReads];
-                return NO;
-            }
+            if (!VibeAllowReadsForSlot(next, s)) return NO;
             record->dsdSuccessorPositioned = [record->file prepareDSDSpliceToFile:next];
         }
     }

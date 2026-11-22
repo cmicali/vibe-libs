@@ -31,9 +31,10 @@ def sample16(n, c):
 
 
 def frames_bytes(frames, channels, depth, big_endian=False):
-    """Interleaved samples at the depth: 8 (unsigned), 16, 24, 32, or 'float'."""
+    """Interleaved integer or float samples, with optional peaks above full scale."""
     out = bytearray()
     order = ">" if big_endian else "<"
+    float_scale = 4096.0 if depth == "float-peaks" else 32768.0
     for n in range(frames):
         for c in range(channels):
             s = sample16(n, c)
@@ -46,8 +47,7 @@ def frames_bytes(frames, channels, depth, big_endian=False):
             elif depth == 32:
                 out += struct.pack(order + "i", s << 16)
             else:
-                scale = 4096.0 if depth == "float-peaks" else 32768.0
-                out += struct.pack(order + "f", s / scale)
+                out += struct.pack(order + "f", s / float_scale)
     return bytes(out)
 
 

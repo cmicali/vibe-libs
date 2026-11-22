@@ -37,9 +37,9 @@ enum {
     kOpenStreamReserveFrames = 2 * kDecodeChunkFrames,
 };
 
-// Before the first render, a voice can already start on one chunk. Give a
-// short DSD track that chance to acquire its successor before padding its tail.
-static inline BOOL VibeCanHoldDSDTail(uint64_t written, uint64_t consumed) {
+// One chunk can start a voice. Once rendering starts, keep the full reserve
+// while waiting for a queued successor.
+static inline BOOL VibeHasReserveToWaitForSuccessor(uint64_t written, uint64_t consumed) {
     return written - consumed >= (consumed == 0 ? kLiveThresholdFrames : kOpenStreamReserveFrames);
 }
 

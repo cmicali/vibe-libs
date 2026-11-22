@@ -7,6 +7,7 @@
 
 #import <XCTest/XCTest.h>
 
+#import "AudioFileFormat.h"
 #import "AudioPlayerInternal.h"
 #import "AudioReferenceFixtures.h"
 
@@ -22,7 +23,7 @@
         XCTAssertNotNil(file);
         if (!file) return;
         BOOL floating = [name isEqualToString:@"float-peaks.ape"];
-        XCTAssertEqual(file.fileFormat.streamDescription->mFormatID, (AudioFormatID)'APE ');
+        XCTAssertEqual(file.fileFormat.streamDescription->mFormatID, (AudioFormatID)kVibeAudioFormatMonkeysAudio);
         AudioStreamBasicDescription source = *file.sourceFormatForOutput.streamDescription, chosen = {0};
         XCTAssertTrue(VibeBitPerfectChooseFormat(source, 48000, offers, 2, &chosen));
         XCTAssertEqual(VibePhysicalFormatIsFloat(chosen), floating);

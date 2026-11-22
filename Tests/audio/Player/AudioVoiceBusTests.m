@@ -394,6 +394,13 @@
 
 #pragma mark - Successors
 
+static void VibeSetDSFLengths(NSMutableData *file, uint64_t samples) {
+    uint8_t *header = file.mutableBytes;
+    OSWriteLittleInt64(header, 12, file.length);
+    OSWriteLittleInt64(header, 64, samples);
+    OSWriteLittleInt64(header, 84, 12 + file.length - kVibeDSFHeaderBytes);
+}
+
 - (void)testGaplessDSDMatchesTheUnsplitBitstream {
     // Cut on a group of DSF blocks. The second file stores its bytes reversed.
     const NSUInteger header = kVibeDSFHeaderBytes, frames = 40960, bits = frames * 16;
@@ -407,11 +414,9 @@
     for (NSUInteger i = 0; i < 2; i++) {
         NSMutableData *track = [[whole subdataWithRange:NSMakeRange(0, header)] mutableCopy];
         [track appendData:[whole subdataWithRange:NSMakeRange(header + i * half, half)]];
-        uint8_t *bytes = track.mutableBytes;
-        OSWriteLittleInt64(bytes, 12, track.length);
-        OSWriteLittleInt64(bytes, 64, bits);
-        OSWriteLittleInt64(bytes, 84, 12 + half);
+        VibeSetDSFLengths(track, bits);
         if (i == 1) {
+            uint8_t *bytes = track.mutableBytes;
             OSWriteLittleInt32(bytes, 60, 1);
             for (NSUInteger j = header; j < track.length; j++) bytes[j] = __builtin_bitreverse8(bytes[j]);
         }
@@ -421,14 +426,14 @@
     }
     for (NSNumber *rate in @[@176400, @48000]) {
         [self makeBusAtRate:rate.doubleValue channels:2];
-        VibeVoiceID voice = [self startFile:[self open:album] fileGain:1];
+        VibeVoiceID voice = [self startFile:[self open:album] fileGain:kVibeFileGainUnity];
         NSData *reference = [self renderUntilEnded:voice blockSize:257 limit:frames * 5];
         uint64_t length = [self endedSnapshot:voice].endOfStream;
         XCTAssertEqual(length, (uint64_t)llround(2 * frames * rate.doubleValue / 176400));
         [self makeBusAtRate:rate.doubleValue channels:2];
-        voice = [self startFile:[self open:tracks[0]] fileGain:1];
+        voice = [self startFile:[self open:tracks[0]] fileGain:kVibeFileGainUnity];
         [_bus fillInline]; // the next track arrives after the initial read-ahead
-        XCTAssertTrue([_bus queueSuccessor:[self open:tracks[1]] startFrame:0 endFrame:0 fileGain:1 forVoice:voice]);
+        XCTAssertTrue([_bus queueSuccessor:[self open:tracks[1]] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
         NSData *joined = [self renderUntilEnded:voice blockSize:257 limit:frames * 5];
         XCTAssertEqual([self endedSnapshot:voice].endOfStream, length);
         [self assertCapture:joined equalsSource:reference];
@@ -446,10 +451,8 @@
     NSMutableData *twice = [[single subdataWithRange:NSMakeRange(0, kVibeDSFHeaderBytes)] mutableCopy];
     NSUInteger blocks = (2 * bytes + kVibeDSFBlockBytes - 1) / kVibeDSFBlockBytes;
     twice.length += blocks * info.channels * kVibeDSFBlockBytes;
+    VibeSetDSFLengths(twice, info.sampleCount * 2);
     uint8_t *joined = twice.mutableBytes;
-    OSWriteLittleInt64(joined, 12, twice.length);
-    OSWriteLittleInt64(joined, 64, info.sampleCount * 2);
-    OSWriteLittleInt64(joined, 84, twice.length - 80);
     for (uint32_t c = 0; c < info.channels; c++) {
         for (NSUInteger i = 0; i < 2 * bytes; i++) {
             joined[VibeDSFByteOffset(&info, c, i)] = ((const uint8_t *)single.bytes)[VibeDSFByteOffset(&info, c, i % bytes)];
@@ -458,14 +461,14 @@
     NSURL *album = [_temporary URLByAppendingPathComponent:@"twice.dsf"];
     XCTAssertTrue([twice writeToURL:album atomically:NO]);
     [self makeBusAtRate:kRate channels:2];
-    VibeVoiceID voice = [self startFile:[self open:album] fileGain:1];
+    VibeVoiceID voice = [self startFile:[self open:album] fileGain:kVibeFileGainUnity];
     NSData *reference = [self renderUntilEnded:voice blockSize:257 limit:4 * frames + 514];
     uint64_t length = [self endedSnapshot:voice].endOfStream;
     XCTAssertGreaterThan(length, 0u);
     for (NSArray<NSURL *> *order in @[@[dsf, wv], @[wv, dsf], @[wv, wv]]) {
         [self makeBusAtRate:kRate channels:2];
-        voice = [self startFile:[self open:order[0]] fileGain:1];
-        XCTAssertTrue([_bus queueSuccessor:[self open:order[1]] startFrame:0 endFrame:0 fileGain:1 forVoice:voice]);
+        voice = [self startFile:[self open:order[0]] fileGain:kVibeFileGainUnity];
+        XCTAssertTrue([_bus queueSuccessor:[self open:order[1]] startFrame:0 endFrame:0 fileGain:kVibeFileGainUnity forVoice:voice]);
         [self assertCapture:[self renderUntilEnded:voice blockSize:257 limit:4 * frames + 514] equalsSource:reference];
         XCTAssertEqual([self endedSnapshot:voice].endOfStream, length, @"%@", fixture);
     }

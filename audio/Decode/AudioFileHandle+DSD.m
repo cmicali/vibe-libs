@@ -125,7 +125,6 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
 // Replace just the part of the read that overlaps the adjacent track.
 static void VibeCopyDSDEdge(NSData *edge, SInt64 start, SInt64 first, size_t bytes,
                             uint8_t *const *channels, UInt32 count) {
-    if (!edge) return;
     size_t span = edge.length / count;
     SInt64 from = MAX(first, start), to = MIN(first + (SInt64)bytes, start + (SInt64)span);
     if (to <= from) return;
@@ -138,11 +137,14 @@ static void VibeCopyDSDEdge(NSData *edge, SInt64 start, SInt64 first, size_t byt
     BOOL read = _wavpack ? [self readWavPackDSDBytes:channels from:first count:bytes]
             : VibeDSFReadChannels(&_dsf, VibeDSFHandleRead, (__bridge void *)self, first, bytes, channels,
                                   _dsdSpan, _dsdSpanBytes);
-    if (read && (_dsdLead || _dsdLookahead)) {
+    if (!read) return NO;
+    if (first < 0 && _dsdLead) {
         VibeCopyDSDEdge(_dsdLead, -(SInt64)(_dsdLead.length / _dsf.channels), first, bytes, channels, _dsf.channels);
+    }
+    if (_dsdLookahead) {
         VibeCopyDSDEdge(_dsdLookahead, _length * VibeDSDToPCMBytesPerFrame(_dsd), first, bytes, channels, _dsf.channels);
     }
-    return read;
+    return YES;
 }
 
 // Feeds the converter `frames` frames from frame `feed`, writing each
@@ -224,13 +226,14 @@ static void VibeCopyDSDEdge(NSData *edge, SInt64 start, SInt64 first, size_t byt
 - (NSData *)dsdEdgeFromFrame:(SInt64)frame count:(UInt32)frames forFile:(AudioFileHandle *)other {
     unsigned perFrame = VibeDSDToPCMBytesPerFrame(_dsd);
     size_t bytes = frames * perFrame;
-    NSMutableData *edge = [NSMutableData dataWithLength:_dsf.channels * bytes];
+    size_t totalBytes = _dsf.channels * bytes;
+    NSMutableData *edge = [NSMutableData dataWithLength:totalBytes];
     uint8_t *channels[kVibeDSFMaxChannels];
     uint8_t *data = edge.mutableBytes;
     for (UInt32 c = 0; c < _dsf.channels; c++) channels[c] = data + c * bytes;
     if (![self readDSDBytes:channels from:frame * perFrame count:bytes]) return nil;
     if (_dsf.lsbFirst != other->_dsf.lsbFirst) {
-        for (NSUInteger i = 0; i < edge.length; i++) data[i] = __builtin_bitreverse8(data[i]);
+        for (size_t i = 0; i < totalBytes; i++) data[i] = __builtin_bitreverse8(data[i]);
     }
     return edge;
 }
