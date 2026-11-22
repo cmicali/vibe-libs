@@ -63,6 +63,10 @@ uint64_t VibeDSFByteOffset(const VibeDSFInfo *info, uint32_t channel, uint64_t i
 bool VibeDSFReadChannels(const VibeDSFInfo *info, VibeDSFRead read, void *user, int64_t first, size_t count,
                          uint8_t *const *out, uint8_t *scratch, size_t scratchBytes) {
     const uint64_t block = kVibeDSFBlockBytes, channels = info->channels;
+    // The parse refuses a file with no channels. The static analyzer can't see that.
+    if (channels == 0) {
+        return false;
+    }
     uint8_t silence = info->lsbFirst ? __builtin_bitreverse8(kVibeDSDSilence) : kVibeDSDSilence;
     uint64_t whole = info->sampleCount / 8, tailBits = info->sampleCount % 8;
     // The bytes that hold samples, a partial last one included.
