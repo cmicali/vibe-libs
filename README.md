@@ -6,7 +6,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first forty-six pieces are here.** Each came from Vibe, but for libwavpack and the Monkey's Audio SDK. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first forty-seven pieces are here.** Each came from Vibe, but for libwavpack and the Monkey's Audio SDK. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |
@@ -18,6 +18,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `files/RemoteFiles` | A local placeholder for a file on a server, fetched by range. |
 | `files/ShareLinks` | The rules for opening a web link, share-link rewrites, iCloud Drive's lookup, and a fake web server. |
 | `files/SandboxAccess` | A sandboxed mac app's folder grants, kept as security-scoped bookmarks, with the panel that asks for one. macOS only. |
+| `files/Dropbox` | A Dropbox account and its files as local placeholders, fetched by range. It signs in with PKCE and keeps the refresh token in the Keychain. |
 | `audio/AudioTypes` | The playable-item protocol, the CUE window math, the musical key and its color, format names, and playable extensions. |
 | `audio/DSP` | Varispeed, fades, and the resampler. |
 | `audio/Analysis` | Tempo and key detection. |

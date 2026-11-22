@@ -490,6 +490,25 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/files/SandboxAccess/Mac"]
 
+  # A Dropbox account and its files as local placeholders, over HTTP and
+  # RemoteFiles' store. It lists Playlists and AudioTypes for the names the
+  # mirror keeps. Its sources are Objective-C, so their AuthenticationServices
+  # and Security imports link those frameworks. It lists no sdk dependency,
+  # since XcodeGen refuses a target that lists the same sdk twice, and an app
+  # that signs in lists both.
+  #
+  # TRAP: an app that also takes VibeLibsTaglib lists this template first, as
+  # it would VibeLibsRemoteFiles, which this one lists.
+  VibeLibsDropbox:
+    templates: [VibeLibsCommon, VibeLibsAudioTypes, VibeLibsFileLoading, VibeLibsHTTP, VibeLibsRemoteFiles,
+                VibeLibsPlaylists]
+    sources:
+      - path: files/Dropbox
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/files/Dropbox"]
+
   # Now Playing info and remote commands, over MediaPlayer. It lists Graphics
   # for the image alias and the mac's artwork resize, PlayQueue for the
   # repeat mode, and Common for the log and main-thread macros. Its sources
