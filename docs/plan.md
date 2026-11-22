@@ -92,8 +92,10 @@ vibe-libs/
 │   ├── ShareLinks       Dropbox, Google Drive and iCloud share links turned into direct URLs,
 │   │                    the rules for opening any web link, and the fake web server that
 │   │                    stands in for those services in tests
-│   └── SandboxAccess    macOS only: security-scoped bookmarks and folder grants, with the
-│                        grant panel
+│   ├── SandboxAccess    macOS only: security-scoped bookmarks and folder grants, with the
+│   │                    grant panel
+│   └── Dropbox          a Dropbox account, signed in with PKCE, and its files as local
+│                        placeholders, listed, searched, and fetched by range
 │
 ├── audio/
 │   ├── AudioTypes ●     the words every audio piece shares: file format identifiers, the
@@ -186,6 +188,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | files/RemoteFiles | files/FileLoading, files/HTTP, audio/Decode |
 | files/ShareLinks | files/HTTP |
 | files/SandboxAccess | nothing, macOS only |
+| files/Dropbox | files/FileLoading, files/HTTP, files/RemoteFiles, audio/AudioTypes, media/Playlists |
 | audio/AudioTypes | nothing |
 | audio/DSP | third_party/r8brain |
 | audio/Analysis | audio/AudioTypes |
@@ -632,11 +635,12 @@ Each remaining candidate moves when a second app needs it, with the cuts it was 
 - **The standard debug verbs and the debug client**, since Vibe, the other app, and the third app each need them. [debug-verbs.md](debug-verbs.md) is the plan: a new piece, `dev/DebugVerbs`, the client's move into DebugChannel's `Mac/` half, and each app taking them. Planned on 2026-10-30. They moved on 2026-10-30 (this repo's #87). The piece's 16 files, its doc, and the client's 2 files moved with their history, after a prep pull request in Vibe staged them. Their tests are new here. The consumer answers `dump_build` and `dump_health` from the standard table.
 
 - **The drop wells**, since Vibe and the other app each show them over a drop. Built on 2026-11-07 as a new piece, `ui/DropWells`, from Vibe's playlist drop zone. Its wells, their titles, symbols, and actions, and its style are values the app passes. Vibe's drop zone keeps its rest well and uses the piece for the drag.
+- **The Dropbox client and mirror**, since another app needs Dropbox as Vibe's iOS app has it. They move as a new piece, `files/Dropbox`, with their tests and their doc. Vibe decoupled them first (Vibe #447). The app now passes in its app key, its Keychain service, the mirror's index xattr, its directory, and its download budget. The budget's choices and the shared mirror stay in Vibe. The piece builds on both platforms, since sign-in's web sheet and the Keychain exist on macOS too, though only Vibe's iOS app uses it today.
 
 **Wave 10 moved the rest but the pitch fader on 2026-10-23**, in this order:
 
 1. DebugChannel and iOSDriver moved in this repo's #44 and Vibe #393. Their 7 files moved with their history, and Vibe compiles them through their templates. Two prep commits in Vibe came first. The channel's one reach into Vibe, the transport verbs' reply, moved to Vibe's verbs. The driver takes the app it drives, a relaunch's arguments, and the pinched view from its environment. Vibe had no tests of the channel, so its tests are new here. The minimal consumer answers one command through it. The driver builds as a UI-testing bundle with no host app, since it drives an app by bundle identifier.
-2. HTTP, RemoteFiles, and ShareLinks moved in this repo's #46 and Vibe #394. Their 27 files and the tests' `HTTPStub` moved with their history, their tests run here, and Vibe compiles them through the templates. The fake HTTP host joined ShareLinks (rule 8). Its serving engine moved on to HTTP later, so HTTP's and RemoteFiles' test bundles no longer list ShareLinks. `HTTPStub` moved later from `Tests/Support` to HTTP's tests. Its iCloud lookup fixtures went to ShareLinks' tests as `ICloudLookupFixtures.h`. The link store, the Dropbox mirror and client, and every debug verb stay in Vibe. The 2 GB link budget moved from `LinkRules.h` to Vibe's link store, since it is Vibe's choice. The error domains and queue names start `vibe-libs`. The kept part's xattr keeps Vibe's name, since parts on disk carry it.
+2. HTTP, RemoteFiles, and ShareLinks moved in this repo's #46 and Vibe #394. Their 27 files and the tests' `HTTPStub` moved with their history, their tests run here, and Vibe compiles them through the templates. The fake HTTP host joined ShareLinks (rule 8). Its serving engine moved on to HTTP later, so HTTP's and RemoteFiles' test bundles no longer list ShareLinks. `HTTPStub` moved later from `Tests/Support` to HTTP's tests. Its iCloud lookup fixtures went to ShareLinks' tests as `ICloudLookupFixtures.h`. The link store, the Dropbox mirror and client, and every debug verb stayed in Vibe. The Dropbox client and mirror moved later, when another app needed them. The 2 GB link budget moved from `LinkRules.h` to Vibe's link store, since it is Vibe's choice. The error domains and queue names start `vibe-libs`. The kept part's xattr keeps Vibe's name, since parts on disk carry it.
 3. Updates and the Sparkle framework moved in this repo's #45 and Vibe #395. Updates' 3 files and the framework moved with their history, their tests run here, and Vibe compiles them through the two templates. A prep commit in Vibe turned its category on the app's delegate into `VibeUpdater`, one class the app makes, feeds, and starts. The app passes the feed override and the beta switch, sets the check interval, and targets Check for Updates… at the class's controller. The framework is unmodified. Its template links, embeds, and signs it. A configuration with no updater excludes it and `VibeUpdater.m` by name.
 4. SandboxAccess moved in this repo's #47 and Vibe #396. Its 7 files moved with their history, their tests run here, and Vibe compiles them through the template. Its part of seam 21 was three reaches. The app now passes the grant panel's text, and the defaults and the key its grants are stored under. The store has no shared instance, so the app keeps the one it makes. The store treated ~/Music as granted, which assumed the app holds the music entitlement. Since 2026-10-25 the app names the folders its entitlements grant.
 5. AppOpening moved in this repo's #48 and Vibe #397. Its 8 files moved with their history, their tests run here, and Vibe compiles them through the template. Its part of seam 21 was two values. The coordinator hands back the app's rows as an untyped array, and the argument scan takes the options whose values it skips. So it depends on nothing but `core/Common`, as its map row says.
@@ -663,6 +667,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | A server source | HTTP, RemoteFiles, and ShareLinks | move | 6 | Vibe's transfer, store, and link tests, moved here | 2f62ff4 (#46) |
 | Its debug channel's standard verbs and client | DebugVerbs, and the client in DebugChannel | move | 6 | the piece's and the client's tests, and the consumer's standard verbs | 49c8aa4 (#87) |
 | Full app: tag editing | Tags' in-place write of fields and the front cover, and the field names in `VibeTagFields.h` | behavior | 6 | `VibeTagWriterTests`, and Decode's `AudioFileHandleReplaceTests` for the swap | |
+| Its Dropbox source | `files/Dropbox`: the client and the mirror | move | 6 | Vibe's Dropbox tests, moved here | |
 
 Nothing else is scheduled for the other app. The shell pieces are scheduled for a third app, on the shell track. Portable rewrites wait until a consumer needs them.
 
@@ -711,7 +716,7 @@ One more replaces no app class: the Now Playing update's record, from NowPlaying
 
 ## Costs
 
-- **44 pieces in the tree, 34 first-party and 10 vendored, and 32 marked on the first path.** Each is a maintenance choice: a template, a doc, isolated builds, and a row in the map. A piece needs a consumer that gains from taking it alone. Each template lists its own dependencies, which keeps a consumer's list short.
+- **47 pieces in the tree, 37 first-party and 10 vendored, and 32 marked on the first path.** Each is a maintenance choice: a template, a doc, isolated builds, and a row in the map. A piece needs a consumer that gains from taking it alone. Each template lists its own dependencies, which keeps a consumer's list short.
 - **One copy of each thing that could drift.** Each vendored library's flags live in its template. Each piece's sources are listed once, in its template. The map is the plan's table. Each template's `templates:` list repeats part of it, and the checker fails when a template lists more than the map allows.
 - **Most engine changes also change app code.** Since 2026-04-01, 232 commits changed Vibe's engine, and 167 of them (72%) also changed Vibe's app code. After a move, each is a commit here, then a submodule bump. One editing session covers both through the submodule.
 - **Many changes span pieces.** 90 of those commits (39%) changed more than one of the old products. That is why this is one repo and not one per piece.
