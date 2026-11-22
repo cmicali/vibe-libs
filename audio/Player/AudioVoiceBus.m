@@ -866,12 +866,13 @@
             uint64_t written = atomic_load_explicit(&s->written, memory_order_relaxed);
             BOOL heldOpen = heldOpenAt == written;
             if (!_inlineDecoding) {
-                uint64_t buffered = written - atomic_load_explicit(&s->consumed, memory_order_relaxed);
+                uint64_t consumed = atomic_load_explicit(&s->consumed, memory_order_relaxed);
+                uint64_t buffered = written - consumed;
                 // A stream held open past its file asks for no turn: it would
                 // find the same. A successor queued since asks for its own.
                 BOOL idle = heldOpen
                         && atomic_load_explicit(&s->successorState, memory_order_relaxed) == VibeSuccessorNone
-                        && buffered >= kOpenStreamReserveFrames;
+                        && VibeCanHoldDSDTail(written, consumed);
                 if (VibeSlotCanWrite(s) && buffered < _mix->capacity / kLowWaterDivisor && !idle) {
                     [self scheduleFillForSlot:slot];
                 }

@@ -83,7 +83,7 @@ dsd2pcm's first stage costs the same, within 2%. Both stages read a linear buffe
 
 - **The length** is the sample count over 16 times the multiple: one output frame for each 16 DSD samples at DSD64. The sample count trims the last block's padding. A file cut short keeps the samples its data holds.
 - **A seek is sample-accurate.** It clears the filters' history and feeds from 27 frames before the target, which covers both filters' span, then drops the first 53 outputs. So a seek's output equals a read's from the start, sample for sample, and a seek never clicks. `testASeekLandsOnTheSampleAReadFromTheStartGives` checks it at DSD64 and DSD512.
-- **The ends** read as silence: before the first sample, and after the last, including the padding bits of its byte.
+- **The ends** read as DSD silence, including the unused bits of the last byte. When a queued track starts at frame zero and has the same DSD rate and channel order, the player supplies the filter with the adjacent track's bits on both sides of the join. It waits for a successor while enough decoded audio remains to play. A seek clears the borrowed bits. Each file keeps its whole PCM frame count.
 
 ## DSD in WavPack
 

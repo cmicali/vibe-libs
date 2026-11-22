@@ -536,6 +536,18 @@ static NSArray<NSString *> *VibeDSDFixtures(void) {
     XCTAssertLessThan(most, 0.05f); // 0.023, -33 dBFS, for the fixture's 3 samples
 }
 
+- (void)testSeekAfterADSDJoinRestoresBothStandaloneFileEdges {
+    NSURL *left = VibeWavPackFixture(@"dsd-msb.wv"), *right = VibeWavPackFixture(@"dsd.dsf");
+    AudioFileHandle *before = [self open:left interleaved:YES], *after = [self open:right interleaved:YES];
+    XCTAssertTrue([before prepareDSDSpliceToFile:after]);
+    for (AudioFileHandle *handle in @[before, after]) {
+        XCTAssertTrue([handle seekToFrame:0 error:NULL]);
+        NSMutableData *samples = [NSMutableData data];
+        XCTAssertTrue(VibeReadToEnd(handle, samples, NULL));
+        XCTAssertEqualObjects(samples, VibeDecodeFile(handle == before ? left : right));
+    }
+}
+
 // DSD is told by its blocks' DSD flag, as libwavpack decodes it, not by the
 // source's bit order in the config, which damage can clear. Without it, the
 // file still plays as DSD, the same samples.

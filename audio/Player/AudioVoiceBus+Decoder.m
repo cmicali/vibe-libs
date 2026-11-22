@@ -103,6 +103,8 @@ static void VibeApplyMixMap(const float *map, AVAudioPCMBuffer *source, AVAudioP
     record->mixBuffer = nil;
     record->mixMap = nil;
     record->stream = VibeStreamReading;
+    record->dsdSpliceFrame = [file dsdSpliceFrameBeforeEnd:record->endFrame];
+    record->dsdSuccessorPositioned = NO;
     record->fedFrames = 0;
     [self setConversion:nil forRecord:record];
     if (VibePCMFormatsMatch(source, _format)) {
@@ -352,7 +354,10 @@ static void VibeApplyMixMap(const float *map, AVAudioPCMBuffer *source, AVAudioP
     os_unfair_lock_unlock(&_tableLock);
     record->startFrame = record->successorStartFrame;
     record->endFrame = record->successorEndFrame;
-    record->positioned = NO;
+    record->positioned = record->dsdSuccessorPositioned;
+    record->dsdSuccessorPositioned = NO;
+    record->cursor = record->startFrame;
+    record->dsdSpliceFrame = [successor dsdSpliceFrameBeforeEnd:record->endFrame];
     return YES;
 }
 
@@ -386,6 +391,9 @@ typedef struct {
 
 // Of `wanted` frames, those the voice may read before its end frame.
 static AVAudioFrameCount VibeFramesBeforeEnd(AudioVoiceRecord *record, AVAudioFrameCount wanted) {
+    if (record->dsdSpliceFrame >= 0) {
+        return (AVAudioFrameCount)MIN((AVAudioFramePosition)wanted, MAX(0, record->dsdSpliceFrame - record->cursor));
+    }
     if (record->endFrame <= 0) {
         return wanted;
     }
@@ -410,6 +418,7 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
         // Only the read stops at the end frame: the flush below must push its
         // silence whatever the window.
         AVAudioFrameCount readable = VibeFramesBeforeEnd(record, wanted);
+        if (readable == 0 && record->dsdSpliceFrame >= 0) return 0; // let the decode turn settle the DSD join
 #if DEBUG
         uint64_t started = clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID);
 #endif
@@ -567,6 +576,24 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
             record->cursor = record->startFrame;
         }
     }
+    if (record->stream == VibeStreamReading && record->dsdSpliceFrame >= 0 && record->cursor >= record->dsdSpliceFrame) {
+        AudioFileHandle *next = [self claimSuccessorForSlot:slot];
+        if (!next && VibeCanHoldDSDTail(written, consumed)) {
+            atomic_store_explicit(&record->heldOpenAt, written, memory_order_release);
+            return NO;
+        }
+        record->dsdSpliceFrame = -1;
+        if (next && next != record->file && record->successorStartFrame == 0
+                && next.dsdSampleRate == record->file.dsdSampleRate
+                && VibePCMFormatsMatch(record->file.processingFormat, next.processingFormat)) {
+            [next allowReads];
+            if (!atomic_load_explicit(&s->readsAllowed, memory_order_seq_cst)) {
+                [next interruptReads];
+                return NO;
+            }
+            record->dsdSuccessorPositioned = [record->file prepareDSDSpliceToFile:next];
+        }
+    }
     if (record->stream == VibeStreamDrained) {
         // The file ran out with the stream open. A successor read the same
         // way continues it here. Its boundary counts frames fed at the bus
@@ -576,7 +603,8 @@ static uint32_t VibeResamplerSupplyInput(void *userData, uint32_t maxFrames, con
         // resampler stays open while the render is far from the end, so a
         // successor named late still continues it; a bus-format file has
         // nothing to keep open and ends at once.
-        AudioFileHandle *successor = [self claimSuccessorForSlot:slot];
+        AudioFileHandle *successor = atomic_load_explicit(&s->successorState, memory_order_acquire) == VibeSuccessorSwitching
+                ? record->successorFile : [self claimSuccessorForSlot:slot];
         if (successor && [self continueRecord:record intoSuccessor:successor]) {
             record->stream = VibeStreamReading;
             atomic_store_explicit(&s->boundary, [self streamEndForRecord:record written:written], memory_order_release);

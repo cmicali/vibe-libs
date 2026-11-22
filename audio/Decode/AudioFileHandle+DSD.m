@@ -101,6 +101,8 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
 // `frame`, whose outputs it drops. So the reads from `frame` on are what a
 // read from the start gives there, sample for sample.
 - (void)restartDSDAtFrame:(SInt64)frame {
+    _dsdLead = nil;
+    _dsdLookahead = nil;
     VibeDSDToPCMReset(_dsd);
     _dsdPosition = frame;
     _dsdRestarted = YES;
@@ -120,6 +122,29 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
     return [self reportWaitFault:error] && landed;
 }
 
+// Replace just the part of the read that overlaps the adjacent track.
+static void VibeCopyDSDEdge(NSData *edge, SInt64 start, SInt64 first, size_t bytes,
+                            uint8_t *const *channels, UInt32 count) {
+    if (!edge) return;
+    size_t span = edge.length / count;
+    SInt64 from = MAX(first, start), to = MIN(first + (SInt64)bytes, start + (SInt64)span);
+    if (to <= from) return;
+    for (UInt32 c = 0; c < count; c++) {
+        memcpy(channels[c] + (from - first), (const uint8_t *)edge.bytes + c * span + (from - start), to - from);
+    }
+}
+
+- (BOOL)readDSDBytes:(uint8_t *const *)channels from:(SInt64)first count:(size_t)bytes {
+    BOOL read = _wavpack ? [self readWavPackDSDBytes:channels from:first count:bytes]
+            : VibeDSFReadChannels(&_dsf, VibeDSFHandleRead, (__bridge void *)self, first, bytes, channels,
+                                  _dsdSpan, _dsdSpanBytes);
+    if (read && (_dsdLead || _dsdLookahead)) {
+        VibeCopyDSDEdge(_dsdLead, -(SInt64)(_dsdLead.length / _dsf.channels), first, bytes, channels, _dsf.channels);
+        VibeCopyDSDEdge(_dsdLookahead, _length * VibeDSDToPCMBytesPerFrame(_dsd), first, bytes, channels, _dsf.channels);
+    }
+    return read;
+}
+
 // Feeds the converter `frames` frames from frame `feed`, writing each
 // channel's output at `planes`, a channel to each or interleaved. Every
 // channel's bytes are read before any is converted, so a failed read, NO,
@@ -131,10 +156,7 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
     for (uint32_t c = 0; c < _dsf.channels; c++) {
         channels[c] = _dsdBytes + c * bytes;
     }
-    BOOL read = _wavpack ? [self readWavPackDSDBytes:channels from:feed * perFrame count:bytes]
-            : VibeDSFReadChannels(&_dsf, VibeDSFHandleRead, (__bridge void *)self, feed * perFrame, bytes, channels,
-                                  _dsdSpan, _dsdSpanBytes);
-    if (!read) {
+    if (![self readDSDBytes:channels from:feed * perFrame count:bytes]) {
         return NO;
     }
     for (uint32_t c = 0; c < _dsf.channels; c++) {
@@ -188,6 +210,43 @@ static ssize_t VibeDSFHandleRead(void *user, uint64_t offset, void *buffer, size
     }
     buffer.frameLength = done;
     return [self finishReadFailed:failed error:error];
+}
+
+@end
+
+@implementation AudioFileHandle (DSDSplice)
+
+- (AVAudioFramePosition)dsdSpliceFrameBeforeEnd:(AVAudioFramePosition)end {
+    if (end > 0 && end < _length) return -1;
+    return _dsd ? MAX(0, _length - kVibeDSDToPCMDelayFrames) : -1;
+}
+
+- (NSData *)dsdEdgeFromFrame:(SInt64)frame count:(UInt32)frames forFile:(AudioFileHandle *)other {
+    unsigned perFrame = VibeDSDToPCMBytesPerFrame(_dsd);
+    size_t bytes = frames * perFrame;
+    NSMutableData *edge = [NSMutableData dataWithLength:_dsf.channels * bytes];
+    uint8_t *channels[kVibeDSFMaxChannels];
+    uint8_t *data = edge.mutableBytes;
+    for (UInt32 c = 0; c < _dsf.channels; c++) channels[c] = data + c * bytes;
+    if (![self readDSDBytes:channels from:frame * perFrame count:bytes]) return nil;
+    if (_dsf.lsbFirst != other->_dsf.lsbFirst) {
+        for (NSUInteger i = 0; i < edge.length; i++) data[i] = __builtin_bitreverse8(data[i]);
+    }
+    return edge;
+}
+
+- (BOOL)prepareDSDSpliceToFile:(AudioFileHandle *)next {
+    if (self == next || !_dsd || !next->_dsd || _dsf.sampleRate != next->_dsf.sampleRate
+            || _dsf.channels != next->_dsf.channels || _length == 0 || next.length == 0
+            || (_dsdPosition > [self dsdSpliceFrameBeforeEnd:0] && !_dsdRestarted)) return NO;
+    if (![next seekToFrame:0 error:NULL]) return NO;
+    NSData *head = [next dsdEdgeFromFrame:0 count:kVibeDSDToPCMDelayFrames forFile:self];
+    if (!head) return NO;
+    NSData *tail = [self dsdEdgeFromFrame:_length - kVibeDSDToPCMLeadFrames count:kVibeDSDToPCMLeadFrames forFile:next];
+    if (!tail || _dsdBytesEnd / VibeDSDToPCMBytesPerFrame(_dsd) < _length) return NO;
+    next->_dsdLead = tail;
+    _dsdLookahead = head;
+    return YES;
 }
 
 @end

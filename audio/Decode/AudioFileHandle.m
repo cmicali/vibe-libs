@@ -122,6 +122,10 @@ uint32_t VibeID3v2TagBytes(const uint8_t header[10]) {
     return _dsd ? _dsf.sampleRate : 0;
 }
 
+- (AVAudioFormat *)sourceFormatForOutput {
+    return _ape && VibeAPEDecoderFacts(_ape).isFloat ? self.processingFormat : self.fileFormat;
+}
+
 - (AudioFileID)parser {
     return _parser;
 }

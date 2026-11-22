@@ -71,7 +71,7 @@ There are no shared files. The two halves have nothing in common but their job, 
 `OutputFormatRules.h` holds the decisions, so a test reaches them without a HAL.
 
 - **The rate rule**: exact, else the smallest integer multiple, else untouched. It scans PCM offers carrying every source channel, and continuous ranges. Encoded-only rates cannot hide a usable PCM multiple.
-- **The depth rule**: the widest integer depth the device offers, never one below the source's, else the widest float format. Float and lossy sources take the float format first, since what reaches the device is a float32 decode. One depth for every integer source lets a 16-bit and a 24-bit track at one rate share a format.
+- **The depth rule**: the widest integer depth the device offers, never one below the source's, else the widest float format. Float and lossy sources prefer float. On an integer-only device they take its widest integer format at the decoded rate. The report still accounts for the loss of precision. One depth for every integer source lets a 16-bit and a 24-bit track at one rate share a format.
 - **Eligibility is an allowlist of transports** (`VibeBitPerfectDeviceEligible`): built-in, PCI, USB, FireWire, Thunderbolt, HDMI, DisplayPort, AVB, and virtual. Bluetooth, AirPlay, Continuity, the Remote types, aggregates, and Unknown are out, and so is anything Apple adds until argued in. A testing override bypasses the allowlist.
 
 The report these reasons fold into, and when a saved device may bind, are the player's. They read the player's state, and the player is their only caller, so they sit in `audio/Player`'s `Mac/` half.

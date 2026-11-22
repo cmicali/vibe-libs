@@ -29,6 +29,7 @@ typedef struct {
     uint32_t sampleRate;
     uint32_t channels;
     uint32_t bitsPerSample;    // 8, 16, 24, or 32, which may be float
+    bool isFloat;
     uint32_t blocksPerFrame;   // the audio frames in one of the file's frames
     uint32_t channelMask;      // the source WAV's extensible mask, or 0
     int64_t length;            // in audio frames

@@ -61,7 +61,7 @@ static const useconds_t kFormatSwitchPollMicroseconds = 5000;
                              forDeviceID:(AudioDeviceID)device.deviceId]) {
         return NO;
     }
-    AudioStreamBasicDescription source = *file.fileFormat.streamDescription;
+    AudioStreamBasicDescription source = *file.sourceFormatForOutput.streamDescription;
     double targetRate = VibeBitPerfectTargetRate(source.mSampleRate, source.mChannelsPerFrame, formats, count);
     if (targetRate == 0 || !VibeBitPerfectChooseFormat(source, targetRate, formats, count, chosen)) {
         *chosen = *current;
@@ -496,7 +496,7 @@ static const useconds_t kFormatSwitchPollMicroseconds = 5000;
             report.formatConfirmed = NO;
         }
         if (file) {
-            AudioStreamBasicDescription source = *file.fileFormat.streamDescription;
+            AudioStreamBasicDescription source = *file.sourceFormatForOutput.streamDescription;
             // Keep the bus one-to-one; wider hardware is transparent only
             // when the AU's actual map preserves the prepared stream's pair.
             report.channelsMatch = channels > 0

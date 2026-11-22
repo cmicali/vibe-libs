@@ -175,7 +175,6 @@ struct VibeAPEDecoder {
     VibeAPEIO *io = nullptr;
     IAPEDecompress *decompress = nullptr;
     VibeAPEFacts facts = {};
-    bool isFloat = false;
     int64_t blockAlign = 0;
     // The first audio frame past the file's bytes, once a frame's bytes ran
     // past its end: a file cut short. The length from the header past it is
@@ -242,7 +241,7 @@ extern "C" VibeAPEDecoder *VibeAPEDecoderOpen(VibeAPEReadFunction read, void *us
             } else if (!VibeAPESeekTableHolds(info.get(), size, &firstOutside)) {
                 code = VibeAPEErrorBadSeekTable;
             } else {
-                decoder->isFloat = isFloat;
+                decoder->facts.isFloat = isFloat;
                 // A file cut short: its reads end where its frames' bytes do.
                 decoder->end = firstOutside * perFrame;
                 // It takes the info, and deletes it with itself.
@@ -339,7 +338,7 @@ static void VibeAPEConvert(const VibeAPEDecoder *decoder, const unsigned char *f
                 break;
             }
             default:
-                if (decoder->isFloat) {
+                if (decoder->facts.isFloat) {
                     const float one = 1;
                     vDSP_vsmul(reinterpret_cast<const float *>(from) + c, stride, &one, to, 1, n);
                 } else {

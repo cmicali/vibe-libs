@@ -37,6 +37,12 @@ enum {
     kOpenStreamReserveFrames = 2 * kDecodeChunkFrames,
 };
 
+// Before the first render, a voice can already start on one chunk. Give a
+// short DSD track that chance to acquire its successor before padding its tail.
+static inline BOOL VibeCanHoldDSDTail(uint64_t written, uint64_t consumed) {
+    return written - consumed >= (consumed == 0 ? kLiveThresholdFrames : kOpenStreamReserveFrames);
+}
+
 typedef NS_ENUM(int32_t, VibeSuccessorState) {
     VibeSuccessorNone = 0,
     VibeSuccessorQueued,
@@ -211,6 +217,8 @@ static inline AudioTimeStamp VibeStampRead(const VibeVoiceStamp *field) {
     // of the file: framePosition answers 0 when ExtAudioFileTell fails, and an
     // end clamped against that reads into the next window.
     AVAudioFramePosition cursor;
+    AVAudioFramePosition dsdSpliceFrame; // hold here until the next file is known or the render needs the tail
+    BOOL dsdSuccessorPositioned;
     BOOL positioned;
     VibeStreamState stream;
     BOOL readInterrupted;            // the decoder's: this turn's read or seek ended as an interruption
