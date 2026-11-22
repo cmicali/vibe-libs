@@ -985,6 +985,18 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
+  # ui/Rows, which is iOS only, so it has no macOS test bundle. Its views
+  # need a hosted app and a window, so their tests run in an app's simulator
+  # suite. This target builds the piece and a probe of every header.
+  Rows-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsRows]
+    templateAttributes:
+      excludedPlatform: Mac
+    sources:
+      - path: Tests/ui/Rows/RowsProbe.m
+
   # third_party/: each library's tests build it alone and call into it once,
   # so a missing file or a broken link fails here. Each iOS target builds the
   # library for the simulator. None of them excludes a platform half.
@@ -1213,6 +1225,7 @@ schemes:
         DebugVerbsTests: [test]
         DebugVerbs-iOS: all
         iOSDriver: all
+        Rows-iOS: all
         TaglibTests: [test]
         Taglib-iOS: all
         R8brainTests: [test]
