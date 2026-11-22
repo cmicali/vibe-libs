@@ -367,6 +367,38 @@ targets:
     templateAttributes:
       excludedPlatform: Mac
 
+  # files/Dropbox, tested on macOS over DropboxStubProtocol, which sits
+  # beside the tests, and a temporary root. The tests take PatternBytes and
+  # StatOf from HTTP's HTTPStub.h and compile no stub. The streaming tests
+  # take the handle's fixture writers.
+  DropboxTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsDropbox]
+    templateAttributes:
+      excludedPlatform: iOS
+    sources:
+      - path: Tests/files/Dropbox
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support", "$(SRCROOT)/Tests/files/HTTP"]
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - "$(inherited)"
+          - "DEBUG=1"
+          - "VIBE_VERBOSE_LOGGING=1"
+          - "VIBE_TEST_HANG_TIMEOUT=10"
+          - "VIBE_TEST_GATE_TIMEOUT=30"
+
+  # files/Dropbox built for iOS.
+  Dropbox-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsDropbox]
+    templateAttributes:
+      excludedPlatform: Mac
+
   # files/ShareLinks, tested on macOS: the link rules, the fake web server's
   # answers and faults, and an iCloud Drive lookup through the link client.
   # The rules' tests pass AudioTypes' playable extensions, so the bundle
@@ -1140,6 +1172,8 @@ schemes:
         HTTP-iOS: all
         RemoteFilesTests: [test]
         RemoteFiles-iOS: all
+        DropboxTests: [test]
+        Dropbox-iOS: all
         ShareLinksTests: [test]
         ShareLinks-iOS: all
         DecodeTests: [test]
@@ -1201,7 +1235,7 @@ schemes:
     test:
       targets: [CommonTests, GraphicsTests, AudioTypesTests, DSPTests, AnalysisTests, OutputDevicesTests,
                 FXTests, MeterTests, FileLoadingTests, DiskCacheTests, HTTPTests,
-                RemoteFilesTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
+                RemoteFilesTests, DropboxTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
                 MetadataTests, PlayQueueTests, PlaylistsTests, FolderScanTests, WaveformTests, WaveformLoadingTests,
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
                 SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, DebugVerbsTests,

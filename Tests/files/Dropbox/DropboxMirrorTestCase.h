@@ -20,7 +20,7 @@
 #import "AudioFileHandle.h"
 #import "AudioFileMaterializationCoordinator.h"
 #import "FilePaths.h"
-#import "AudioFixtures.h"
+#import "AudioFileFixtures.h"
 #import "CloudFileMaterializer.h"
 #import "CloudTransferRegistry.h"
 #import "DropboxClientInternal.h"

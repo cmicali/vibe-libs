@@ -135,9 +135,9 @@
     [self installMirrorFetch];
     XCTAssertTrue([self materialize:[folder URLByAppendingPathComponent:@"one.flac"]]);
 
-    // The readers of a row's downloaded state (Search, the browser,
-    // Settings) hear the removal, with nothing left counted. The fetch's own
-    // post may still be in flight, so the handler waits for the empty one.
+    // The readers of a row's downloaded state hear the removal, with
+    // nothing left counted. The fetch's own post may still be in flight,
+    // so the handler waits for the empty one.
     XCTestExpectation *told = [self expectationForNotification:VibeDropboxDownloadsDidChangeNotification
                                                         object:_mirror
                                                        handler:^BOOL(NSNotification *notification) {
