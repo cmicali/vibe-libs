@@ -1,6 +1,6 @@
 # ui/PlayerCard
 
-An iOS music app's now-playing card: a pager of tracks, each page with its art, waveform scrubber, transport, FX pad, and output route. **It is iOS only.** It depends on `waveform/WaveformView` for the scrubber, `waveform/WaveformLoading` for its cache, `waveform/WaveformStyles` for the zoom math, `media/Metadata` for a row's tags, `media/PlayQueue` for the repeat modes, `audio/AudioTypes` for the musical key, `audio/FX` for the pad's axes, `audio/OutputDevices` for the route, `files/FileLoading` for the placeholder check, and `core/Graphics` for the blur and the art's color. It does not use `ui/Rows`. It links AVKit for the route picker.
+An iOS music app's now-playing card: a pager of tracks, each page with its art, waveform scrubber, transport, FX pad, and output route. **It is iOS only.** It depends on `waveform/WaveformView`, `waveform/WaveformLoading`, `waveform/WaveformStyles`, `media/Metadata`, `media/PlayQueue`, `audio/AudioTypes`, `audio/FX`, `audio/OutputDevices`, `files/FileLoading`, `core/Graphics`, and `core/Common`. It does not use `ui/Rows`. It links AVKit for the route picker.
 
 | File | Owns |
 | --- | --- |
@@ -21,6 +21,8 @@ List `VibeLibsPlayerCard` in an iOS target.
 
 **The app's model adopts the four protocols in `VibePlayerCardPlayback.h`**: the playback, the queue, the item, and the observer. The queue and item protocols can be adopted in categories with no code, as Vibe's are. The model does what the card asks: it plays, seeks, sets the FX pad's position, stamps a decode's analysis, and takes each complete waveform and loaded art.
 
+**The app makes the card with `initWithPlayback:` and keeps it.** It sets `presented` while the card is up and `sceneActive` while its scene is foreground-active. Without them the card commits no page and runs no playhead display link. Its delegate gets the grabber's tap and the downward drag, and the app owns the animation. The card forces a dark interface style. An item's `metadata` must be a real `AudioTrackMetadata`, since the card loads art through it.
+
 **The app sends `reloadSettings` when a setting the host reads changes.** The card registers for no notification of the app's.
 
 The scrubber itself is `waveform/WaveformView` (its `AGENTS.md`, iOS/). **The card owns what the scrubber reads no store for.** `applyWaveformSettingsToCell:` asks the host to push the style, `centered`, `drawsPlayheadLine` and the `themeProvider` block, on every configure and on a settings change. `TrackPageCell` sets each page's `artworkThemeColor` as it installs the page's art. The card answers `needsDetailBlocks:` through its cache, for the page bound to playback only. A neighbor page is refused, and asks again when it next draws as the current page. A cursor change calls `cancelInteraction` on held scrubbers. The scrubber's `playbackLoading`, set from the model's `currentOpenSlow`, keeps the shimmer through a slow open, including one with no transfer. Settlement or a cursor change clears it.
@@ -39,7 +41,7 @@ The track pager and the chrome over it. It owns no playback state. **Only the se
 
 **TRAP: dequeue is not the last word** (`willDisplayCell:`). A prefetched page is configured off screen and misses deliveries, since `refreshPageAtIndex:` reaches only live cells. So `willDisplayCell:` configures the page again, re-applies zoom and style, and the slow-open shimmer. **A page that is not the current track rests at the start**: `willDisplayCell:` writes its waveform progress to 0 beside its resting times. Nothing else writes a page once the chrome leaves it.
 
-**The right time shows the duration. A tap flips it to minus-prefixed remaining**, held in the host's `playerCardShowsRemainingTime`. Every render path goes through `VibeRightTimeText`, and the tap repaints every visible page. **A settings change arrives from outside the card**, as the app's `reloadSettings`. It reconfigures every visible page, pushes the waveform settings (`applyWaveformSettingsToCell:`, the scrubber reads no store) and repaints the times.
+**The right time shows the duration. A tap flips it to minus-prefixed remaining**, held in the host's `playerCardShowsRemainingTime`. Every render path goes through `VibeRightTimeText`, and the tap repaints every visible page. A settings change reconfigures every visible page and repaints the times (How an app uses it).
 
 **The time labels belong to a scrub while one runs.** `+Delivery` renders `didScrubToProgress:` as the landing time, and `updatePlaybackUI` bails on `isScrubbing`. The duration falls back to the track's own, so scrubbing a parked track reads correctly.
 
@@ -112,4 +114,4 @@ Waveform bookkeeping between `AudioWaveformCache` and the cells. The cache has o
 
 ## Tests
 
-The views need a hosted app and a window, so their tests run in the consuming app's simulator suite, as the rows' do. Vibe's are its `PlayerViewControllerTests` and `PageWaveformCoordinatorTests`. `PlayerScreenRules.h` is header-only, and Vibe's `PlayerScreenRulesTests` cover it. Here, `PlayerCard-iOS` only builds the piece. So a change to the card passes this repo's checks without proving its behavior. Run Vibe's `make test` and `make test-ios` against the change before it merges.
+The views need a hosted app and a window, so their tests are Vibe's: `PlayerViewControllerTests` in its simulator suite, and `PageWaveformCoordinatorTests` and `PlayerScreenRulesTests` in its unit suite. `PlayerCard-iOS` only builds the piece, so run Vibe's `make test` and `make test-ios` before a change merges.
