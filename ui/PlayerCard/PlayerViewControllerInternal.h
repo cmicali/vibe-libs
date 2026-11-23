@@ -20,7 +20,6 @@
 @class TrackPageActionBarView;
 @class TrackPageCell;
 @class TrackPageTimeControl;
-@class VibeTrackPageSlider;
 @class WaveformScrubberView;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -52,9 +51,6 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
     // is recreated, so the live paths keep one stable name.
     TrackPageCell           *_boundPage;
     WaveformScrubberView    *_waveformView;
-    // The bound page's slider, which stands in for the waveform when the
-    // host asks (VibePlayerCardScrubberStandard).
-    VibeTrackPageSlider     *_standardScrubber;
     UILabel                 *_elapsedLabel;
     TrackPageTimeControl    *_remainingTimeControl;
     UIView                  *_transportView;
@@ -92,9 +88,6 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
     NSInteger               _scrubLabelSecond;
     // A slider's drag moved it, so its lift seeks. A tap on the thumb does not.
     BOOL                    _standardScrubMoved;
-    // What reloadSettings last saw, so a switch back to the waveform asks
-    // for one.
-    BOOL                    _usedStandardScrubber;
 
     // Shared by every page. The user's REQUEST, which is what persists; each
     // view applies its own floor (WaveformScrubberView.visibleFraction).
@@ -104,18 +97,13 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 #pragma mark - The refresh funnel
 
 - (void)updatePlaybackUI;
-// The playhead on the bound page: the waveform's, and the slider's while it
-// is not under a finger.
-- (void)showProgress:(CGFloat)progress;
-// A scrub of either kind is under a finger, and owns the time labels.
-- (BOOL)isScrubbing;
 // The host asks for the slider (VibePlayerCardScrubberStandard). No
-// waveform is requested meanwhile.
+// waveform is requested or drawn meanwhile.
 - (BOOL)usesStandardScrubber;
 // The model's scrubbingAvailable, YES when it says nothing.
 - (BOOL)scrubbingAvailable;
 - (void)updatePlayButton;
-// Only the empty state hides the transport, action bar and route control.
+// Only the empty state hides the chrome (TrackPageCell.chromeAlpha).
 - (CGFloat)chromeAlpha;
 - (void)updateScrollLinkState;
 - (void)updateOutputRoute;

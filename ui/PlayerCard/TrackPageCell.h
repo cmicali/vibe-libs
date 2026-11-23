@@ -31,7 +31,12 @@ NS_ASSUME_NONNULL_BEGIN
 // The plain slider an app can ask for in the waveform's place
 // (VibePlayerCardScrubberStandard). Shown, the waveform is hidden.
 @property (nonatomic, readonly) VibeTrackPageSlider *standardScrubber;
-- (void)setStandardScrubberShown:(BOOL)shown;
+@property (nonatomic, getter=isStandardScrubberShown) BOOL standardScrubberShown;
+// The page's playhead, on whichever scrubber shows. Only that one is
+// written, and a switch carries the position across.
+@property (nonatomic) CGFloat scrubProgress;
+// A scrub of either kind is under a finger, and owns the time labels.
+@property (nonatomic, readonly, getter=isScrubbing) BOOL scrubbing;
 // NO turns off both scrubbers' drags, so the pager takes the swipe
 // (VibePlayerCardPlayback's scrubbingAvailable). A drag already under way
 // ends without a seek.
@@ -59,7 +64,11 @@ NS_ASSUME_NONNULL_BEGIN
 // layout: beside the grabber's band in portrait, and past the info label in
 // the wide ones. A nil symbol hides it, and nothing moves.
 @property (nonatomic, readonly) UIButton *queueButton;
-- (void)setQueueSymbol:(nullable NSString *)symbol label:(nullable NSString *)label;
+- (void)setQueueSymbol:(nullable NSString *)symbol;
+// The chrome only the empty state fades: the transport, the action bar, the
+// route control, the FX pad, and the queue control. One list, so the
+// controller's two writers cannot drift apart.
+@property (nonatomic) CGFloat chromeAlpha;
 @property (nonatomic, readonly) UIButton *previousButton;
 @property (nonatomic, readonly) UIButton *playPauseButton;
 @property (nonatomic, readonly) UIButton *nextButton;

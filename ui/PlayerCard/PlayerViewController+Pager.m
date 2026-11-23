@@ -54,7 +54,6 @@ static const NSTimeInterval kProgrammaticScrollHoldCeilingSeconds = 1.5;
     }
     _boundPage = cell;
     _waveformView = cell.waveformView;
-    _standardScrubber = cell.standardScrubber;
     _elapsedLabel = cell.elapsedLabel;
     _remainingTimeControl = cell.remainingTimeControl;
     _transportView = cell.transportView;
@@ -113,7 +112,9 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
     __weak PlayerViewController *weakSelf = self;
     WaveformWaitsForOpen(track.url, ^(BOOL waits) {
         PlayerViewController *strongSelf = weakSelf;
-        if (!strongSelf || waits || strongSelf->_playlist.currentIndex != index) {
+        // The host may have switched to the slider while the probe ran.
+        if (!strongSelf || waits || strongSelf->_playlist.currentIndex != index
+                || [strongSelf usesStandardScrubber]) {
             return;
         }
         id<VibePlayerCardItem> current = [strongSelf trackAtIndex:index matching:track];
@@ -165,6 +166,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
         // The cell may have been recycled, or the page made current or given
         // a snapshot, while the probe ran.
         if (!strongSelf || !cell || [strongSelf cellAtIndex:index] != cell
+                || [strongSelf usesStandardScrubber]
                 || index == strongSelf->_playback.currentIndex
                 || ![strongSelf trackAtIndex:index matching:track]
                 || [strongSelf->_waveformCoordinator snapshotAtIndex:index]) {
@@ -270,16 +272,17 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
     else {
         // Rest at the start, as the labels do: committing a page plays from
         // the top (AGENTS.md).
-        page.waveformView.progress = 0;
-        page.standardScrubber.value = 0;
+        page.scrubProgress = 0;
         [PlayerViewController renderRestingTimesForTrack:[_playlist trackAtIndex:index]
                                                  elapsed:page.elapsedLabel
                                                remaining:page.remainingTimeControl];
     }
 }
 
+// Never on a hidden waveform: the shimmer animates whether or not it shows.
 - (void)applyPlaybackLoadingToCell:(TrackPageCell *)cell atIndex:(NSUInteger)index {
-    BOOL loading = _playback.currentOpenSlow && index == _playlist.currentIndex;
+    BOOL loading = _playback.currentOpenSlow && index == _playlist.currentIndex
+            && ![self usesStandardScrubber];
     if (cell.waveformView.playbackLoading != loading) {
         cell.waveformView.playbackLoading = loading;
     }
@@ -323,7 +326,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
     [cell setShuffleRepeatShown:host.playerCardShowsShuffleRepeat];
     NSString *queueSymbol = [host respondsToSelector:@selector(playerCardQueueSymbol)]
             ? host.playerCardQueueSymbol : nil;
-    [cell setQueueSymbol:queueSymbol label:(queueSymbol ? [host playerCardQueueLabel] : nil)];
+    [cell setQueueSymbol:queueSymbol];
 }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView
@@ -332,11 +335,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
             dequeueReusableCellWithReuseIdentifier:TrackPageCell.reuseIdentifier
                                       forIndexPath:indexPath];
     [self configurePage:cell atIndex:(NSUInteger)indexPath.item];
-    cell.transportView.alpha = [self chromeAlpha];
-    cell.routeView.alpha = [self chromeAlpha];
-    cell.actionBar.alpha = [self chromeAlpha];
-    cell.fxPadView.alpha = [self chromeAlpha];
-    cell.queueButton.alpha = [self chromeAlpha];
+    cell.chromeAlpha = [self chromeAlpha];
     return cell;
 }
 

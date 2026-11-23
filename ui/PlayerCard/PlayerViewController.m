@@ -38,8 +38,9 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
     if (recognizer == self.panGestureRecognizer) {
         UIView *hit = [self hitTest:[recognizer locationInView:self] withEvent:nil];
         for (UIView *view = hit; view && view != self; view = view.superview) {
-            // A slider drags along the pager's axis, so it keeps its touch.
-            if ([view isKindOfClass:[UISlider class]]) {
+            // The card's slider drags along the pager's axis, so it keeps
+            // its touch, unless the model turned scrubbing off.
+            if ([view isKindOfClass:[VibeTrackPageSlider class]]) {
                 if (((UISlider *)view).enabled) {
                     return NO;
                 }
@@ -94,7 +95,6 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
     self.view.backgroundColor = [UIColor systemBackgroundColor];
     // Before buildUI, so the first cell to display already has it.
     [self restoreWaveformZoom];
-    _usedStandardScrubber = [self usesStandardScrubber];
     [self buildUI];
 
     _waveformCache = [[AudioWaveformCache alloc] init];
@@ -120,18 +120,19 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
     // The pages in hand were likely decoded without the bands: forgotten,
     // each is asked for again as it comes up.
     BOOL bandsWanted = WaveformBandsWanted(_waveformCache);
-    BOOL refetch = bandsWanted && !_waveformBandsWanted;
-    if (refetch) {
+    BOOL bandsChanged = bandsWanted && !_waveformBandsWanted;
+    _waveformBandsWanted = bandsWanted;
+    if (bandsChanged) {
         [_waveformCoordinator reset];
     }
-    _waveformBandsWanted = bandsWanted;
-    // The slider asks for no waveform, so a switch back asks now.
+    // What the pages showed, read before the configure below changes it.
+    // With no page in hand there is nothing to switch.
+    TrackPageCell *shownPage = _boundPage ?: (TrackPageCell *)_pagesView.visibleCells.firstObject;
+    BOOL wasStandard = shownPage.standardScrubberShown;
     BOOL standard = [self usesStandardScrubber];
-    refetch = refetch || (!standard && _usedStandardScrubber);
-    _usedStandardScrubber = standard;
-    if (refetch) {
-        [self requestCurrentWaveform];
-        [self fetchNeighborWaveforms];
+    if (standard && !wasStandard) {
+        // Nothing draws a waveform now, so nothing loads one.
+        [_waveformCoordinator cancelLoads];
     }
     for (TrackPageCell *cell in _pagesView.visibleCells) {
         NSIndexPath *path = [_pagesView indexPathForCell:cell];
@@ -139,6 +140,21 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
             [self configurePage:cell atIndex:(NSUInteger)path.item];
         }
         [self applyWaveformSettingsToCell:cell];
+        // TRAP: a page dequeued under the slider was cleared and never
+        // hydrated, and a complete page delivers nothing on request. So each
+        // visible page draws what the coordinator holds.
+        if (path && wasStandard && !standard) {
+            [self hydrateWaveformInCell:cell atIndex:(NSUInteger)path.item];
+        }
+    }
+    if (standard != wasStandard) {
+        [self applyPlaybackLoadingToVisiblePages];
+        [self updateScrollLinkState];
+    }
+    // A page the coordinator holds complete starts no load.
+    if (!standard && (bandsChanged || wasStandard)) {
+        [self requestCurrentWaveform];
+        [self fetchNeighborWaveforms];
     }
     [self repaintTimesOnVisiblePages];
 }
@@ -417,7 +433,6 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
         [_boundPage setScrubbingAvailable:YES];
         _boundPage = nil;
         _waveformView = nil;
-        _standardScrubber = nil;
         _elapsedLabel = nil;
         _remainingTimeControl = nil;
         _transportView = nil;
@@ -438,17 +453,11 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
 
 - (void)updateChrome {
     CGFloat rowAlpha = [self chromeAlpha];
-    if (_transportView.alpha == rowAlpha && _routeView.alpha == rowAlpha
-            && _actionBar.alpha == rowAlpha && _fxPadView.alpha == rowAlpha
-            && _boundPage.queueButton.alpha == rowAlpha) {
+    if (!_boundPage || _boundPage.chromeAlpha == rowAlpha) {
         return;
     }
     [UIView animateWithDuration:0.3 animations:^{
-        self->_transportView.alpha = rowAlpha;
-        self->_routeView.alpha = rowAlpha;
-        self->_actionBar.alpha = rowAlpha;
-        self->_fxPadView.alpha = rowAlpha;
-        self->_boundPage.queueButton.alpha = rowAlpha;
+        self->_boundPage.chromeAlpha = rowAlpha;
     }];
 }
 
@@ -468,9 +477,12 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
 - (void)updateScrollLinkState {
     // A paused link's next frame starts from the player's position.
     _shownPosition = -1;
+    // The slider moves a few pixels a second, so it rides the model's 3 Hz
+    // tick (updatePlaybackUI).
     _scrollLink.paused = !(_playback.isPlaying && _sceneActive && self.isPresented
                            && !_pagerScrolling && !_pagerProgrammaticScrolling
-                           && !_windowResizeInFlight && !_routePickerPresenting);
+                           && !_windowResizeInFlight && !_routePickerPresenting
+                           && ![self usesStandardScrubber]);
 }
 
 - (BOOL)usesStandardScrubber {
@@ -479,36 +491,23 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
             && host.playerCardScrubber == VibePlayerCardScrubberStandard;
 }
 
-// The waveform always, as before the slider; the slider only while it shows,
-// since this runs every display frame.
-- (void)showProgress:(CGFloat)progress {
-    _waveformView.progress = progress;
-    if (!_standardScrubber.hidden) {
-        _standardScrubber.value = (float)progress;
-    }
-}
-
-- (BOOL)isScrubbing {
-    return _waveformView.isScrubbing || _standardScrubber.isTracking;
-}
-
 - (void)scrollTick:(CADisplayLink *)link {
     if (self.presentedViewController) {
         // A sheet covers the waveform; the 3 Hz tick keeps progress current.
         return;
     }
-    if ([self isScrubbing]) {
+    if (_boundPage.isScrubbing) {
         return;
     }
     // The seek target FIRST: a parked scrub is Loading and in flight at once,
     // and zeroing there is the snap-back it prevents. A track change clears
     // seekInFlight.
     if (_playback.seekInFlight) {
-        [self showProgress:_playback.pendingSeekProgress];
+        _boundPage.scrubProgress = _playback.pendingSeekProgress;
         return;
     }
     if (_playback.screenState == VibePlayerScreenStateLoading) {
-        [self showProgress:0];
+        _boundPage.scrubProgress = 0;
         return;
     }
     NSTimeInterval duration = _playback.duration;
@@ -516,7 +515,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
         _shownPosition = VibePlayheadShownPosition(_shownPosition, link.targetTimestamp - _shownFrameTime,
                                                    _playback.position);
         _shownFrameTime = link.targetTimestamp;
-        [self showProgress:_shownPosition / duration];
+        _boundPage.scrubProgress = _shownPosition / duration;
     }
 }
 
@@ -526,19 +525,19 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
 
 - (void)updatePlaybackUI {
     [_boundPage setScrubbingAvailable:[self scrubbingAvailable]];
-    if ([self isScrubbing]) {
+    if (_boundPage.isScrubbing) {
         // The scrub owns the readout (didScrubToProgress:).
         return;
     }
     if (VibePlayerScreenRendersRestingTimes(_playback.screenState)) {
         // scrollTick:'s precedence.
         if (_playback.seekInFlight) {
-            [self showProgress:_playback.pendingSeekProgress];
+            _boundPage.scrubProgress = _playback.pendingSeekProgress;
             [self renderRestingTimesForTrack:_playlist.currentTrack];
             return;
         }
         [self renderRestingTimesForTrack:_playlist.currentTrack];
-        [self showProgress:0];
+        _boundPage.scrubProgress = 0;
         return;
     }
     NSTimeInterval position = _playback.position;
@@ -551,7 +550,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
         }
         _remainingTimeControl.text = VibeRightTimeText(position, duration);
         if (!_playback.seekInFlight) {
-            [self showProgress:position / duration];
+            _boundPage.scrubProgress = position / duration;
         }
     }
     else {
@@ -694,6 +693,9 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
 }
 
 - (void)playback:(id<VibePlayerCardPlayback>)playback didUpdateLoadingProgress:(float)fraction {
+    if ([self usesStandardScrubber]) {
+        return;  // the waveform is hidden
+    }
     [_waveformView setLoadingProgress:fraction];
 }
 
