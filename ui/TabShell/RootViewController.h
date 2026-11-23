@@ -41,8 +41,9 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)rootViewController:(RootViewController *)root
               didSelectTab:(UITab *)selectedTab
                previousTab:(nullable UITab *)previousTab;
-// tabsExposed, cardAtRest or the selected tab may have changed. It is sent
-// often, and the delegate pushes what its screens need.
+// tabsExposed, cardAtRest, cardExpanded or the selected tab may have changed.
+// It is sent often, and the delegate pushes what its screens need. It is sent
+// as cardExpanded changes, not only when the card lands.
 - (void)rootViewControllerDidChangeExposure:(RootViewController *)root;
 
 @end
