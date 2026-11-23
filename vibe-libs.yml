@@ -601,6 +601,19 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/Rows"]
 
+  # iOS only, so no macOS target may list it. Rows draws its rows, Metadata
+  # their art, FolderScan lists a folder, Playlists names a playlist file, and
+  # FileLoading tells a placeholder from a local file.
+  VibeLibsFilesBrowser:
+    templates: [VibeLibsCommon, VibeLibsRows, VibeLibsControls, VibeLibsMetadata, VibeLibsFolderScan,
+                VibeLibsPlaylists, VibeLibsFileLoading]
+    sources:
+      - path: ui/FilesBrowser
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/FilesBrowser"]
+
   # iOS only, so no macOS target may list it. The now-playing card draws each
   # page's scrubber from WaveformView, loads it through WaveformLoading, and
   # zooms it with WaveformStyles' math. It reads a row's tags through

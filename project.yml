@@ -993,6 +993,15 @@ targets:
     templateAttributes:
       excludedPlatform: Mac
 
+  # ui/FilesBrowser built for iOS. It is iOS only, so it has no macOS test
+  # bundle.
+  FilesBrowser-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsFilesBrowser]
+    templateAttributes:
+      excludedPlatform: Mac
+
   # ui/PlayerCard built for iOS. It is iOS only, so it has no macOS test bundle.
   PlayerCard-iOS:
     type: library.static
@@ -1230,6 +1239,7 @@ schemes:
         DebugVerbs-iOS: all
         iOSDriver: all
         Rows-iOS: all
+        FilesBrowser-iOS: all
         PlayerCard-iOS: all
         TaglibTests: [test]
         Taglib-iOS: all
