@@ -78,6 +78,9 @@ static const CGFloat kCellBottomInsetLandscape = 16;
 static const CGFloat kCellRouteMaxWidthLandscape = 160;
 static const CGFloat kCellRouteContentInsetLandscape = 6;
 static const CGFloat kCellTimeGap = 12;
+// Portrait's time labels and the queue control keep this far in from the
+// safe area's sides.
+static const CGFloat kCellTimeEdgeInset = 16;
 
 // The compact layouts (AGENTS.md). A design threshold, not a fit: under
 // it an iPad window's art and transport row crowd the waveform. A phone's
@@ -144,6 +147,10 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
     // lone glyph, right-aligned with the device name when there is one.
     NSLayoutConstraint *_remainingCenteredOnRoute;
     NSLayoutConstraint *_remainingTrailingOnRoute;
+    // The wide layouts' info label ends a gap before the queue control
+    // while it shows (setQueueSymbol:).
+    NSLayoutConstraint *_fileInfoTrailingBeforeQueue;
+    NSString           *_queueSymbol;
 
     // Joined on one line in portrait, stacked in landscape as on the mac.
     NSString           *_fileInfo;
@@ -300,6 +307,14 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         _routeView.translatesAutoresizingMaskIntoConstraints = NO;
         [content addSubview:_routeView];
 
+        // The host's queue control, in the page's top-trailing corner.
+        _queueButton = [UIButton buttonWithType:UIButtonTypeSystem];
+        _queueButton.tintColor = [UIColor labelColor];
+        _queueButton.hidden = YES;
+        _queueButton.translatesAutoresizingMaskIntoConstraints = NO;
+        [content addSubview:_queueButton];
+        _chromeAlpha = 1;
+
         // The FX pad, last so its expanded square draws over everything it
         // covers — the transport, the waveform, the times.
         _fxPadView = [[FXPadView alloc] initWithFrame:CGRectZero];
@@ -353,6 +368,8 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             [_actionBar.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
             [_fxPadView.widthAnchor constraintEqualToConstant:kCellActionBarHeight],
             [_fxPadView.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
+            [_queueButton.widthAnchor constraintEqualToConstant:kTransportFlankButtonSide],
+            [_queueButton.heightAnchor constraintEqualToConstant:kTransportFlankButtonSide],
             waveformFullWidth,
             [_waveformView.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
             [_remainingTimeControl.bottomAnchor constraintEqualToAnchor:_elapsedLabel.bottomAnchor],
@@ -573,6 +590,11 @@ static UIImage *TransportGradientImage(void) {
         [_fxPadView.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
         [_fxPadView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
                                                  constant:kCellActionBarInset],
+        // In the band above the art, opposite nothing: the grabber is centered.
+        [_queueButton.centerYAnchor constraintEqualToAnchor:safe.topAnchor
+                                                   constant:kCellTopBandHeight / 2],
+        [_queueButton.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor
+                                                    constant:-kCellTimeEdgeInset],
 
         [_transportView.bottomAnchor constraintEqualToAnchor:_actionBar.topAnchor
                                                     constant:-kCellActionBarTransportGap],
@@ -583,8 +605,10 @@ static UIImage *TransportGradientImage(void) {
                                                    constant:-kCellWaveformTransportGap],
         [_elapsedLabel.topAnchor constraintEqualToAnchor:_waveformView.bottomAnchor
                                                 constant:-kCellTimeWaveformOverlap],
-        [_elapsedLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [_remainingTimeControl.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
+        [_elapsedLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
+                                                    constant:kCellTimeEdgeInset],
+        [_remainingTimeControl.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor
+                                                            constant:-kCellTimeEdgeInset],
     ];
 }
 
@@ -627,6 +651,12 @@ static UIImage *TransportGradientImage(void) {
             constraintEqualToAnchor:_routeView.trailingAnchor];
 
     _fileInfoCapTopLandscape = [_fileInfoLabel.topAnchor constraintEqualToAnchor:_artistLabel.topAnchor];
+    // Just below required, so only the queue control's gap outranks it.
+    NSLayoutConstraint *fileInfoOnColumn = [_fileInfoLabel.trailingAnchor
+            constraintEqualToAnchor:column.trailingAnchor];
+    fileInfoOnColumn.priority = UILayoutPriorityRequired - 1;
+    _fileInfoTrailingBeforeQueue = [_fileInfoLabel.trailingAnchor constraintEqualToAnchor:_queueButton.leadingAnchor
+                                                                                 constant:-kCellLabelGap];
 
     NSArray<NSLayoutConstraint *> *header = @[
         columnLeading,
@@ -651,7 +681,10 @@ static UIImage *TransportGradientImage(void) {
         [_titleLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_fileInfoLabel.leadingAnchor
                                                              constant:-12],
         _fileInfoCapTopLandscape,
-        [_fileInfoLabel.trailingAnchor constraintEqualToAnchor:column.trailingAnchor],
+        fileInfoOnColumn,
+        // The top-trailing corner, beside the info label, in every wide layout.
+        [_queueButton.topAnchor constraintEqualToAnchor:_artCard.topAnchor],
+        [_queueButton.trailingAnchor constraintEqualToAnchor:column.trailingAnchor],
 
         // The pills stay placed while the compact layouts hide them.
         [_fxPadView.leadingAnchor constraintEqualToAnchor:column.leadingAnchor],
@@ -781,6 +814,7 @@ static UIImage *TransportGradientImage(void) {
     }
     [self applyActionBarSplit];
     [self applyRouteTimeAlignment];
+    [self applyQueueControl];
 
     NSTextAlignment alignment = landscape ? NSTextAlignmentLeft : NSTextAlignmentCenter;
     _titleLabel.textAlignment = alignment;
@@ -874,6 +908,36 @@ static UIImage *TransportGradientImage(void) {
     _outerGapWanted.constant = shown ? kTransportButtonGap : 0;
     _outerGapMin.constant = shown ? kTransportFlankMinGap : 0;
     [self applyFileInfoText];
+}
+
+- (void)setQueueSymbol:(NSString *)symbol {
+    // Asked only with a symbol, so a host with no queue control is never
+    // asked for its word. Every configure, so reloadSettings relabels.
+    if (symbol) {
+        _queueButton.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelQueue);
+    }
+    if (symbol == _queueSymbol || [symbol isEqualToString:_queueSymbol]) {
+        return;
+    }
+    _queueSymbol = [symbol copy];
+    if (symbol) {
+        [self setGlyph:symbol onButton:_queueButton pointSize:kCellSideGlyphPointSize];
+    }
+    [self applyQueueControl];
+}
+
+- (void)setChromeAlpha:(CGFloat)alpha {
+    _chromeAlpha = alpha;
+    _transportView.alpha = alpha;
+    _routeView.alpha = alpha;
+    _actionBar.alpha = alpha;
+    _fxPadView.alpha = alpha;
+    _queueButton.alpha = alpha;
+}
+
+- (void)applyQueueControl {
+    _queueButton.hidden = !_queueSymbol;
+    _fileInfoTrailingBeforeQueue.active = _queueSymbol && _landscapeActive;
 }
 
 - (void)setFXPadShown:(BOOL)shown {

@@ -96,7 +96,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 
 - (void)updatePlaybackUI;
 - (void)updatePlayButton;
-// Only the empty state hides the transport, action bar and route control.
+// Only the empty state hides the chrome (TrackPageCell.chromeAlpha).
 - (CGFloat)chromeAlpha;
 - (void)updateScrollLinkState;
 - (void)updateOutputRoute;
@@ -119,6 +119,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 - (void)nextTapped;
 - (void)shuffleTapped;
 - (void)repeatTapped;
+- (void)queueTapped;
 
 // One setting for every page, so every visible page repaints.
 - (void)remainingTimeTapped;

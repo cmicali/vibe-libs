@@ -25,6 +25,11 @@ NS_ASSUME_NONNULL_BEGIN
                     velocity:(CGFloat)velocity
                        state:(UIGestureRecognizerState)state;
 
+@optional
+// The queue control was tapped (the host's playerCardQueueSymbol). The app
+// shows its queue.
+- (void)playerViewControllerDidRequestQueue:(PlayerViewController *)controller;
+
 @end
 
 @interface PlayerViewController : UIViewController
