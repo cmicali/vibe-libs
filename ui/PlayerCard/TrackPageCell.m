@@ -279,6 +279,13 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         _waveformView.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelWaveform);
         [content addSubview:_waveformView];
 
+        _standardScrubber = [[UISlider alloc] init];
+        _standardScrubber.minimumTrackTintColor = [UIColor labelColor];
+        _standardScrubber.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelWaveform);
+        _standardScrubber.hidden = YES;
+        _standardScrubber.translatesAutoresizingMaskIntoConstraints = NO;
+        [content addSubview:_standardScrubber];
+
         _elapsedLabel = [self makeTimeLabel];
         [content addSubview:_elapsedLabel];
         _remainingTimeControl = [[TrackPageTimeControl alloc] initWithFrame:CGRectZero];
@@ -343,6 +350,15 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         NSLayoutConstraint *waveformFullWidth = [_waveformView.leadingAnchor
                 constraintEqualToAnchor:content.leadingAnchor];
         waveformFullWidth.priority = UILayoutPriorityRequired - 1;
+        // The slider spans the waveform's row, inset as the time labels are,
+        // and never into the safe area.
+        UILayoutGuide *safe = content.safeAreaLayoutGuide;
+        NSLayoutConstraint *sliderLeading = [_standardScrubber.leadingAnchor
+                constraintEqualToAnchor:_waveformView.leadingAnchor constant:16];
+        sliderLeading.priority = UILayoutPriorityRequired - 1;
+        NSLayoutConstraint *sliderTrailing = [_standardScrubber.trailingAnchor
+                constraintEqualToAnchor:_waveformView.trailingAnchor constant:-16];
+        sliderTrailing.priority = UILayoutPriorityRequired - 1;
         [NSLayoutConstraint activateConstraints:@[
             [_backdropView.topAnchor constraintEqualToAnchor:content.topAnchor],
             [_backdropView.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
@@ -369,6 +385,11 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             [_queueButton.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
             waveformFullWidth,
             [_waveformView.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+            sliderLeading,
+            sliderTrailing,
+            [_standardScrubber.leadingAnchor constraintGreaterThanOrEqualToAnchor:safe.leadingAnchor constant:16],
+            [_standardScrubber.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor constant:-16],
+            [_standardScrubber.centerYAnchor constraintEqualToAnchor:_waveformView.centerYAnchor],
             [_remainingTimeControl.bottomAnchor constraintEqualToAnchor:_elapsedLabel.bottomAnchor],
             [_elapsedLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_remainingTimeControl.leadingAnchor
                                                                    constant:-kCellTimeGap],
@@ -905,6 +926,32 @@ static UIImage *TransportGradientImage(void) {
     [self applyFileInfoText];
 }
 
+- (void)setStandardScrubberShown:(BOOL)shown {
+    if (_standardScrubber.hidden == !shown) {
+        return;
+    }
+    // A switch mid-drag releases the outgoing scrubber's pager hold.
+    if (shown) {
+        [_waveformView cancelInteraction];
+    }
+    else {
+        [self cancelStandardScrub];
+    }
+    _waveformView.hidden = shown;
+    _standardScrubber.hidden = !shown;
+}
+
+// TRAP: a slider's cancelled tracking sends no event, and the controller
+// releases the pager's hold on TouchCancel, so it is sent here. A page
+// recycled mid-drag otherwise leaves the pager unswipeable.
+- (void)cancelStandardScrub {
+    if (!_standardScrubber.isTracking) {
+        return;
+    }
+    [_standardScrubber cancelTrackingWithEvent:nil];
+    [_standardScrubber sendActionsForControlEvents:UIControlEventTouchCancel];
+}
+
 - (void)setQueueSymbol:(NSString *)symbol label:(NSString *)label {
     _queueButton.accessibilityLabel = label;
     if (symbol == _queueSymbol || [symbol isEqualToString:_queueSymbol]) {
@@ -991,6 +1038,8 @@ static UIImage *TransportGradientImage(void) {
     // the pager stays locked (the scrubber's release trap, AGENTS.md).
     [_fxPadView cancelInteraction];
     [_waveformView prepareForWaveformLoad];
+    [self cancelStandardScrub];
+    _standardScrubber.value = 0;
     _elapsedLabel.text = VibePlayerCardLabelText(VibePlayerCardLabelTimeUnknown);
     _remainingTimeControl.text = VibePlayerCardLabelText(VibePlayerCardLabelTimeUnknown);
     [self setGlyphPlaying:NO];

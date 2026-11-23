@@ -50,6 +50,7 @@ static const NSTimeInterval kProgrammaticScrollHoldCeilingSeconds = 1.5;
     }
     _boundPage = cell;
     _waveformView = cell.waveformView;
+    _standardScrubber = cell.standardScrubber;
     _elapsedLabel = cell.elapsedLabel;
     _remainingTimeControl = cell.remainingTimeControl;
     _transportView = cell.transportView;
@@ -221,6 +222,15 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
                            forControlEvents:UIControlEventTouchUpInside];
         [page.queueButton addTarget:self action:@selector(queueTapped)
                    forControlEvents:UIControlEventTouchUpInside];
+        UISlider *slider = page.standardScrubber;
+        [slider addTarget:self action:@selector(standardScrubberDidBegin:)
+                forControlEvents:UIControlEventTouchDown];
+        [slider addTarget:self action:@selector(standardScrubberDidMove:)
+                forControlEvents:UIControlEventValueChanged];
+        [slider addTarget:self action:@selector(standardScrubberDidEnd:)
+                forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+        [slider addTarget:self action:@selector(standardScrubberDidCancel:)
+                forControlEvents:UIControlEventTouchCancel];
         page.routeView.delegate = self;
         // The FX pad owns its touch from the press, the way the scrubber owns
         // a drag: the pager's pan waits for it to fail, and its positions
@@ -248,6 +258,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
         // Rest at the start, as the labels do: committing a page plays from
         // the top (AGENTS.md).
         page.waveformView.progress = 0;
+        page.standardScrubber.value = 0;
         [PlayerViewController renderRestingTimesForTrack:[_playlist trackAtIndex:index]
                                                  elapsed:page.elapsedLabel
                                                remaining:page.remainingTimeControl];
@@ -295,6 +306,8 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
                   deviceName:_playback.outputRouteName];
     // A settings change reaches here through reloadSettings.
     [cell setFXPadShown:host.playerCardShowsFXPad];
+    [cell setStandardScrubberShown:[host respondsToSelector:@selector(playerCardScrubber)]
+            && host.playerCardScrubber == VibePlayerCardScrubberStandard];
     [cell setShuffleRepeatShown:host.playerCardShowsShuffleRepeat];
     NSString *queueSymbol = [host respondsToSelector:@selector(playerCardQueueSymbol)]
             ? host.playerCardQueueSymbol : nil;

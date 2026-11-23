@@ -51,6 +51,9 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
     // is recreated, so the live paths keep one stable name.
     TrackPageCell           *_boundPage;
     WaveformScrubberView    *_waveformView;
+    // The bound page's slider, which stands in for the waveform when the
+    // host asks (VibePlayerCardScrubberStandard).
+    UISlider                *_standardScrubber;
     UILabel                 *_elapsedLabel;
     TrackPageTimeControl    *_remainingTimeControl;
     UIView                  *_transportView;
@@ -86,6 +89,8 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
     // The second last rendered for a scrub, so a drag does not format at
     // display rate. NSIntegerMin: not scrubbing.
     NSInteger               _scrubLabelSecond;
+    // A slider's drag moved it, so its lift seeks. A tap on the thumb does not.
+    BOOL                    _standardScrubMoved;
 
     // Shared by every page. The user's REQUEST, which is what persists; each
     // view applies its own floor (WaveformScrubberView.visibleFraction).
@@ -95,6 +100,11 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 #pragma mark - The refresh funnel
 
 - (void)updatePlaybackUI;
+// The playhead on the bound page: the waveform's, and the slider's while it
+// is not under a finger.
+- (void)showProgress:(CGFloat)progress;
+// A scrub of either kind is under a finger, and owns the time labels.
+- (BOOL)isScrubbing;
 - (void)updatePlayButton;
 // Only the empty state hides the transport, action bar and route control.
 - (CGFloat)chromeAlpha;

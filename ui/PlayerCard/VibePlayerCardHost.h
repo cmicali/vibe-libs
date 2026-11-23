@@ -45,6 +45,13 @@ typedef NS_ENUM(NSInteger, VibePlayerCardLabel) {
     VibePlayerCardLabelFXPadHint,
 };
 
+// What a page scrubs with.
+typedef NS_ENUM(NSInteger, VibePlayerCardScrubber) {
+    VibePlayerCardScrubberWaveform,
+    // A plain slider in the waveform's place.
+    VibePlayerCardScrubberStandard,
+};
+
 @protocol VibePlayerCardHost <NSObject>
 
 - (NSString *)playerCardLabel:(VibePlayerCardLabel)label;
@@ -86,6 +93,10 @@ typedef NS_ENUM(NSInteger, VibePlayerCardLabel) {
 // control and lays out as it always has.
 @property (nonatomic, readonly, copy, nullable) NSString *playerCardQueueSymbol;
 @property (nonatomic, readonly, copy) NSString *playerCardQueueLabel;
+
+// What a page scrubs with, read on every configure, so reloadSettings applies
+// a change. The waveform without it.
+@property (nonatomic, readonly) VibePlayerCardScrubber playerCardScrubber;
 
 @end
 
