@@ -26,7 +26,7 @@ List `VibeLibsFilesBrowser` in an iOS target.
 - **Optionally, playback** (`VibeBrowserPlaybackHost`): the playing file's row carries the equalizer, and the row being opened spins. A host that plays nothing leaves it out.
 - **Optionally, an art holder per file.** Without one, a row's art loads into a `VibeBrowserArtHolder`. The browser makes the stack's metadata cache itself (`VibeBrowserArtCache`), so a host gets art with no code.
 
-A host whose playback, sources, or rows change takes the screens as observers (`addBrowserObserver:`). Every `NSObject` now answers `addObserver:`, hence the name.
+A host whose playback, sources, or rows change takes the screens as observers (`addBrowserObserver:`). The name avoids `NSObject`'s `addObserver:`.
 
 ## TRAPs
 
@@ -39,20 +39,23 @@ A host whose playback, sources, or rows change takes the screens as observers (`
 
 Each trap is written beside its code too, and that comment is the authority.
 
-The store's rules are in `LocationStore`'s header and code. Coverage is tested against the persistent roots, never the open folder. Bookmark work never blocks main. Removing a folder hides its row at once but stops its scope only when every grant of it ends. Naming never touches the disk.
+The store's rules are in `LocationStore`'s header and code.
 
 ## Known shape, kept on purpose
 
 - A source does not announce its own changes. The host relays them as two observer events, and the files event names no source, so every refreshing screen on screen relists.
 - A granted folder is not a source. It is a second kind of Locations row, with its own index rule, its own Remove Location, and its own notification.
+- The store is one shared instance, which the app configures once at launch. An app cannot hold a second store, as `files/SandboxAccess`' app can.
 
-Both may change once a second app needs them to.
+Each may change once an app needs it to.
 
 ## Later work
 
 - **A default whole-file holder in `media/Metadata`.** `VibeBrowserArtHolder` would move beside `AudioTrackMetadataHolder`, and the two test holders that nearly copy it, `ConsumerTrack` and `VibeLoaderTestTrack`, would share it.
+- **The store as a piece of its own.** `LocationStore` and the coverage rules are Foundation only, and an app's session and search use them without the browser. A cross-platform `files/` piece would hold them, with their tests here.
+- **Comments that still describe Vibe's screens**, such as the Files tab, the Playlist tab's add sheet, and `FolderSession`.
 - **Names for the coverage rules.** `VibeSearchRootCoversPath` and its three siblings in `BrowserRules.h`, and `VibeSearchFoldersDidChangeNotification`, still carry the name of the app screen they came from.
 
 ## Tests
 
-These screens need a hosted app and a window, so their tests run in the consuming app's simulator suite, as `ui/Rows`' do. Vibe's are its `FolderScreenHostTests`, whose host is not Vibe's, and its `LocationStoreTests` and `BrowserRulesTests` in its macOS suite. Here, `FilesBrowser-iOS` only builds the piece. So a change passes this repo's checks without proving its behavior. Run Vibe's `make test-ios` and `make test` against the change before it merges.
+These screens need a hosted app and a window, so their tests run in the consuming app's simulator suite, as `ui/Rows`' do. Vibe's are its `FolderScreenHostTests`, whose host is not Vibe's, and its `LocationStoreTests` and `BrowserRulesTests` in its macOS suite. Here, `FilesBrowser-iOS` only builds the piece, so this repo's checks don't prove its behavior. Run Vibe's `make test-ios` and `make test` against the change before it merges.

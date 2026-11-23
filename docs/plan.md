@@ -678,7 +678,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | Full app: tag editing | Tags' in-place write of fields and the front cover, and the field names in `VibeTagFields.h` | behavior | 6 | `VibeTagWriterTests`, and Decode's `AudioFileHandleReplaceTests` for the swap | |
 | Its Dropbox source | `files/Dropbox`: the client and the mirror | move | 6 | Vibe's Dropbox tests, moved here | |
 | Full app on iOS: file and track rows | `ui/Rows` | move | 6 | Vibe's `RowViewsTests`, through the template | |
-| Full app on iOS: browsing and importing files | `ui/FilesBrowser` | move | 6 | Vibe's `FolderScreenHostTests`, through the template | |
+| Full app on iOS: browsing and importing files | `ui/FilesBrowser` | move | 6 | Vibe's `FolderScreenHostTests` through the template, and its `LocationStoreTests` and `BrowserRulesTests` | |
 
 Nothing else is scheduled for the other app. The shell pieces are scheduled for a third app, on the shell track. Portable rewrites wait until a consumer needs them.
 
