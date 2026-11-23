@@ -628,6 +628,17 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/PlayerCard"]
 
+  # iOS only, so no macOS target may list it. Rows draws the mini player the
+  # shell installs in the tab bar's bottomAccessory.
+  VibeLibsTabShell:
+    templates: [VibeLibsRows]
+    sources:
+      - path: ui/TabShell
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/TabShell"]
+
   # ---- third_party/: other authors' code, one piece per library ----
   #
   # Each template carries the compiler flags its library builds with, so an
