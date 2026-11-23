@@ -1,8 +1,22 @@
-// When the app publishes a new snapshot (VibeWidgetPublishRules.h).
+// When the app publishes a new snapshot, and the key that names a track's
+// files (VibeWidgetPublishRules.h).
 
 #import <XCTest/XCTest.h>
 
+#import "NSURL+Hash.h"
 #import "VibeWidgetPublishRules.h"
+
+// Only what the key reads.
+@interface WidgetKeyItem : NSObject <VibePlayableItem>
+@property (copy) NSURL *url;
+@property NSUInteger cueStart;
+@property NSUInteger cueEnd;
+@end
+
+@implementation WidgetKeyItem
+- (NSString *)sourceKey { return self.url.path; }
+- (NSString *)cacheKey { return nil; }
+@end
 
 @interface VibeWidgetPublishRulesTests : XCTestCase
 @end
@@ -20,51 +34,70 @@
     return state;
 }
 
-// The publisher's own call, asked whether the track is the published one.
-static BOOL NeedsPublish(VibeWidgetState *_Nullable last, BOOL sameTrack, BOOL hasTrack, NSString *title,
-                         NSString *_Nullable artist, BOOL playing, NSTimeInterval duration,
-                         NSTimeInterval position, BOOL startPending, CFAbsoluteTime now) {
-    return VibeWidgetNeedsPublish(last, !sameTrack, hasTrack, title, artist, playing, duration, position,
-                                  startPending, now);
-}
-
 - (void)testNothingPublishedOrANewTrackPublishes {
-    XCTAssertTrue(NeedsPublish(nil, YES, YES, @"Song", nil, YES, 180, 10, NO, 1000));
-    XCTAssertTrue(NeedsPublish(self.published, NO, YES, @"Song", nil, YES, 180, 10, NO, 1000));
+    XCTAssertTrue(VibeWidgetNeedsPublish(nil, NO, YES, @"Song", nil, YES, 180, 10, NO, 1000));
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, YES, YES, @"Song", nil, YES, 180, 10, NO, 1000));
 }
 
 - (void)testSteadyPlaybackPublishesNothing {
-    XCTAssertFalse(NeedsPublish(self.published, YES, YES, @"Song", nil, YES, 180, 40, NO, 1030),
+    XCTAssertFalse(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", nil, YES, 180, 40, NO, 1030),
                    @"the widget extrapolates the playhead");
-    XCTAssertFalse(NeedsPublish(self.published, YES, YES, @"Song", nil, YES, 180.4, 11.9, NO, 1000),
+    XCTAssertFalse(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", nil, YES, 180.4, 11.9, NO, 1000),
                    @"within the tolerances");
 }
 
-- (void)testAPlayPauseALineOrADurationChangePublishes {
-    XCTAssertTrue(NeedsPublish(self.published, YES, YES, @"Song", nil, NO, 180, 10, NO, 1000));
-    XCTAssertTrue(NeedsPublish(self.published, YES, YES, @"Song", nil, YES, 181, 10, NO, 1000));
-    XCTAssertTrue(NeedsPublish(self.published, YES, YES, @"Tagged", nil, YES, 180, 10, NO, 1000));
-    XCTAssertTrue(NeedsPublish(self.published, YES, YES, @"Song", @"Artist", YES, 180, 10, NO, 1000),
+- (void)testAPlayPauseADurationTitleOrArtistChangePublishes {
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", nil, NO, 180, 10, NO, 1000));
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", nil, YES, 181, 10, NO, 1000));
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, NO, YES, @"Tagged", nil, YES, 180, 10, NO, 1000));
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", @"Artist", YES, 180, 10, NO, 1000),
                   @"an artist landing");
-    XCTAssertTrue(NeedsPublish(self.published, YES, NO, @"Song", nil, YES, 180, 10, NO, 1000));
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, NO, NO, @"Song", nil, YES, 180, 10, NO, 1000));
 }
 
 - (void)testANilArtistEqualsANilArtist {
-    XCTAssertFalse(NeedsPublish(self.published, YES, YES, @"Song", nil, YES, 180, 10, NO, 1000),
+    XCTAssertFalse(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", nil, YES, 180, 10, NO, 1000),
                    @"an artistless track would republish every tick");
 }
 
 - (void)testASeekPastTheToleranceRepublishesUnlessTheOpenRuns {
-    XCTAssertTrue(NeedsPublish(self.published, YES, YES, @"Song", nil, YES, 180, 90, NO, 1000));
-    XCTAssertFalse(NeedsPublish(self.published, YES, YES, @"Song", nil, YES, 180, 0, YES, 1000),
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", nil, YES, 180, 90, NO, 1000));
+    XCTAssertFalse(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", nil, YES, 180, 0, YES, 1000),
                    @"pinned at 0 while the open runs");
 }
 
 - (void)testAPausedSnapshotIsNotExtrapolated {
     VibeWidgetState *paused = self.published;
     paused.playing = NO;
-    XCTAssertFalse(NeedsPublish(paused, YES, YES, @"Song", nil, NO, 180, 10, NO, 1060));
-    XCTAssertTrue(NeedsPublish(paused, YES, YES, @"Song", nil, NO, 180, 15, NO, 1060));
+    XCTAssertFalse(VibeWidgetNeedsPublish(paused, NO, YES, @"Song", nil, NO, 180, 10, NO, 1060));
+    XCTAssertTrue(VibeWidgetNeedsPublish(paused, NO, YES, @"Song", nil, NO, 180, 15, NO, 1060));
+}
+
+- (void)testStartPendingHidesOnlyThePosition {
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", nil, NO, 180, 0, YES, 1000),
+                  @"a pause");
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, NO, YES, @"Tagged", nil, YES, 180, 0, YES, 1000),
+                  @"a title");
+    XCTAssertTrue(VibeWidgetNeedsPublish(self.published, NO, YES, @"Song", nil, YES, 200, 0, YES, 1000),
+                  @"a duration");
+    VibeWidgetState *paused = self.published;
+    paused.playing = NO;
+    XCTAssertTrue(VibeWidgetNeedsPublish(paused, NO, YES, @"Song", nil, YES, 180, 0, YES, 1000), @"a play");
+}
+
+#pragma mark - The track key
+
+- (void)testATrackKeyIsItsFilesPathKeyAndACueRowAddsItsWindow {
+    WidgetKeyItem *item = [WidgetKeyItem new];
+    item.url = [NSURL fileURLWithPath:@"/Music/mix.flac"];
+    NSString *pathKey = item.url.pathKey;
+    XCTAssertNotNil(pathKey);
+    XCTAssertEqualObjects(VibeWidgetTrackKey(item), pathKey);
+
+    item.cueStart = 4500;
+    item.cueEnd = 9000;
+    XCTAssertEqualObjects(VibeWidgetTrackKey(item), [pathKey stringByAppendingString:@"#4500-9000"]);
+    XCTAssertNil(VibeWidgetTrackKey(nil));
 }
 
 @end
