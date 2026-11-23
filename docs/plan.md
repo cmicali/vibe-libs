@@ -150,8 +150,10 @@ vibe-libs/
 │   │                    pieces, and the track row value they draw
 │   ├── FilesBrowser     iOS only: a browser of the folders a user granted and the
 │   │                    app's sources, with the actions, words, and rows the app supplies
-│   └── PlayerCard       iOS only: the now-playing card, a pager of tracks, each with its
-│                        art, waveform scrubber, transport, FX pad, and output route
+│   ├── PlayerCard       iOS only: the now-playing card, a pager of tracks, each with its
+│   │                    art, waveform scrubber, transport, FX pad, and output route
+│   └── TabShell         iOS only: the tab shell, the tabs, the mini player in their
+│                        accessory, and the card above them with its expand and minimize
 │
 ├── system/
 │   ├── NowPlaying       Now Playing info and remote commands, fed the track's values
@@ -219,6 +221,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | ui/Rows | ui/Controls, iOS only |
 | ui/FilesBrowser | ui/Rows, ui/Controls, media/Metadata, media/FolderScan, media/Playlists, files/FileLoading, iOS only |
 | ui/PlayerCard | waveform/WaveformView, waveform/WaveformLoading, waveform/WaveformStyles, media/Metadata, media/PlayQueue, audio/AudioTypes, audio/FX, audio/OutputDevices, files/FileLoading, core/Graphics, iOS only |
+| ui/TabShell | ui/Rows, iOS only |
 | system/NowPlaying | core/Graphics, media/PlayQueue |
 | system/AppOpening | nothing, macOS only |
 | system/Updates | third_party/Sparkle, macOS only |
@@ -649,6 +652,7 @@ Each remaining candidate moves when a second app needs it, with the cuts it was 
 - **The iOS rows**, since the other app lists files and tracks on iOS as Vibe does. They moved on 2026-11-22 as a new piece, `ui/Rows`, which is iOS only (this repo's #178). Its 8 files moved with their history: the track row, the mini player strip, the file row pieces, and `VibeTrackRow`, the value they draw. Two prep pull requests in Vibe came first (Vibe #448 and #450). They were the piece's part of seam 21. The views stopped reading `AudioTrack` and Vibe's strings. They draw a `VibeTrackRow` that the app fills, and the strip takes its VoiceOver labels. The value got a header of its own. Their tests stay in Vibe's simulator suite (`ui/Rows/AGENTS.md`).
 - **The iOS files browser**, since the other app browses granted folders and a Dropbox mirror as Vibe does, and imports from them. It moved on 2026-11-22 as a new piece, `ui/FilesBrowser`, which is iOS only (this repo's #181). Its 15 files moved with their history: the root, the folder screens, the host they read, the default art holder, the browser's rules, and the Locations store. Four prep pull requests in Vibe came first (Vibe #455, #456, #458, and #459). They were the piece's part of seam 21. The screens stopped reading Vibe's playback, settings, strings, model, Dropbox mirror, and root rows. The app hands in a host with its actions, words, sources, and rows, and configures the store's keys and root names. Their tests stay in Vibe's simulator suite (`ui/FilesBrowser/AGENTS.md`).
 - **The now-playing card**, since the other app plays tracks on iOS as Vibe does. It moved on 2026-11-22 as a new piece, `ui/PlayerCard`, which is iOS only. Its 21 files moved with their history. Three prep pull requests in Vibe came first (Vibe #449, #451, and #457). They were the card's part of seam 21. Its tests stay in Vibe's simulator suite (`ui/PlayerCard/AGENTS.md`).
+- **The tab shell**, since the other app uses a thin stand-in for it and wants the real one. It moved on 2026-11-23 as a new piece, `ui/TabShell`, which is iOS only. Its 2 files moved with their history. One prep pull request in Vibe came first (Vibe #464). It cut the shell loose from Vibe's model: the app hands in the tabs, the card and the strip's row, and hears the rest through a delegate. Its tests stay in Vibe's simulator suite (`ui/TabShell/AGENTS.md`).
 
 **Wave 10 moved the rest but the pitch fader on 2026-10-23**, in this order:
 
@@ -684,6 +688,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | Full app on iOS: file and track rows | `ui/Rows` | move | 6 | Vibe's `RowViewsTests`, through the template | |
 | Full app on iOS: browsing and importing files | `ui/FilesBrowser` | move | 6 | Vibe's `FolderScreenHostTests` through the template, and its `LocationStoreTests` and `BrowserRulesTests` | |
 | Full app on iOS: the now-playing card | `ui/PlayerCard` | move | 6 | Vibe's `PlayerViewControllerTests`, `PageWaveformCoordinatorTests`, and `PlayerScreenRulesTests`, through the template | |
+| Full app on iOS: the tab shell | `ui/TabShell` | move | 6 | Vibe's `RootViewControllerTests` and `check-layout-stability.sh`, through the template | |
 
 Nothing else is scheduled for the other app. The shell pieces are scheduled for a third app, on the shell track. Portable rewrites wait until a consumer needs them.
 
