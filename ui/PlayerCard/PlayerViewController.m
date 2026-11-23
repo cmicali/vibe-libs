@@ -420,17 +420,11 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
 
 - (void)updateChrome {
     CGFloat rowAlpha = [self chromeAlpha];
-    if (_transportView.alpha == rowAlpha && _routeView.alpha == rowAlpha
-            && _actionBar.alpha == rowAlpha && _fxPadView.alpha == rowAlpha
-            && _boundPage.queueButton.alpha == rowAlpha) {
+    if (!_boundPage || _boundPage.chromeAlpha == rowAlpha) {
         return;
     }
     [UIView animateWithDuration:0.3 animations:^{
-        self->_transportView.alpha = rowAlpha;
-        self->_routeView.alpha = rowAlpha;
-        self->_actionBar.alpha = rowAlpha;
-        self->_fxPadView.alpha = rowAlpha;
-        self->_boundPage.queueButton.alpha = rowAlpha;
+        self->_boundPage.chromeAlpha = rowAlpha;
     }];
 }
 

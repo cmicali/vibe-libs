@@ -43,6 +43,9 @@ typedef NS_ENUM(NSInteger, VibePlayerCardLabel) {
     VibePlayerCardLabelFXAxisReverbDelay,
     VibePlayerCardLabelFXPad,
     VibePlayerCardLabelFXPadHint,
+    // The queue control's VoiceOver label, asked for only when the host gives
+    // a queue symbol.
+    VibePlayerCardLabelQueue,
 };
 
 @protocol VibePlayerCardHost <NSObject>
@@ -80,12 +83,11 @@ typedef NS_ENUM(NSInteger, VibePlayerCardLabel) {
 
 @optional
 
-// Both or neither. The queue control: an SF Symbol's name, or nil for none,
-// and its VoiceOver label. Its tap goes to the card's delegate
-// (playerViewControllerDidRequestQueue:). Without them the page has no queue
+// The queue control: an SF Symbol's name, or nil for none. Its VoiceOver
+// label is VibePlayerCardLabelQueue, and its tap goes to the card's delegate
+// (playerViewControllerDidRequestQueue:). Without it the page has no queue
 // control and lays out as it always has.
 @property (nonatomic, readonly, copy, nullable) NSString *playerCardQueueSymbol;
-@property (nonatomic, readonly, copy) NSString *playerCardQueueLabel;
 
 @end
 
