@@ -10,12 +10,12 @@
 #import "VibeLocationStoreInternal.h"
 #import "VibeMacros.h"
 
-NSNotificationName const VibeSearchFoldersDidChangeNotification =
-        @"VibeSearchFoldersDidChangeNotification";
+NSNotificationName const VibeLocationsDidChangeNotification =
+        @"VibeLocationsDidChangeNotification";
 
 // The app's, set at launch (configureWithBookmarksKey:…).
-static NSString *kSearchFolderBookmarksKey;
-static NSString *kSearchFolderRestoreSuppressionsKey;
+static NSString *sBookmarksKey;
+static NSString *sSuppressionsKey;
 static NSString *const kSuppressedBookmarkKey = @"bookmark";
 static NSString *const kSuppressedRootPathsKey = @"rootPaths";
 static const NSInteger kMaximumConcurrentBookmarkRestorations = 3;
@@ -123,7 +123,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 }
 
 - (instancetype)initPrivate {
-    NSAssert(kSearchFolderBookmarksKey && kSearchFolderRestoreSuppressionsKey,
+    NSAssert(sBookmarksKey && sSuppressionsKey,
              @"VibeLocationStore: the app sets its keys before the store is used");
     self = [super init];
     if (self) {
@@ -154,8 +154,8 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 + (void)configureWithBookmarksKey:(NSString *)bookmarksKey
                   suppressionsKey:(NSString *)suppressionsKey
                         rootNamer:(NSString *_Nullable (^)(NSURL *, NSString *))rootNamer {
-    kSearchFolderBookmarksKey = [bookmarksKey copy];
-    kSearchFolderRestoreSuppressionsKey = [suppressionsKey copy];
+    sBookmarksKey = [bookmarksKey copy];
+    sSuppressionsKey = [suppressionsKey copy];
     sRootNamer = [rootNamer copy];
 }
 
@@ -208,9 +208,9 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     _restoreStarted = YES;
 
     NSArray *stored = [NSUserDefaults.standardUserDefaults
-            arrayForKey:kSearchFolderBookmarksKey];
+            arrayForKey:sBookmarksKey];
     NSArray *suppressionRecords = [NSUserDefaults.standardUserDefaults
-            arrayForKey:kSearchFolderRestoreSuppressionsKey];
+            arrayForKey:sSuppressionsKey];
     for (id value in stored) {
         if (![value isKindOfClass:NSData.class]) {
             continue;
@@ -236,7 +236,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
                 if (folder) {
                     folder.ordinal = ordinal;
                     NSString *path = VibeComparablePath(folder.url.path);
-                    if (VibeSearchPendingRestoreShouldBeSuppressed(
+                    if (VibeLocationRestoreIsSuppressed(
                             livePending.suppressedRootPaths.array,
                             [self persistentRootPaths], path)) {
                         [self retireScopeTree:folder];
@@ -254,7 +254,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     }
     if (_pendingRestorations.count == 0) {
         [NSUserDefaults.standardUserDefaults
-                removeObjectForKey:kSearchFolderRestoreSuppressionsKey];
+                removeObjectForKey:sSuppressionsKey];
     }
 }
 
@@ -376,7 +376,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 - (BOOL)mergeEntry:(VibeLocationEntry *)candidate {
     NSString *candidatePath = VibeComparablePath(candidate.url.path);
     NSURL *documents = [VibeLocationStore containerDocumentsURL];
-    if (documents && VibeSearchRootCoversPath(
+    if (documents && VibeLocationRootCoversPath(
             VibeComparablePath(documents.path), candidatePath)) {
         [self retireScopeTree:candidate];
         return NO;
@@ -386,7 +386,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
         [paths addObject:VibeComparablePath(folder.url.path) ?: @""];
     }
 
-    NSUInteger coveringIndex = VibeSearchFolderCoveringRootIndex(paths, candidatePath);
+    NSUInteger coveringIndex = VibeLocationCoveringRootIndex(paths, candidatePath);
     if (coveringIndex != NSNotFound) {
         VibeLocationEntry *covering = _folders[coveringIndex];
         if (!covering.bookmark) {
@@ -400,7 +400,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
         return NO;
     }
 
-    NSIndexSet *covered = VibeSearchFolderIndexesCoveredByRoot(paths, candidatePath);
+    NSIndexSet *covered = VibeLocationIndexesCoveredByRoot(paths, candidatePath);
     NSArray<VibeLocationEntry *> *replaced = [_folders objectsAtIndexes:covered];
     [_folders removeObjectsAtIndexes:covered];
     if (!candidate.bookmark) {
@@ -460,7 +460,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 // Never the transient FolderSession roots, which are gone at the next open.
 - (BOOL)isCoveredByAPersistentRoot:(NSURL *)url {
-    return VibeSearchFolderCoveringRootIndex(
+    return VibeLocationCoveringRootIndex(
             [self persistentRootPaths], VibeComparablePath(url.path)) != NSNotFound;
 }
 
@@ -488,7 +488,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     NSUInteger bestLength = 0;
     for (VibeLocationEntry *folder in _folders) {
         NSString *rootPath = VibeComparablePath(folder.url.path);
-        if (VibeSearchRootCoversPath(rootPath, path) && (!best || rootPath.length > bestLength)) {
+        if (VibeLocationRootCoversPath(rootPath, path) && (!best || rootPath.length > bestLength)) {
             best = folder;
             bestLength = rootPath.length;
         }
@@ -536,7 +536,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 - (void)notifyFoldersChanged {
     [NSNotificationCenter.defaultCenter
-            postNotificationName:VibeSearchFoldersDidChangeNotification object:self];
+            postNotificationName:VibeLocationsDidChangeNotification object:self];
 }
 
 - (void)persistBookmarks {
@@ -567,10 +567,10 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
         }
     }
     if (bookmarks.count > 0) {
-        [NSUserDefaults.standardUserDefaults setObject:bookmarks forKey:kSearchFolderBookmarksKey];
+        [NSUserDefaults.standardUserDefaults setObject:bookmarks forKey:sBookmarksKey];
     }
     else {
-        [NSUserDefaults.standardUserDefaults removeObjectForKey:kSearchFolderBookmarksKey];
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:sBookmarksKey];
     }
 
     NSMutableArray<NSDictionary *> *suppressionRecords = [NSMutableArray array];
@@ -585,11 +585,11 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     }
     if (suppressionRecords.count > 0) {
         [NSUserDefaults.standardUserDefaults setObject:suppressionRecords
-                                                  forKey:kSearchFolderRestoreSuppressionsKey];
+                                                  forKey:sSuppressionsKey];
     }
     else {
         [NSUserDefaults.standardUserDefaults
-                removeObjectForKey:kSearchFolderRestoreSuppressionsKey];
+                removeObjectForKey:sSuppressionsKey];
     }
 }
 
