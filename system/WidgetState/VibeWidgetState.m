@@ -36,6 +36,8 @@ static const NSInteger kStateVersion = 3;
 @implementation VibeWidgetState
 
 + (void)useAppGroup:(NSString *)appGroup readNotification:(NSString *)readNotification {
+    NSAssert(!sAppGroup || ([sAppGroup isEqualToString:appGroup] && [sReadNotification isEqualToString:readNotification]),
+             @"The widget's app group is set once per process");
     sAppGroup = [appGroup copy];
     sReadNotification = [readNotification copy];
 }
@@ -107,8 +109,29 @@ static const NSInteger kStateVersion = 3;
     if (!url) {
         return nil;
     }
-    NSDictionary *plist = [NSDictionary dictionaryWithContentsOfURL:url error:NULL];
-    if (![plist isKindOfClass:NSDictionary.class]
+    return [self stateFromPlist:[NSDictionary dictionaryWithContentsOfURL:url error:NULL]];
+}
+
+// Each field's class, so a file another build wrote reads as empty, not as a
+// crash in positionAtDate:.
+static BOOL VibeWidgetPlistHasClasses(NSDictionary *plist) {
+    NSDictionary<NSString *, Class> *classes = @{
+        kKeyVersion: NSNumber.class, kKeyTitle: NSString.class, kKeyArtist: NSString.class,
+        kKeyTrackKey: NSString.class, kKeyHasTrack: NSNumber.class, kKeyPlaying: NSNumber.class,
+        kKeyDuration: NSNumber.class, kKeyPosition: NSNumber.class, kKeyPositionDate: NSDate.class,
+        kKeyPlayheadLine: NSNumber.class,
+    };
+    for (NSString *key in classes) {
+        id value = plist[key];
+        if (value && ![value isKindOfClass:classes[key]]) {
+            return NO;
+        }
+    }
+    return YES;
+}
+
++ (nullable VibeWidgetState *)stateFromPlist:(nullable id)plist {
+    if (![plist isKindOfClass:NSDictionary.class] || !VibeWidgetPlistHasClasses(plist)
             || [plist[kKeyVersion] integerValue] != kStateVersion) {
         return nil;
     }
@@ -142,6 +165,20 @@ static const NSInteger kStateVersion = 3;
     plist[kKeyPositionDate] = self.positionDate;
     plist[kKeyPlayheadLine] = @(self.playheadLine);
     return [plist writeToURL:url error:NULL];
+}
+
+- (id)copyWithZone:(NSZone *)zone {
+    VibeWidgetState *copy = [[VibeWidgetState allocWithZone:zone] init];
+    copy.title        = self.title;
+    copy.artist       = self.artist;
+    copy.trackKey     = self.trackKey;
+    copy.hasTrack     = self.hasTrack;
+    copy.playing      = self.playing;
+    copy.duration     = self.duration;
+    copy.position     = self.position;
+    copy.positionDate = self.positionDate;
+    copy.playheadLine = self.playheadLine;
+    return copy;
 }
 
 - (NSTimeInterval)positionAtDate:(NSDate *)date {

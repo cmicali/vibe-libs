@@ -7,6 +7,11 @@
 
 #import "VibeWidgetState.h"
 
+// The read's parse, past the container, which the tests never reach.
+@interface VibeWidgetState (Testing)
++ (nullable VibeWidgetState *)stateFromPlist:(nullable id)plist;
+@end
+
 @interface VibeWidgetStateTests : XCTestCase
 @end
 
@@ -62,6 +67,56 @@
     XCTAssertNil(state.artworkURL);
     XCTAssertNil(state.waveformPlayedURL);
     XCTAssertNil(state.waveformUnplayedURL);
+}
+
+#pragma mark - Copying and reading
+
+- (void)testACopyCarriesEveryFieldAndIsItsOwnObject {
+    VibeWidgetState *state = [self stateAt:10 playing:YES];
+    state.title = @"Song";
+    state.artist = @"Artist";
+    state.trackKey = @"key";
+    state.playheadLine = YES;
+    VibeWidgetState *copy = [state copy];
+    XCTAssertNotEqual(copy, state);
+    XCTAssertEqualObjects(copy.title, @"Song");
+    XCTAssertEqualObjects(copy.artist, @"Artist");
+    XCTAssertEqualObjects(copy.trackKey, @"key");
+    XCTAssertTrue(copy.hasTrack);
+    XCTAssertTrue(copy.playing);
+    XCTAssertEqual(copy.duration, 100);
+    XCTAssertEqual(copy.position, 10);
+    XCTAssertEqualObjects(copy.positionDate, state.positionDate);
+    XCTAssertTrue(copy.playheadLine);
+
+    copy.playheadLine = NO;
+    XCTAssertTrue(state.playheadLine, @"a change to the copy leaves the original");
+}
+
+- (NSMutableDictionary *)plist {
+    return [@{@"version": @3, @"title": @"Song", @"trackKey": @"key", @"hasTrack": @YES, @"playing": @YES,
+              @"duration": @100, @"position": @10, @"positionDate": [self at:1000], @"playheadLine": @NO}
+            mutableCopy];
+}
+
+- (void)testAWellFormedPlistReads {
+    VibeWidgetState *state = [VibeWidgetState stateFromPlist:self.plist];
+    XCTAssertEqualObjects(state.title, @"Song");
+    XCTAssertNil(state.artist);
+    XCTAssertEqual([state positionAtDate:[self at:1015]], 25);
+}
+
+- (void)testAFieldOfTheWrongClassReadsAsNoState {
+    for (NSString *key in @[@"title", @"artist", @"trackKey", @"playing", @"duration", @"positionDate"]) {
+        NSMutableDictionary *plist = self.plist;
+        plist[key] = [key isEqualToString:@"positionDate"] || [key isEqualToString:@"duration"]
+                ? @"wrong" : (id)@[];
+        XCTAssertNil([VibeWidgetState stateFromPlist:plist], @"%@", key);
+    }
+    XCTAssertNil([VibeWidgetState stateFromPlist:@[]]);
+    NSMutableDictionary *old = self.plist;
+    old[@"version"] = @2;
+    XCTAssertNil([VibeWidgetState stateFromPlist:old], @"an unknown version");
 }
 
 @end

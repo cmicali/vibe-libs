@@ -11,13 +11,14 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface VibeWidgetState : NSObject
+@interface VibeWidgetState : NSObject <NSCopying>
 
 #pragma mark - Which app
 
 // Set once by each process before its first read or write: the app at
 // launch, and the extension when its widget bundle is made. Until then
-// containerURL is nil. Both targets' entitlements must carry the group.
+// containerURL is nil. Both targets' entitlements must carry the group. A
+// second call with other values asserts, since the container is resolved once.
 + (void)useAppGroup:(NSString *)appGroup readNotification:(NSString *)readNotification
         NS_SWIFT_NAME(use(appGroup:readNotification:));
 
@@ -32,10 +33,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) BOOL playing;
 @property (nonatomic) NSTimeInterval duration;
 
-// WidgetPublisher.trackKeyForTrack:, nil with no track. It names the image files, so a publish
-// landing between the extension's plist and image reads cannot pair one
-// track's title with another's cover; and it rides in every seek button, so a
-// tap on a stale render cannot seek what is playing now.
+// The publisher's VibeWidgetTrackKey, nil with no track. It names the image
+// files, so a publish landing between the extension's plist and image reads
+// cannot pair one track's title with another's cover; and it rides in every
+// seek button, so a tap on a stale render cannot seek what is playing now.
 @property (nonatomic, copy, nullable) NSString *trackKey;
 
 // Where the playhead was AT positionDate; the widget advances it itself.
@@ -61,8 +62,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 #pragma mark - Reading and writing
 
-// Posts readNotification even when it returns nil. The Swift names
-// are pinned: a rename would break the extension, a build the app never runs.
+// Posts readNotification even when it returns nil. Returns nil when a field
+// has the wrong class. The Swift names are pinned: a rename would break the
+// extension, a build the app never runs.
 + (nullable VibeWidgetState *)loadState NS_SWIFT_NAME(load());
 - (BOOL)save;
 
