@@ -8,6 +8,7 @@
 
 #import "BrowserRules.h"
 #import "LocationStoreInternal.h"
+#import "VibeMacros.h"
 
 NSNotificationName const VibeSearchFoldersDidChangeNotification =
         @"VibeSearchFoldersDidChangeNotification";

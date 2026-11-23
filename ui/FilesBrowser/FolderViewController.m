@@ -15,6 +15,7 @@
 #import "LocationStore.h"
 #import "PlaceholderFiles.h"
 #import "VibePlaylistFile.h"
+#import "VibeMacros.h"
 
 static NSString *const kItemCellIdentifier = @"item";
 
