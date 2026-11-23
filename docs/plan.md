@@ -146,8 +146,10 @@ vibe-libs/
 │   │                    layout, and the recorder pane over rows the app supplies
 │   ├── DropWells        macOS only: the wells a drag of files over a window shows, each a
 │   │                    symbol, a label, and the app's action, lit under the pointer
-│   └── Rows             iOS only: the track row, the mini player strip, the file row
-│                        pieces, and the track row value they draw
+│   ├── Rows             iOS only: the track row, the mini player strip, the file row
+│   │                    pieces, and the track row value they draw
+│   └── PlayerCard       iOS only: the now-playing card, a pager of tracks, each with its
+│                        art, waveform scrubber, transport, FX pad, and output route
 │
 ├── system/
 │   ├── NowPlaying       Now Playing info and remote commands, fed the track's values
@@ -213,6 +215,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | ui/Shortcuts | ui/SettingsWindow, macOS only |
 | ui/DropWells | core/Graphics, macOS only |
 | ui/Rows | ui/Controls, iOS only |
+| ui/PlayerCard | waveform/WaveformView, waveform/WaveformLoading, waveform/WaveformStyles, media/Metadata, media/PlayQueue, audio/AudioTypes, audio/FX, audio/OutputDevices, files/FileLoading, core/Graphics, iOS only |
 | system/NowPlaying | core/Graphics, media/PlayQueue |
 | system/AppOpening | nothing, macOS only |
 | system/Updates | third_party/Sparkle, macOS only |
@@ -641,6 +644,7 @@ Each remaining candidate moves when a second app needs it, with the cuts it was 
 
 - **The Dropbox client and mirror**, since another app needs Dropbox as Vibe's iOS app has it. They move as a new piece, `files/Dropbox`, with their tests and their doc. Vibe decoupled them first (Vibe #447). The app now passes in its app key, its Keychain service, the mirror's index xattr, its directory, and its download budget. The budget's choices and the shared mirror stay in Vibe. The piece builds on both platforms.
 - **The iOS rows**, since the other app lists files and tracks on iOS as Vibe does. They moved on 2026-11-22 as a new piece, `ui/Rows`, which is iOS only (this repo's #178). Its 8 files moved with their history: the track row, the mini player strip, the file row pieces, and `VibeTrackRow`, the value they draw. Two prep pull requests in Vibe came first (Vibe #448 and #450). They were the piece's part of seam 21. The views stopped reading `AudioTrack` and Vibe's strings. They draw a `VibeTrackRow` that the app fills, and the strip takes its VoiceOver labels. The value got a header of its own. Their tests stay in Vibe's simulator suite (`ui/Rows/AGENTS.md`).
+- **The now-playing card**, since the other app plays tracks on iOS as Vibe does. It moved on 2026-11-22 as a new piece, `ui/PlayerCard`, which is iOS only. Its 21 files moved with their history: the controller, its pager and delivery, the pages, the FX pad, the route indicator, the waveform coordinator, the screen rules, and the protocols the card reads. Three prep pull requests in Vibe came first (Vibe #449, #451, and #457). They were the card's part of seam 21. The card reads its model through four protocols, and its words, settings, art, zoom, and waveform setup through a host the app installs. It does not use `ui/Rows`. Its tests stay in Vibe's simulator suite (`ui/PlayerCard/AGENTS.md`).
 
 **Wave 10 moved the rest but the pitch fader on 2026-10-23**, in this order:
 
@@ -674,6 +678,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | Full app: tag editing | Tags' in-place write of fields and the front cover, and the field names in `VibeTagFields.h` | behavior | 6 | `VibeTagWriterTests`, and Decode's `AudioFileHandleReplaceTests` for the swap | |
 | Its Dropbox source | `files/Dropbox`: the client and the mirror | move | 6 | Vibe's Dropbox tests, moved here | |
 | Full app on iOS: file and track rows | `ui/Rows` | move | 6 | Vibe's `RowViewsTests`, through the template | |
+| Full app on iOS: the now-playing card | `ui/PlayerCard` | move | 6 | Vibe's `PlayerViewControllerTests` and `PlayerScreenRulesTests`, through the template | |
 
 Nothing else is scheduled for the other app. The shell pieces are scheduled for a third app, on the shell track. Portable rewrites wait until a consumer needs them.
 
