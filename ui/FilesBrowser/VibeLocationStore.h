@@ -19,6 +19,18 @@ NS_ASSUME_NONNULL_BEGIN
 // a screen has appeared.
 extern NSNotificationName const VibeLocationsDidChangeNotification;
 
+// A hold on a location's scope, which an app keeps across its opens and
+// playback. A removed location's scope stops only when every grant on it
+// ends.
+@interface VibeLocationGrant : NSObject
+
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+
+@property (nonatomic, readonly) NSURL *rootURL;
+
+@end
+
 @interface VibeLocationStore : NSObject
 
 - (instancetype)init NS_UNAVAILABLE;
@@ -55,6 +67,10 @@ extern NSNotificationName const VibeLocationsDidChangeNotification;
 - (BOOL)addFolderURL:(NSURL *)url;
 
 - (void)removeFolderAtIndex:(NSUInteger)index;
+
+// The grant of the location that covers url, the nearest when several do.
+// Nil when only a transient root or the app container covers url.
+- (nullable VibeLocationGrant *)grantCoveringURL:(NSURL *)url;
 
 // Main only, and never the disk. The one name a folder is shown under,
 // wherever it is named: the app's rootNamer first, then a location's name

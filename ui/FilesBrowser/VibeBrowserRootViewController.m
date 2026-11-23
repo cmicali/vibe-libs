@@ -43,6 +43,9 @@ static NSString *const kActionCellIdentifier = @"action";
     [super viewDidLoad];
     self.navigationItem.largeTitleDisplayMode = UINavigationItemLargeTitleDisplayModeAlways;
     self.navigationController.navigationBar.prefersLargeTitles = YES;
+    if ([_host respondsToSelector:@selector(rootPrompt)]) {
+        self.navigationItem.prompt = _host.rootPrompt;
+    }
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(locationsDidChange:)
                                                name:VibeLocationsDidChangeNotification

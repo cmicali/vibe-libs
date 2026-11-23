@@ -38,6 +38,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly, copy) void (^handler)(NSArray<NSURL *> *urls, UIViewController *screen);
 // The rows go to the screen's addedRowsHandler before the handler runs.
 @property (nonatomic) BOOL liftsRows;
+// A bar button made from it shows the title as text in place of the glyph,
+// such as an Import too plain to draw. NO by default. A swipe and a menu
+// show both either way.
+@property (nonatomic) BOOL showsTitle;
 
 @end
 
@@ -152,7 +156,7 @@ FOUNDATION_EXTERN void VibeBrowserPresentAlert(UIViewController *screen, id<Vibe
 // at its limit.
 - (NSString *)selectionTitleForCount:(NSUInteger)count;
 - (NSString *)subfoldersCappedMessageForLimit:(NSUInteger)limit;
-// Over every screen's title, or nil for none.
+// Over every folder screen's title, or nil for none.
 @property (nonatomic, readonly, copy, nullable) NSString *prompt;
 // Close at every level, for a stack presented as a sheet.
 @property (nonatomic, readonly) BOOL showsCloseButton;
@@ -172,10 +176,12 @@ FOUNDATION_EXTERN void VibeBrowserPresentAlert(UIViewController *screen, id<Vibe
 // The bar button, on the folder shown.
 @property (nonatomic, readonly) VibeBrowserAction *folderAction;
 // The bar button's menu item: the folder shown with its subfolders. The host
-// is asked when the user picks it, before the walk lists anything. The
-// browser hands the folders with songs, in walk order, to the block returned.
+// is asked when the user picks it, before the walk lists anything, with the
+// folder the walk starts from, which may hold no songs itself. The browser
+// hands the folders with songs, in walk order, to the block returned.
 @property (nonatomic, readonly) NSString *subfoldersTitle;
-- (void (^)(NSArray<NSURL *> *folders))subfoldersHandlerFromScreen:(UIViewController *)screen;
+- (void (^)(NSArray<NSURL *> *folders))subfoldersHandlerForFolder:(NSURL *)folder
+                                                       fromScreen:(UIViewController *)screen;
 // A row's long press. Asked each time the menu opens.
 - (NSArray<VibeBrowserAction *> *)menuActionsForURL:(NSURL *)url isFolder:(BOOL)isFolder;
 
@@ -185,6 +191,8 @@ FOUNDATION_EXTERN void VibeBrowserPresentAlert(UIViewController *screen, id<Vibe
 - (NSArray<NSArray<VibeBrowserRootRow *> *> *)rootSections;
 // The root is about to show, such as for a check its rows depend on.
 - (void)rootWillAppear:(UIViewController *)root;
+// Over the root's title. None without it.
+@property (nonatomic, readonly, copy, nullable) NSString *rootPrompt;
 
 // Held weakly, by a host whose state changes: its playback, its sources, or
 // its root rows.
