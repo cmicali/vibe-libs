@@ -10,7 +10,7 @@ The snapshot a Home Screen widget draws. The app writes it into an app group's c
 
 List `VibeLibsWidgetState` in the app's target and in its widget extension's. The app takes it through `VibeLibsWidget` too, which lists it.
 
-**Each process names the app group and the read signal once**, with `useAppGroup:readNotification:`, before its first read or write. The app does it at launch. The extension does it when its widget bundle is made. Until then `containerURL` is nil, and the widget draws its empty state. The names are the app's, so they stay in the app. Both targets' entitlements must carry the group. Vibe keeps its names in a header both targets compile, as C string macros, since Swift imports those as `String`.
+**Each process names the app group and the read signal once**, with `useAppGroup:readNotification:`, before its first read or write. The app does it at launch. The extension does it when its widget bundle is made. Until then `containerURL` is nil, and the widget draws its empty state. A second call with other values asserts, since the container is resolved once. The names are the app's, so they stay in the app. Both targets' entitlements must carry the group. Vibe keeps its names in a header both targets compile, as C string macros, since Swift imports those as `String`.
 
 The extension reads with `VibeWidgetState.load()`, then draws the playhead with `position(at:)` and `progress(at:)`. The images sit at `artworkURL`, `waveformPlayedURL`, and `waveformUnplayedURL`.
 
@@ -22,8 +22,8 @@ The state is a plist in the container, with up to three images beside it: the ar
 
 **`loadState` posts the read signal before it reads, even when it returns nil.** An empty container is still a widget asking, and the publisher turns its writes on at that signal.
 
-`kStateVersion` is bumped when a field's meaning changes. An unknown version draws the empty state until the next publish. **The Swift names on `loadState`, `positionAtDate:`, and `progressAtDate:` are pinned**, because a rename breaks the extension, a build the app never runs.
+`kStateVersion` is bumped when a field's meaning changes. An unknown version, or a field of the wrong class, reads as no state, so the widget draws its empty state until the next publish. A snapshot copies, and the publisher changes only a copy of one it committed. **The Swift names on `loadState`, `positionAtDate:`, and `progressAtDate:` are pinned**, because a rename breaks the extension, a build the app never runs.
 
 ## Tests
 
-`VibeWidgetStateTests` covers the playhead's arithmetic. It reaches no app group, so it writes nothing on disk.
+`VibeWidgetStateTests` covers the playhead's arithmetic, the copy, and the read's checks of each field. It parses a plist in memory and reaches no app group, so it writes nothing on disk.
