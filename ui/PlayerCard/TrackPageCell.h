@@ -37,6 +37,10 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic) CGFloat scrubProgress;
 // A scrub of either kind is under a finger, and owns the time labels.
 @property (nonatomic, readonly, getter=isScrubbing) BOOL scrubbing;
+// NO turns off both scrubbers' drags, so the pager takes the swipe
+// (VibePlayerCardPlayback's scrubbingAvailable). A drag already under way
+// ends without a seek.
+- (void)setScrubbingAvailable:(BOOL)available;
 @property (nonatomic, readonly) UILabel *elapsedLabel;
 // One mode for the whole app, so the controller owns the target.
 @property (nonatomic, readonly) TrackPageTimeControl *remainingTimeControl;

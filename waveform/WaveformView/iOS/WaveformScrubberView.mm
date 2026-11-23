@@ -40,10 +40,12 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
     _scroll.decelerationRate = UIScrollViewDecelerationRateFast;
     _scroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     // TRAP: a UIScrollView owns its pan's delegate and raises on assignment,
-    // so the "no waveform, no scrub" gate rides scrollEnabled — see
-    // setWaveform:. The pan also dies on any touch-count change, so no
+    // so the scrub's gate rides scrollEnabled: no waveform, or not seekable,
+    // and no scrub (isScrubbingEnabled). Every scrollEnabled write reads it,
+    // so a load or a cancel cannot reopen a gate the owner closed. The pan also dies on any touch-count change, so no
     // maximumNumberOfTouches cap: see trackZoomGestureScrub:.
     _scroll.scrollEnabled = NO;
+    _seekable = YES;
     [self addSubview:_scroll];
 
     _rendererHost = [[CALayer alloc] init];
@@ -99,7 +101,18 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
 }
 
 - (BOOL)isScrubbingEnabled {
-    return self.waveform != nil;
+    return self.waveform != nil && _seekable;
+}
+
+- (void)setSeekable:(BOOL)seekable {
+    if (_seekable == seekable) {
+        return;
+    }
+    _seekable = seekable;
+    if (!seekable && self.isScrubbing) {
+        [self cancelInteraction];
+    }
+    _scroll.scrollEnabled = self.isScrubbingEnabled;
 }
 
 - (CGFloat)overscroll {
@@ -121,7 +134,7 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
 - (void)setWaveform:(CodableAudioWaveform *)waveform {
     CGFloat fraction = [self effectiveVisibleFraction];
     _waveform = waveform;
-    _scroll.scrollEnabled = (waveform != nil);
+    _scroll.scrollEnabled = self.isScrubbingEnabled;
     [self applyVirtualGeometryIfFractionMovedFrom:fraction];
     [self layoutPlayheadLine];
 }
@@ -556,7 +569,7 @@ static const CGFloat kPlayheadLineOvershoot = 8;
     if (_isPinching) {
         [self endZoomGesture];
     }
-    _scroll.scrollEnabled = self.waveform != nil;
+    _scroll.scrollEnabled = self.isScrubbingEnabled;
     _pinch.enabled = YES;
     [self parkContentOffsetAtProgress];
     [self.delegate waveformScrubberView:self didChangeScrubbing:NO];

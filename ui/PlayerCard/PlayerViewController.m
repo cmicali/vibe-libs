@@ -39,13 +39,17 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
         UIView *hit = [self hitTest:[recognizer locationInView:self] withEvent:nil];
         for (UIView *view = hit; view && view != self; view = view.superview) {
             // The card's slider drags along the pager's axis, so it keeps
-            // its touch.
+            // its touch, unless the model turned scrubbing off.
             if ([view isKindOfClass:[VibeTrackPageSlider class]]) {
-                return NO;
+                if (((UISlider *)view).enabled) {
+                    return NO;
+                }
+                break;
             }
             if ([view isKindOfClass:[WaveformScrubberView class]]) {
                 // An unloaded scrubber hands the gesture to the pager, or the
                 // empty strip is a swipe dead zone.
+                // So does one whose scrub the model turned off.
                 if (((WaveformScrubberView *)view).isScrubbingEnabled) {
                     return NO;
                 }
@@ -426,6 +430,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
         // A far jump: no live cell yet. Drop the bindings, or the incoming
         // track's state writes into the outgoing cell mid-scroll;
         // willDisplayCell rebinds.
+        [_boundPage setScrubbingAvailable:YES];
         _boundPage = nil;
         _waveformView = nil;
         _elapsedLabel = nil;
@@ -515,6 +520,9 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
 }
 
 - (void)updatePlaybackUI {
+    // A model that says nothing allows a scrub.
+    [_boundPage setScrubbingAvailable:(![_playback respondsToSelector:@selector(scrubbingAvailable)]
+                                       || _playback.scrubbingAvailable)];
     if (_boundPage.isScrubbing) {
         // The scrub owns the readout (didScrubToProgress:).
         return;
@@ -662,9 +670,12 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
     [self applyPlayOrderToVisiblePages];
 }
 
+// A parked model may send no tick, so its scrubbingAvailable is read here
+// too (updatePlaybackUI).
 - (void)playbackDidChangePlayState:(id<VibePlayerCardPlayback>)playback {
     [self updateScrollLinkState];
     [self updatePlayButton];
+    [self updatePlaybackUI];
 }
 
 - (void)playbackDidChangeOutputRoute:(id<VibePlayerCardPlayback>)playback {
@@ -697,6 +708,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
 // moved: the cursor's request skipped it (requestCurrentWaveform). A page
 // still loading or complete ignores this one.
 - (void)playbackDidFinishLoading:(id<VibePlayerCardPlayback>)playback {
+    [self updatePlaybackUI];
     [self applyPlaybackLoadingToVisiblePages];
     [self hydrateWaveformInCell:[self cellAtIndex:playback.currentIndex] atIndex:playback.currentIndex];
     [self requestCurrentWaveform];
