@@ -1,6 +1,6 @@
 //
 //  FolderViewController.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "FolderViewControllerInternal.h"

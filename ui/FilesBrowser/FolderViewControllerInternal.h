@@ -1,6 +1,6 @@
 //
 //  FolderViewControllerInternal.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The private surface FolderViewController.m and its +Art and +Actions
 //  categories share: the screen's state and the methods each side calls on

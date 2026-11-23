@@ -1,6 +1,6 @@
 //
 //  BrowserRules.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The browser's decisions: a Locations row's folder, which root covers a
 //  path, a folder's empty state, and a row's tile. Header-only and Foundation-only so the macOS

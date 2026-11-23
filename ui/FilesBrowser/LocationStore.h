@@ -1,6 +1,6 @@
 //
 //  LocationStore.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The Files tab's Locations: the folders the user granted the app, kept as
 //  persisted bookmarks. Each scope starts at launch and is held for the

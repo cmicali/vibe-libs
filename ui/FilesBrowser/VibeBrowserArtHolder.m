@@ -1,6 +1,6 @@
 //
 //  VibeBrowserArtHolder.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "VibeBrowserArtHolder.h"

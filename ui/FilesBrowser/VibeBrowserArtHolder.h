@@ -1,6 +1,6 @@
 //
 //  VibeBrowserArtHolder.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The holder a file row's art loads into when the host has none of its own
 //  (artHolderForFileURL:). One whole file, with no window.

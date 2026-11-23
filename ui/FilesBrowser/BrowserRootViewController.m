@@ -1,6 +1,6 @@
 //
 //  BrowserRootViewController.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "BrowserRootViewController.h"

@@ -1,6 +1,6 @@
 //
 //  FolderViewController.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  One directory of the Files tab, or of the Playlist tab's add sheet: its
 //  folders, then its M3U playlists, then its playable files. The root

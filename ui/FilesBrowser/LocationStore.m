@@ -1,6 +1,6 @@
 //
 //  LocationStore.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "LocationStore.h"

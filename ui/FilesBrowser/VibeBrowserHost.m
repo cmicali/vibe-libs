@@ -1,6 +1,6 @@
 //
 //  VibeBrowserHost.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "VibeBrowserHost.h"

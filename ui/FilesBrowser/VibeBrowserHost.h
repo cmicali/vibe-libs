@@ -1,6 +1,6 @@
 //
 //  VibeBrowserHost.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The browser's folder screens as the app sees them. A folder screen names
 //  no model class of the app's. It reads what its rows show from a host, and

@@ -1,6 +1,6 @@
 //
 //  BrowserRootViewController.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The browser's root: one list of every place it can list. Locations come
 //  first: the host's sources, then each folder the user granted

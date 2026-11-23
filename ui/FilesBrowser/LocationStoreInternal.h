@@ -1,6 +1,6 @@
 //
 //  LocationStoreInternal.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The grant FolderSession retains; a removed entry's scope stops only when
 //  every grant ends. FolderSession holds grants across opens and playback.
