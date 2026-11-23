@@ -107,3 +107,15 @@ void VibeConfigureTimeLabel(UILabel *label) {
                                                        cornerRadius:kArtCornerRadius].CGPath;
 }
 @end
+
+@implementation VibeTrackPageSlider
+
+- (void)cancelInteraction {
+    if (!self.isTracking) {
+        return;
+    }
+    [self cancelTrackingWithEvent:nil];
+    [self sendActionsForControlEvents:UIControlEventTouchCancel];
+}
+
+@end

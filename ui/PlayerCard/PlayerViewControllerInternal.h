@@ -20,6 +20,7 @@
 @class TrackPageActionBarView;
 @class TrackPageCell;
 @class TrackPageTimeControl;
+@class VibeTrackPageSlider;
 @class WaveformScrubberView;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -53,7 +54,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
     WaveformScrubberView    *_waveformView;
     // The bound page's slider, which stands in for the waveform when the
     // host asks (VibePlayerCardScrubberStandard).
-    UISlider                *_standardScrubber;
+    VibeTrackPageSlider     *_standardScrubber;
     UILabel                 *_elapsedLabel;
     TrackPageTimeControl    *_remainingTimeControl;
     UIView                  *_transportView;
