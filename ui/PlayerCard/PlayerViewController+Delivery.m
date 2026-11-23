@@ -69,6 +69,10 @@
     if (view != _waveformView) {
         return;  // a neighbor's preview
     }
+    [self renderScrubLabelsAtProgress:progress];
+}
+
+- (void)renderScrubLabelsAtProgress:(CGFloat)progress {
     NSTimeInterval duration = VibePlayerScreenDuration(_playback.duration, _playback.currentTrack.duration);
     if (duration <= 0) {
         return;
@@ -92,6 +96,48 @@
     // Either way the labels' second guard is stale.
     _scrubLabelSecond = NSIntegerMin;
     [self setPagerHeld:scrubbing byView:view];
+}
+
+#pragma mark - The standard scrubber
+
+// The waveform scrubber's rules, on a slider: the drag holds the pager and
+// owns the labels, and its lift seeks through the same call. What a seek does
+// to a parked or paused track is the model's (VibePlayerScrubActionFor).
+- (void)standardScrubberDidBegin:(UISlider *)slider {
+    _scrubLabelSecond = NSIntegerMin;
+    _standardScrubMoved = NO;
+    [self setPagerHeld:YES byView:slider];
+}
+
+- (void)standardScrubberDidMove:(UISlider *)slider {
+    if (slider != _standardScrubber) {
+        return;
+    }
+    if (!slider.isTracking) {
+        // VoiceOver's adjust, which has no drag to wait for.
+        [_playback seekToProgress:slider.value];
+        return;
+    }
+    _standardScrubMoved = YES;
+    [self renderScrubLabelsAtProgress:slider.value];
+}
+
+- (void)standardScrubberDidEnd:(UISlider *)slider {
+    // The seek first, so the readout the release repaints is its target.
+    if (slider == _standardScrubber && _standardScrubMoved) {
+        [_playback seekToProgress:slider.value];
+    }
+    [self standardScrubberDidCancel:slider];
+}
+
+// Also a recycled page's (TrackPageCell's cancelStandardScrub).
+- (void)standardScrubberDidCancel:(UISlider *)slider {
+    _scrubLabelSecond = NSIntegerMin;
+    _standardScrubMoved = NO;
+    [self setPagerHeld:NO byView:slider];
+    if (slider == _standardScrubber) {
+        [self updatePlaybackUI];
+    }
 }
 
 - (void)setPagerHeld:(BOOL)held byView:(UIView *)view {

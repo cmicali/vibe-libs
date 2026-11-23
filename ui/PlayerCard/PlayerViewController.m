@@ -38,6 +38,10 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
     if (recognizer == self.panGestureRecognizer) {
         UIView *hit = [self hitTest:[recognizer locationInView:self] withEvent:nil];
         for (UIView *view = hit; view && view != self; view = view.superview) {
+            // A slider drags along the pager's axis, so it keeps its touch.
+            if ([view isKindOfClass:[UISlider class]]) {
+                return NO;
+            }
             if ([view isKindOfClass:[WaveformScrubberView class]]) {
                 // An unloaded scrubber hands the gesture to the pager, or the
                 // empty strip is a swipe dead zone.
@@ -400,6 +404,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
         // willDisplayCell rebinds.
         _boundPage = nil;
         _waveformView = nil;
+        _standardScrubber = nil;
         _elapsedLabel = nil;
         _remainingTimeControl = nil;
         _transportView = nil;
@@ -455,23 +460,34 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
                            && !_windowResizeInFlight && !_routePickerPresenting);
 }
 
+- (void)showProgress:(CGFloat)progress {
+    _waveformView.progress = progress;
+    if (!_standardScrubber.isTracking) {
+        _standardScrubber.value = (float)progress;
+    }
+}
+
+- (BOOL)isScrubbing {
+    return _waveformView.isScrubbing || _standardScrubber.isTracking;
+}
+
 - (void)scrollTick:(CADisplayLink *)link {
     if (self.presentedViewController) {
         // A sheet covers the waveform; the 3 Hz tick keeps progress current.
         return;
     }
-    if (_waveformView.isScrubbing) {
+    if ([self isScrubbing]) {
         return;
     }
     // The seek target FIRST: a parked scrub is Loading and in flight at once,
     // and zeroing there is the snap-back it prevents. A track change clears
     // seekInFlight.
     if (_playback.seekInFlight) {
-        _waveformView.progress = _playback.pendingSeekProgress;
+        [self showProgress:_playback.pendingSeekProgress];
         return;
     }
     if (_playback.screenState == VibePlayerScreenStateLoading) {
-        _waveformView.progress = 0;
+        [self showProgress:0];
         return;
     }
     NSTimeInterval duration = _playback.duration;
@@ -479,25 +495,25 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
         _shownPosition = VibePlayheadShownPosition(_shownPosition, link.targetTimestamp - _shownFrameTime,
                                                    _playback.position);
         _shownFrameTime = link.targetTimestamp;
-        _waveformView.progress = _shownPosition / duration;
+        [self showProgress:_shownPosition / duration];
     }
 }
 
 - (void)updatePlaybackUI {
-    if (_waveformView.isScrubbing) {
+    if ([self isScrubbing]) {
         // The scrub owns the readout (didScrubToProgress:).
         return;
     }
     if (VibePlayerScreenRendersRestingTimes(_playback.screenState)) {
         // scrollTick:'s precedence.
-        if (_playback.seekInFlight && !_waveformView.isScrubbing) {
-            _waveformView.progress = _playback.pendingSeekProgress;
+        if (_playback.seekInFlight && ![self isScrubbing]) {
+            [self showProgress:_playback.pendingSeekProgress];
             [self renderRestingTimesForTrack:_playlist.currentTrack];
             return;
         }
         [self renderRestingTimesForTrack:_playlist.currentTrack];
-        if (!_waveformView.isScrubbing) {
-            _waveformView.progress = 0;
+        if (![self isScrubbing]) {
+            [self showProgress:0];
         }
         return;
     }
@@ -510,8 +526,8 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
             _elapsedLabel.text = elapsed;
         }
         _remainingTimeControl.text = VibeRightTimeText(position, duration);
-        if (!_waveformView.isScrubbing && !_playback.seekInFlight) {
-            _waveformView.progress = position / duration;
+        if (![self isScrubbing] && !_playback.seekInFlight) {
+            [self showProgress:position / duration];
         }
     }
     else {

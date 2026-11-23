@@ -28,6 +28,11 @@ NS_ASSUME_NONNULL_BEGIN
 @property (class, readonly) NSString *reuseIdentifier;
 
 @property (nonatomic, readonly) WaveformScrubberView *waveformView;
+// The plain slider an app can ask for in the waveform's place
+// (VibePlayerCardScrubberStandard). Shown, the waveform is hidden; it still
+// loads, so a switch back draws at once.
+@property (nonatomic, readonly) UISlider *standardScrubber;
+- (void)setStandardScrubberShown:(BOOL)shown;
 @property (nonatomic, readonly) UILabel *elapsedLabel;
 // One mode for the whole app, so the controller owns the target.
 @property (nonatomic, readonly) TrackPageTimeControl *remainingTimeControl;
