@@ -47,9 +47,9 @@ NS_ASSUME_NONNULL_BEGIN
 // takes the whole width. The controller sets it from the setting on every
 // configure, so a recycled cell and a settings change both land.
 - (void)setFXPadShown:(BOOL)shown;
-// The host's queue control: a circle at the trailing end of portrait's action
-// bar, and beside landscape's route pill. A nil symbol hides it, and the
-// capsule then reaches the edge as before. The compact layouts hide it.
+// The host's queue control, in the page's top-trailing corner in every
+// layout: beside the grabber's band in portrait, and past the info label in
+// the wide ones. A nil symbol hides it, and nothing moves.
 @property (nonatomic, readonly) UIButton *queueButton;
 - (void)setQueueSymbol:(nullable NSString *)symbol label:(nullable NSString *)label;
 @property (nonatomic, readonly) UIButton *previousButton;

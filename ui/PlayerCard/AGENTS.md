@@ -67,7 +67,7 @@ The track pager and the chrome over it. It owns no playback state. **Only the se
 
 ## Queue control
 
-**An app can put a queue button on the page.** The host's optional `playerCardQueueSymbol` and `playerCardQueueLabel` give its glyph and VoiceOver label, read on every configure, so `reloadSettings` applies a change. Its tap goes to the delegate's optional `playerViewControllerDidRequestQueue:`, and the app shows its queue. It is a circle like the FX pad's, at the other end: the trailing end of portrait's action bar, and beside landscape's route pill. The capsule ends a gap before it (`_actionBarTrailingBeforeQueue`). **Without it, nothing moves**: the capsule's full-width trailing edge sits just below required, so only that required gap outranks it. It fades with the chrome. The compact layouts hide it, with the pill and the pad. In landscape it narrows the room the shuffle and repeat flanks fit in (`applyShuffleRepeatShown`).
+**An app can put a queue button on the page.** The host's optional `playerCardQueueSymbol` and `playerCardQueueLabel` give its glyph and VoiceOver label, read on every configure, so `reloadSettings` applies a change. Its tap goes to the delegate's optional `playerViewControllerDidRequestQueue:`, and the app shows its queue. **It sits in the page's top-trailing corner in every layout**: in portrait, in the band above the art, opposite nothing, since the grabber is centered; in the wide layouts, level with the art's top, with the info label ending a gap before it. **Without it, nothing moves**: the info label's trailing edge on the column sits just below required, so only the control's required gap (`_fileInfoTrailingBeforeQueue`) outranks it. It fades with the chrome.
 
 ## TrackPageCell
 

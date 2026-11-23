@@ -144,6 +144,10 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
     // lone glyph, right-aligned with the device name when there is one.
     NSLayoutConstraint *_remainingCenteredOnRoute;
     NSLayoutConstraint *_remainingTrailingOnRoute;
+    // The wide layouts' info label ends a gap before the queue control
+    // while it shows (setQueueSymbol:label:).
+    NSLayoutConstraint *_fileInfoTrailingBeforeQueue;
+    NSString           *_queueSymbol;
 
     // Joined on one line in portrait, stacked in landscape as on the mac.
     NSString           *_fileInfo;
@@ -161,9 +165,6 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
     // that set is.
     NSLayoutConstraint *_actionBarLeadingAfterPad;
     BOOL               _fxPadShown;
-    // The capsule's trailing edge when the queue control shows (AGENTS.md).
-    NSLayoutConstraint *_actionBarTrailingBeforeQueue;
-    NSString           *_queueSymbol;
     // What hiding the shuffle and repeat buttons zeroes (applyShuffleRepeatShown).
     NSLayoutConstraint *_shuffleWidth;
     NSLayoutConstraint *_outerGapWanted;
@@ -303,11 +304,9 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         _routeView.translatesAutoresizingMaskIntoConstraints = NO;
         [content addSubview:_routeView];
 
+        // The host's queue control, in the page's top-trailing corner.
         _queueButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        _queueButton.backgroundColor = _actionBar.backgroundColor;
         _queueButton.tintColor = [UIColor labelColor];
-        _queueButton.layer.cornerRadius = kCellActionBarHeight / 2;
-        _queueButton.layer.cornerCurve = kCACornerCurveContinuous;
         _queueButton.hidden = YES;
         _queueButton.translatesAutoresizingMaskIntoConstraints = NO;
         [content addSubview:_queueButton];
@@ -365,8 +364,8 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             [_actionBar.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
             [_fxPadView.widthAnchor constraintEqualToConstant:kCellActionBarHeight],
             [_fxPadView.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
-            [_queueButton.widthAnchor constraintEqualToConstant:kCellActionBarHeight],
-            [_queueButton.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
+            [_queueButton.widthAnchor constraintEqualToConstant:kTransportFlankButtonSide],
+            [_queueButton.heightAnchor constraintEqualToConstant:kTransportFlankButtonSide],
             waveformFullWidth,
             [_waveformView.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
             [_remainingTimeControl.bottomAnchor constraintEqualToAnchor:_elapsedLabel.bottomAnchor],
@@ -383,8 +382,6 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             [_nextButton.widthAnchor constraintEqualToAnchor:_transportView.heightAnchor],
         ]];
         [NSLayoutConstraint activateConstraints:[self transportGapConstraints]];
-        _actionBarTrailingBeforeQueue = [_actionBar.trailingAnchor constraintEqualToAnchor:_queueButton.leadingAnchor
-                                                                                  constant:-kCellActionBarGap];
 
         _portraitLayout = [self buildPortraitLayout];
         [self buildWideLayouts];
@@ -514,9 +511,6 @@ static UIImage *TransportGradientImage(void) {
     NSLayoutConstraint *actionBarLeadingFull = [_actionBar.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
                                                                                         constant:kCellActionBarInset];
     actionBarLeadingFull.priority = UILayoutPriorityDefaultHigh;
-    NSLayoutConstraint *actionBarTrailingFull = [_actionBar.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor
-                                                                                          constant:-kCellActionBarInset];
-    actionBarTrailingFull.priority = UILayoutPriorityRequired - 1;
 
     // The single-line labels keep their line reserved, so a missing artist
     // lays out like a present one.
@@ -542,7 +536,6 @@ static UIImage *TransportGradientImage(void) {
 
     return @[
         actionBarLeadingFull,
-        actionBarTrailingFull,
         topBand,
         [artBand.topAnchor constraintGreaterThanOrEqualToAnchor:safe.topAnchor],
         [_artCard.heightAnchor constraintGreaterThanOrEqualToConstant:0],
@@ -581,6 +574,8 @@ static UIImage *TransportGradientImage(void) {
         // every page. The time row hangs off the waveform, so tightening it
         // cannot push the waveform down.
         [_actionBar.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [_actionBar.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor
+                                                  constant:-kCellActionBarInset],
         // TRAP: the route view IS the tap surface, so it spans the capsule.
         // Hugging its content, a lone glyph left a 44pt target in the middle
         // of a capsule that reads as one button. The name truncates inside.
@@ -591,9 +586,10 @@ static UIImage *TransportGradientImage(void) {
         [_fxPadView.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
         [_fxPadView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
                                                  constant:kCellActionBarInset],
-        [_queueButton.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
-        [_queueButton.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor
-                                                    constant:-kCellActionBarInset],
+        // In the band above the art, opposite nothing: the grabber is centered.
+        [_queueButton.centerYAnchor constraintEqualToAnchor:safe.topAnchor
+                                                   constant:kCellTopBandHeight / 2],
+        [_queueButton.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
 
         [_transportView.bottomAnchor constraintEqualToAnchor:_actionBar.topAnchor
                                                     constant:-kCellActionBarTransportGap],
@@ -648,8 +644,12 @@ static UIImage *TransportGradientImage(void) {
             constraintEqualToAnchor:_routeView.trailingAnchor];
 
     _fileInfoCapTopLandscape = [_fileInfoLabel.topAnchor constraintEqualToAnchor:_artistLabel.topAnchor];
-    NSLayoutConstraint *actionBarOnColumn = [_actionBar.trailingAnchor constraintEqualToAnchor:column.trailingAnchor];
-    actionBarOnColumn.priority = UILayoutPriorityRequired - 1;
+    // Just below required, so only the queue control's gap outranks it.
+    NSLayoutConstraint *fileInfoOnColumn = [_fileInfoLabel.trailingAnchor
+            constraintEqualToAnchor:column.trailingAnchor];
+    fileInfoOnColumn.priority = UILayoutPriorityRequired - 1;
+    _fileInfoTrailingBeforeQueue = [_fileInfoLabel.trailingAnchor constraintEqualToAnchor:_queueButton.leadingAnchor
+                                                                                 constant:-kCellLabelGap];
 
     NSArray<NSLayoutConstraint *> *header = @[
         columnLeading,
@@ -674,7 +674,10 @@ static UIImage *TransportGradientImage(void) {
         [_titleLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_fileInfoLabel.leadingAnchor
                                                              constant:-12],
         _fileInfoCapTopLandscape,
-        [_fileInfoLabel.trailingAnchor constraintEqualToAnchor:column.trailingAnchor],
+        fileInfoOnColumn,
+        // The top-trailing corner, beside the info label, in every wide layout.
+        [_queueButton.topAnchor constraintEqualToAnchor:_artCard.topAnchor],
+        [_queueButton.trailingAnchor constraintEqualToAnchor:column.trailingAnchor],
 
         // The pills stay placed while the compact layouts hide them.
         [_fxPadView.leadingAnchor constraintEqualToAnchor:column.leadingAnchor],
@@ -682,12 +685,9 @@ static UIImage *TransportGradientImage(void) {
                                                 constant:-kCellBottomInsetLandscape],
         // The pill hugs the route view, which stays the whole tap surface: a
         // lone glyph at its 44pt minimum makes the pill the pad's circle.
-        actionBarOnColumn,
+        [_actionBar.trailingAnchor constraintEqualToAnchor:column.trailingAnchor],
         [_actionBar.bottomAnchor constraintEqualToAnchor:content.bottomAnchor
                                                 constant:-kCellBottomInsetLandscape],
-        [_queueButton.trailingAnchor constraintEqualToAnchor:column.trailingAnchor],
-        [_queueButton.bottomAnchor constraintEqualToAnchor:content.bottomAnchor
-                                                  constant:-kCellBottomInsetLandscape],
         [_routeView.leadingAnchor constraintEqualToAnchor:_actionBar.leadingAnchor
                                                  constant:kCellRouteContentInsetLandscape],
         [_routeView.trailingAnchor constraintEqualToAnchor:_actionBar.trailingAnchor
@@ -807,6 +807,7 @@ static UIImage *TransportGradientImage(void) {
     }
     [self applyActionBarSplit];
     [self applyRouteTimeAlignment];
+    [self applyQueueControl];
 
     NSTextAlignment alignment = landscape ? NSTextAlignmentLeft : NSTextAlignmentCenter;
     _titleLabel.textAlignment = alignment;
@@ -832,10 +833,8 @@ static UIImage *TransportGradientImage(void) {
         return; // the first applyLayoutForBounds: activates a layout, then this
     }
     _actionBarLeadingAfterPad.active = _fxPadShown && !_landscapeActive;
-    _actionBarTrailingBeforeQueue.active = _queueSymbol && !_compactActive;
     _actionBar.hidden = _compactActive;
     _routeView.hidden = _compactActive;
-    _queueButton.hidden = !_queueSymbol || _compactActive;
     BOOL padHidden = !_fxPadShown || _compactActive;
     if (padHidden != _fxPadView.hidden) {
         if (padHidden) {
@@ -887,11 +886,10 @@ static UIImage *TransportGradientImage(void) {
     UIEdgeInsets safe = self.safeAreaInsets;
     CGFloat width = self.bounds.size.width;
     // Landscape: the column edges, then the pad and the route pill at its
-    // narrowest, the pad's circle, each a gap from the row, and the queue
-    // control's circle beside the pill when it shows.
-    CGFloat corners = (_queueSymbol ? 3 : 2) * (kCellActionBarHeight + kCellActionBarGap);
+    // narrowest, the pad's circle, each a gap from the row.
     CGFloat available = _landscapeActive
-            ? width - MAX(safe.left, kCellEdgeInsetLandscape) - MAX(safe.right, kCellEdgeInsetLandscape) - corners
+            ? width - MAX(safe.left, kCellEdgeInsetLandscape) - MAX(safe.right, kCellEdgeInsetLandscape)
+                    - 2 * (kCellActionBarHeight + kCellActionBarGap)
             : width - 2 * (MAX(safe.left, safe.right) + kTransportEdgeInset);
     BOOL shown = _shuffleRepeatWanted && !_compactActive && available >= row;
     if (_shuffleButton.hidden == !shown) {
@@ -910,15 +908,16 @@ static UIImage *TransportGradientImage(void) {
     if (symbol == _queueSymbol || [symbol isEqualToString:_queueSymbol]) {
         return;
     }
-    BOOL wasShown = _queueSymbol != nil;
     _queueSymbol = [symbol copy];
     if (symbol) {
         [self setGlyph:symbol onButton:_queueButton pointSize:kCellSideGlyphPointSize];
     }
-    if (wasShown != (symbol != nil)) {
-        [self applyActionBarSplit];
-        [self setNeedsLayout];
-    }
+    [self applyQueueControl];
+}
+
+- (void)applyQueueControl {
+    _queueButton.hidden = !_queueSymbol;
+    _fileInfoTrailingBeforeQueue.active = _queueSymbol && _landscapeActive;
 }
 
 - (void)setFXPadShown:(BOOL)shown {
