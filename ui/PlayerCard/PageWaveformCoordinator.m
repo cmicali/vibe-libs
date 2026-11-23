@@ -132,6 +132,17 @@
 }
 
 - (void)reset {
+    [self dropPendingWork];
+    [_snapshots removeAllObjects];
+    [_percentLoaded removeAllObjects];
+}
+
+- (void)cancelLoads {
+    [self dropPendingWork];
+    [_cache cancelLoad];
+}
+
+- (void)dropPendingWork {
     for (AudioWorkToken *token in _prefetchTokens.allValues) {
         [token cancelIfPending];
     }
@@ -139,8 +150,6 @@
     [_prefetchTracks removeAllObjects];
     _targetIndex = NSNotFound;
     _targetKey = nil;
-    [_snapshots removeAllObjects];
-    [_percentLoaded removeAllObjects];
     [_heldUpdates removeAllIndexes];
     [_heldFailures removeAllIndexes];
 }

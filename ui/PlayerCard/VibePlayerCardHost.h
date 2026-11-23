@@ -46,6 +46,16 @@ typedef NS_ENUM(NSInteger, VibePlayerCardLabel) {
     // The queue control's VoiceOver label, asked for only when the host gives
     // a queue symbol.
     VibePlayerCardLabelQueue,
+    // The standard scrubber's VoiceOver label, asked for only when the host
+    // chooses it (VibePlayerCardScrubberStandard).
+    VibePlayerCardLabelPosition,
+};
+
+// What a page scrubs with.
+typedef NS_ENUM(NSInteger, VibePlayerCardScrubber) {
+    VibePlayerCardScrubberWaveform,
+    // A plain slider in the waveform's place.
+    VibePlayerCardScrubberStandard,
 };
 
 @protocol VibePlayerCardHost <NSObject>
@@ -88,6 +98,13 @@ typedef NS_ENUM(NSInteger, VibePlayerCardLabel) {
 // (playerViewControllerDidRequestQueue:). Without it the page has no queue
 // control and lays out as it always has.
 @property (nonatomic, readonly, copy, nullable) NSString *playerCardQueueSymbol;
+
+// What a page scrubs with, read on every configure, so reloadSettings applies
+// a change. The waveform without it. The slider's VoiceOver label is
+// VibePlayerCardLabelPosition. A switch to the slider cancels the waveform
+// loads under way, and the card requests and draws none while the slider
+// shows, so noteCompleteWaveform:forTrack: stops too.
+@property (nonatomic, readonly) VibePlayerCardScrubber playerCardScrubber;
 
 @end
 

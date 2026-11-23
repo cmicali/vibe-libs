@@ -107,3 +107,32 @@ void VibeConfigureTimeLabel(UILabel *label) {
                                                        cornerRadius:kArtCornerRadius].CGPath;
 }
 @end
+
+@implementation VibeTrackPageSlider
+
+- (void)cancelInteraction {
+    if (!self.isTracking) {
+        return;
+    }
+    [self cancelTrackingWithEvent:nil];
+    [self sendActionsForControlEvents:UIControlEventTouchCancel];
+}
+
+// Bucketed by the track's width in pixels, as WaveformScrubberView's
+// progress is. Compared with the value shown, not the last write, so a drag
+// that moved the thumb is always written over. A slider not laid out yet
+// takes every write.
+- (void)showPlayheadProgress:(CGFloat)progress {
+    CGFloat pixels = [self trackRectForBounds:self.bounds].size.width
+            * MAX((CGFloat)1, self.traitCollection.displayScale);
+    // Clamped before the cast: a double outside the unit range is undefined
+    // as an NSUInteger.
+    if (pixels >= 1
+            && (NSUInteger)(MAX(0.0, MIN(1.0, progress)) * pixels)
+                    == (NSUInteger)(MAX(0.0, MIN(1.0, (double)self.value)) * pixels)) {
+        return;
+    }
+    self.value = (float)progress;
+}
+
+@end

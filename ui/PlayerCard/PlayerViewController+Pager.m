@@ -88,6 +88,9 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
 }
 
 - (void)requestCurrentWaveform {
+    if ([self usesStandardScrubber]) {
+        return;  // nothing draws it
+    }
     NSUInteger index = _playlist.currentIndex;
     id<VibePlayerCardItem> track = [_playlist trackAtIndex:index];
     if (!track) {
@@ -105,7 +108,9 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
     __weak PlayerViewController *weakSelf = self;
     WaveformWaitsForOpen(track.url, ^(BOOL waits) {
         PlayerViewController *strongSelf = weakSelf;
-        if (!strongSelf || waits || strongSelf->_playlist.currentIndex != index) {
+        // The host may have switched to the slider while the probe ran.
+        if (!strongSelf || waits || strongSelf->_playlist.currentIndex != index
+                || [strongSelf usesStandardScrubber]) {
             return;
         }
         id<VibePlayerCardItem> current = [strongSelf trackAtIndex:index matching:track];
@@ -132,6 +137,9 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
 // down. Its open, once current, shows one. A neighbor keeps what it shows until
 // the answer lands, so a refresh does not flash the indicator.
 - (void)hydrateWaveformInCell:(TrackPageCell *)cell atIndex:(NSUInteger)index {
+    if ([self usesStandardScrubber]) {
+        return;  // its waveform is hidden
+    }
     CodableAudioWaveform *snapshot = [_waveformCoordinator snapshotAtIndex:index];
     if (snapshot) {
         // Laid out first, so the scrubber draws at its own width, not a fresh
@@ -154,6 +162,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
         // The cell may have been recycled, or the page made current or given
         // a snapshot, while the probe ran.
         if (!strongSelf || !cell || [strongSelf cellAtIndex:index] != cell
+                || [strongSelf usesStandardScrubber]
                 || index == strongSelf->_playback.currentIndex
                 || ![strongSelf trackAtIndex:index matching:track]
                 || [strongSelf->_waveformCoordinator snapshotAtIndex:index]) {
@@ -169,6 +178,9 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
 }
 
 - (void)fetchNeighborWaveforms {
+    if ([self usesStandardScrubber]) {
+        return;
+    }
     NSUInteger current = _playlist.currentIndex;
     NSRange window = [self pageWindowWithRadius:1];
     for (NSUInteger index = window.location; index < NSMaxRange(window); index++) {
@@ -221,6 +233,15 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
                            forControlEvents:UIControlEventTouchUpInside];
         [page.queueButton addTarget:self action:@selector(queueTapped)
                    forControlEvents:UIControlEventTouchUpInside];
+        UISlider *slider = page.standardScrubber;
+        [slider addTarget:self action:@selector(standardScrubberDidBegin:)
+                forControlEvents:UIControlEventTouchDown];
+        [slider addTarget:self action:@selector(standardScrubberDidMove:)
+                forControlEvents:UIControlEventValueChanged];
+        [slider addTarget:self action:@selector(standardScrubberDidEnd:)
+                forControlEvents:UIControlEventTouchUpInside | UIControlEventTouchUpOutside];
+        [slider addTarget:self action:@selector(standardScrubberDidCancel:)
+                forControlEvents:UIControlEventTouchCancel];
         page.routeView.delegate = self;
         // The FX pad owns its touch from the press, the way the scrubber owns
         // a drag: the pager's pan waits for it to fail, and its positions
@@ -247,15 +268,17 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
     else {
         // Rest at the start, as the labels do: committing a page plays from
         // the top (AGENTS.md).
-        page.waveformView.progress = 0;
+        page.scrubProgress = 0;
         [PlayerViewController renderRestingTimesForTrack:[_playlist trackAtIndex:index]
                                                  elapsed:page.elapsedLabel
                                                remaining:page.remainingTimeControl];
     }
 }
 
+// Never on a hidden waveform: the shimmer animates whether or not it shows.
 - (void)applyPlaybackLoadingToCell:(TrackPageCell *)cell atIndex:(NSUInteger)index {
-    BOOL loading = _playback.currentOpenSlow && index == _playlist.currentIndex;
+    BOOL loading = _playback.currentOpenSlow && index == _playlist.currentIndex
+            && ![self usesStandardScrubber];
     if (cell.waveformView.playbackLoading != loading) {
         cell.waveformView.playbackLoading = loading;
     }
@@ -295,6 +318,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
                   deviceName:_playback.outputRouteName];
     // A settings change reaches here through reloadSettings.
     [cell setFXPadShown:host.playerCardShowsFXPad];
+    [cell setStandardScrubberShown:[self usesStandardScrubber]];
     [cell setShuffleRepeatShown:host.playerCardShowsShuffleRepeat];
     NSString *queueSymbol = [host respondsToSelector:@selector(playerCardQueueSymbol)]
             ? host.playerCardQueueSymbol : nil;

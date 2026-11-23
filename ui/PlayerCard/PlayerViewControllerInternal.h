@@ -86,6 +86,8 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
     // The second last rendered for a scrub, so a drag does not format at
     // display rate. NSIntegerMin: not scrubbing.
     NSInteger               _scrubLabelSecond;
+    // A slider's drag moved it, so its lift seeks. A tap on the thumb does not.
+    BOOL                    _standardScrubMoved;
 
     // Shared by every page. The user's REQUEST, which is what persists; each
     // view applies its own floor (WaveformScrubberView.visibleFraction).
@@ -95,6 +97,9 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 #pragma mark - The refresh funnel
 
 - (void)updatePlaybackUI;
+// The host asks for the slider (VibePlayerCardScrubberStandard). No
+// waveform is requested or drawn meanwhile.
+- (BOOL)usesStandardScrubber;
 - (void)updatePlayButton;
 // Only the empty state hides the chrome (TrackPageCell.chromeAlpha).
 - (CGFloat)chromeAlpha;

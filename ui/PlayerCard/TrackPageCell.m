@@ -283,6 +283,12 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         _waveformView.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelWaveform);
         [content addSubview:_waveformView];
 
+        _standardScrubber = [[VibeTrackPageSlider alloc] init];
+        _standardScrubber.minimumTrackTintColor = [UIColor labelColor];
+        _standardScrubber.hidden = YES;
+        _standardScrubber.translatesAutoresizingMaskIntoConstraints = NO;
+        [content addSubview:_standardScrubber];
+
         _elapsedLabel = [self makeTimeLabel];
         [content addSubview:_elapsedLabel];
         _remainingTimeControl = [[TrackPageTimeControl alloc] initWithFrame:CGRectZero];
@@ -346,6 +352,15 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         NSLayoutConstraint *waveformFullWidth = [_waveformView.leadingAnchor
                 constraintEqualToAnchor:content.leadingAnchor];
         waveformFullWidth.priority = UILayoutPriorityRequired - 1;
+        // The slider spans the waveform's row, inset as the time labels are,
+        // and never into the safe area.
+        UILayoutGuide *safe = content.safeAreaLayoutGuide;
+        NSLayoutConstraint *sliderLeading = [_standardScrubber.leadingAnchor
+                constraintEqualToAnchor:_waveformView.leadingAnchor constant:kCellTimeEdgeInset];
+        sliderLeading.priority = UILayoutPriorityRequired - 1;
+        NSLayoutConstraint *sliderTrailing = [_standardScrubber.trailingAnchor
+                constraintEqualToAnchor:_waveformView.trailingAnchor constant:-kCellTimeEdgeInset];
+        sliderTrailing.priority = UILayoutPriorityRequired - 1;
         [NSLayoutConstraint activateConstraints:@[
             [_backdropView.topAnchor constraintEqualToAnchor:content.topAnchor],
             [_backdropView.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
@@ -372,6 +387,12 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             [_queueButton.heightAnchor constraintEqualToConstant:kTransportFlankButtonSide],
             waveformFullWidth,
             [_waveformView.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
+            sliderLeading,
+            sliderTrailing,
+            [_standardScrubber.leadingAnchor constraintGreaterThanOrEqualToAnchor:safe.leadingAnchor
+                                                                         constant:kCellTimeEdgeInset],
+            [_standardScrubber.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor
+                                                                      constant:-kCellTimeEdgeInset],
             [_remainingTimeControl.bottomAnchor constraintEqualToAnchor:_elapsedLabel.bottomAnchor],
             [_elapsedLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_remainingTimeControl.leadingAnchor
                                                                    constant:-kCellTimeGap],
@@ -387,11 +408,19 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         ]];
         [NSLayoutConstraint activateConstraints:[self transportGapConstraints]];
 
-        _portraitLayout = [self buildPortraitLayout];
+        _portraitLayout = [[self buildPortraitLayout] arrayByAddingObject:[self sliderOverTimes]];
         [self buildWideLayouts];
         _fxPadShown = YES;
     }
     return self;
+}
+
+// The slider has no headroom, so it sits on the time row wherever the row
+// hangs off the waveform. Compact's times are in the header, so there it
+// centers in the waveform's row. A new constraint each call, since each
+// layout's array holds its own.
+- (NSLayoutConstraint *)sliderOverTimes {
+    return [_standardScrubber.bottomAnchor constraintEqualToAnchor:_elapsedLabel.topAnchor];
 }
 
 // Four gaps as layout guides, so each pair can be held equal: the three stay
@@ -729,6 +758,7 @@ static UIImage *TransportGradientImage(void) {
         waveformRowHeight,
         [_elapsedLabel.centerYAnchor constraintEqualToAnchor:timeBand.centerYAnchor],
         [_elapsedLabel.centerXAnchor constraintEqualToAnchor:_fxPadView.centerXAnchor],
+        [self sliderOverTimes],
     ]];
 
     // Both compact layouts: the three on the art's lower edge, the times in
@@ -755,6 +785,7 @@ static UIImage *TransportGradientImage(void) {
         namesOnArt,
         waveformRowHeight,
         [_waveformView.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [_standardScrubber.centerYAnchor constraintEqualToAnchor:_waveformView.centerYAnchor],
     ]];
 
     // The mac's header band: the art fills it, the names on top beside it,
@@ -773,6 +804,7 @@ static UIImage *TransportGradientImage(void) {
                                                              constant:kCellStripWaveformGap],
         [_waveformView.bottomAnchor constraintEqualToAnchor:_elapsedLabel.topAnchor
                                                    constant:kCellTimeWaveformOverlap],
+        [self sliderOverTimes],
     ]];
 }
 
@@ -910,6 +942,46 @@ static UIImage *TransportGradientImage(void) {
     [self applyFileInfoText];
 }
 
+- (BOOL)isStandardScrubberShown {
+    return !_standardScrubber.hidden;
+}
+
+- (void)setStandardScrubberShown:(BOOL)shown {
+    // Asked only for the slider, so a host that keeps the waveform is never
+    // asked for the word.
+    if (shown) {
+        _standardScrubber.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelPosition);
+    }
+    if (self.standardScrubberShown == shown) {
+        return;
+    }
+    // A switch mid-drag releases the outgoing scrubber's pager hold.
+    [(shown ? (id)_waveformView : _standardScrubber) cancelInteraction];
+    // Only the shown one is written (setScrubProgress:), so the incoming one
+    // starts where the outgoing one was.
+    CGFloat progress = self.scrubProgress;
+    _waveformView.hidden = shown;
+    _standardScrubber.hidden = !shown;
+    self.scrubProgress = progress;
+}
+
+- (CGFloat)scrubProgress {
+    return self.standardScrubberShown ? _standardScrubber.value : _waveformView.progress;
+}
+
+- (void)setScrubProgress:(CGFloat)progress {
+    if (self.standardScrubberShown) {
+        [_standardScrubber showPlayheadProgress:progress];
+    }
+    else {
+        _waveformView.progress = progress;
+    }
+}
+
+- (BOOL)isScrubbing {
+    return _waveformView.isScrubbing || _standardScrubber.isTracking;
+}
+
 - (void)setQueueSymbol:(NSString *)symbol {
     // Asked only with a symbol, so a host with no queue control is never
     // asked for its word. Every configure, so reloadSettings relabels.
@@ -1010,6 +1082,8 @@ static UIImage *TransportGradientImage(void) {
     // the pager stays locked (the scrubber's release trap, AGENTS.md).
     [_fxPadView cancelInteraction];
     [_waveformView prepareForWaveformLoad];
+    [_standardScrubber cancelInteraction];
+    _standardScrubber.value = 0;
     _elapsedLabel.text = VibePlayerCardLabelText(VibePlayerCardLabelTimeUnknown);
     _remainingTimeControl.text = VibePlayerCardLabelText(VibePlayerCardLabelTimeUnknown);
     [self setGlyphPlaying:NO];

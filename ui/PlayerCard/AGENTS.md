@@ -5,7 +5,7 @@ An iOS music app's now-playing card: a pager of tracks, each page with its art, 
 | File | Owns |
 | --- | --- |
 | `PlayerViewController` | the pager and the chrome over it. `+Pager` is the paging and the art window, `+Delivery` the waveform deliveries, scrubs, and zoom |
-| `TrackPageCell`, `TrackPageViews` | one page, and the small views it is built from: the action bar, the time control, and the art card |
+| `TrackPageCell`, `TrackPageViews` | one page, and the small views it is built from: the action bar, the time control, the art card, and the standard scrubber's slider (`VibeTrackPageSlider`) |
 | `FXPadView` | the pad a finger holds to play the DJ effects |
 | `OutputRouteView` | the output route indicator, over the system's route picker |
 | `PageWaveformCoordinator` | the waveform bookkeeping between the cache and the pages |
@@ -17,7 +17,7 @@ An iOS music app's now-playing card: a pager of tracks, each page with its art, 
 
 List `VibeLibsPlayerCard` in an iOS target.
 
-**The app installs one host at launch, before any card is made** (`VibePlayerCardInstallHost`). The card reads no setting, string, formatter, or asset of the app's. It asks the host live, so a setting written anywhere shows at the next render. The host gives every word through one enum (`VibePlayerCardLabel`), formats times and info lines, says whether the right time shows what is left, whether the FX pad and the shuffle and repeat flanks show, and gives the placeholder art, the stored zoom, and the queue control's glyph if it wants one. It also styles each page's scrubber (below) and sets up the waveform cache (PageWaveformCoordinator).
+**The app installs one host at launch, before any card is made** (`VibePlayerCardInstallHost`). The card reads no setting, string, formatter, or asset of the app's. It asks the host live, so a setting written anywhere shows at the next render. The host gives every word through one enum (`VibePlayerCardLabel`), formats times and info lines, says whether the right time shows what is left, whether the FX pad and the shuffle and repeat flanks show, and gives the placeholder art, the stored zoom, the queue control's glyph if it wants one, and which scrubber a page shows. It also styles each page's scrubber (below) and sets up the waveform cache (PageWaveformCoordinator).
 
 **The app's model adopts the four protocols in `VibePlayerCardPlayback.h`**: the playback, the queue, the item, and the observer. The queue and item protocols can be adopted in categories with no code, as Vibe's are. The model does what the card asks: it plays, seeks, sets the FX pad's position, stamps a decode's analysis, and takes each complete waveform and loaded art.
 
@@ -48,6 +48,14 @@ The track pager and the chrome over it. It owns no playback state. **Only the se
 **The playhead display link runs the waveform's position on at real time** (`VibePlayheadShownPosition`, `PlayerScreenRules.h`). The player's position moves a render buffer at a time, about 23 ms. At deep zoom that is 2 pt, so a waveform written the player's position on each frame judders. Each frame pulls the shown position a tenth of the way to the player's. A miss past 0.15 s, from a seek, a stall or a track change, jumps to it. Pausing the link starts the next frame from the player's.
 
 **The waveform zoom is one value for the whole pager.** `+Delivery`'s `didChangeVisibleFraction:` stores it through the host's `playerCardWaveformZoom`. Every `willDisplayCell:` re-applies it. What is stored is the user's request, never what a view drew (`waveform/WaveformView/AGENTS.md`).
+
+## The standard scrubber
+
+**An app can ask for a plain slider in the waveform's place** (the host's optional `playerCardScrubber`, `VibePlayerCardScrubberStandard`). It is read on every configure, so `reloadSettings` switches every visible page. The slider takes the waveform's row, inset as the time labels are. It has no headroom, so it sits on the time row wherever that row hangs off the scrubber, and centers in the compact layout's row, whose times are in the header. Its VoiceOver label is the word `VibePlayerCardLabelPosition`, asked for only when the host chooses the slider. The waveform stays the default.
+
+**While the slider shows, no waveform loads or draws.** The switch to it cancels the coordinator's target, its pending reads, and the cache's load (`cancelLoads`). Deliveries that still arrive are recorded but not drawn, so the model gets no complete waveform either. The hidden waveform takes no progress and no loading shimmer, and the playhead display link stays paused, since the slider rides the model's 3 Hz tick. **TRAP: a switch back hydrates every visible page from the coordinator** (`reloadSettings`). A page dequeued under the slider was cleared and never hydrated, and a page the coordinator holds complete delivers nothing on request. Then the current page and its neighbors are asked for again, which starts no load for a complete page.
+
+**It follows the waveform scrubber's rules.** A drag holds the pager and owns the time labels, and its lift seeks through the same `seekToProgress:`, so a paused or parked track behaves as it does under the waveform (`VibePlayerScrubActionFor`). A tap that does not move the thumb seeks nothing. Both kinds go through the same three funnels in `+Delivery`, which act only for the bound page's scrubber. The cell fronts both: `scrubProgress` writes the playhead to the one that shows, and a switch carries the position across, and `isScrubbing` counts either kind. The slider skips a write that moves its thumb by less than a device pixel. `TrackPagerView` declines its pan over a `VibeTrackPageSlider`, which drags along the pager's axis. **TRAP: a slider's cancelled tracking sends no event**, so `VibeTrackPageSlider` answers `cancelInteraction`, as every pager holder does, by sending the cancel itself. A track change, a recycled page, and a switch of scrubber all use it. The slider draws no loading shimmer.
 
 ## Output route
 

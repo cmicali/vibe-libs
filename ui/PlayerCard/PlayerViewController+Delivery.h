@@ -21,6 +21,13 @@ NS_ASSUME_NONNULL_BEGIN
 // it, matched against the view that took it (the trap on _pagerHoldViews).
 - (void)setPagerHeld:(BOOL)held byView:(UIView *)view;
 
+// The standard scrubber's events, from every page's slider. Only the bound
+// page's seeks or renders; any page's releases its hold.
+- (void)standardScrubberDidBegin:(UISlider *)slider;
+- (void)standardScrubberDidMove:(UISlider *)slider;
+- (void)standardScrubberDidEnd:(UISlider *)slider;
+- (void)standardScrubberDidCancel:(UISlider *)slider;
+
 // The pager's one zoom lives here beside its only writer,
 // didChangeVisibleFraction:. Setup only.
 - (void)restoreWaveformZoom;
