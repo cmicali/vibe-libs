@@ -289,10 +289,10 @@ static const CGFloat kWidgetWaveformScale = 3;
 }
 
 // Re-bakes only when the push moved something the bake reads.
-// TRAP: the Custom theme's colour wells post continuously while dragged, each a
-// new signature. A bake is two renders, two PNG encodes and two writes, so the
-// signature compare and the _pendingBake cancel keep a drag from queuing
-// dozens.
+// TRAP: an app's color wells can push a new look on every step of a drag,
+// each a new signature. A bake is two renders, two PNG encodes and two writes,
+// so the signature compare and the _pendingBake cancel keep a drag from
+// queuing dozens.
 - (void)updateWaveformStyle:(NSString *)style
                    centered:(BOOL)centered
           drawsPlayheadLine:(BOOL)drawsPlayheadLine {
@@ -312,7 +312,7 @@ static const CGFloat kWidgetWaveformScale = 3;
     }
     NSString *style = _waveformStyle;
 
-    // Always dark: the widget's background is. The artwork colour is memoized
+    // Always dark: the widget's background is. The artwork color is memoized
     // on the image; nil (not decoded, or too gray) resolves album_art to Mono.
     WaveformTheme *theme = _themeProvider(YES, _publishedTrack.cachedArt.vibeDominantColor);
     // The RESOLVED palette, not the inputs, so a cover arriving under a theme
@@ -333,7 +333,7 @@ static const CGFloat kWidgetWaveformScale = 3;
     }
     VibeWidgetState *state = _published;
     _pendingBake = dispatch_block_create(0, ^{
-        // The whole envelope in each side's colours; the widget reveals the
+        // The whole envelope in each side's colors; the widget reveals the
         // played one up to the playhead without a re-render. Under a playhead
         // line both are the whole strip as played, and the widget draws the
         // line (VibeWidgetState.playheadLine).
