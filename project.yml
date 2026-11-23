@@ -882,6 +882,52 @@ targets:
     templateAttributes:
       excludedPlatform: Mac
 
+  # system/WidgetState, tested on macOS. Its tests reach no app group, so
+  # they read and write nothing on disk.
+  WidgetStateTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsWidgetState]
+    templateAttributes:
+      excludedPlatform: iOS
+    sources:
+      - path: Tests/system/WidgetState
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  # system/WidgetState built for iOS, as a widget extension takes it.
+  WidgetState-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsWidgetState]
+    templateAttributes:
+      excludedPlatform: Mac
+
+  # system/Widget's rule of when to publish, tested on macOS. The publisher
+  # is its iOS/ half, which needs a hosted app, so its tests are an app's.
+  WidgetTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsWidget]
+    templateAttributes:
+      excludedPlatform: iOS
+    sources:
+      - path: Tests/system/Widget
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  # system/Widget built for iOS, the publisher included.
+  Widget-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsWidget]
+    templateAttributes:
+      excludedPlatform: Mac
+
   # system/Updates, tested on macOS. It is macOS only, so it has no iOS target.
   # Its tests make the updater unstarted, so no feed is read.
   UpdatesTests:
@@ -1239,6 +1285,10 @@ schemes:
         SandboxAccessTests: [test]
         NowPlayingTests: [test]
         NowPlaying-iOS: all
+        WidgetStateTests: [test]
+        WidgetState-iOS: all
+        WidgetTests: [test]
+        Widget-iOS: all
         AppOpeningTests: [test]
         UpdatesTests: [test]
         DebugChannelTests: [test]
@@ -1275,6 +1325,7 @@ schemes:
                 RemoteFilesTests, DropboxTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
                 MetadataTests, PlayQueueTests, PlaylistsTests, FolderScanTests, WaveformTests, WaveformLoadingTests,
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
-                SandboxAccessTests, NowPlayingTests, AppOpeningTests, UpdatesTests, DebugChannelTests, DebugVerbsTests,
+                SandboxAccessTests, NowPlayingTests, WidgetStateTests, WidgetTests, AppOpeningTests, UpdatesTests,
+                DebugChannelTests, DebugVerbsTests,
                 TaglibTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
                 OggTests, VorbisTests, SparkleTests, WavpackTests, MonkeysAudioTests]

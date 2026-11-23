@@ -525,6 +525,36 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/system/NowPlaying"]
 
+  # The snapshot a widget draws, which an app writes and its widget extension
+  # reads. Foundation only, and it lists no template, so an extension that
+  # takes it compiles nothing else from here.
+  VibeLibsWidgetState:
+    sources:
+      - path: system/WidgetState
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/system/WidgetState"]
+
+  # The app's side of a widget: the publisher, in its iOS/ half, and the rule
+  # of when it publishes, which both platforms build. An extension never
+  # lists it. The publisher bakes the strip with WaveformStyles from
+  # Waveform's envelope, keys a track by AudioTypes' cue window, shares
+  # NowPlaying's change tests, takes the art's color from Graphics, and the
+  # path key from Common.
+  VibeLibsWidget:
+    templates: [VibeLibsCommon, VibeLibsGraphics, VibeLibsAudioTypes, VibeLibsNowPlaying, VibeLibsWaveform,
+                VibeLibsWaveformStyles, VibeLibsWidgetState]
+    sources:
+      - path: system/Widget
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(VIBE_LIBS_ROOT)/system/Widget"
+          - "$(VIBE_LIBS_ROOT)/system/Widget/iOS"
+
   # macOS only, so no iOS target may list it. Its files sit in its Mac/ half,
   # as SettingsWindow's do. It lists Sparkle, which links and embeds the
   # framework. An app's configuration without the updater must exclude by
