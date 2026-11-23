@@ -1010,6 +1010,14 @@ targets:
     templateAttributes:
       excludedPlatform: Mac
 
+  # ui/TabShell built for iOS. It is iOS only, so it has no macOS test bundle.
+  TabShell-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsTabShell]
+    templateAttributes:
+      excludedPlatform: Mac
+
   # third_party/: each library's tests build it alone and call into it once,
   # so a missing file or a broken link fails here. Each iOS target builds the
   # library for the simulator. None of them excludes a platform half.
@@ -1241,6 +1249,7 @@ schemes:
         Rows-iOS: all
         FilesBrowser-iOS: all
         PlayerCard-iOS: all
+        TabShell-iOS: all
         TaglibTests: [test]
         Taglib-iOS: all
         R8brainTests: [test]
