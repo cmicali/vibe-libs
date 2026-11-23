@@ -29,8 +29,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @property (nonatomic, readonly) WaveformScrubberView *waveformView;
 // The plain slider an app can ask for in the waveform's place
-// (VibePlayerCardScrubberStandard). Shown, the waveform is hidden; it still
-// loads, so a switch back draws at once.
+// (VibePlayerCardScrubberStandard). Shown, the waveform is hidden.
 @property (nonatomic, readonly) VibeTrackPageSlider *standardScrubber;
 - (void)setStandardScrubberShown:(BOOL)shown;
 @property (nonatomic, readonly) UILabel *elapsedLabel;

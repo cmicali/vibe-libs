@@ -89,6 +89,9 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
 }
 
 - (void)requestCurrentWaveform {
+    if ([self usesStandardScrubber]) {
+        return;  // nothing draws it
+    }
     NSUInteger index = _playlist.currentIndex;
     id<VibePlayerCardItem> track = [_playlist trackAtIndex:index];
     if (!track) {
@@ -170,6 +173,9 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
 }
 
 - (void)fetchNeighborWaveforms {
+    if ([self usesStandardScrubber]) {
+        return;
+    }
     NSUInteger current = _playlist.currentIndex;
     NSRange window = [self pageWindowWithRadius:1];
     for (NSUInteger index = window.location; index < NSMaxRange(window); index++) {
@@ -306,8 +312,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
                   deviceName:_playback.outputRouteName];
     // A settings change reaches here through reloadSettings.
     [cell setFXPadShown:host.playerCardShowsFXPad];
-    [cell setStandardScrubberShown:[host respondsToSelector:@selector(playerCardScrubber)]
-            && host.playerCardScrubber == VibePlayerCardScrubberStandard];
+    [cell setStandardScrubberShown:[self usesStandardScrubber]];
     [cell setShuffleRepeatShown:host.playerCardShowsShuffleRepeat];
     NSString *queueSymbol = [host respondsToSelector:@selector(playerCardQueueSymbol)]
             ? host.playerCardQueueSymbol : nil;

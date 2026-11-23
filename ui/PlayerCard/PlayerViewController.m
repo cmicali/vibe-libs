@@ -90,6 +90,7 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
     self.view.backgroundColor = [UIColor systemBackgroundColor];
     // Before buildUI, so the first cell to display already has it.
     [self restoreWaveformZoom];
+    _usedStandardScrubber = [self usesStandardScrubber];
     [self buildUI];
 
     _waveformCache = [[AudioWaveformCache alloc] init];
@@ -121,6 +122,13 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
         [self fetchNeighborWaveforms];
     }
     _waveformBandsWanted = bandsWanted;
+    // The slider asks for no waveform, so a switch back asks now.
+    BOOL standard = [self usesStandardScrubber];
+    if (!standard && _usedStandardScrubber) {
+        [self requestCurrentWaveform];
+        [self fetchNeighborWaveforms];
+    }
+    _usedStandardScrubber = standard;
     for (TrackPageCell *cell in _pagesView.visibleCells) {
         NSIndexPath *path = [_pagesView indexPathForCell:cell];
         if (path) {
@@ -462,6 +470,12 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
 
 // The waveform always, as before the slider; the slider only while it shows,
 // since this runs every display frame.
+- (BOOL)usesStandardScrubber {
+    id<VibePlayerCardHost> host = VibePlayerCardInstalledHost();
+    return [host respondsToSelector:@selector(playerCardScrubber)]
+            && host.playerCardScrubber == VibePlayerCardScrubberStandard;
+}
+
 - (void)showProgress:(CGFloat)progress {
     _waveformView.progress = progress;
     if (!_standardScrubber.hidden) {

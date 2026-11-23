@@ -92,6 +92,9 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
     NSInteger               _scrubLabelSecond;
     // A slider's drag moved it, so its lift seeks. A tap on the thumb does not.
     BOOL                    _standardScrubMoved;
+    // What reloadSettings last saw, so a switch back to the waveform asks
+    // for one.
+    BOOL                    _usedStandardScrubber;
 
     // Shared by every page. The user's REQUEST, which is what persists; each
     // view applies its own floor (WaveformScrubberView.visibleFraction).
@@ -106,6 +109,9 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 - (void)showProgress:(CGFloat)progress;
 // A scrub of either kind is under a finger, and owns the time labels.
 - (BOOL)isScrubbing;
+// The host asks for the slider (VibePlayerCardScrubberStandard). No
+// waveform is requested meanwhile.
+- (BOOL)usesStandardScrubber;
 - (void)updatePlayButton;
 // Only the empty state hides the transport, action bar and route control.
 - (CGFloat)chromeAlpha;

@@ -148,6 +148,11 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
     // while it shows (setQueueSymbol:label:).
     NSLayoutConstraint *_fileInfoTrailingBeforeQueue;
     NSString           *_queueSymbol;
+    // The slider has no headroom, so it sits on the time row where the row
+    // hangs off the scrubber, and centers in compact's row, whose times are
+    // in the header.
+    NSLayoutConstraint *_sliderOverTimes;
+    NSLayoutConstraint *_sliderCentered;
 
     // Joined on one line in portrait, stacked in landscape as on the mac.
     NSString           *_fileInfo;
@@ -388,7 +393,6 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             sliderTrailing,
             [_standardScrubber.leadingAnchor constraintGreaterThanOrEqualToAnchor:safe.leadingAnchor constant:16],
             [_standardScrubber.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor constant:-16],
-            [_standardScrubber.centerYAnchor constraintEqualToAnchor:_waveformView.centerYAnchor],
             [_remainingTimeControl.bottomAnchor constraintEqualToAnchor:_elapsedLabel.bottomAnchor],
             [_elapsedLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_remainingTimeControl.leadingAnchor
                                                                    constant:-kCellTimeGap],
@@ -403,6 +407,9 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             [_nextButton.widthAnchor constraintEqualToAnchor:_transportView.heightAnchor],
         ]];
         [NSLayoutConstraint activateConstraints:[self transportGapConstraints]];
+
+        _sliderOverTimes = [_standardScrubber.bottomAnchor constraintEqualToAnchor:_elapsedLabel.topAnchor];
+        _sliderCentered = [_standardScrubber.centerYAnchor constraintEqualToAnchor:_waveformView.centerYAnchor];
 
         _portraitLayout = [self buildPortraitLayout];
         [self buildWideLayouts];
@@ -829,6 +836,12 @@ static UIImage *TransportGradientImage(void) {
     [self applyActionBarSplit];
     [self applyRouteTimeAlignment];
     [self applyQueueControl];
+    // Off before on, as the layouts are.
+    BOOL timesInHeader = layout == _compactLayout;
+    _sliderOverTimes.active = NO;
+    _sliderCentered.active = NO;
+    _sliderOverTimes.active = !timesInHeader;
+    _sliderCentered.active = timesInHeader;
 
     NSTextAlignment alignment = landscape ? NSTextAlignmentLeft : NSTextAlignmentCenter;
     _titleLabel.textAlignment = alignment;
