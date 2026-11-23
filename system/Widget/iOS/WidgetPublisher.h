@@ -14,7 +14,9 @@
 NS_ASSUME_NONNULL_BEGIN
 
 // A track as the widget shows it. The publisher keeps the object it is given
-// and tells two tracks apart by identity, never by content.
+// and tells two tracks apart by identity, never by content. It reads the three
+// methods below on every tick, so each must be cheap and return the same
+// answer until the track's tags or art change.
 @protocol VibeWidgetTrack <VibePlayableItem>
 // The title, or the single line derived from the filename.
 - (NSString *)displayTitle;
@@ -26,8 +28,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface WidgetPublisher : NSObject
 
-// VibeWidgetState.trackKey for a track: its file's NSURL.pathKey, plus a cue
-// row's window, so rows of one file render and seek apart. nil with no path.
+// VibeWidgetTrackKey (VibeWidgetPublishRules.h), for Swift: the key a seek
+// intent compares with the displayed track's.
 + (nullable NSString *)trackKeyForTrack:(nullable id<VibePlayableItem>)track NS_SWIFT_NAME(trackKey(for:));
 
 // WidgetKit has no Objective-C API, so the app hands in its two calls.
@@ -65,8 +67,11 @@ typedef void (^VibeWidgetPlacedQuery)(void (^completion)(BOOL placed, NSError *_
                    centered:(BOOL)centered
           drawsPlayheadLine:(BOOL)drawsPlayheadLine;
 
-// Bakes only for the published track; the caller filters partial envelopes.
-// Retained, so a settings change re-bakes without the card.
+// Offer only a complete envelope, and only for the current track or the one
+// about to become current. Each new waveform object costs a bake, and an offer
+// for another track replaces the current one's, so a later change of look
+// cannot re-bake it. Bakes only for the published track. Retained, so a
+// change of look re-bakes without the app offering again.
 - (void)offerWaveform:(CodableAudioWaveform *)waveform forTrack:(id<VibeWidgetTrack>)track;
 
 @end

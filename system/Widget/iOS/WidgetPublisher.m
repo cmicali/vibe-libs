@@ -6,10 +6,10 @@
 #import "WidgetPublisher.h"
 
 #import <notify.h>
+#import <stdatomic.h>
 
-#import "NSURL+Hash.h"
-#import "NowPlayingRules.h"
 #import "UIImage+DominantColor.h"
+#import "VibeMacros.h"
 #import "VibeWidgetPublishRules.h"
 #import "VibeWidgetState.h"
 #import "WaveformRendererRegistry.h"
@@ -49,8 +49,9 @@ static const CGFloat kWidgetWaveformScale = 3;
     BOOL                  _drawsPlayheadLine;
     // The last bake's; see bakeWaveformIfNeeded.
     NSString             *_bakedSignature;
-    // Not yet started, so the next request can cancel it.
-    dispatch_block_t      _pendingBake;
+    // Bumped on main by each bake request. A queued bake whose generation is
+    // no longer current skips; a started one completes first.
+    _Atomic uint64_t      _bakeGeneration;
     // Queue-only; scheduleReload's throttle (uptime nanos).
     BOOL                  _reloadQueued;
     uint64_t              _lastReloadAt;
@@ -67,16 +68,25 @@ static const CGFloat kWidgetWaveformScale = 3;
     dispatch_block_t      _reloadTimelines;
     VibeWidgetPlacedQuery _queryPlaced;
 
+    // Queue-only; a failed save is logged once.
+    BOOL                  _loggedSaveFailure;
+
     dispatch_queue_t      _queue;
 }
 
 + (NSString *)trackKeyForTrack:(id<VibePlayableItem>)track {
-    return VibeKeyByAppendingCueWindow(track.url.pathKey, track.cueStart, track.cueEnd);
+    return VibeWidgetTrackKey(track);
 }
 
 - (instancetype)initWithThemeProvider:(WaveformThemeProvider)themeProvider
                       reloadTimelines:(dispatch_block_t)reloadTimelines
                           queryPlaced:(VibeWidgetPlacedQuery)queryPlaced {
+    // A missing group is the app's mistake, so it asserts. A group that does
+    // not resolve is provisioning, such as an unsigned build, so it logs.
+    NSAssert(VibeWidgetState.readNotification, @"Set VibeWidgetState's app group before making the publisher");
+    if (!VibeWidgetState.containerURL) {
+        LogError(@"Widget: the app group's container does not resolve, so nothing is published");
+    }
     self = [super init];
     if (self) {
         _themeProvider   = [themeProvider copy];
@@ -89,10 +99,15 @@ static const CGFloat kWidgetWaveformScale = 3;
         // On main, ordered with everything that touches _published.
         __weak WidgetPublisher *weakSelf = self;
         _readToken = NOTIFY_TOKEN_INVALID;
-        notify_register_dispatch(VibeWidgetState.readNotification.UTF8String, &_readToken,
-                                 dispatch_get_main_queue(), ^(int token) {
-            [weakSelf setWidgetPlaced:YES];
-        });
+        NSString *readNotification = VibeWidgetState.readNotification;
+        uint32_t status = readNotification
+                ? notify_register_dispatch(readNotification.UTF8String, &_readToken, dispatch_get_main_queue(),
+                                           ^(int token) { [weakSelf setWidgetPlaced:YES]; })
+                : NOTIFY_STATUS_INVALID_NAME;
+        if (status != NOTIFY_STATUS_OK) {
+            _readToken = NOTIFY_TOKEN_INVALID;
+            LogError(@"Widget: no read signal (%u), so only WidgetKit's answer turns publishing on", status);
+        }
         [self refreshPlaced];
     }
     return self;
@@ -241,7 +256,7 @@ static const CGFloat kWidgetWaveformScale = 3;
         if (writeArtwork) {
             [self writeArtwork:artwork toURL:state.artworkURL];
         }
-        [state save];
+        [self save:state];
         [self scheduleReload];
         if (sweep) {
             NSArray<NSString *> *keep = @[state.trackKey ?: @"", outgoingKey ?: @""];
@@ -250,6 +265,14 @@ static const CGFloat kWidgetWaveformScale = 3;
             }
         }
     });
+}
+
+// Queue-only.
+- (void)save:(VibeWidgetState *)state {
+    if (![state save] && !_loggedSaveFailure) {
+        _loggedSaveFailure = YES;
+        LogError(@"Widget: cannot write the snapshot to %@", VibeWidgetState.containerURL);
+    }
 }
 
 // Queue-only. Throttle requests to four per second with one trailing request.
@@ -291,7 +314,7 @@ static const CGFloat kWidgetWaveformScale = 3;
 // Re-bakes only when the push moved something the bake reads.
 // TRAP: an app's color wells can push a new look on every step of a drag,
 // each a new signature. A bake is two renders, two PNG encodes and two writes,
-// so the signature compare and the _pendingBake cancel keep a drag from
+// so the signature compare and the generation check keep a drag from
 // queuing dozens.
 - (void)updateWaveformStyle:(NSString *)style
                    centered:(BOOL)centered
@@ -327,29 +350,34 @@ static const CGFloat kWidgetWaveformScale = 3;
         return;
     }
     _bakedSignature = signature;
-    // A queued bake is superseded; a started one completes first.
-    if (_pendingBake) {
-        dispatch_block_cancel(_pendingBake);
-    }
     VibeWidgetState *state = _published;
-    _pendingBake = dispatch_block_create(0, ^{
+    uint64_t generation = atomic_fetch_add(&_bakeGeneration, 1) + 1;
+    // Weak: a queued bake never keeps the publisher alive.
+    __weak WidgetPublisher *weakSelf = self;
+    dispatch_async(_queue, ^{
+        WidgetPublisher *publisher = weakSelf;
+        if (!publisher || atomic_load(&publisher->_bakeGeneration) != generation) {
+            return;     // superseded while queued
+        }
         // The whole envelope in each side's colors; the widget reveals the
         // played one up to the playhead without a re-render. Under a playhead
         // line both are the whole strip as played, and the widget draws the
         // line (VibeWidgetState.playheadLine).
-        [self writeWaveformImage:waveform progress:1 style:style centered:centered theme:theme
-                           toURL:state.waveformPlayedURL];
-        [self writeWaveformImage:waveform progress:line ? 1 : 0 style:style centered:centered theme:theme
-                           toURL:state.waveformUnplayedURL];
+        [publisher writeWaveformImage:waveform progress:1 style:style centered:centered theme:theme
+                                toURL:state.waveformPlayedURL];
+        [publisher writeWaveformImage:waveform progress:line ? 1 : 0 style:style centered:centered theme:theme
+                                toURL:state.waveformUnplayedURL];
         // The widget re-renders only on a reload.
-        [self scheduleReload];
+        [publisher scheduleReload];
     });
-    dispatch_async(_queue, _pendingBake);
     // A line setting flipped since the plist was written. Committed after the
-    // bake, so the plist lands behind the images that match it.
+    // bake, so the plist lands behind the images that match it. A copy, since
+    // an earlier commit still queued saves the object it was given.
     if (state.playheadLine != line) {
-        state.playheadLine = line;
-        [self commitState:state artwork:nil writeArtwork:NO];
+        VibeWidgetState *next = [state copy];
+        next.playheadLine = line;
+        _published = next;
+        [self commitState:next artwork:nil writeArtwork:NO];
     }
 }
 
@@ -378,10 +406,15 @@ static const CGFloat kWidgetWaveformScale = 3;
 #pragma mark - Artwork
 
 // Only a BOUND, never a crop: the widget crops where it draws.
+// The bound is in pixels, and UIImage.size is in points. An upright image
+// already within it is encoded as it is.
 static UIImage *VibeWidgetBoundedArtwork(UIImage *artwork) {
-    CGSize source = artwork.size;
+    CGSize source = CGSizeMake(artwork.size.width * artwork.scale, artwork.size.height * artwork.scale);
     CGFloat longest = MAX(source.width, source.height);
     if (longest <= 0) {
+        return artwork;
+    }
+    if (longest <= kWidgetArtworkSide && artwork.imageOrientation == UIImageOrientationUp) {
         return artwork;
     }
     CGFloat scale = MIN(1, kWidgetArtworkSide / longest);
