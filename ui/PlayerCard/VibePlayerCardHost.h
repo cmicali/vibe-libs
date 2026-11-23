@@ -78,6 +78,15 @@ typedef NS_ENUM(NSInteger, VibePlayerCardLabel) {
 // request, and may queue an invalidation.
 - (void)playerCardConfigureWaveformCache:(AudioWaveformCache *)cache;
 
+@optional
+
+// Both or neither. The queue control: an SF Symbol's name, or nil for none,
+// and its VoiceOver label. Its tap goes to the card's delegate
+// (playerViewControllerDidRequestQueue:). Without them the page has no queue
+// control and lays out as it always has.
+@property (nonatomic, readonly, copy, nullable) NSString *playerCardQueueSymbol;
+@property (nonatomic, readonly, copy) NSString *playerCardQueueLabel;
+
 @end
 
 // Once, at launch, before any card is made.

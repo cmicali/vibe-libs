@@ -566,6 +566,12 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
     [self.delegate playerViewControllerDidRequestMinimize:self];
 }
 
+- (void)queueTapped {
+    if ([self.delegate respondsToSelector:@selector(playerViewControllerDidRequestQueue:)]) {
+        [self.delegate playerViewControllerDidRequestQueue:self];
+    }
+}
+
 #pragma mark - VibePlayerCardObserver: the playlist
 
 - (void)playbackDidReplacePlaylist:(id<VibePlayerCardPlayback>)playback {

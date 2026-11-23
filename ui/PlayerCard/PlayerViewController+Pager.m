@@ -219,6 +219,8 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
                     forControlEvents:UIControlEventTouchUpInside];
         [page.remainingTimeControl addTarget:self action:@selector(remainingTimeTapped)
                            forControlEvents:UIControlEventTouchUpInside];
+        [page.queueButton addTarget:self action:@selector(queueTapped)
+                   forControlEvents:UIControlEventTouchUpInside];
         page.routeView.delegate = self;
         // The FX pad owns its touch from the press, the way the scrubber owns
         // a drag: the pager's pan waits for it to fail, and its positions
@@ -294,6 +296,9 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
     // A settings change reaches here through reloadSettings.
     [cell setFXPadShown:host.playerCardShowsFXPad];
     [cell setShuffleRepeatShown:host.playerCardShowsShuffleRepeat];
+    NSString *queueSymbol = [host respondsToSelector:@selector(playerCardQueueSymbol)]
+            ? host.playerCardQueueSymbol : nil;
+    [cell setQueueSymbol:queueSymbol label:(queueSymbol ? [host playerCardQueueLabel] : nil)];
 }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView

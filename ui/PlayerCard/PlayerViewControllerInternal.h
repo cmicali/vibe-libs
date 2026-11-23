@@ -119,6 +119,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 - (void)nextTapped;
 - (void)shuffleTapped;
 - (void)repeatTapped;
+- (void)queueTapped;
 
 // One setting for every page, so every visible page repaints.
 - (void)remainingTimeTapped;

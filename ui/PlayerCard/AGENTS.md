@@ -65,6 +65,10 @@ The track pager and the chrome over it. It owns no playback state. **Only the se
 
 **The pad is momentary.** The lift collapses the pad and releases every effect, and the tails ring out. **A track change is a lift.** The effects belong to the track they were played over, so the model cuts them on the index change. The card dismisses the held pad, found among the pager's holders since it need not be on the bound page. The finger still down does nothing until it presses again. **TRAP: a page recycled mid-hold releases in `prepareForReuse` (`cancelInteraction`).** A track ending mid-hold scrolls the outgoing page away, and without it the effects stayed engaged and the pager locked.
 
+## Queue control
+
+**An app can put a queue button on the page.** The host's optional `playerCardQueueSymbol` and `playerCardQueueLabel` give its glyph and VoiceOver label, read on every configure, so `reloadSettings` applies a change. Its tap goes to the delegate's optional `playerViewControllerDidRequestQueue:`, and the app shows its queue. It is a circle like the FX pad's, at the other end: the trailing end of portrait's action bar, and beside landscape's route pill. The capsule ends a gap before it. **Without it, nothing moves**: the capsule's full-width trailing edge sits just below required, so only the circle's required gap outranks it. The compact layouts hide it, with the pill and the pad. In landscape it narrows the room the shuffle and repeat flanks fit in (`applyShuffleRepeatShown`).
+
 ## TrackPageCell
 
 One full-screen page: blurred art (a baked image, `core/Graphics`' `UIImage+Blur`), header and transport row. `applyLayoutForBounds:` swaps the layout on the cell's own bounds: portrait is the centered card, landscape is the mac window transplanted, and a short iPad window takes one of the two compact layouts. The three wide layouts share one header and differ in the body. Geometry constants are private to the cell. The small views it is built from (the action bar, the time control and the art card) are `TrackPageViews.h`.
