@@ -1,6 +1,6 @@
 //
 //  VibeWidgetState.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  What the app publishes and the widget draws. COMPILED INTO BOTH TARGETS, so
 //  Foundation only: the extension links no app class. Every field is "what was
@@ -25,7 +25,7 @@ NS_ASSUME_NONNULL_BEGIN
 // previews included. nil until set.
 @property (class, nonatomic, readonly, nullable) NSString *readNotification;
 
-// A nil artist means a filename-derived single line (AudioTrack.displayTitle).
+// A nil artist means a single line, such as one derived from the filename.
 @property (nonatomic, copy, nullable) NSString *title;
 @property (nonatomic, copy, nullable) NSString *artist;
 @property (nonatomic) BOOL hasTrack;

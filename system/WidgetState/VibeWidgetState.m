@@ -1,6 +1,6 @@
 //
 //  VibeWidgetState.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "VibeWidgetState.h"

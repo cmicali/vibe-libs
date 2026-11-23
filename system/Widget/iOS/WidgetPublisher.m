@@ -1,6 +1,6 @@
 //
 //  WidgetPublisher.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "WidgetPublisher.h"
