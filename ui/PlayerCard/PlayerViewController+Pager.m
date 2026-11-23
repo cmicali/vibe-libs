@@ -136,6 +136,9 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
 // down. Its open, once current, shows one. A neighbor keeps what it shows until
 // the answer lands, so a refresh does not flash the indicator.
 - (void)hydrateWaveformInCell:(TrackPageCell *)cell atIndex:(NSUInteger)index {
+    if ([self usesStandardScrubber]) {
+        return;  // its waveform is hidden
+    }
     CodableAudioWaveform *snapshot = [_waveformCoordinator snapshotAtIndex:index];
     if (snapshot) {
         // Laid out first, so the scrubber draws at its own width, not a fresh

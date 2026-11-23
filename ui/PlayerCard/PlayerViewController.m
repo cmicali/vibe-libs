@@ -116,19 +116,19 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
     // The pages in hand were likely decoded without the bands: forgotten,
     // each is asked for again as it comes up.
     BOOL bandsWanted = WaveformBandsWanted(_waveformCache);
-    if (bandsWanted && !_waveformBandsWanted) {
+    BOOL refetch = bandsWanted && !_waveformBandsWanted;
+    if (refetch) {
         [_waveformCoordinator reset];
-        [self requestCurrentWaveform];
-        [self fetchNeighborWaveforms];
     }
     _waveformBandsWanted = bandsWanted;
     // The slider asks for no waveform, so a switch back asks now.
     BOOL standard = [self usesStandardScrubber];
-    if (!standard && _usedStandardScrubber) {
+    refetch = refetch || (!standard && _usedStandardScrubber);
+    _usedStandardScrubber = standard;
+    if (refetch) {
         [self requestCurrentWaveform];
         [self fetchNeighborWaveforms];
     }
-    _usedStandardScrubber = standard;
     for (TrackPageCell *cell in _pagesView.visibleCells) {
         NSIndexPath *path = [_pagesView indexPathForCell:cell];
         if (path) {
@@ -468,14 +468,14 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
                            && !_windowResizeInFlight && !_routePickerPresenting);
 }
 
-// The waveform always, as before the slider; the slider only while it shows,
-// since this runs every display frame.
 - (BOOL)usesStandardScrubber {
     id<VibePlayerCardHost> host = VibePlayerCardInstalledHost();
     return [host respondsToSelector:@selector(playerCardScrubber)]
             && host.playerCardScrubber == VibePlayerCardScrubberStandard;
 }
 
+// The waveform always, as before the slider; the slider only while it shows,
+// since this runs every display frame.
 - (void)showProgress:(CGFloat)progress {
     _waveformView.progress = progress;
     if (!_standardScrubber.hidden) {

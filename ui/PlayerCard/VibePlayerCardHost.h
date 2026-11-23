@@ -95,7 +95,8 @@ typedef NS_ENUM(NSInteger, VibePlayerCardScrubber) {
 @property (nonatomic, readonly, copy) NSString *playerCardQueueLabel;
 
 // What a page scrubs with, read on every configure, so reloadSettings applies
-// a change. The waveform without it.
+// a change. The waveform without it. With the slider the card requests no
+// waveform, so noteCompleteWaveform:forTrack: stops too.
 @property (nonatomic, readonly) VibePlayerCardScrubber playerCardScrubber;
 
 @end
