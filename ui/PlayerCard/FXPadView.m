@@ -1,6 +1,6 @@
 //
 //  FXPadView.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "FXPadView.h"
@@ -32,7 +32,7 @@ static const NSTimeInterval kFXPadCollapseDuration = 0.18;
     // this view owns the finger from the press, wherever it goes.
     // Glass only under a finger: at rest the effect is nil and the view
     // hidden, so the live backdrop filter costs nothing while the pad is
-    // unused (Util/iOS/AGENTS.md on why the page itself has none).
+    // unused. The page bakes its blur for the same reason.
     UIVisualEffectView          *_padView;
     // The circle's fill at rest, the owner's; cleared under the glass, which
     // would otherwise refract it as a disc in the pad's corner.
@@ -145,7 +145,7 @@ static const NSTimeInterval kFXPadCollapseDuration = 0.18;
 
 // The room to grow into from the circle's bottom-left corner: to the safe
 // trailing edge and up to the safe top. TRAP: measured when asked, never
-// stored — see Player/AGENTS.md. In the superview's space.
+// stored — see AGENTS.md. In the superview's space.
 - (CGSize)padExtent {
     UIView *host = self.superview;
     if (!host) {

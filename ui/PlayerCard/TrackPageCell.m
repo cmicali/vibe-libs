@@ -1,6 +1,6 @@
 //
 //  TrackPageCell.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "TrackPageCell.h"
@@ -79,7 +79,7 @@ static const CGFloat kCellRouteMaxWidthLandscape = 160;
 static const CGFloat kCellRouteContentInsetLandscape = 6;
 static const CGFloat kCellTimeGap = 12;
 
-// The compact layouts (Player/AGENTS.md). A design threshold, not a fit: under
+// The compact layouts (AGENTS.md). A design threshold, not a fit: under
 // it an iPad window's art and transport row crowd the waveform. A phone's
 // fixed landscape keeps the full layout.
 static const CGFloat kCellCompactMaximumHeight = 600;
@@ -943,7 +943,7 @@ static UIImage *TransportGradientImage(void) {
     [super prepareForReuse];
     // TRAP: a page recycled under a held pad — a track ending mid-hold scrolls
     // the outgoing page away — must release, or the effects stay engaged and
-    // the pager stays locked (the scrubber's release trap, Player/AGENTS.md).
+    // the pager stays locked (the scrubber's release trap, AGENTS.md).
     [_fxPadView cancelInteraction];
     [_waveformView prepareForWaveformLoad];
     _elapsedLabel.text = VibePlayerCardLabelText(VibePlayerCardLabelTimeUnknown);

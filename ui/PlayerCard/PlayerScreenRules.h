@@ -1,10 +1,9 @@
 //
 //  PlayerScreenRules.h
-//  Vibe (iOS)
+//  vibe-libs
 //
-//  The player screen's display state, tested from the macOS suite. Separate
-//  from the mac's TrackDisplayRules.h: no launch grace here, and parked tracks
-//  the mac has no equivalent of. Also the card's pager and a scrub's action.
+//  The player screen's display state, header-only so a macOS suite can test
+//  it (AGENTS.md, Tests). Also the card's pager and a scrub's action.
 //
 
 #import <Foundation/Foundation.h>

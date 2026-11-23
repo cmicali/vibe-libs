@@ -1,6 +1,6 @@
 //
 //  PlayerViewController.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The now-playing card: the track pager and the chrome over it. It observes
 //  the playback it is made with and owns no playback state.

@@ -1,6 +1,6 @@
 //
 //  PageWaveformCoordinator.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "PageWaveformCoordinator.h"

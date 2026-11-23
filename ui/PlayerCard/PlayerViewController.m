@@ -1,6 +1,6 @@
 //
 //  PlayerViewController.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The chrome, the update funnel and the playback events. The
 //  categories share PlayerViewControllerInternal.h.

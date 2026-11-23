@@ -1,6 +1,6 @@
 //
 //  PlayerViewController+Pager.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  Neighbor pages preview cached waveforms; only the settled page commits
 //  playback and requests a decode, in commitVisiblePage.
@@ -244,7 +244,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
     }
     else {
         // Rest at the start, as the labels do: committing a page plays from
-        // the top (Player/AGENTS.md).
+        // the top (AGENTS.md).
         page.waveformView.progress = 0;
         [PlayerViewController renderRestingTimesForTrack:[_playlist trackAtIndex:index]
                                                  elapsed:page.elapsedLabel

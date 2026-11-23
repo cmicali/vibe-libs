@@ -1,6 +1,6 @@
 //
 //  TrackPageViews.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The small views a TrackPageCell is built from.
 //

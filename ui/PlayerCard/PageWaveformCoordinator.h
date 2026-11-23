@@ -1,6 +1,6 @@
 //
 //  PageWaveformCoordinator.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  Between AudioWaveformCache's current delivery target and the pager:
 //  which page that load targets, and the latest snapshot per page with the

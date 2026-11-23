@@ -1,6 +1,6 @@
 //
 //  TrackPageViews.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "TrackPageViews.h"

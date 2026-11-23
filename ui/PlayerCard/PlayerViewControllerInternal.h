@@ -1,6 +1,6 @@
 //
 //  PlayerViewControllerInternal.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The private surface shared by PlayerViewController.m and its categories;
 //  no other file imports it. The debug surface is

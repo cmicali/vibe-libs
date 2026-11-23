@@ -1,11 +1,11 @@
 //
 //  FXPadView.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The card's FX pad: the FX circle at rest, a square glass pad under a finger.
 //  It draws and reports normalized positions from the press point only; what
-//  the axes mean is the model's (PlaybackController.setFXPadPosition:engaged:
-//  over AudioFXMath.h), and the geometry's rationale is Player/AGENTS.md's.
+//  the axes mean is the model's (setFXPadPosition:engaged:), and the
+//  geometry's rationale is AGENTS.md's.
 //  OutputRouteView's twin: the cell places and styles it, the controller
 //  wires its delegate.
 //

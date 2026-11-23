@@ -1,6 +1,6 @@
 //
 //  PlayerViewController+Pager.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The track pager, Photos semantics: only the settled page commits
 //  (commitVisiblePage). It also owns the art window.

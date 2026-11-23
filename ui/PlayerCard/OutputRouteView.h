@@ -1,6 +1,6 @@
 //
 //  OutputRouteView.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  A page's output-route indicator: a glyph, the device name when the audio is
 //  off-device, and a tap that raises the system route picker. It draws only

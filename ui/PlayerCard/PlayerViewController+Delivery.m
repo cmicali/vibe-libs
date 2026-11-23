@@ -1,6 +1,6 @@
 //
 //  PlayerViewController+Delivery.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The coordinator matches waveform deliveries by sourceKey. Scrub events
 //  apply only to the bound view. Pager holds release by the view that took them.

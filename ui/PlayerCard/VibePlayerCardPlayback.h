@@ -1,6 +1,6 @@
 //
 //  VibePlayerCardPlayback.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The player as the now-playing card sees it. The card names no model class
 //  of the app's. It pages through a queue of items, reads the player's state,

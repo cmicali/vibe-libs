@@ -1,6 +1,6 @@
 //
 //  VibePlayerCardHost.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The app as the now-playing card sees it: the card's words, how it formats
 //  times and info lines, and the settings it draws from. The card reads no

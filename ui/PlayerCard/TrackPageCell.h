@@ -1,6 +1,6 @@
 //
 //  TrackPageCell.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  One full-screen page. Every page carries its own waveform, so a neighbor
 //  pulled into view shows its own track's. Portrait ends in the FX pad's
