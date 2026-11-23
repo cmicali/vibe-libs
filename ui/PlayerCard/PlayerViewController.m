@@ -460,9 +460,11 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
                            && !_windowResizeInFlight && !_routePickerPresenting);
 }
 
+// The waveform always, as before the slider; the slider only while it shows,
+// since this runs every display frame.
 - (void)showProgress:(CGFloat)progress {
     _waveformView.progress = progress;
-    if (!_standardScrubber.isTracking) {
+    if (!_standardScrubber.hidden) {
         _standardScrubber.value = (float)progress;
     }
 }
@@ -506,15 +508,13 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
     }
     if (VibePlayerScreenRendersRestingTimes(_playback.screenState)) {
         // scrollTick:'s precedence.
-        if (_playback.seekInFlight && ![self isScrubbing]) {
+        if (_playback.seekInFlight) {
             [self showProgress:_playback.pendingSeekProgress];
             [self renderRestingTimesForTrack:_playlist.currentTrack];
             return;
         }
         [self renderRestingTimesForTrack:_playlist.currentTrack];
-        if (![self isScrubbing]) {
-            [self showProgress:0];
-        }
+        [self showProgress:0];
         return;
     }
     NSTimeInterval position = _playback.position;
@@ -526,7 +526,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
             _elapsedLabel.text = elapsed;
         }
         _remainingTimeControl.text = VibeRightTimeText(position, duration);
-        if (![self isScrubbing] && !_playback.seekInFlight) {
+        if (!_playback.seekInFlight) {
             [self showProgress:position / duration];
         }
     }

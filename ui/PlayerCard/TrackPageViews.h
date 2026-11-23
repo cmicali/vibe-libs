@@ -29,4 +29,13 @@ void VibeConfigureTimeLabel(UILabel *label);
 @interface TrackPageArtCardView : UIView
 @end
 
+// The standard scrubber, a slider that answers cancelInteraction as every
+// view holding the pager does.
+@interface VibeTrackPageSlider : UISlider
+// Ends a drag and sends UIControlEventTouchCancel, which the controller
+// releases the pager's hold on. TRAP: a slider's own cancelled tracking sends
+// no event, so a page recycled mid-drag would leave the pager held.
+- (void)cancelInteraction;
+@end
+
 NS_ASSUME_NONNULL_END

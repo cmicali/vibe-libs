@@ -280,7 +280,7 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         _waveformView.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelWaveform);
         [content addSubview:_waveformView];
 
-        _standardScrubber = [[UISlider alloc] init];
+        _standardScrubber = [[VibeTrackPageSlider alloc] init];
         _standardScrubber.minimumTrackTintColor = [UIColor labelColor];
         _standardScrubber.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelWaveform);
         _standardScrubber.hidden = YES;
@@ -929,25 +929,14 @@ static UIImage *TransportGradientImage(void) {
         return;
     }
     // A switch mid-drag releases the outgoing scrubber's pager hold.
+    [(shown ? (id)_waveformView : _standardScrubber) cancelInteraction];
+    // Only the shown one is written (showProgress:), so the slider starts
+    // where the waveform is.
     if (shown) {
-        [_waveformView cancelInteraction];
-    }
-    else {
-        [self cancelStandardScrub];
+        _standardScrubber.value = (float)_waveformView.progress;
     }
     _waveformView.hidden = shown;
     _standardScrubber.hidden = !shown;
-}
-
-// TRAP: a slider's cancelled tracking sends no event, and the controller
-// releases the pager's hold on TouchCancel, so it is sent here. A page
-// recycled mid-drag otherwise leaves the pager unswipeable.
-- (void)cancelStandardScrub {
-    if (!_standardScrubber.isTracking) {
-        return;
-    }
-    [_standardScrubber cancelTrackingWithEvent:nil];
-    [_standardScrubber sendActionsForControlEvents:UIControlEventTouchCancel];
 }
 
 - (void)setQueueSymbol:(NSString *)symbol label:(NSString *)label {
@@ -1037,7 +1026,7 @@ static UIImage *TransportGradientImage(void) {
     // the pager stays locked (the scrubber's release trap, AGENTS.md).
     [_fxPadView cancelInteraction];
     [_waveformView prepareForWaveformLoad];
-    [self cancelStandardScrub];
+    [_standardScrubber cancelInteraction];
     _standardScrubber.value = 0;
     _elapsedLabel.text = VibePlayerCardLabelText(VibePlayerCardLabelTimeUnknown);
     _remainingTimeControl.text = VibePlayerCardLabelText(VibePlayerCardLabelTimeUnknown);
