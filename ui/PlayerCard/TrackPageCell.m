@@ -151,11 +151,6 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
     // while it shows (setQueueSymbol:).
     NSLayoutConstraint *_fileInfoTrailingBeforeQueue;
     NSString           *_queueSymbol;
-    // The slider has no headroom, so it sits on the time row where the row
-    // hangs off the scrubber, and centers in compact's row, whose times are
-    // in the header.
-    NSLayoutConstraint *_sliderOverTimes;
-    NSLayoutConstraint *_sliderCentered;
 
     // Joined on one line in portrait, stacked in landscape as on the mac.
     NSString           *_fileInfo;
@@ -290,7 +285,6 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
 
         _standardScrubber = [[VibeTrackPageSlider alloc] init];
         _standardScrubber.minimumTrackTintColor = [UIColor labelColor];
-        _standardScrubber.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelWaveform);
         _standardScrubber.hidden = YES;
         _standardScrubber.translatesAutoresizingMaskIntoConstraints = NO;
         [content addSubview:_standardScrubber];
@@ -362,10 +356,10 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         // and never into the safe area.
         UILayoutGuide *safe = content.safeAreaLayoutGuide;
         NSLayoutConstraint *sliderLeading = [_standardScrubber.leadingAnchor
-                constraintEqualToAnchor:_waveformView.leadingAnchor constant:16];
+                constraintEqualToAnchor:_waveformView.leadingAnchor constant:kCellTimeEdgeInset];
         sliderLeading.priority = UILayoutPriorityRequired - 1;
         NSLayoutConstraint *sliderTrailing = [_standardScrubber.trailingAnchor
-                constraintEqualToAnchor:_waveformView.trailingAnchor constant:-16];
+                constraintEqualToAnchor:_waveformView.trailingAnchor constant:-kCellTimeEdgeInset];
         sliderTrailing.priority = UILayoutPriorityRequired - 1;
         [NSLayoutConstraint activateConstraints:@[
             [_backdropView.topAnchor constraintEqualToAnchor:content.topAnchor],
@@ -395,8 +389,10 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             [_waveformView.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
             sliderLeading,
             sliderTrailing,
-            [_standardScrubber.leadingAnchor constraintGreaterThanOrEqualToAnchor:safe.leadingAnchor constant:16],
-            [_standardScrubber.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor constant:-16],
+            [_standardScrubber.leadingAnchor constraintGreaterThanOrEqualToAnchor:safe.leadingAnchor
+                                                                         constant:kCellTimeEdgeInset],
+            [_standardScrubber.trailingAnchor constraintLessThanOrEqualToAnchor:safe.trailingAnchor
+                                                                      constant:-kCellTimeEdgeInset],
             [_remainingTimeControl.bottomAnchor constraintEqualToAnchor:_elapsedLabel.bottomAnchor],
             [_elapsedLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_remainingTimeControl.leadingAnchor
                                                                    constant:-kCellTimeGap],
@@ -412,14 +408,19 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         ]];
         [NSLayoutConstraint activateConstraints:[self transportGapConstraints]];
 
-        _sliderOverTimes = [_standardScrubber.bottomAnchor constraintEqualToAnchor:_elapsedLabel.topAnchor];
-        _sliderCentered = [_standardScrubber.centerYAnchor constraintEqualToAnchor:_waveformView.centerYAnchor];
-
-        _portraitLayout = [self buildPortraitLayout];
+        _portraitLayout = [[self buildPortraitLayout] arrayByAddingObject:[self sliderOverTimes]];
         [self buildWideLayouts];
         _fxPadShown = YES;
     }
     return self;
+}
+
+// The slider has no headroom, so it sits on the time row wherever the row
+// hangs off the waveform. Compact's times are in the header, so there it
+// centers in the waveform's row. A new constraint each call, since each
+// layout's array holds its own.
+- (NSLayoutConstraint *)sliderOverTimes {
+    return [_standardScrubber.bottomAnchor constraintEqualToAnchor:_elapsedLabel.topAnchor];
 }
 
 // Four gaps as layout guides, so each pair can be held equal: the three stay
@@ -757,6 +758,7 @@ static UIImage *TransportGradientImage(void) {
         waveformRowHeight,
         [_elapsedLabel.centerYAnchor constraintEqualToAnchor:timeBand.centerYAnchor],
         [_elapsedLabel.centerXAnchor constraintEqualToAnchor:_fxPadView.centerXAnchor],
+        [self sliderOverTimes],
     ]];
 
     // Both compact layouts: the three on the art's lower edge, the times in
@@ -783,6 +785,7 @@ static UIImage *TransportGradientImage(void) {
         namesOnArt,
         waveformRowHeight,
         [_waveformView.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [_standardScrubber.centerYAnchor constraintEqualToAnchor:_waveformView.centerYAnchor],
     ]];
 
     // The mac's header band: the art fills it, the names on top beside it,
@@ -801,6 +804,7 @@ static UIImage *TransportGradientImage(void) {
                                                              constant:kCellStripWaveformGap],
         [_waveformView.bottomAnchor constraintEqualToAnchor:_elapsedLabel.topAnchor
                                                    constant:kCellTimeWaveformOverlap],
+        [self sliderOverTimes],
     ]];
 }
 
@@ -843,12 +847,6 @@ static UIImage *TransportGradientImage(void) {
     [self applyActionBarSplit];
     [self applyRouteTimeAlignment];
     [self applyQueueControl];
-    // Off before on, as the layouts are.
-    BOOL timesInHeader = layout == _compactLayout;
-    _sliderOverTimes.active = NO;
-    _sliderCentered.active = NO;
-    _sliderOverTimes.active = !timesInHeader;
-    _sliderCentered.active = timesInHeader;
 
     NSTextAlignment alignment = landscape ? NSTextAlignmentLeft : NSTextAlignmentCenter;
     _titleLabel.textAlignment = alignment;
@@ -944,19 +942,44 @@ static UIImage *TransportGradientImage(void) {
     [self applyFileInfoText];
 }
 
+- (BOOL)isStandardScrubberShown {
+    return !_standardScrubber.hidden;
+}
+
 - (void)setStandardScrubberShown:(BOOL)shown {
-    if (_standardScrubber.hidden == !shown) {
+    // Asked only for the slider, so a host that keeps the waveform is never
+    // asked for the word.
+    if (shown) {
+        _standardScrubber.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelPosition);
+    }
+    if (self.standardScrubberShown == shown) {
         return;
     }
     // A switch mid-drag releases the outgoing scrubber's pager hold.
     [(shown ? (id)_waveformView : _standardScrubber) cancelInteraction];
-    // Only the shown one is written (showProgress:), so the slider starts
-    // where the waveform is.
-    if (shown) {
-        _standardScrubber.value = (float)_waveformView.progress;
-    }
+    // Only the shown one is written (setScrubProgress:), so the incoming one
+    // starts where the outgoing one was.
+    CGFloat progress = self.scrubProgress;
     _waveformView.hidden = shown;
     _standardScrubber.hidden = !shown;
+    self.scrubProgress = progress;
+}
+
+- (CGFloat)scrubProgress {
+    return self.standardScrubberShown ? _standardScrubber.value : _waveformView.progress;
+}
+
+- (void)setScrubProgress:(CGFloat)progress {
+    if (self.standardScrubberShown) {
+        [_standardScrubber showPlayheadProgress:progress];
+    }
+    else {
+        _waveformView.progress = progress;
+    }
+}
+
+- (BOOL)isScrubbing {
+    return _waveformView.isScrubbing || _standardScrubber.isTracking;
 }
 
 - (void)setQueueSymbol:(NSString *)symbol {

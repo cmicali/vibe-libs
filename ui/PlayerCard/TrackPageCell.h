@@ -31,7 +31,12 @@ NS_ASSUME_NONNULL_BEGIN
 // The plain slider an app can ask for in the waveform's place
 // (VibePlayerCardScrubberStandard). Shown, the waveform is hidden.
 @property (nonatomic, readonly) VibeTrackPageSlider *standardScrubber;
-- (void)setStandardScrubberShown:(BOOL)shown;
+@property (nonatomic, getter=isStandardScrubberShown) BOOL standardScrubberShown;
+// The page's playhead, on whichever scrubber shows. Only that one is
+// written, and a switch carries the position across.
+@property (nonatomic) CGFloat scrubProgress;
+// A scrub of either kind is under a finger, and owns the time labels.
+@property (nonatomic, readonly, getter=isScrubbing) BOOL scrubbing;
 @property (nonatomic, readonly) UILabel *elapsedLabel;
 // One mode for the whole app, so the controller owns the target.
 @property (nonatomic, readonly) TrackPageTimeControl *remainingTimeControl;

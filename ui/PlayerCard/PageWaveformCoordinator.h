@@ -74,6 +74,11 @@ NS_ASSUME_NONNULL_BEGIN
 // cancels the load.
 - (void)reset;
 
+// Stops the load and every pending read, and clears the target and what the
+// hold owes. The snapshots stay. A late delivery is dropped, and the next
+// request starts again.
+- (void)cancelLoads;
+
 // Partial or full.
 - (nullable CodableAudioWaveform *)snapshotAtIndex:(NSUInteger)index;
 
