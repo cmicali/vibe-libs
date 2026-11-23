@@ -601,6 +601,21 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/Rows"]
 
+  # iOS only, so no macOS target may list it. The now-playing card draws each
+  # page's scrubber from WaveformView and loads it through WaveformLoading. It
+  # reads a row's tags through Metadata, the repeat modes from PlayQueue, the
+  # route from OutputDevices, the pad's axes from FX, and the placeholder
+  # check from FileLoading. It links AVKit for the route picker.
+  VibeLibsPlayerCard:
+    templates: [VibeLibsCommon, VibeLibsGraphics, VibeLibsAudioTypes, VibeLibsFX, VibeLibsOutputDevices, VibeLibsFileLoading, VibeLibsMetadata, VibeLibsPlayQueue, VibeLibsWaveformLoading, VibeLibsWaveformView]
+    sources:
+      - path: ui/PlayerCard
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/PlayerCard"]
+        OTHER_LDFLAGS: ["$(inherited)", "-framework", "AVKit"]
+
   # ---- third_party/: other authors' code, one piece per library ----
   #
   # Each template carries the compiler flags its library builds with, so an
