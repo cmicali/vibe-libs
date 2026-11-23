@@ -1,6 +1,6 @@
 # ui/PlayerCard
 
-An iOS music app's now-playing card: a pager of tracks, each page with its art, waveform scrubber, transport, FX pad, and output route. **It is iOS only.** It depends on `waveform/WaveformView`, `waveform/WaveformLoading`, `waveform/WaveformStyles`, `media/Metadata`, `media/PlayQueue`, `audio/AudioTypes`, `audio/FX`, `audio/OutputDevices`, `files/FileLoading`, `core/Graphics`, and `core/Common`. It does not use `ui/Rows`. It links AVKit for the route picker.
+An iOS music app's now-playing card: a pager of tracks, each page with its art, waveform scrubber, transport, FX pad, and output route. **It is iOS only.** It depends on `waveform/WaveformView`, `waveform/WaveformLoading`, `waveform/WaveformStyles`, `media/Metadata`, `media/PlayQueue`, `audio/AudioTypes`, `audio/FX`, `audio/OutputDevices`, `files/FileLoading`, `core/Graphics`, and `core/Common`. It does not use `ui/Rows`.
 
 | File | Owns |
 | --- | --- |
@@ -17,7 +17,7 @@ An iOS music app's now-playing card: a pager of tracks, each page with its art, 
 
 List `VibeLibsPlayerCard` in an iOS target.
 
-**The app installs one host at launch, before any card is made** (`VibePlayerCardInstallHost`). The card reads no setting, string, formatter, or asset of the app's. It asks the host live, so a setting written anywhere shows at the next render. The host gives every word through one enum (`VibePlayerCardLabel`), formats times and info lines, says whether the right time shows what is left, whether the FX pad and the shuffle and repeat flanks show, and gives the placeholder art and the stored zoom. It pushes the waveform settings into each page's scrubber, and configures the card's waveform cache once, before its first lookup.
+**The app installs one host at launch, before any card is made** (`VibePlayerCardInstallHost`). The card reads no setting, string, formatter, or asset of the app's. It asks the host live, so a setting written anywhere shows at the next render. The host gives every word through one enum (`VibePlayerCardLabel`), formats times and info lines, says whether the right time shows what is left, whether the FX pad and the shuffle and repeat flanks show, and gives the placeholder art and the stored zoom. It also styles each page's scrubber (below) and sets up the waveform cache (PageWaveformCoordinator).
 
 **The app's model adopts the four protocols in `VibePlayerCardPlayback.h`**: the playback, the queue, the item, and the observer. The queue and item protocols can be adopted in categories with no code, as Vibe's are. The model does what the card asks: it plays, seeks, sets the FX pad's position, stamps a decode's analysis, and takes each complete waveform and loaded art.
 
