@@ -11,7 +11,7 @@
 //  backdrop snapshot can sit above the tabs' whole view.
 //
 //  The card is built once and never torn down. Minimizing translates it off
-//  the bottom, so its pager, art and waveform snapshots survive.
+//  the bottom, so the card's own state survives.
 //
 
 #import <UIKit/UIKit.h>

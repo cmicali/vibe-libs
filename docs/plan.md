@@ -152,8 +152,8 @@ vibe-libs/
 │   │                    app's sources, with the actions, words, and rows the app supplies
 │   ├── PlayerCard       iOS only: the now-playing card, a pager of tracks, each with its
 │   │                    art, waveform scrubber, transport, FX pad, and output route
-│   └── TabShell         iOS only: the tab shell, the tabs, the mini player in their
-│                        accessory, and the card above them with its expand and minimize
+│   └── TabShell         iOS only: the tabs, the mini player in their accessory, and the
+│                        card above them with its expand and minimize
 │
 ├── system/
 │   ├── NowPlaying       Now Playing info and remote commands, fed the track's values
@@ -688,7 +688,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | Full app on iOS: file and track rows | `ui/Rows` | move | 6 | Vibe's `RowViewsTests`, through the template | |
 | Full app on iOS: browsing and importing files | `ui/FilesBrowser` | move | 6 | Vibe's `FolderScreenHostTests` through the template, and its `LocationStoreTests` and `BrowserRulesTests` | |
 | Full app on iOS: the now-playing card | `ui/PlayerCard` | move | 6 | Vibe's `PlayerViewControllerTests`, `PageWaveformCoordinatorTests`, and `PlayerScreenRulesTests`, through the template | |
-| Full app on iOS: the tab shell | `ui/TabShell` | move | 6 | Vibe's `RootViewControllerTests` and `check-layout-stability.sh`, through the template | |
+| Full app on iOS: the tab shell | `ui/TabShell` | move | 6 | Vibe's `RootViewControllerTests`, through the template | |
 
 Nothing else is scheduled for the other app. The shell pieces are scheduled for a third app, on the shell track. Portable rewrites wait until a consumer needs them.
 

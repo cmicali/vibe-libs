@@ -113,9 +113,10 @@ static const CGFloat kDismissFlickVelocity = 900;
 
 #pragma mark - Appearance forwarding
 
-// Automatic forwarding would tell the minimized card it appeared and double
-// the pairs expand and minimize send. TRAP: the switch is per-parent — off for
-// the card is off for the tabs, so both are forwarded by hand.
+// Automatic forwarding would tell the minimized card it appeared. It would
+// also double the pairs expand and minimize send. TRAP: the switch is
+// per-parent. Off for the card is off for the tabs, so both are forwarded by
+// hand.
 - (BOOL)shouldAutomaticallyForwardAppearanceMethods {
     return NO;
 }
@@ -200,10 +201,11 @@ static const CGFloat kDismissFlickVelocity = 900;
 #pragma mark - The mini player
 
 // TRAP: the strip stays installed under the card. Taking the accessory away
-// on expand shrinks every tab's bottom inset by the strip, a list scrolled
-// to its end is clamped up by that much under the snapshot, and putting it
-// back on dismiss moves nothing: one card cycle left the last row behind
-// the strip. The card hides the tabs, strip included, so it costs nothing.
+// on expand shrinks every tab's bottom inset by the strip. A list scrolled to
+// its end is then clamped up by that much under the snapshot. Putting the
+// strip back on dismiss moves nothing, so one card cycle left the last row
+// behind the strip. The card hides the tabs, strip included, so it costs
+// nothing.
 - (void)setMiniPlayerRow:(VibeTrackRow *)row playing:(BOOL)playing {
     BOOL wanted = row != nil;
     if (wanted) {
@@ -234,8 +236,8 @@ static const CGFloat kDismissFlickVelocity = 900;
     if (!_rootPresentationVisible) {
         return;
     }
-    // A card intent can land between this container's will/did; appearance
-    // transitions cannot nest, so end the parent's pair first.
+    // A card intent can land between this container's will and did.
+    // Appearance transitions cannot nest, so end the parent's pair first.
     [self finishParentAppearanceTransition];
     [_card beginAppearanceTransition:appearing animated:animated];
     _cardAppearanceTransitionActive = YES;
@@ -338,9 +340,9 @@ static const CGFloat kDismissFlickVelocity = 900;
     }];
 }
 
-// TRAP: the card moves by TRANSFORM, never by frame: a WaveformScrubberView
-// redraws its picture on any bounds change, which a frame animation would
-// pay on every frame of an expand, on every page.
+// TRAP: the card moves by TRANSFORM, never by frame. A card that draws
+// waveforms redraws them on any bounds change. A frame animation would pay
+// that on every frame of an expand.
 //
 // The one place that knows the card is moving, so it brackets the backdrop.
 - (void)animateCardAnimated:(BOOL)animated
@@ -402,11 +404,12 @@ static const CGFloat kDismissFlickVelocity = 900;
     [_card endAppearanceTransition];
 }
 
-// A card at rest covers the tabs, so they are hidden: shown, the glass tab
-// bar keeps sampling for nothing. While the card moves a snapshot stands in
-// for them and they are shown under it, drawn twice for those frames on
-// purpose: the tab bar comes back with an appearance of its own, which then
-// plays out under the snapshot rather than after the card has landed.
+// An expanded card that has settled covers the tabs, so they are hidden.
+// Shown, the glass tab bar would keep sampling for nothing. While the card
+// moves, a snapshot stands in for them and they are shown under it. They are
+// drawn twice for those frames on purpose. The tab bar comes back with an
+// appearance of its own, which then plays out under the snapshot rather than
+// after the card has landed.
 - (void)updateBackdropVisibility {
     BOOL hidden = _expanded && !_cardAnimating && !_interactiveDrag;
     if (_tabs.view.hidden != hidden) {
@@ -457,8 +460,8 @@ static const CGFloat kDismissFlickVelocity = 900;
 
 #pragma mark - The interactive minimize
 
-// `presented` holds for the whole gesture, so a cancelled drag has not stopped
-// the card's display link.
+// `presented` holds for the whole gesture, so a cancelled drag has not
+// stopped the card's work.
 - (void)cardDidPanWithTranslation:(CGFloat)translation
                          velocity:(CGFloat)velocity
                             state:(UIGestureRecognizerState)state {
@@ -532,7 +535,7 @@ static const CGFloat kDismissFlickVelocity = 900;
 
 // UITab has no view of its own, so the bar's is found by the label it draws.
 // A bar that is not on screen answers NO, and so does one drawn without that
-// label. The iPad's bar is elsewhere.
+// label. An iPad whose tabs sit in a sidebar answers NO.
 - (BOOL)getCenterOfTabWithIdentifier:(NSString *)identifier center:(CGPoint *)center {
     UITabBar *bar = _tabs.tabBar;
     NSString *title = [_tabs tabForIdentifier:identifier].title;
