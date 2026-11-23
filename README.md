@@ -6,7 +6,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first forty-nine pieces are here.** Each came from Vibe, but for libwavpack and the Monkey's Audio SDK. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first fifty pieces are here.** Each came from Vibe, but for libwavpack and the Monkey's Audio SDK. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |
@@ -42,6 +42,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `ui/DropWells` | The wells a drag of files over a window shows. macOS only. |
 | `ui/Rows` | The track row, the mini player strip, and the file row pieces an iOS music app lists with. iOS only. |
 | `ui/FilesBrowser` | A browser of granted folders and an app's sources, with the app's actions and rows. iOS only. |
+| `ui/PlayerCard` | An iOS music app's now-playing card: a pager of tracks, each with its art, waveform scrubber, transport, FX pad, and output route. iOS only. |
 | `system/NowPlaying` | A bridge to the system's Now Playing info and remote commands. |
 | `system/AppOpening` | One open request from the batches the mac splits it into, delivered in order. macOS only. |
 | `system/Updates` | Sparkle for a direct-download mac app. macOS only. |
