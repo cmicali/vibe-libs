@@ -157,6 +157,11 @@ vibe-libs/
 │
 ├── system/
 │   ├── NowPlaying       Now Playing info and remote commands, fed the track's values
+│   ├── WidgetState      the snapshot a widget draws, which the app writes and its
+│   │                    extension reads; Foundation only
+│   ├── Widget           a widget's app side: iOS/ the publisher of the snapshot, its
+│   │                    art, its waveform strip, and its reloads; the rule of when
+│   │                    to publish
 │   ├── AppOpening       on the mac, one open request from the batches Launch Services
 │   │                    splits it into, delivered in order
 │   └── Updates          Sparkle for a direct-download build, compiled out of an App Store build
@@ -223,6 +228,8 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | ui/PlayerCard | waveform/WaveformView, waveform/WaveformLoading, waveform/WaveformStyles, media/Metadata, media/PlayQueue, audio/AudioTypes, audio/FX, audio/OutputDevices, files/FileLoading, core/Graphics, iOS only |
 | ui/TabShell | ui/Rows, iOS only |
 | system/NowPlaying | core/Graphics, media/PlayQueue |
+| system/WidgetState | nothing |
+| system/Widget | system/WidgetState, system/NowPlaying, waveform/WaveformStyles, waveform/Waveform, audio/AudioTypes, core/Graphics; the publisher sits in its iOS half |
 | system/AppOpening | nothing, macOS only |
 | system/Updates | third_party/Sparkle, macOS only |
 | dev/DebugChannel | nothing |
@@ -653,6 +660,7 @@ Each remaining candidate moves when a second app needs it, with the cuts it was 
 - **The iOS files browser**, since the other app browses granted folders and a Dropbox mirror as Vibe does, and imports from them. It moved on 2026-11-22 as a new piece, `ui/FilesBrowser`, which is iOS only (this repo's #181). Its 15 files moved with their history: the root, the folder screens, the host they read, the default art holder, the browser's rules, and the Locations store. Four prep pull requests in Vibe came first (Vibe #455, #456, #458, and #459). They were the piece's part of seam 21. The screens stopped reading Vibe's playback, settings, strings, model, Dropbox mirror, and root rows. The app hands in a host with its actions, words, sources, and rows, and configures the store's keys and root names. Their tests stay in Vibe's simulator suite (`ui/FilesBrowser/AGENTS.md`).
 - **The now-playing card**, since the other app plays tracks on iOS as Vibe does. It moved on 2026-11-22 as a new piece, `ui/PlayerCard`, which is iOS only. Its 21 files moved with their history. Three prep pull requests in Vibe came first (Vibe #449, #451, and #457). They were the card's part of seam 21. Its tests stay in Vibe's simulator suite (`ui/PlayerCard/AGENTS.md`).
 - **The tab shell**, since the other app uses a thin stand-in for it and wants the real one. It moved on 2026-11-23 as a new piece, `ui/TabShell`, which is iOS only. Its 2 files moved with their history. One prep pull request in Vibe came first (Vibe #464). It cut the shell loose from Vibe's model: the app hands in the tabs, the card and the strip's row, and hears the rest through a delegate. Its tests stay in Vibe's simulator suite (`ui/TabShell/AGENTS.md`).
+- **The Home Screen widget's app side**, since the other app shows a widget as Vibe does. It moved on 2026-11-23 as two new pieces. `system/WidgetState` is the snapshot, which the app and its extension both compile, so it is Foundation only and depends on nothing. `system/Widget` is the publisher, iOS only, in its `iOS/` half, and the rule of when to publish, which both platforms build. Their 4 files and the snapshot's tests moved with their history. Three prep pull requests in Vibe came first (Vibe #461, #463, and #465). The publisher stopped reading Vibe's settings and model: the app hands in its tracks, the strip's look, and WidgetKit's two calls, and names the app group. One change came after the move. The rule of when to publish left the snapshot's header for one of the publisher's, so the extension's piece needs no Now Playing code. Each app keeps its extension, its app group's name, its WidgetKit calls, and its buttons' App Intents, whose titles are its strings (`system/Widget/AGENTS.md`).
 
 **Wave 10 moved the rest but the pitch fader on 2026-10-23**, in this order:
 
@@ -689,6 +697,7 @@ One list of what the other app waits on, so no prerequisite stays "later". A mov
 | Full app on iOS: browsing and importing files | `ui/FilesBrowser` | move | 6 | Vibe's `FolderScreenHostTests` through the template, and its `LocationStoreTests` and `BrowserRulesTests` | |
 | Full app on iOS: the now-playing card | `ui/PlayerCard` | move | 6 | Vibe's `PlayerViewControllerTests`, `PageWaveformCoordinatorTests`, and `PlayerScreenRulesTests`, through the template | |
 | Full app on iOS: the tab shell | `ui/TabShell` | move | 6 | Vibe's `RootViewControllerTests`, through the template | |
+| Full app on iOS: a Home Screen widget | `system/Widget` and `system/WidgetState` | move | 6 | `VibeWidgetStateTests` and `VibeWidgetPublishRulesTests` here, and Vibe's `WidgetPublisherTests` through the template | |
 
 Nothing else is scheduled for the other app. The shell pieces are scheduled for a third app, on the shell track. Portable rewrites wait until a consumer needs them.
 

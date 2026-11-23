@@ -1,0 +1,447 @@
+//
+//  WidgetPublisher.m
+//  vibe-libs
+//
+
+#import "WidgetPublisher.h"
+
+#import <notify.h>
+#import <stdatomic.h>
+
+#import "UIImage+DominantColor.h"
+#import "VibeMacros.h"
+#import "VibeWidgetPublishRules.h"
+#import "VibeWidgetState.h"
+#import "WaveformRendererRegistry.h"
+
+// Allow the title and the later waveform bake to request separate reloads.
+static const uint64_t kWidgetReloadMinInterval = NSEC_PER_SEC / 4;
+
+// Request fresh dense entries during playback. WidgetKit controls delivery.
+static const NSTimeInterval kWidgetPlayingReloadInterval = 60;
+
+// Pixels. The large widget draws it at up to 190pt, at 3x.
+static const CGFloat kWidgetArtworkSide = 576;
+
+// Stretched to fit, so only the ASPECT matters. It is the medium widget's.
+// The small waveform tile draws the same images narrower and slightly taller.
+static const CGSize  kWidgetWaveformSize  = (CGSize){320, 64};
+static const CGFloat kWidgetWaveformScale = 3;
+
+@implementation WidgetPublisher {
+    // Kept current whether or not anything is written: a widget usually
+    // appears in the background, where no tick is guaranteed.
+    VibeWidgetState      *_published;
+    // A pointer compare, deliberately: a track's cacheKey can stat the file
+    // and need not memoize a failure, a blocking syscall at 3 Hz on a dropped
+    // mount.
+    __weak id<VibeWidgetTrack> _publishedTrack;
+    BOOL                  _artworkOnDisk;
+    // So the sweep after the next commit keeps this track's images once more.
+    NSString             *_committedKey;
+
+    CodableAudioWaveform *_waveform;
+    __weak id<VibeWidgetTrack> _waveformTrack;
+    // The look the app gave, all of which the bake reads.
+    WaveformThemeProvider _themeProvider;
+    NSString             *_waveformStyle;
+    BOOL                  _waveformCentered;
+    BOOL                  _drawsPlayheadLine;
+    // The last bake's; see bakeWaveformIfNeeded.
+    NSString             *_bakedSignature;
+    // Bumped on main by each bake request. A queued bake whose generation is
+    // no longer current skips; a started one completes first.
+    _Atomic uint64_t      _bakeGeneration;
+    // Queue-only; scheduleReload's throttle (uptime nanos).
+    BOOL                  _reloadQueued;
+    uint64_t              _lastReloadAt;
+    // Main; runs only while placed and playing (updatePlayingReloads).
+    NSTimer              *_playingReloadTimer;
+
+    // Two sources, each right about one direction: WidgetKit's answer, asked
+    // only at launch and foreground, turns it OFF; the extension's read
+    // signal, the instant a widget renders, turns it ON.
+    BOOL                  _widgetPlaced;
+    int                   _readToken;
+
+    // WidgetKit's two calls, from the app.
+    dispatch_block_t      _reloadTimelines;
+    VibeWidgetPlacedQuery _queryPlaced;
+
+    // Queue-only; a failed save is logged once.
+    BOOL                  _loggedSaveFailure;
+
+    dispatch_queue_t      _queue;
+}
+
++ (NSString *)trackKeyForTrack:(id<VibePlayableItem>)track {
+    return VibeWidgetTrackKey(track);
+}
+
+- (instancetype)initWithThemeProvider:(WaveformThemeProvider)themeProvider
+                      reloadTimelines:(dispatch_block_t)reloadTimelines
+                          queryPlaced:(VibeWidgetPlacedQuery)queryPlaced {
+    // A missing group is the app's mistake, so it asserts. A group that does
+    // not resolve is provisioning, such as an unsigned build, so it logs.
+    NSAssert(VibeWidgetState.readNotification, @"Set VibeWidgetState's app group before making the publisher");
+    if (!VibeWidgetState.containerURL) {
+        LogError(@"Widget: the app group's container does not resolve, so nothing is published");
+    }
+    self = [super init];
+    if (self) {
+        _themeProvider   = [themeProvider copy];
+        _reloadTimelines = [reloadTimelines copy];
+        _queryPlaced     = [queryPlaced copy];
+        // Serial: an image must never land after the plist naming it, and two
+        // bakes must never interleave writing the same PNGs.
+        _queue = dispatch_queue_create("vibe-libs.widget.publish",
+                                       DISPATCH_QUEUE_SERIAL);
+        // On main, ordered with everything that touches _published.
+        __weak WidgetPublisher *weakSelf = self;
+        _readToken = NOTIFY_TOKEN_INVALID;
+        NSString *readNotification = VibeWidgetState.readNotification;
+        uint32_t status = readNotification
+                ? notify_register_dispatch(readNotification.UTF8String, &_readToken, dispatch_get_main_queue(),
+                                           ^(int token) { [weakSelf setWidgetPlaced:YES]; })
+                : NOTIFY_STATUS_INVALID_NAME;
+        if (status != NOTIFY_STATUS_OK) {
+            _readToken = NOTIFY_TOKEN_INVALID;
+            LogError(@"Widget: no read signal (%u), so only WidgetKit's answer turns publishing on", status);
+        }
+        [self refreshPlaced];
+    }
+    return self;
+}
+
+- (void)dealloc {
+    if (_readToken != NOTIFY_TOKEN_INVALID) {
+        notify_cancel(_readToken);
+    }
+    [_playingReloadTimer invalidate];
+}
+
+#pragma mark - Whether anyone is looking
+
+// Fails OPEN: a wrong NO silences the widget until the next foreground, and
+// a wrong YES costs one unread publish.
+- (void)refreshPlaced {
+    __weak WidgetPublisher *weakSelf = self;
+    _queryPlaced(^(BOOL placed, NSError *error) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf setWidgetPlaced:placed || error != nil];
+        });
+    });
+}
+
+- (void)setWidgetPlaced:(BOOL)placed {
+    if (_widgetPlaced == placed) {
+        return;
+    }
+    _widgetPlaced = placed;
+    if (placed) {
+        [self republish];
+    }
+    else {
+        [self updatePlayingReloads];
+    }
+}
+
+// Runs iff a placed widget shows a playing track. The timer only reloads:
+// the widget extrapolates the playhead from the plist it has, and a stall
+// that moves the real position past the seek tolerance republishes anyway.
+- (void)updatePlayingReloads {
+    BOOL wanted = _widgetPlaced && _published.hasTrack && _published.playing;
+    if (wanted == (_playingReloadTimer != nil)) {
+        return;
+    }
+    if (!wanted) {
+        [_playingReloadTimer invalidate];
+        _playingReloadTimer = nil;
+        return;
+    }
+    __weak WidgetPublisher *weakSelf = self;
+    _playingReloadTimer = [NSTimer scheduledTimerWithTimeInterval:kWidgetPlayingReloadInterval
+                                                          repeats:YES block:^(NSTimer *timer) {
+        WidgetPublisher *publisher = weakSelf;
+        if (publisher) {
+            dispatch_async(publisher->_queue, ^{
+                [publisher scheduleReload];
+            });
+        }
+    }];
+    _playingReloadTimer.tolerance = kWidgetPlayingReloadInterval / 10;
+}
+
+// The gate just opened: write everything in hand as if the track had just
+// changed, which from the widget's side it has.
+- (void)republish {
+    VibeWidgetState *state = _published;
+    if (!state) {
+        return;
+    }
+    _bakedSignature = nil;
+    [self commitState:state artwork:_publishedTrack.cachedArt writeArtwork:YES];
+    [self bakeWaveformIfNeeded];
+}
+
+#pragma mark - What is playing
+
+- (void)updateWithTrack:(id<VibeWidgetTrack>)track
+               position:(NSTimeInterval)position
+               duration:(NSTimeInterval)duration
+                playing:(BOOL)playing
+           startPending:(BOOL)startPending {
+    // TRAP: cachedArt is nil until the art DECODES, so a track change usually
+    // writes nil, which deletes the file. Keyed on the track alone, the art
+    // never comes back; _artworkOnDisk re-fires the write on the first tick
+    // with decoded art. The gate is folded in so a quiet unplaced tick stays
+    // allocation-free; republish writes the art when a widget appears.
+    UIImage *artwork = track.cachedArt;
+    BOOL trackChanged = (track != _publishedTrack);
+    BOOL writeArtwork = _widgetPlaced && (trackChanged || (artwork && !_artworkOnDisk));
+
+    if (!writeArtwork && !VibeWidgetNeedsPublish(_published, trackChanged, track != nil, track.displayTitle,
+                                                 track.displayArtist, playing, duration, position, startPending,
+                                                 CFAbsoluteTimeGetCurrent())) {
+        return;
+    }
+
+    VibeWidgetState *next = [[VibeWidgetState alloc] init];
+    next.hasTrack     = (track != nil);
+    next.title        = track.displayTitle;
+    next.artist       = track.displayArtist;
+    next.trackKey     = trackChanged ? [WidgetPublisher trackKeyForTrack:track] : _published.trackKey;
+    next.playing      = playing;
+    next.duration     = duration;
+    next.position     = position;
+    next.positionDate = [NSDate date];
+    next.playheadLine = _drawsPlayheadLine;
+
+    _published      = next;
+    _publishedTrack = track;
+    if (trackChanged) {
+        // Kept only if offered FOR this track: a played track's offer arrives
+        // before this call, so the pairing is checked, not the order assumed.
+        if (!track || _waveformTrack != track) {
+            _waveform      = nil;
+            _waveformTrack = nil;
+        }
+        _bakedSignature = nil;
+        _artworkOnDisk  = NO;
+    }
+    if (!_widgetPlaced) {
+        return;     // bookkeeping only
+    }
+    [self commitState:next artwork:artwork writeArtwork:writeArtwork];
+
+    // An early offer bakes now, as does art that decoded after it (album_art);
+    // the signature decides.
+    if (_waveform && (trackChanged || writeArtwork)) {
+        [self bakeWaveformIfNeeded];
+    }
+}
+
+// TRAP: write artwork before the plist. The waveform bake may follow later.
+// Sweep last and spare the outgoing track images that a reader may still need.
+- (void)commitState:(VibeWidgetState *)state artwork:(UIImage *)artwork
+       writeArtwork:(BOOL)writeArtwork {
+    if (writeArtwork) {
+        _artworkOnDisk = (artwork != nil);
+    }
+    NSString *outgoingKey = _committedKey;
+    _committedKey = state.trackKey;
+    BOOL sweep = !VibeNowPlayingStringsEqual(outgoingKey, state.trackKey);
+    [self updatePlayingReloads];
+    dispatch_async(_queue, ^{
+        if (writeArtwork) {
+            [self writeArtwork:artwork toURL:state.artworkURL];
+        }
+        [self save:state];
+        [self scheduleReload];
+        if (sweep) {
+            NSArray<NSString *> *keep = @[state.trackKey ?: @"", outgoingKey ?: @""];
+            for (NSURL *url in [VibeWidgetState imageURLsNotForTrackKeys:keep]) {
+                [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+            }
+        }
+    });
+}
+
+// Queue-only.
+- (void)save:(VibeWidgetState *)state {
+    if (![state save] && !_loggedSaveFailure) {
+        _loggedSaveFailure = YES;
+        LogError(@"Widget: cannot write the snapshot to %@", VibeWidgetState.containerURL);
+    }
+}
+
+// Queue-only. Throttle requests to four per second with one trailing request.
+// Queue the first request at once before the app can be suspended.
+- (void)scheduleReload {
+    if (_reloadQueued) {
+        return;
+    }
+    _reloadQueued = YES;
+    dispatch_block_t reload = ^{
+        self->_reloadQueued = NO;
+        self->_lastReloadAt = clock_gettime_nsec_np(CLOCK_UPTIME_RAW);
+        self->_reloadTimelines();
+    };
+    uint64_t since = clock_gettime_nsec_np(CLOCK_UPTIME_RAW) - _lastReloadAt;
+    if (_lastReloadAt == 0 || since >= kWidgetReloadMinInterval) {
+        dispatch_async(_queue, reload);
+    }
+    else {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kWidgetReloadMinInterval - since)), _queue, reload);
+    }
+}
+
+#pragma mark - The waveform strip
+
+- (void)offerWaveform:(CodableAudioWaveform *)waveform forTrack:(id<VibeWidgetTrack>)track {
+    if (!waveform || !track) {
+        return;
+    }
+    // Kept either side of the adoption; only the bake waits for the published
+    // track, so a page swiped past cannot overwrite the strip.
+    _waveform      = waveform;
+    _waveformTrack = track;
+    if (track == _publishedTrack) {
+        [self bakeWaveformIfNeeded];
+    }
+}
+
+// Re-bakes only when the push moved something the bake reads.
+// TRAP: an app's color wells can push a new look on every step of a drag,
+// each a new signature. A bake is two renders, two PNG encodes and two writes,
+// so the signature compare and the generation check keep a drag from
+// queuing dozens.
+- (void)updateWaveformStyle:(NSString *)style
+                   centered:(BOOL)centered
+          drawsPlayheadLine:(BOOL)drawsPlayheadLine {
+    _waveformStyle     = [style copy];
+    _waveformCentered  = centered;
+    _drawsPlayheadLine = drawsPlayheadLine;
+    [self bakeWaveformIfNeeded];
+}
+
+- (void)bakeWaveformIfNeeded {
+    CodableAudioWaveform *waveform = _waveform;
+    if (!waveform || !_waveformTrack || _waveformTrack != _publishedTrack) {
+        return;
+    }
+    if (!_widgetPlaced) {
+        return;     // before the signature, so the bake is still owed
+    }
+    NSString *style = _waveformStyle;
+
+    // Always dark: the widget's background is. The artwork color is memoized
+    // on the image; nil (not decoded, or too gray) resolves album_art to Mono.
+    WaveformTheme *theme = _themeProvider(YES, _publishedTrack.cachedArt.vibeDominantColor);
+    // The RESOLVED palette, not the inputs, so a cover arriving under a theme
+    // that ignores it bakes nothing. The waveform, not its track: the
+    // signature clears on a track change, and a new waveform for the same
+    // track, the bands' decode, must bake.
+    BOOL centered = _waveformCentered;
+    BOOL line = _drawsPlayheadLine;
+    NSString *signature = [NSString stringWithFormat:@"%@|%d|%d|%@|%p",
+                           style, centered, line, theme.paletteSignature, (void *)waveform];
+    if (VibeNowPlayingStringsEqual(signature, _bakedSignature)) {
+        return;
+    }
+    _bakedSignature = signature;
+    VibeWidgetState *state = _published;
+    uint64_t generation = atomic_fetch_add(&_bakeGeneration, 1) + 1;
+    // Weak: a queued bake never keeps the publisher alive.
+    __weak WidgetPublisher *weakSelf = self;
+    dispatch_async(_queue, ^{
+        WidgetPublisher *publisher = weakSelf;
+        if (!publisher || atomic_load(&publisher->_bakeGeneration) != generation) {
+            return;     // superseded while queued
+        }
+        // The whole envelope in each side's colors; the widget reveals the
+        // played one up to the playhead without a re-render. Under a playhead
+        // line both are the whole strip as played, and the widget draws the
+        // line (VibeWidgetState.playheadLine).
+        [publisher writeWaveformImage:waveform progress:1 style:style centered:centered theme:theme
+                                toURL:state.waveformPlayedURL];
+        [publisher writeWaveformImage:waveform progress:line ? 1 : 0 style:style centered:centered theme:theme
+                                toURL:state.waveformUnplayedURL];
+        // The widget re-renders only on a reload.
+        [publisher scheduleReload];
+    });
+    // A line setting flipped since the plist was written. Committed after the
+    // bake, so the plist lands behind the images that match it. A copy, since
+    // an earlier commit still queued saves the object it was given.
+    if (state.playheadLine != line) {
+        VibeWidgetState *next = [state copy];
+        next.playheadLine = line;
+        _published = next;
+        [self commitState:next artwork:nil writeArtwork:NO];
+    }
+}
+
+- (void)writeWaveformImage:(CodableAudioWaveform *)waveform progress:(CGFloat)progress
+                     style:(NSString *)style centered:(BOOL)centered theme:(WaveformTheme *)theme
+                     toURL:(NSURL *)url {
+    if (!url) {
+        return;
+    }
+    // Matches the scrubber: Normalize and Gain are macOS-only.
+    CGImageRef baked = [WaveformRendererRegistry newImageForCodableWaveform:waveform
+            identifier:style pointSize:kWidgetWaveformSize scale:kWidgetWaveformScale
+              progress:progress dark:YES theme:theme
+            barDensity:1 barWidth:1 centered:centered normalize:YES gainDB:0];
+    if (!baked) {
+        return;
+    }
+    UIImage *image = [UIImage imageWithCGImage:baked];
+    CGImageRelease(baked);
+    NSData *png = UIImagePNGRepresentation(image);   // transparent
+    if (png) {
+        [png writeToURL:url atomically:YES];
+    }
+}
+
+#pragma mark - Artwork
+
+// Only a BOUND, never a crop: the widget crops where it draws.
+// The bound is in pixels, and UIImage.size is in points. An upright image
+// already within it is encoded as it is.
+static UIImage *VibeWidgetBoundedArtwork(UIImage *artwork) {
+    CGSize source = CGSizeMake(artwork.size.width * artwork.scale, artwork.size.height * artwork.scale);
+    CGFloat longest = MAX(source.width, source.height);
+    if (longest <= 0) {
+        return artwork;
+    }
+    if (longest <= kWidgetArtworkSide && artwork.imageOrientation == UIImageOrientationUp) {
+        return artwork;
+    }
+    CGFloat scale = MIN(1, kWidgetArtworkSide / longest);
+    CGSize bounded = CGSizeMake(round(source.width * scale), round(source.height * scale));
+    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat defaultFormat];
+    format.scale = 1;                 // the side is in pixels
+    format.opaque = YES;
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:bounded
+                                                                              format:format];
+    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        [artwork drawInRect:(CGRect){CGPointZero, bounded}];
+    }];
+}
+
+// Removing a file is as load-bearing as writing one, or an earlier decode's
+// art survives.
+- (void)writeArtwork:(UIImage *)artwork toURL:(NSURL *)url {
+    if (!url) {
+        return;
+    }
+    NSData *jpeg = artwork ? UIImageJPEGRepresentation(VibeWidgetBoundedArtwork(artwork), 0.8) : nil;
+    if (jpeg) {
+        [jpeg writeToURL:url atomically:YES];
+    }
+    else {
+        [NSFileManager.defaultManager removeItemAtURL:url error:NULL];
+    }
+}
+
+@end
