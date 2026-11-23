@@ -55,7 +55,11 @@ NS_ASSUME_NONNULL_BEGIN
 // layout: beside the grabber's band in portrait, and past the info label in
 // the wide ones. A nil symbol hides it, and nothing moves.
 @property (nonatomic, readonly) UIButton *queueButton;
-- (void)setQueueSymbol:(nullable NSString *)symbol label:(nullable NSString *)label;
+- (void)setQueueSymbol:(nullable NSString *)symbol;
+// The chrome only the empty state fades: the transport, the action bar, the
+// route control, the FX pad, and the queue control. One list, so the
+// controller's two writers cannot drift apart.
+@property (nonatomic) CGFloat chromeAlpha;
 @property (nonatomic, readonly) UIButton *previousButton;
 @property (nonatomic, readonly) UIButton *playPauseButton;
 @property (nonatomic, readonly) UIButton *nextButton;

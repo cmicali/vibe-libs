@@ -319,7 +319,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
     [cell setShuffleRepeatShown:host.playerCardShowsShuffleRepeat];
     NSString *queueSymbol = [host respondsToSelector:@selector(playerCardQueueSymbol)]
             ? host.playerCardQueueSymbol : nil;
-    [cell setQueueSymbol:queueSymbol label:(queueSymbol ? [host playerCardQueueLabel] : nil)];
+    [cell setQueueSymbol:queueSymbol];
 }
 
 - (UICollectionViewCell *)collectionView:(UICollectionView *)collectionView
@@ -328,11 +328,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
             dequeueReusableCellWithReuseIdentifier:TrackPageCell.reuseIdentifier
                                       forIndexPath:indexPath];
     [self configurePage:cell atIndex:(NSUInteger)indexPath.item];
-    cell.transportView.alpha = [self chromeAlpha];
-    cell.routeView.alpha = [self chromeAlpha];
-    cell.actionBar.alpha = [self chromeAlpha];
-    cell.fxPadView.alpha = [self chromeAlpha];
-    cell.queueButton.alpha = [self chromeAlpha];
+    cell.chromeAlpha = [self chromeAlpha];
     return cell;
 }
 

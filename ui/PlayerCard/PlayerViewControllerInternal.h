@@ -113,7 +113,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 // waveform is requested meanwhile.
 - (BOOL)usesStandardScrubber;
 - (void)updatePlayButton;
-// Only the empty state hides the transport, action bar and route control.
+// Only the empty state hides the chrome (TrackPageCell.chromeAlpha).
 - (CGFloat)chromeAlpha;
 - (void)updateScrollLinkState;
 - (void)updateOutputRoute;

@@ -78,6 +78,9 @@ static const CGFloat kCellBottomInsetLandscape = 16;
 static const CGFloat kCellRouteMaxWidthLandscape = 160;
 static const CGFloat kCellRouteContentInsetLandscape = 6;
 static const CGFloat kCellTimeGap = 12;
+// Portrait's time labels and the queue control keep this far in from the
+// safe area's sides.
+static const CGFloat kCellTimeEdgeInset = 16;
 
 // The compact layouts (AGENTS.md). A design threshold, not a fit: under
 // it an iPad window's art and transport row crowd the waveform. A phone's
@@ -145,7 +148,7 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
     NSLayoutConstraint *_remainingCenteredOnRoute;
     NSLayoutConstraint *_remainingTrailingOnRoute;
     // The wide layouts' info label ends a gap before the queue control
-    // while it shows (setQueueSymbol:label:).
+    // while it shows (setQueueSymbol:).
     NSLayoutConstraint *_fileInfoTrailingBeforeQueue;
     NSString           *_queueSymbol;
     // The slider has no headroom, so it sits on the time row where the row
@@ -322,6 +325,7 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         _queueButton.hidden = YES;
         _queueButton.translatesAutoresizingMaskIntoConstraints = NO;
         [content addSubview:_queueButton];
+        _chromeAlpha = 1;
 
         // The FX pad, last so its expanded square draws over everything it
         // covers — the transport, the waveform, the times.
@@ -617,7 +621,8 @@ static UIImage *TransportGradientImage(void) {
         // In the band above the art, opposite nothing: the grabber is centered.
         [_queueButton.centerYAnchor constraintEqualToAnchor:safe.topAnchor
                                                    constant:kCellTopBandHeight / 2],
-        [_queueButton.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
+        [_queueButton.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor
+                                                    constant:-kCellTimeEdgeInset],
 
         [_transportView.bottomAnchor constraintEqualToAnchor:_actionBar.topAnchor
                                                     constant:-kCellActionBarTransportGap],
@@ -628,8 +633,10 @@ static UIImage *TransportGradientImage(void) {
                                                    constant:-kCellWaveformTransportGap],
         [_elapsedLabel.topAnchor constraintEqualToAnchor:_waveformView.bottomAnchor
                                                 constant:-kCellTimeWaveformOverlap],
-        [_elapsedLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:16],
-        [_remainingTimeControl.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-16],
+        [_elapsedLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
+                                                    constant:kCellTimeEdgeInset],
+        [_remainingTimeControl.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor
+                                                            constant:-kCellTimeEdgeInset],
     ];
 }
 
@@ -952,8 +959,12 @@ static UIImage *TransportGradientImage(void) {
     _standardScrubber.hidden = !shown;
 }
 
-- (void)setQueueSymbol:(NSString *)symbol label:(NSString *)label {
-    _queueButton.accessibilityLabel = label;
+- (void)setQueueSymbol:(NSString *)symbol {
+    // Asked only with a symbol, so a host with no queue control is never
+    // asked for its word. Every configure, so reloadSettings relabels.
+    if (symbol) {
+        _queueButton.accessibilityLabel = VibePlayerCardLabelText(VibePlayerCardLabelQueue);
+    }
     if (symbol == _queueSymbol || [symbol isEqualToString:_queueSymbol]) {
         return;
     }
@@ -962,6 +973,15 @@ static UIImage *TransportGradientImage(void) {
         [self setGlyph:symbol onButton:_queueButton pointSize:kCellSideGlyphPointSize];
     }
     [self applyQueueControl];
+}
+
+- (void)setChromeAlpha:(CGFloat)alpha {
+    _chromeAlpha = alpha;
+    _transportView.alpha = alpha;
+    _routeView.alpha = alpha;
+    _actionBar.alpha = alpha;
+    _fxPadView.alpha = alpha;
+    _queueButton.alpha = alpha;
 }
 
 - (void)applyQueueControl {
