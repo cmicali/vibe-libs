@@ -45,7 +45,7 @@ static NSString *const kActionCellIdentifier = @"action";
     self.navigationController.navigationBar.prefersLargeTitles = YES;
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(locationsDidChange:)
-                                               name:VibeSearchFoldersDidChangeNotification
+                                               name:VibeLocationsDidChangeNotification
                                              object:VibeLocationStore.shared];
     if (_host.showsCloseButton && self.navigationController.viewControllers.firstObject == self) {
         self.navigationItem.leftBarButtonItem =
@@ -192,7 +192,7 @@ static NSString *const kActionCellIdentifier = @"action";
         [sourcePaths addObject:VibeComparablePath(source.path) ?: @""];
     }
     NSString *standardized = VibeComparablePath(directory.path);
-    NSUInteger index = VibeSearchFolderCoveringRootIndex(sourcePaths, standardized);
+    NSUInteger index = VibeLocationCoveringRootIndex(sourcePaths, standardized);
     NSMutableArray<UIViewController *> *stack = [NSMutableArray arrayWithObject:self];
     if (index == NSNotFound) {
         // A bookmark's URL carries the grant; a path-derived one answers NO.

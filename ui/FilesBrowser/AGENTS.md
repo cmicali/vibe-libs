@@ -52,9 +52,8 @@ Each may change once an app needs it to.
 ## Later work
 
 - **A default whole-file holder in `media/Metadata`.** `VibeBrowserArtHolder` would move beside `AudioTrackMetadataHolder`, and the two test holders that nearly copy it, `ConsumerTrack` and `VibeLoaderTestTrack`, would share it.
-- **The store as a piece of its own.** `VibeLocationStore` and the coverage rules are Foundation only, and an app's session and search use them without the browser. A cross-platform `files/` piece would hold them, with their tests here.
+- **The store as a piece of its own: proposed, not started.** `VibeLocationStore` and the coverage rules are Foundation only, and an app's session and search use them without the browser. A cross-platform `files/Locations` piece on `core/Common` alone would hold them. It would cost one pull request here and one in each app: the store's three files and the rules move with `git mv`, the rules leave `BrowserRules.h` for a header of their own, the piece takes its template, targets, map row, and `AGENTS.md`, and Vibe's `LocationStoreTests` and the coverage half of its `BrowserRulesTests` move here with their history. Its macOS tests would be the store's first run on macOS. It waits because every app that uses the store also shows the browser, so the split saves no one a dependency yet. It is worth doing when an app needs the grants without the browser, or on macOS.
 - **Comments that still describe Vibe's screens**, such as the Files tab, the Playlist tab's add sheet, and `FolderSession`.
-- **Names for the coverage rules.** `VibeSearchRootCoversPath` and its three siblings in `BrowserRules.h`, and `VibeSearchFoldersDidChangeNotification`, still carry the name of the app screen they came from.
 
 ## Tests
 

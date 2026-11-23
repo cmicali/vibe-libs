@@ -17,7 +17,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 // Posted on main whenever folderURLs changes; restored roots can arrive after
 // a screen has appeared.
-extern NSNotificationName const VibeSearchFoldersDidChangeNotification;
+extern NSNotificationName const VibeLocationsDidChangeNotification;
 
 @interface VibeLocationStore : NSObject
 
