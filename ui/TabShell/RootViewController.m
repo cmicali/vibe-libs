@@ -305,6 +305,9 @@ static const CGFloat kDismissFlickVelocity = 900;
     [self interruptCardAnimationPreservingVisualState];
     BOOL shouldAnimate = [self shouldAnimateCard:animated];
     _expanded = YES;
+    // Now, not when the backdrop changes: an interrupted move keeps its
+    // snapshot, so beginBackdropSnapshot may return before it syncs.
+    [self syncTabSurfaces];
     uint64_t accessibilityGeneration = [self beginAccessibilityTransitionToExpanded:YES];
     _card.view.hidden = NO;
     [self beginCardAppearanceTransition:YES animated:shouldAnimate];
@@ -326,6 +329,9 @@ static const CGFloat kDismissFlickVelocity = 900;
     [self interruptCardAnimationPreservingVisualState];
     BOOL shouldAnimate = [self shouldAnimateCard:animated];
     _expanded = NO;
+    // Now: after a drag the drag's snapshot is still up, so the delegate
+    // would otherwise hear only when the spring ends.
+    [self syncTabSurfaces];
     uint64_t accessibilityGeneration = [self beginAccessibilityTransitionToExpanded:NO];
     [self beginCardAppearanceTransition:NO animated:shouldAnimate];
     _card.presented = NO;
@@ -425,6 +431,8 @@ static const CGFloat kDismissFlickVelocity = 900;
 // bar, the large title, the rows and the tab bar re-laid out and the screen
 // jumped under the card on every expand and dismiss. A snapshot has no
 // layout to lose. Taken as the card starts moving and dropped once it rests.
+// A drag, or an interrupted move, leaves it up, so the next move returns
+// here early: expand and minimize sync the delegate themselves.
 - (void)beginBackdropSnapshot {
     if (_backdropSnapshot) {
         return;
