@@ -1,14 +1,14 @@
 //
-//  VibeBrowserArtHolder.m
+//  VibeFileMetadataHolder.m
 //  vibe-libs
 //
 
-#import "VibeBrowserArtHolder.h"
+#import "VibeFileMetadataHolder.h"
 
 #import "AudioTrackMetadata.h"
 #import "NSURL+Hash.h"
 
-@implementation VibeBrowserArtHolder {
+@implementation VibeFileMetadataHolder {
     NSString *_sourceKey;
     // The file's key and the NSURL.cacheKeyGeneration it was read under,
     // under the monitor. The loader compares this key, never a fresh stat.
@@ -16,24 +16,23 @@
     uint64_t _cacheKeyGeneration;
 }
 
-@synthesize url = _url;
+@synthesize url = _url, cueStart = _cueStart, cueEnd = _cueEnd;
 @synthesize metadata = _metadata;
 
 - (instancetype)initWithURL:(NSURL *)url {
+    return [self initWithURL:url cueStart:0 cueEnd:0];
+}
+
+- (instancetype)initWithURL:(NSURL *)url cueStart:(NSUInteger)cueStart cueEnd:(NSUInteger)cueEnd {
     self = [super init];
     if (self) {
         _url = [url copy];
-        _sourceKey = url.path ?: @"";
+        _cueStart = cueStart;
+        _cueEnd = cueEnd;
+        // Made once, since a player compares it on paths that run every tick.
+        _sourceKey = VibeKeyByAppendingCueWindow(url.path, cueStart, cueEnd) ?: @"";
     }
     return self;
-}
-
-- (NSUInteger)cueStart {
-    return 0;
-}
-
-- (NSUInteger)cueEnd {
-    return 0;
 }
 
 - (NSString *)sourceKey {
