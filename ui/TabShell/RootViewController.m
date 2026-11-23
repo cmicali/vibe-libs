@@ -1,6 +1,6 @@
 //
 //  RootViewController.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #import "RootViewController.h"

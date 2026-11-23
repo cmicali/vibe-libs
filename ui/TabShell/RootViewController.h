@@ -1,6 +1,6 @@
 //
 //  RootViewController.h
-//  Vibe (iOS)
+//  vibe-libs
 //
 //  The scene's root: the tabs, the mini player in their bottomAccessory, and
 //  the now-playing card above them. It owns presentation only. The app hands
