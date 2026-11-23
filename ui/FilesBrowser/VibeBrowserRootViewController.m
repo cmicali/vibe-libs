@@ -160,10 +160,11 @@ static NSString *const kActionCellIdentifier = @"action";
 - (VibeBrowserFolderViewController *)folderForDirectory:(NSURL *)url
                                            highlighting:(NSURL *)file
                                              holdsScope:(BOOL)holdsScope {
-    VibeBrowserFolderViewController *folder = [[VibeBrowserFolderViewController alloc] initWithHost:_host
-                                                                                       directoryURL:url
-                                                                                       highlighting:file
-                                                                                         holdsScope:holdsScope];
+    VibeBrowserFolderViewController *folder =
+            [[VibeBrowserFolderViewController alloc] initWithHost:_host
+                                                     directoryURL:url
+                                                     highlighting:file
+                                                       holdsScope:holdsScope];
     folder.addedRowsHandler = _addedRowsHandler;
     folder.equalizerSurfaceVisible = _equalizerSurfaceVisible;
     return folder;
@@ -405,8 +406,8 @@ static NSString *const kActionCellIdentifier = @"action";
 
 #pragma mark - The location picker
 
-// One folder, granted for good (VibeLocationStore). asCopy:NO: the grant must be
-// to the real folder.
+// One folder, granted for good (VibeLocationStore). asCopy:NO: the grant must
+// be to the real folder.
 - (void)presentLocationPicker {
     UIDocumentPickerViewController *picker =
             [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder] asCopy:NO];

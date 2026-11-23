@@ -535,10 +535,11 @@ static const NSUInteger kFilterThreshold = 12;
 }
 
 - (void)pushDirectory:(NSURL *)url {
-    VibeBrowserFolderViewController *folder = [[VibeBrowserFolderViewController alloc] initWithHost:_host
-                                                                                       directoryURL:url
-                                                                                       highlighting:nil
-                                                                                         holdsScope:NO];
+    VibeBrowserFolderViewController *folder =
+            [[VibeBrowserFolderViewController alloc] initWithHost:_host
+                                                     directoryURL:url
+                                                     highlighting:nil
+                                                       holdsScope:NO];
     folder.addedRowsHandler = _addedRowsHandler;
     folder.equalizerSurfaceVisible = _equalizerSurfaceVisible;
     [self.navigationController pushViewController:folder animated:YES];
