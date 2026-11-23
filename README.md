@@ -6,7 +6,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first fifty-one pieces are here.** Each came from Vibe, but for libwavpack and the Monkey's Audio SDK. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first fifty-three pieces are here.** Each came from Vibe, but for libwavpack and the Monkey's Audio SDK. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |
@@ -45,6 +45,8 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `ui/PlayerCard` | An iOS music app's now-playing card: a pager of tracks, each with its art, waveform scrubber, transport, FX pad, and output route. iOS only. |
 | `ui/TabShell` | An iOS music app's tab shell: the tabs, the mini player in their accessory, and the card above them. iOS only. |
 | `system/NowPlaying` | A bridge to the system's Now Playing info and remote commands. |
+| `system/WidgetState` | The snapshot a Home Screen widget draws, which an app writes and its extension reads. Foundation only. |
+| `system/Widget` | An app's side of a Home Screen widget: the publisher of the snapshot, its art, its waveform strip, and its reloads. The publisher is iOS only. |
 | `system/AppOpening` | One open request from the batches the mac splits it into, delivered in order. macOS only. |
 | `system/Updates` | Sparkle for a direct-download mac app. macOS only. |
 | `dev/DebugChannel` | Drive and inspect a running debug build from a script. On the mac, its CLI client too. |
