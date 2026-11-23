@@ -47,8 +47,8 @@ static inline BOOL VibeSearchRootCoversPath(NSString *rootPath, NSString *path) 
     return [pathPrefix hasPrefix:rootPrefix];
 }
 
-// LocationStore's merge keeps roots minimal: an existing ancestor absorbs a
-// candidate (an exact duplicate included), and a candidate ancestor removes
+// VibeLocationStore's merge keeps roots minimal: an existing ancestor absorbs
+// a candidate (an exact duplicate included), and a candidate ancestor removes
 // every descendant.
 static inline NSUInteger VibeSearchFolderCoveringRootIndex(
         NSArray<NSString *> *rootPaths, NSString *candidatePath) {

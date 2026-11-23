@@ -1,5 +1,5 @@
 //
-//  MiniPlayerView.h
+//  VibeMiniPlayerView.h
 //  vibe-libs
 //
 //  The strip in the tab bar's bottomAccessory. Tapping it anywhere but a
@@ -9,20 +9,20 @@
 
 #import <UIKit/UIKit.h>
 
-@class MiniPlayerView;
+@class VibeMiniPlayerView;
 @class VibeTrackRow;
 
 NS_ASSUME_NONNULL_BEGIN
 
-@protocol MiniPlayerViewDelegate <NSObject>
-- (void)miniPlayerViewDidRequestExpand:(MiniPlayerView *)view;
-- (void)miniPlayerViewDidTapPlayPause:(MiniPlayerView *)view;
-- (void)miniPlayerViewDidTapNext:(MiniPlayerView *)view;
+@protocol VibeMiniPlayerViewDelegate <NSObject>
+- (void)miniPlayerViewDidRequestExpand:(VibeMiniPlayerView *)view;
+- (void)miniPlayerViewDidTapPlayPause:(VibeMiniPlayerView *)view;
+- (void)miniPlayerViewDidTapNext:(VibeMiniPlayerView *)view;
 @end
 
-@interface MiniPlayerView : UIView
+@interface VibeMiniPlayerView : UIView
 
-@property (nonatomic, weak) id<MiniPlayerViewDelegate> delegate;
+@property (nonatomic, weak) id<VibeMiniPlayerViewDelegate> delegate;
 
 // VoiceOver's names for the strip's controls. Expand names what a tap on the
 // strip shows. The play button takes play or pause, whichever a tap will do.

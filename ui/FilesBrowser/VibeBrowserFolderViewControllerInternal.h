@@ -1,13 +1,14 @@
 //
-//  FolderViewControllerInternal.h
+//  VibeBrowserFolderViewControllerInternal.h
 //  vibe-libs
 //
-//  The private surface FolderViewController.m and its +Art and +Actions
-//  categories share: the screen's state and the methods each side calls on
-//  the other. The debug channel's browse verb also reads the rows through it.
+//  The private surface VibeBrowserFolderViewController.m and its +Art and
+//  +Actions categories share: the screen's state and the methods each side
+//  calls on the other. The debug channel's browse verb also reads the rows
+//  through it.
 //
 
-#import "FolderViewController.h"
+#import "VibeBrowserFolderViewController.h"
 #import "AudioTrackMetadataCache.h"
 #import "VibeBrowserHost.h"
 
@@ -17,7 +18,7 @@ typedef NS_ENUM(NSInteger, VibeBrowserSection) {
     VibeBrowserSectionCount,
 };
 
-@interface FolderViewController () <UISearchResultsUpdating, VibeBrowserHostObserver> {
+@interface VibeBrowserFolderViewController () <UISearchResultsUpdating, VibeBrowserHostObserver> {
     id<VibeBrowserHost> _host;
     // The host, when it plays; nil otherwise, so its rows read nil and NO.
     id<VibeBrowserPlaybackHost> _playback;
@@ -98,7 +99,7 @@ typedef NS_ENUM(NSInteger, VibeBrowserSection) {
 @end
 
 // A file row's album art, through the stack's one metadata cache.
-@interface FolderViewController (Art) <AudioTrackMetadataCacheDelegate>
+@interface VibeBrowserFolderViewController (Art) <AudioTrackMetadataCacheDelegate>
 
 - (void)loadArtForVisibleRows;
 - (void)artThumbnailDidLoad:(NSNotification *)notification;
@@ -106,7 +107,7 @@ typedef NS_ENUM(NSInteger, VibeBrowserSection) {
 @end
 
 // The bar, Select, a row's tap, and its swipe and long press.
-@interface FolderViewController (Actions)
+@interface VibeBrowserFolderViewController (Actions)
 
 - (BOOL)isSelecting;
 - (void)refreshBarItems;

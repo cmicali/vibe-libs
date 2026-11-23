@@ -1,13 +1,13 @@
 //
-//  BrowserRootViewController.h
+//  VibeBrowserRootViewController.h
 //  vibe-libs
 //
 //  The browser's root: one list of every place it can list. Locations come
 //  first: the host's sources, then each folder the user granted
-//  (LocationStore). Each opens in a FolderViewController pushed above this
-//  one. The plus grants a folder through the system folder picker, and
-//  connects a source that has nothing to show yet. The host adds groups of
-//  its own below Locations (rootSections).
+//  (VibeLocationStore). Each opens in a VibeBrowserFolderViewController
+//  pushed above this one. The plus grants a folder through the system folder
+//  picker, and connects a source that has nothing to show yet. The host adds
+//  groups of its own below Locations (rootSections).
 //
 
 #import <UIKit/UIKit.h>
@@ -17,7 +17,7 @@
 NS_ASSUME_NONNULL_BEGIN
 
 
-@interface BrowserRootViewController : UITableViewController
+@interface VibeBrowserRootViewController : UITableViewController
 
 - (instancetype)initWithHost:(id<VibeBrowserHost>)host NS_DESIGNATED_INITIALIZER;
 @property (nonatomic, readonly) id<VibeBrowserHost> host;

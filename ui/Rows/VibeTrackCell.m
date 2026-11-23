@@ -1,9 +1,9 @@
 //
-//  PlaylistTrackCell.m
+//  VibeTrackCell.m
 //  vibe-libs
 //
 
-#import "PlaylistTrackCell.h"
+#import "VibeTrackCell.h"
 
 #import "EqualizerIndicatorView.h"
 #import "FileRow.h"
@@ -16,7 +16,7 @@ static const CGFloat kNumberColumnWidth = 26;
 static const CGFloat kGutterArtGap = 8;
 static const CGFloat kArtTextGap = 14;
 
-@implementation PlaylistTrackCell {
+@implementation VibeTrackCell {
     UILabel                 *_numberLabel;
     EqualizerIndicatorView  *_indicatorView;
     LoadingIndicatorView    *_loadingView;
@@ -77,7 +77,7 @@ static const CGFloat kArtTextGap = 14;
     _artView = [[UIImageView alloc] init];
     _artView.contentMode = UIViewContentModeScaleAspectFill;
     _artView.clipsToBounds = YES;
-    _artView.layer.cornerRadius = kFileTileCornerRadius;
+    _artView.layer.cornerRadius = kVibeFileTileCornerRadius;
     _artView.layer.cornerCurve = kCACornerCurveContinuous;
     _artView.translatesAutoresizingMaskIntoConstraints = NO;
     [content addSubview:_artView];
@@ -114,7 +114,7 @@ static const CGFloat kArtTextGap = 14;
                                                     forAxis:UILayoutConstraintAxisHorizontal];
 
     [NSLayoutConstraint activateConstraints:@[
-        [content.heightAnchor constraintGreaterThanOrEqualToConstant:kEstimatedRowHeight],
+        [content.heightAnchor constraintGreaterThanOrEqualToConstant:kVibeTrackCellEstimatedHeight],
 
         [_numberLabel.leadingAnchor constraintEqualToAnchor:content.leadingAnchor constant:kGutterLeading],
         [_numberLabel.widthAnchor constraintEqualToConstant:kNumberColumnWidth],
@@ -136,8 +136,8 @@ static const CGFloat kArtTextGap = 14;
         [_artView.leadingAnchor constraintEqualToAnchor:_numberLabel.trailingAnchor
                                                 constant:kGutterArtGap],
         [_artView.centerYAnchor constraintEqualToAnchor:content.centerYAnchor],
-        [_artView.widthAnchor constraintEqualToConstant:kFileTileSide],
-        [_artView.heightAnchor constraintEqualToConstant:kFileTileSide],
+        [_artView.widthAnchor constraintEqualToConstant:kVibeFileTileSide],
+        [_artView.heightAnchor constraintEqualToConstant:kVibeFileTileSide],
         [_artView.topAnchor constraintGreaterThanOrEqualToAnchor:content.topAnchor constant:10],
         [_artView.bottomAnchor constraintLessThanOrEqualToAnchor:content.bottomAnchor constant:-10],
 
@@ -157,7 +157,7 @@ static const CGFloat kArtTextGap = 14;
 }
 
 + (CGFloat)separatorLeadingInset {
-    return kGutterLeading + kNumberColumnWidth + kGutterArtGap + kFileTileSide + kArtTextGap;
+    return kGutterLeading + kNumberColumnWidth + kGutterArtGap + kVibeFileTileSide + kArtTextGap;
 }
 
 - (void)setLevelSource:(id<EqualizerLevelSource>)levelSource {

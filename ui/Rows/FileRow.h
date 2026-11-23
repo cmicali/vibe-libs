@@ -15,8 +15,8 @@ UIAction *VibeMenuAction(NSString *title, NSString *symbol, void (^handler)(void
 // The accessory of a row whose file is not downloaded.
 UIView *VibeNotDownloadedMark(void);
 // File-list rows reserve this width for either art or a tile.
-static const CGFloat kFileTileSide = 40;
-static const CGFloat kFileTileCornerRadius = 8;
+static const CGFloat kVibeFileTileSide = 40;
+static const CGFloat kVibeFileTileCornerRadius = 8;
 // A row's icon where it has no art: a waveform tile, or a note list for a
 // CUE sheet or an M3U.
 UIImage *VibeFileTileImage(BOOL playlist);

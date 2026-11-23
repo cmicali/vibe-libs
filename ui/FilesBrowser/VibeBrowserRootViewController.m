@@ -1,26 +1,26 @@
 //
-//  BrowserRootViewController.m
+//  VibeBrowserRootViewController.m
 //  vibe-libs
 //
 
-#import "BrowserRootViewController.h"
+#import "VibeBrowserRootViewController.h"
 
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #import "BrowserRules.h"
 #import "FileRow.h"
 #import "FilePaths.h"
-#import "FolderViewController.h"
-#import "LocationStore.h"
+#import "VibeBrowserFolderViewController.h"
+#import "VibeLocationStore.h"
 #import "VibeBrowserHost.h"
 
 static NSString *const kSourceCellIdentifier = @"source";
 static NSString *const kActionCellIdentifier = @"action";
 
-@interface BrowserRootViewController () <VibeBrowserHostObserver, UIDocumentPickerDelegate>
+@interface VibeBrowserRootViewController () <VibeBrowserHostObserver, UIDocumentPickerDelegate>
 @end
 
-@implementation BrowserRootViewController {
+@implementation VibeBrowserRootViewController {
     // The picker that grants a location, while it is up.
     __weak UIDocumentPickerViewController *_locationPicker;
     // The sources that had a root when the root last reloaded. The rows read
@@ -46,7 +46,7 @@ static NSString *const kActionCellIdentifier = @"action";
     [NSNotificationCenter.defaultCenter addObserver:self
                                            selector:@selector(locationsDidChange:)
                                                name:VibeSearchFoldersDidChangeNotification
-                                             object:LocationStore.shared];
+                                             object:VibeLocationStore.shared];
     if (_host.showsCloseButton && self.navigationController.viewControllers.firstObject == self) {
         self.navigationItem.leftBarButtonItem =
                 [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemClose
@@ -94,8 +94,8 @@ static NSString *const kActionCellIdentifier = @"action";
     }
     _equalizerSurfaceVisible = equalizerSurfaceVisible;
     for (UIViewController *controller in self.navigationController.viewControllers) {
-        if ([controller isKindOfClass:FolderViewController.class]) {
-            ((FolderViewController *)controller).equalizerSurfaceVisible = equalizerSurfaceVisible;
+        if ([controller isKindOfClass:VibeBrowserFolderViewController.class]) {
+            ((VibeBrowserFolderViewController *)controller).equalizerSurfaceVisible = equalizerSurfaceVisible;
         }
     }
 }
@@ -111,7 +111,7 @@ static NSString *const kActionCellIdentifier = @"action";
 // The root's plus. It is built each time it opens, so a source's connect
 // item follows its account.
 - (UIMenu *)addLocationMenu {
-    __weak BrowserRootViewController *weakSelf = self;
+    __weak VibeBrowserRootViewController *weakSelf = self;
     id<VibeBrowserHost> host = _host;
     UIDeferredMenuElement *items = [UIDeferredMenuElement elementWithUncachedProvider:
             ^(void (^completion)(NSArray<UIMenuElement *> *)) {
@@ -139,9 +139,9 @@ static NSString *const kActionCellIdentifier = @"action";
 // A connection that lands goes straight into the source: the plus was tapped
 // to get there.
 - (void)connectSource:(id<VibeBrowserSource>)source {
-    __weak BrowserRootViewController *weakSelf = self;
+    __weak VibeBrowserRootViewController *weakSelf = self;
     [source connectFromScreen:self connected:^{
-        BrowserRootViewController *strongSelf = weakSelf;
+        VibeBrowserRootViewController *strongSelf = weakSelf;
         NSURL *root = source.rootURL;
         if (root && strongSelf.navigationController.topViewController == strongSelf) {
             [strongSelf pushDirectory:root];
@@ -157,11 +157,14 @@ static NSString *const kActionCellIdentifier = @"action";
 
 // A screen of this stack. Open Folder hands its last one the file to
 // highlight, and a scope to hold.
-- (FolderViewController *)folderForDirectory:(NSURL *)url highlighting:(NSURL *)file holdsScope:(BOOL)holdsScope {
-    FolderViewController *folder = [[FolderViewController alloc] initWithHost:_host
-                                                                 directoryURL:url
-                                                                 highlighting:file
-                                                                   holdsScope:holdsScope];
+- (VibeBrowserFolderViewController *)folderForDirectory:(NSURL *)url
+                                           highlighting:(NSURL *)file
+                                             holdsScope:(BOOL)holdsScope {
+    VibeBrowserFolderViewController *folder =
+            [[VibeBrowserFolderViewController alloc] initWithHost:_host
+                                                     directoryURL:url
+                                                     highlighting:file
+                                                       holdsScope:holdsScope];
     folder.addedRowsHandler = _addedRowsHandler;
     folder.equalizerSurfaceVisible = _equalizerSurfaceVisible;
     return folder;
@@ -173,9 +176,9 @@ static NSString *const kActionCellIdentifier = @"action";
 }
 
 // The sources' roots that are not locations come first: the granted folders
-// and Documents are LocationStore's searchRoots.
+// and Documents are VibeLocationStore's searchRoots.
 - (void)showDirectory:(NSURL *)directory highlighting:(NSURL *)file {
-    NSArray<NSURL *> *searchRoots = LocationStore.shared.searchRoots;
+    NSArray<NSURL *> *searchRoots = VibeLocationStore.shared.searchRoots;
     NSMutableArray<NSURL *> *sources = [NSMutableArray array];
     for (id<VibeBrowserSource> source in _host.sources) {
         NSURL *root = source.rootURL;
@@ -245,14 +248,14 @@ static NSString *const kActionCellIdentifier = @"action";
 - (NSUInteger)locationIndexAtIndexPath:(NSIndexPath *)indexPath {
     return indexPath.section == 0
             ? VibeBrowserLocationIndex((NSUInteger)indexPath.row, _shownSources.count,
-                                       LocationStore.shared.folderURLs.count)
+                                       VibeLocationStore.shared.folderURLs.count)
             : NSNotFound;
 }
 
 // The granted folder a Locations row shows. Nil for any other row.
 - (NSURL *)locationAtIndexPath:(NSIndexPath *)indexPath {
     NSUInteger index = [self locationIndexAtIndexPath:indexPath];
-    return index == NSNotFound ? nil : LocationStore.shared.folderURLs[index];
+    return index == NSNotFound ? nil : VibeLocationStore.shared.folderURLs[index];
 }
 
 // The source a Locations row shows. Nil for any other row.
@@ -267,7 +270,7 @@ static NSString *const kActionCellIdentifier = @"action";
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
     if (section == 0) {
-        return (NSInteger)(_shownSources.count + LocationStore.shared.folderURLs.count);
+        return (NSInteger)(_shownSources.count + VibeLocationStore.shared.folderURLs.count);
     }
     NSArray<NSArray<VibeBrowserRootRow *> *> *sections = [self rootSections];
     return (NSUInteger)section - 1 < sections.count ? (NSInteger)sections[(NSUInteger)section - 1].count : 0;
@@ -308,7 +311,7 @@ static NSString *const kActionCellIdentifier = @"action";
         opening = row.spinning;
     }
     else {
-        content.text = [LocationStore displayNameForFolderURL:[self locationAtIndexPath:indexPath]];
+        content.text = [VibeLocationStore displayNameForFolderURL:[self locationAtIndexPath:indexPath]];
         content.image = [UIImage systemImageNamed:@"folder"];
     }
     UITableViewCell *cell = [self cellWithIdentifier:action ? kActionCellIdentifier : kSourceCellIdentifier];
@@ -370,7 +373,7 @@ static NSString *const kActionCellIdentifier = @"action";
          forRowAtIndexPath:(NSIndexPath *)indexPath {
     NSUInteger index = [self locationIndexAtIndexPath:indexPath];
     if (style == UITableViewCellEditingStyleDelete && index != NSNotFound) {
-        [LocationStore.shared removeFolderAtIndex:index];
+        [VibeLocationStore.shared removeFolderAtIndex:index];
     }
 }
 
@@ -391,9 +394,9 @@ static NSString *const kActionCellIdentifier = @"action";
                                                     actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested) {
         UIAction *remove = VibeMenuAction(title, @"minus.circle", ^{
             // By URL: the list can move while the menu is up.
-            NSUInteger index = [LocationStore.shared.folderURLs indexOfObject:location];
+            NSUInteger index = [VibeLocationStore.shared.folderURLs indexOfObject:location];
             if (index != NSNotFound) {
-                [LocationStore.shared removeFolderAtIndex:index];
+                [VibeLocationStore.shared removeFolderAtIndex:index];
             }
         });
         remove.attributes = UIMenuElementAttributesDestructive;
@@ -403,8 +406,8 @@ static NSString *const kActionCellIdentifier = @"action";
 
 #pragma mark - The location picker
 
-// One folder, granted for good (LocationStore). asCopy:NO: the grant must be
-// to the real folder.
+// One folder, granted for good (VibeLocationStore). asCopy:NO: the grant must
+// be to the real folder.
 - (void)presentLocationPicker {
     UIDocumentPickerViewController *picker =
             [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeFolder] asCopy:NO];
@@ -423,7 +426,7 @@ static NSString *const kActionCellIdentifier = @"action";
     if (!url) {
         return;
     }
-    if ([LocationStore.shared addFolderURL:url]) {
+    if ([VibeLocationStore.shared addFolderURL:url]) {
         // Opened, not played: adding a folder leaves playback alone.
         [self pushDirectory:url];
     }

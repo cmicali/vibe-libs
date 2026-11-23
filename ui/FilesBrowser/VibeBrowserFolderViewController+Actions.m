@@ -1,12 +1,12 @@
 //
-//  FolderViewController+Actions.m
+//  VibeBrowserFolderViewController+Actions.m
 //  vibe-libs
 //
 
-#import "FolderViewControllerInternal.h"
+#import "VibeBrowserFolderViewControllerInternal.h"
 #import "FileRow.h"
 
-@implementation FolderViewController (Actions)
+@implementation VibeBrowserFolderViewController (Actions)
 
 #pragma mark - The bar
 
@@ -52,7 +52,7 @@
 // The title says what the choice reaches: the host's one sort, not this
 // folder's view.
 - (UIMenu *)sortMenu {
-    __weak FolderViewController *weakSelf = self;
+    __weak VibeBrowserFolderViewController *weakSelf = self;
     id<VibeBrowserHost> host = _host;
     UIDeferredMenuElement *choices = [UIDeferredMenuElement elementWithUncachedProvider:
             ^(void (^completion)(NSArray<UIMenuElement *> *)) {
@@ -150,7 +150,7 @@
     if (!url) {
         return nil;
     }
-    __weak FolderViewController *weakSelf = self;
+    __weak VibeBrowserFolderViewController *weakSelf = self;
     VibeBrowserAction *selection = _host.selectionAction;
     UIContextualAction *add = [UIContextualAction
             contextualActionWithStyle:UIContextualActionStyleNormal
@@ -172,7 +172,7 @@
     if (tableView.isEditing) {
         return nil;
     }
-    __weak FolderViewController *weakSelf = self;
+    __weak VibeBrowserFolderViewController *weakSelf = self;
     NSURL *url = [self itemAtIndexPath:indexPath];
     if (!url) {
         return nil;

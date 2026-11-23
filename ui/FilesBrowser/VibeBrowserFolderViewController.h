@@ -1,10 +1,10 @@
 //
-//  FolderViewController.h
+//  VibeBrowserFolderViewController.h
 //  vibe-libs
 //
 //  One directory of the Files tab, or of the Playlist tab's add sheet: its
 //  folders, then its M3U playlists, then its playable files. The root
-//  (BrowserRootViewController) pushes the first, and each pushes the next.
+//  (VibeBrowserRootViewController) pushes the first, and each pushes the next.
 //
 //  What a row shows and what its actions do come from the stack's host
 //  (VibeBrowserHost.h).
@@ -16,7 +16,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface FolderViewController : UITableViewController
+@interface VibeBrowserFolderViewController : UITableViewController
 
 // The host supplies what the screen shows and does, and the stack's album
 // art. Open Folder hands the last screen of its stack the file to highlight, and
