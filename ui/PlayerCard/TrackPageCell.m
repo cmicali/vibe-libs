@@ -161,12 +161,9 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
     // that set is.
     NSLayoutConstraint *_actionBarLeadingAfterPad;
     BOOL               _fxPadShown;
-    // The host's queue control, a circle at the trailing end, as the pad is
-    // at the leading end: the capsule ends a gap before it, required, over
-    // the full-width trailing edge each layout holds just below required.
-    // Absent, nothing moves.
+    // The capsule's trailing edge when the queue control shows (AGENTS.md).
     NSLayoutConstraint *_actionBarTrailingBeforeQueue;
-    BOOL               _queueShown;
+    NSString           *_queueSymbol;
     // What hiding the shuffle and repeat buttons zeroes (applyShuffleRepeatShown).
     NSLayoutConstraint *_shuffleWidth;
     NSLayoutConstraint *_outerGapWanted;
@@ -310,6 +307,7 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         _queueButton.backgroundColor = _actionBar.backgroundColor;
         _queueButton.tintColor = [UIColor labelColor];
         _queueButton.layer.cornerRadius = kCellActionBarHeight / 2;
+        _queueButton.layer.cornerCurve = kCACornerCurveContinuous;
         _queueButton.hidden = YES;
         _queueButton.translatesAutoresizingMaskIntoConstraints = NO;
         [content addSubview:_queueButton];
@@ -834,10 +832,10 @@ static UIImage *TransportGradientImage(void) {
         return; // the first applyLayoutForBounds: activates a layout, then this
     }
     _actionBarLeadingAfterPad.active = _fxPadShown && !_landscapeActive;
-    _actionBarTrailingBeforeQueue.active = _queueShown && !_compactActive;
+    _actionBarTrailingBeforeQueue.active = _queueSymbol && !_compactActive;
     _actionBar.hidden = _compactActive;
     _routeView.hidden = _compactActive;
-    _queueButton.hidden = !_queueShown || _compactActive;
+    _queueButton.hidden = !_queueSymbol || _compactActive;
     BOOL padHidden = !_fxPadShown || _compactActive;
     if (padHidden != _fxPadView.hidden) {
         if (padHidden) {
@@ -891,7 +889,7 @@ static UIImage *TransportGradientImage(void) {
     // Landscape: the column edges, then the pad and the route pill at its
     // narrowest, the pad's circle, each a gap from the row, and the queue
     // control's circle beside the pill when it shows.
-    CGFloat corners = (_queueShown ? 3 : 2) * (kCellActionBarHeight + kCellActionBarGap);
+    CGFloat corners = (_queueSymbol ? 3 : 2) * (kCellActionBarHeight + kCellActionBarGap);
     CGFloat available = _landscapeActive
             ? width - MAX(safe.left, kCellEdgeInsetLandscape) - MAX(safe.right, kCellEdgeInsetLandscape) - corners
             : width - 2 * (MAX(safe.left, safe.right) + kTransportEdgeInset);
@@ -908,17 +906,19 @@ static UIImage *TransportGradientImage(void) {
 }
 
 - (void)setQueueSymbol:(NSString *)symbol label:(NSString *)label {
-    BOOL shown = symbol != nil;
-    if (shown) {
-        [_queueButton setImage:TransportGlyph(symbol, kCellSideGlyphPointSize) forState:UIControlStateNormal];
-        _queueButton.accessibilityLabel = label;
-    }
-    if (_queueShown == shown) {
+    _queueButton.accessibilityLabel = label;
+    if (symbol == _queueSymbol || [symbol isEqualToString:_queueSymbol]) {
         return;
     }
-    _queueShown = shown;
-    [self applyActionBarSplit];
-    [self setNeedsLayout];
+    BOOL wasShown = _queueSymbol != nil;
+    _queueSymbol = [symbol copy];
+    if (symbol) {
+        [self setGlyph:symbol onButton:_queueButton pointSize:kCellSideGlyphPointSize];
+    }
+    if (wasShown != (symbol != nil)) {
+        [self applyActionBarSplit];
+        [self setNeedsLayout];
+    }
 }
 
 - (void)setFXPadShown:(BOOL)shown {

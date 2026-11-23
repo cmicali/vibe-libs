@@ -311,6 +311,7 @@ static void WaveformWaitsForOpen(NSURL *url, void (^answer)(BOOL waits)) {
     cell.routeView.alpha = [self chromeAlpha];
     cell.actionBar.alpha = [self chromeAlpha];
     cell.fxPadView.alpha = [self chromeAlpha];
+    cell.queueButton.alpha = [self chromeAlpha];
     return cell;
 }
 
