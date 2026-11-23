@@ -25,6 +25,8 @@ List `VibeLibsPlayerCard` in an iOS target.
 
 **The app sends `reloadSettings` when a setting the host reads changes.** The card registers for no notification of the app's.
 
+**What persists is the host's.** The card stores nothing itself. The time display's mode and the waveform zoom go through the host's settable `playerCardShowsRemainingTime` and `playerCardWaveformZoom`. The card writes them on a tap or a pinch and reads them back at launch, so an app saves them across launches by backing those two properties with its own defaults.
+
 The scrubber itself is `waveform/WaveformView` (its `AGENTS.md`, iOS/). **The card owns what the scrubber reads no store for.** `applyWaveformSettingsToCell:` asks the host to push the style, `centered`, `drawsPlayheadLine` and the `themeProvider` block, on every configure and on a settings change. `TrackPageCell` sets each page's `artworkThemeColor` as it installs the page's art. The card answers `needsDetailBlocks:` through its cache, for the page bound to playback only. A neighbor page is refused, and asks again when it next draws as the current page. A cursor change calls `cancelInteraction` on held scrubbers. The scrubber's `playbackLoading`, set from the model's `currentOpenSlow`, keeps the shimmer through a slow open, including one with no transfer. Settlement or a cursor change clears it.
 
 ## PlayerViewController
@@ -59,7 +61,7 @@ The track pager and the chrome over it. It owns no playback state. **Only the se
 
 ## When a scrub does nothing
 
-**The model says whether a scrub of the current track would do anything** (the playback's optional `scrubbingAvailable`). Vibe leaves it out: a scrub on a parked track reaches `seekToProgress:`, which opens the file paused at the target (`VibePlayerScrubActionFor`). An app whose parked track ignores a seek answers NO instead, or its times snap back after every drag. While it is NO, the bound page's scrubbers take no drag: the waveform's `scrubbingAllowed` is off, so it acts as an unloaded one, with no adjustable trait, and the slider is disabled. `TrackPagerView` then stops declining its pan there, so the pager takes the swipe and the strip is no dead zone. The pinch still zooms. `updatePlaybackUI` reads it on every refresh. Only the bound page answers to it: a rebind, a far jump, and a recycled page each turn the page's scrubbers back on.
+**The model says whether a scrub of the current track would do anything** (the playback's optional `scrubbingAvailable`). Vibe leaves it out: a scrub on a parked track reaches `seekToProgress:`, which opens the file paused at the target (`VibePlayerScrubActionFor`). An app whose parked track ignores a seek answers NO instead, or its times snap back after every drag. While it is NO, the bound page's scrubbers take no drag: the waveform's `seekable` is off, so it acts as an unloaded one, with no adjustable trait, and the slider is disabled. `TrackPagerView` then stops declining its pan there, so the pager takes the swipe and the strip is no dead zone. The pinch still zooms. `updatePlaybackUI` reads it on every refresh, which every tick, play state change, and finished open runs, since a parked model may send no tick. `VibePlayerScrubActionFor`'s Ignore answers one seek after a drag. This answers before one, so the drag is never offered. Only the bound page answers to it: a rebind, a far jump, and a recycled page each turn the page's scrubbers back on.
 
 ## Output route
 
@@ -127,13 +129,6 @@ Waveform bookkeeping between `AudioWaveformCache` and the cells. The cache has o
 **The slow-open state is the model's `currentOpenSlow`.** Every edge re-applies it to the visible pages (`applyPlaybackLoadingToVisiblePages`), and `willDisplayCell:` to each arriving page, so no page keeps a stale shimmer. The playback open hydrates the destination rather than clearing it. A track change cancels held scrubs and pinches, keeping the pixels and dropping the pending seek.
 
 **Only the current track's waveform reaches the model.** The card hands every complete waveform to `noteCompleteWaveform:forTrack:`, and the model drops any other track's. Vibe's widget draws it. A page's loaded art goes to `noteLoadedArtForTrack:` the same way, and the model republishes Now Playing when that track is current. **TRAP: a complete cached page delivers nothing on request**, and a track change clears the model's copy, so `requestCurrentWaveform` must still offer its snapshot.
-
-## Later work
-
-- **Queue edits as pages.** The observer has whole replacement (`playbackDidReplacePlaylist:`) and an append (`didAppendTracksAtIndexes:`). An app whose queue takes inserts, removals, and moves can only replace, which reloads every visible page and drops the waveform snapshots. The events would be `didInsertTracksAtIndexes:`, `didRemoveTracksAtIndexes:`, and `didMoveTrackFromIndex:toIndex:`, each after the cursor is final. The card would answer with `performBatchUpdates:` and shift `PageWaveformCoordinator`'s indexes, its target, and the art window's held pages by the same edit. A cheaper "these pages changed" event does not fit: the coordinator and the art window key on indexes, so any edit that moves rows needs the shift.
-- **A page before the first track.** After a new list starts, the pager has no page before the song playing, while the app's Previous can still go to a row above it. The card pages the queue it is given. An app that wants that row on the card hands a queue that includes it, with `currentIndex` past it.
-- **More host settings.** The host has no member to hide the time labels, show a rating, show pitch rows, or colour the key by the Camelot wheel. Each would be one optional host member read on configure, as `playerCardShowsFXPad` is.
-- **What persists is the host's.** The card stores nothing itself. The time display's mode and the waveform zoom go through the host's settable `playerCardShowsRemainingTime` and `playerCardWaveformZoom`. The card writes them on a tap or a pinch and reads them back at launch, so an app saves them across launches by backing those two properties with its own defaults.
 
 ## Tests
 

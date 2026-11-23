@@ -519,12 +519,10 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
     }
 }
 
-- (BOOL)scrubbingAvailable {
-    return ![_playback respondsToSelector:@selector(scrubbingAvailable)] || _playback.scrubbingAvailable;
-}
-
 - (void)updatePlaybackUI {
-    [_boundPage setScrubbingAvailable:[self scrubbingAvailable]];
+    // A model that says nothing allows a scrub.
+    [_boundPage setScrubbingAvailable:(![_playback respondsToSelector:@selector(scrubbingAvailable)]
+                                       || _playback.scrubbingAvailable)];
     if (_boundPage.isScrubbing) {
         // The scrub owns the readout (didScrubToProgress:).
         return;
@@ -672,9 +670,12 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
     [self applyPlayOrderToVisiblePages];
 }
 
+// A parked model may send no tick, so its scrubbingAvailable is read here
+// too (updatePlaybackUI).
 - (void)playbackDidChangePlayState:(id<VibePlayerCardPlayback>)playback {
     [self updateScrollLinkState];
     [self updatePlayButton];
+    [self updatePlaybackUI];
 }
 
 - (void)playbackDidChangeOutputRoute:(id<VibePlayerCardPlayback>)playback {
@@ -707,6 +708,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
 // moved: the cursor's request skipped it (requestCurrentWaveform). A page
 // still loading or complete ignores this one.
 - (void)playbackDidFinishLoading:(id<VibePlayerCardPlayback>)playback {
+    [self updatePlaybackUI];
     [self applyPlaybackLoadingToVisiblePages];
     [self hydrateWaveformInCell:[self cellAtIndex:playback.currentIndex] atIndex:playback.currentIndex];
     [self requestCurrentWaveform];

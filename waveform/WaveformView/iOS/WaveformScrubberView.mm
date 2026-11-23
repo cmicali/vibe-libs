@@ -40,11 +40,12 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
     _scroll.decelerationRate = UIScrollViewDecelerationRateFast;
     _scroll.contentInsetAdjustmentBehavior = UIScrollViewContentInsetAdjustmentNever;
     // TRAP: a UIScrollView owns its pan's delegate and raises on assignment,
-    // so the "no waveform, no scrub" gate rides scrollEnabled — see
-    // setWaveform:. The pan also dies on any touch-count change, so no
+    // so the scrub's gate rides scrollEnabled: no waveform, or not seekable,
+    // and no scrub (isScrubbingEnabled). Every scrollEnabled write reads it,
+    // so a load or a cancel cannot reopen a gate the owner closed. The pan also dies on any touch-count change, so no
     // maximumNumberOfTouches cap: see trackZoomGestureScrub:.
     _scroll.scrollEnabled = NO;
-    _scrubbingAllowed = YES;
+    _seekable = YES;
     [self addSubview:_scroll];
 
     _rendererHost = [[CALayer alloc] init];
@@ -100,15 +101,15 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
 }
 
 - (BOOL)isScrubbingEnabled {
-    return self.waveform != nil && _scrubbingAllowed;
+    return self.waveform != nil && _seekable;
 }
 
-- (void)setScrubbingAllowed:(BOOL)allowed {
-    if (_scrubbingAllowed == allowed) {
+- (void)setSeekable:(BOOL)seekable {
+    if (_seekable == seekable) {
         return;
     }
-    _scrubbingAllowed = allowed;
-    if (!allowed && self.isScrubbing) {
+    _seekable = seekable;
+    if (!seekable && self.isScrubbing) {
         [self cancelInteraction];
     }
     _scroll.scrollEnabled = self.isScrubbingEnabled;

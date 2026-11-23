@@ -943,7 +943,7 @@ static UIImage *TransportGradientImage(void) {
 }
 
 - (void)setScrubbingAvailable:(BOOL)available {
-    _waveformView.scrubbingAllowed = available;
+    _waveformView.seekable = available;
     if (_standardScrubber.enabled == available) {
         return;
     }

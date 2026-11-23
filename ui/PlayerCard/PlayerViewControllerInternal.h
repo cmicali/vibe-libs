@@ -100,13 +100,10 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 // The host asks for the slider (VibePlayerCardScrubberStandard). No
 // waveform is requested or drawn meanwhile.
 - (BOOL)usesStandardScrubber;
-// The model's scrubbingAvailable, YES when it says nothing.
-- (BOOL)scrubbingAvailable;
 - (void)updatePlayButton;
 // Only the empty state hides the chrome (TrackPageCell.chromeAlpha).
 - (CGFloat)chromeAlpha;
 - (void)updateScrollLinkState;
-- (void)updateOutputRoute;
 // Refreshes the current page and rebinds the chrome to it.
 - (void)renderHeaderForTrack:(nullable id<VibePlayerCardItem>)track;
 
@@ -130,8 +127,6 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 
 // One setting for every page, so every visible page repaints.
 - (void)remainingTimeTapped;
-
-- (void)repaintTimesOnVisiblePages;
 
 @end
 

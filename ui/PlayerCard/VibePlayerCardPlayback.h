@@ -166,12 +166,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 @optional
 
-// NO while a scrub of the current track would do nothing, such as a parked
-// track that this app does not open from a scrub. The current page's
-// scrubber then takes no drag and no VoiceOver adjust, and the pager takes
-// the swipe. Read on every playback refresh. YES without it, so a scrub on a
-// parked track reaches seekToProgress:, which decides with
-// VibePlayerScrubActionFor.
+// NO while a scrub of the current track would do nothing, such as in an app
+// whose parked track ignores a seek. The current page's scrubber then takes
+// no drag and no VoiceOver adjust, and the pager takes the swipe. YES
+// without it, so every scrub reaches seekToProgress:, which decides with
+// VibePlayerScrubActionFor (PlayerScreenRules.h). That rule's Ignore answers
+// one seek after the drag. This answers before the drag, so a model that
+// would ignore every seek of its current track says NO here, and the times
+// never snap back. The card reads it on every tick, play state change, and
+// finished open, so a change must come with one of those events.
 @property (nonatomic, readonly) BOOL scrubbingAvailable;
 
 @end
