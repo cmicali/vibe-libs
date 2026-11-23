@@ -19,6 +19,14 @@
 
 static NSString *const kItemCellIdentifier = @"item";
 
+// The action's glyph, or its title as text when it asks. VoiceOver reads the
+// title either way.
+static void ShowActionOnBarItem(VibeBrowserAction *action, UIBarButtonItem *item) {
+    item.image = action.showsTitle ? nil : [UIImage systemImageNamed:action.symbol];
+    item.title = action.showsTitle ? action.title : nil;
+    item.accessibilityLabel = action.title;
+}
+
 // Going back to a folder relists it only this long after its last listing;
 // pull to refresh always does.
 static const CFTimeInterval kRelistInterval = 60;
@@ -85,19 +93,17 @@ static const NSUInteger kFilterThreshold = 12;
     // The tap's action is set by refreshBarItems, which knows whether
     // there is anything directly inside to play.
     __weak VibeBrowserFolderViewController *weakPlaySelf = self;
-    VibeBrowserAction *folderAction = _host.folderAction;
-    _playItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:folderAction.symbol]
+    _playItem = [[UIBarButtonItem alloc] initWithImage:nil
                                                   menu:[UIMenu menuWithChildren:@[VibeMenuAction(
             _host.subfoldersTitle, @"square.stack.3d.up", ^{
         [weakPlaySelf openDirectoryWithSubfolders];
     })]]];
-    _playItem.accessibilityLabel = folderAction.title;
-    VibeBrowserAction *selectionAction = _host.selectionAction;
-    _addSelectedItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:selectionAction.symbol]
+    ShowActionOnBarItem(_host.folderAction, _playItem);
+    _addSelectedItem = [[UIBarButtonItem alloc] initWithImage:nil
                                                         style:UIBarButtonItemStylePlain
                                                        target:self
                                                        action:@selector(addSelected)];
-    _addSelectedItem.accessibilityLabel = selectionAction.title;
+    ShowActionOnBarItem(_host.selectionAction, _addSelectedItem);
     _sortItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"arrow.up.arrow.down"]
                                                   menu:[self sortMenu]];
     _sortItem.accessibilityLabel = [_host label:VibeBrowserLabelSort];
@@ -412,7 +418,7 @@ static const NSUInteger kFilterThreshold = 12;
         return;
     }
     _walkingSubfolders = YES;
-    void (^open)(NSArray<NSURL *> *) = [_host subfoldersHandlerFromScreen:self];
+    void (^open)(NSArray<NSURL *> *) = [_host subfoldersHandlerForFolder:_directoryURL fromScreen:self];
     __weak VibeBrowserFolderViewController *weakSelf = self;
     [self walkSubfolders:[NSMutableArray arrayWithObject:_directoryURL]
                    found:[NSMutableArray array]

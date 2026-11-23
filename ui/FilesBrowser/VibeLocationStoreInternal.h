@@ -2,31 +2,18 @@
 //  VibeLocationStoreInternal.h
 //  vibe-libs
 //
-//  The grant FolderSession retains; a removed entry's scope stops only when
-//  every grant ends. FolderSession holds grants across opens and playback.
+//  What the store's tests reach that an app does not.
 //
 
 #import "VibeLocationStore.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface VibeLocationGrant : NSObject
-
-- (instancetype)init NS_UNAVAILABLE;
-+ (instancetype)new NS_UNAVAILABLE;
-
-@property (nonatomic, readonly) NSURL *rootURL;
-
-@end
-
 @interface VibeLocationStore (Internal)
 
 // A store of its own over the same defaults, as a relaunch reads them. The
 // app has one, VibeLocationStore.shared.
 - (instancetype)initPrivate;
-
-// Nil when only a transient root or the app container covers url.
-- (nullable VibeLocationGrant *)grantCoveringURL:(NSURL *)url;
 
 @end
 

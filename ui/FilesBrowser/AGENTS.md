@@ -15,12 +15,12 @@ A browser of the folders a user granted an iOS app and the app's own sources, su
 
 List `VibeLibsFilesBrowser` in an iOS target.
 
-**At launch, configure the store once**, before it is first used: `configureWithBookmarksKey:suppressionsKey:rootNamer:`. The keys name where the grants live in the standard defaults. The namer names the roots the store cannot name itself, such as Documents as "On My iPhone". It must never touch the disk. Then call `restorePersistedFolders`.
+**At launch, configure the store once**, before it is first used: `configureWithBookmarksKey:suppressionsKey:rootNamer:`. The keys name where the grants live in the standard defaults. The namer names the roots the store cannot name itself, such as Documents as "On My iPhone". It must never touch the disk. Then call `restorePersistedFolders`. An app that opens files from a location holds its scope with `grantCoveringURL:` for as long as it reads them.
 
 **Make a host per stack of screens, and a root over it** (`initWithHost:`). The host supplies:
 
-- **The actions, as values** (`VibeBrowserAction`: a title, a glyph, and a handler that gets the rows' URLs and the screen). A file's tap, the selection's action (Select's bar button and the swipe), the bar button, the subfolder walk's handler, and each row's long press. One app offers Play and Add to Playlist. Another offers Import.
-- **The words** (`VibeBrowserLabel` and two counted strings), the sheet's look (a prompt, Close at every level, and whether the sort menu shows), and the one folder sort.
+- **The actions, as values** (`VibeBrowserAction`: a title, a glyph, and a handler that gets the rows' URLs and the screen). A file's tap, the selection's action (Select's bar button and the swipe), the bar button, the subfolder walk's handler, and each row's long press. One app offers Play and Add to Playlist. Another offers Import. A bar button shows the action's glyph, or its title as text when the action sets `showsTitle`. The walk's handler is told the folder the walk started from, so an app can name what it makes after that folder.
+- **The words** (`VibeBrowserLabel` and two counted strings), the sheet's look (a prompt over each folder, and optionally one over the root (`rootPrompt`), Close at every level, and whether the sort menu shows), and the one folder sort.
 - **The sources** listed before the granted folders (`VibeBrowserSource`). A source that lists from elsewhere refreshes a folder before it is read, and can give its own words for a failed refresh. A source that signs in offers its connect item in the plus.
 - **Optionally, its rows below Locations** (`rootSections`), as `VibeBrowserRootRow` values whose handler gets the root. No app subclasses the root.
 - **Optionally, playback** (`VibeBrowserPlaybackHost`): the playing file's row carries the equalizer, and the row being opened spins. A host that plays nothing leaves it out.
@@ -57,4 +57,4 @@ Each may change once an app needs it to.
 
 ## Tests
 
-These screens need a hosted app and a window, so their tests run in the consuming app's simulator suite, as `ui/Rows`' do. Vibe's are its `FolderScreenHostTests`, whose host is not Vibe's, and its `LocationStoreTests` and `BrowserRulesTests` in its macOS suite. Here, `FilesBrowser-iOS` only builds the piece, so this repo's checks don't prove its behavior. Run Vibe's `make test-ios` and `make test` against the change before it merges.
+These screens need a hosted app and a window, so their tests run in the consuming app's simulator suite, as `ui/Rows`' do. Vibe's are its `FolderScreenHostTests`, whose host is not Vibe's, and its `LocationStoreTests` and `BrowserRulesTests` in its macOS suite. `FolderScreenHostTests` covers a bar button's title, the walk's start folder, and the root's prompt, and `LocationStoreTests` covers `grantCoveringURL:`. Here, `FilesBrowser-iOS` only builds the piece, so this repo's checks don't prove its behavior. Run Vibe's `make test-ios` and `make test` against the change before it merges.
