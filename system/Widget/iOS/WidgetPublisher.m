@@ -10,6 +10,7 @@
 #import "NSURL+Hash.h"
 #import "NowPlayingRules.h"
 #import "UIImage+DominantColor.h"
+#import "VibeWidgetPublishRules.h"
 #import "VibeWidgetState.h"
 #import "WaveformRendererRegistry.h"
 
