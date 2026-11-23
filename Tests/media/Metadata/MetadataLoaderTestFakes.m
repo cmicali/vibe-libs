@@ -4,81 +4,10 @@
 
 #import "MetadataLoaderTestFakes.h"
 
-#import "NSURL+Hash.h"
-
-@interface VibeLoaderTestTrack ()
-@property (atomic, strong, nullable, readwrite) AudioTrackMetadata *metadata;
-@end
-
-@implementation VibeLoaderTestTrack {
-    NSString *_sourceKey;
-    NSString *_memoizedCacheKey;
-    uint64_t _memoizedCacheKeyGeneration;
-}
-
-@synthesize url = _url, cueStart = _cueStart, cueEnd = _cueEnd;
+@implementation VibeLoaderTestTrack
 
 + (VibeLoaderTestTrack *)withURL:(NSURL *)url {
-    return [[VibeLoaderTestTrack alloc] initWithURL:url cueStart:0 cueEnd:0];
-}
-
-- (instancetype)initWithURL:(NSURL *)url cueStart:(NSUInteger)cueStart cueEnd:(NSUInteger)cueEnd {
-    if ((self = [super init])) {
-        _url = [url copy];
-        _cueStart = cueStart;
-        _cueEnd = cueEnd;
-        _sourceKey = VibeKeyByAppendingCueWindow(url.path, cueStart, cueEnd) ?: @"";
-    }
-    return self;
-}
-
-- (NSString *)sourceKey {
-    return _sourceKey;
-}
-
-// Outside the monitor, since the stat can block. A key read under an older
-// generation is computed again.
-- (nullable NSString *)cacheKey {
-    uint64_t generation = NSURL.cacheKeyGeneration;
-    @synchronized (self) {
-        if (_memoizedCacheKey && _memoizedCacheKeyGeneration == generation) {
-            return _memoizedCacheKey;
-        }
-    }
-    NSString *key = self.url.cacheKey;
-    if (!key) {
-        return nil;
-    }
-    @synchronized (self) {
-        if (!_memoizedCacheKey || _memoizedCacheKeyGeneration < generation) {
-            _memoizedCacheKey = key;
-            _memoizedCacheKeyGeneration = generation;
-        }
-        return _memoizedCacheKey;
-    }
-}
-
-- (BOOL)installMetadataIfUnresolved:(AudioTrackMetadata *)metadata {
-    @synchronized (self) {
-        AudioTrackMetadata *installed = self.metadata;
-        if (installed.parsedOK && (installed.cacheKey == metadata.cacheKey
-                || [installed.cacheKey isEqualToString:metadata.cacheKey])) {
-            return NO;
-        }
-        self.metadata = metadata;
-        return YES;
-    }
-}
-
-- (BOOL)deliverIfMetadataStillInstalled:(AudioTrackMetadata *)metadata
-                              usingBlock:(NS_NOESCAPE dispatch_block_t)delivery {
-    @synchronized (self) {
-        if (self.metadata != metadata) {
-            return NO;
-        }
-        delivery();
-        return YES;
-    }
+    return [[VibeLoaderTestTrack alloc] initWithURL:url];
 }
 
 @end

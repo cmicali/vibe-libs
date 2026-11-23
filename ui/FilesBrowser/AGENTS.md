@@ -7,7 +7,6 @@ A browser of the folders a user granted an iOS app and the app's own sources, su
 | `VibeBrowserHost.h` | the host protocol, the action and root-row values, the source protocol, the folder source, the observer events, the stack's art cache, and an alert with the host's OK |
 | `VibeBrowserRootViewController` | the root: Locations (the host's sources, then the granted folders), the host's rows below them, the plus, the location picker, and the walk to a folder (`showDirectory:highlighting:`) |
 | `VibeBrowserFolderViewController` | one folder: its listing, filter, bar, Select, sort, subfolder walk, equalizer, and row actions. `+Art` holds the album art and `+Actions` the bar, Select, a tap, a swipe, and a long press |
-| `VibeBrowserArtHolder` | the holder a row's art loads into when the host has none |
 | `BrowserRules.h` | a Locations row's folder, which root covers a path, a folder's empty state, and a row's tile. Header only and Foundation only |
 | `VibeLocationStore` | the granted folders, as persisted bookmarks whose scopes are held for the session, and the one name each folder is shown under |
 
@@ -24,7 +23,7 @@ List `VibeLibsFilesBrowser` in an iOS target.
 - **The sources** listed before the granted folders (`VibeBrowserSource`). A source that lists from elsewhere refreshes a folder before it is read, and can give its own words for a failed refresh. A source that signs in offers its connect item in the plus.
 - **Optionally, its rows below Locations** (`rootSections`), as `VibeBrowserRootRow` values whose handler gets the root. No app subclasses the root.
 - **Optionally, playback** (`VibeBrowserPlaybackHost`): the playing file's row carries the equalizer, and the row being opened spins. A host that plays nothing leaves it out.
-- **Optionally, an art holder per file.** Without one, a row's art loads into a `VibeBrowserArtHolder`. The browser makes the stack's metadata cache itself (`VibeBrowserArtCache`), so a host gets art with no code.
+- **Optionally, an art holder per file.** Without one, a row's art loads into `media/Metadata`'s `VibeFileMetadataHolder`. The browser makes the stack's metadata cache itself (`VibeBrowserArtCache`), so a host gets art with no code.
 
 A host whose playback, sources, or rows change takes the screens as observers (`addBrowserObserver:`). The name avoids `NSObject`'s `addObserver:`.
 
@@ -51,7 +50,6 @@ Each may change once an app needs it to.
 
 ## Later work
 
-- **A default whole-file holder in `media/Metadata`.** `VibeBrowserArtHolder` would move beside `AudioTrackMetadataHolder`, and the two test holders that nearly copy it, `ConsumerTrack` and `VibeLoaderTestTrack`, would share it.
 - **The store as a piece of its own: proposed, not started.** `VibeLocationStore` and the coverage rules are Foundation only, and an app's session and search use them without the browser. A cross-platform `files/Locations` piece on `core/Common` alone would hold them. It would cost one pull request here and one in each app: the store's three files and the rules move with `git mv`, the rules leave `BrowserRules.h` for a header of their own, the piece takes its template, targets, map row, and `AGENTS.md`, and Vibe's `LocationStoreTests` and the coverage half of its `BrowserRulesTests` move here with their history. Its macOS tests would be the store's first run on macOS. It waits because every app that uses the store also shows the browser, so the split saves no one a dependency yet. It is worth doing when an app needs the grants without the browser, or on macOS.
 - **Comments that still describe Vibe's screens**, such as the Files tab, the Playlist tab's add sheet, and `FolderSession`.
 

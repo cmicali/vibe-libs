@@ -200,7 +200,7 @@ FOUNDATION_EXTERN void VibeBrowserPresentAlert(UIViewController *screen, id<Vibe
 
 #pragma mark Album art
 
-// The holder a file row's art loads into. A VibeBrowserArtHolder without it.
+// The holder a file row's art loads into. A VibeFileMetadataHolder without it.
 - (id<AudioTrackMetadataHolder>)artHolderForFileURL:(NSURL *)url;
 
 @end

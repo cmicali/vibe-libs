@@ -12,19 +12,13 @@
 #import "AudioTrackMetadata.h"
 #import "AudioTrackMetadataLoader.h"
 #import "MetadataParseCoordinator.h"
+#import "VibeFileMetadataHolder.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-// The tests' own holder: a file, its window, and the metadata a loader
-// installs. It memoizes its cache key as an app's row may, stamped with
-// NSURL.cacheKeyGeneration. A fresh object per call, so two holders for one
-// file stay two holders.
-@interface VibeLoaderTestTrack : NSObject <AudioTrackMetadataHolder>
+// The tests' holder: the piece's default one, named for the tests.
+@interface VibeLoaderTestTrack : VibeFileMetadataHolder
 + (VibeLoaderTestTrack *)withURL:(NSURL *)url;
-// A window of the file in CD frames; an end of 0 runs to the file's end.
-- (instancetype)initWithURL:(NSURL *)url cueStart:(NSUInteger)cueStart cueEnd:(NSUInteger)cueEnd
-        NS_DESIGNATED_INITIALIZER;
-- (instancetype)init NS_UNAVAILABLE;
 @end
 
 @interface VibeLoaderTestMetadata : NSObject <NSCopying>

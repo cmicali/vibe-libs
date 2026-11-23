@@ -5,7 +5,7 @@
 
 #import "VibeBrowserFolderViewControllerInternal.h"
 #import "AudioTrackMetadata.h"
-#import "VibeBrowserArtHolder.h"
+#import "VibeFileMetadataHolder.h"
 
 // Rows past each end of the screen whose art is asked for with the visible ones.
 static const NSInteger kArtRowMargin = 20;
@@ -53,7 +53,7 @@ static const NSInteger kArtRowMargin = 20;
                 _artTracks = [NSMutableDictionary dictionary];
             }
             track = [_host respondsToSelector:@selector(artHolderForFileURL:)]
-                    ? [_host artHolderForFileURL:url] : [[VibeBrowserArtHolder alloc] initWithURL:url];
+                    ? [_host artHolderForFileURL:url] : [[VibeFileMetadataHolder alloc] initWithURL:url];
             _artTracks[url] = track;
         }
         if (track.metadata) {
