@@ -1,5 +1,5 @@
 //
-//  PlaylistTrackCell.h
+//  VibeTrackCell.h
 //  vibe-libs
 //
 
@@ -11,11 +11,11 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-static const CGFloat kEstimatedRowHeight = 64;
+static const CGFloat kVibeTrackCellEstimatedHeight = 64;
 
 // The mac playlist table's four columns in one row. It draws the values it is
 // given and reads no model, setting or string.
-@interface PlaylistTrackCell : UITableViewCell
+@interface VibeTrackCell : UITableViewCell
 // Where the separator starts: under the text, past the gutter and the art.
 @property (class, nonatomic, readonly) CGFloat separatorLeadingInset;
 // Set at dequeue: the table mints the cell.

@@ -1,16 +1,16 @@
 //
-//  FolderViewController+Art.m
+//  VibeBrowserFolderViewController+Art.m
 //  vibe-libs
 //
 
-#import "FolderViewControllerInternal.h"
+#import "VibeBrowserFolderViewControllerInternal.h"
 #import "AudioTrackMetadata.h"
 #import "VibeBrowserArtHolder.h"
 
 // Rows past each end of the screen whose art is asked for with the visible ones.
 static const NSInteger kArtRowMargin = 20;
 
-@implementation FolderViewController (Art)
+@implementation VibeBrowserFolderViewController (Art)
 
 // The stack's one cache, asked only once a row needs art.
 - (AudioTrackMetadataCache *)stackArtCache {

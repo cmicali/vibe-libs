@@ -1,13 +1,13 @@
 //
-//  LocationStore.m
+//  VibeLocationStore.m
 //  vibe-libs
 //
 
-#import "LocationStore.h"
+#import "VibeLocationStore.h"
 #import "FilePaths.h"
 
 #import "BrowserRules.h"
-#import "LocationStoreInternal.h"
+#import "VibeLocationStoreInternal.h"
 #import "VibeMacros.h"
 
 NSNotificationName const VibeSearchFoldersDidChangeNotification =
@@ -23,7 +23,7 @@ static const NSInteger kMaximumConcurrentBookmarkRestorations = 3;
 // Main only. The app sets it before any scene connects.
 static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
-@interface LocationEntry : NSObject
+@interface VibeLocationEntry : NSObject
 @property (nonatomic) NSURL *url;
 // Resolved off main with the bookmark, since asking the file system for a
 // provider folder's name can block; nil until then.
@@ -33,12 +33,12 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 @property (nonatomic) NSUInteger ordinal;
 // A parent whose bookmark is not durable yet owns the narrower entries it
 // replaced, so their bookmarks remain the relaunch state until minting settles.
-@property (nonatomic) NSArray<LocationEntry *> *replacedEntries;
+@property (nonatomic) NSArray<VibeLocationEntry *> *replacedEntries;
 @property (nonatomic) NSUInteger sessionGrantCount;
 @property (nonatomic) BOOL retired;
 @end
 
-@implementation LocationEntry
+@implementation VibeLocationEntry
 - (instancetype)init {
     self = [super init];
     if (self) {
@@ -50,30 +50,30 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 // One persisted bookmark restoration and the root removals that are allowed to
 // suppress only this identity after its provider finally resolves the URL.
-@interface PendingLocationRestore : NSObject
+@interface VibePendingLocationRestore : NSObject
 @property (nonatomic) NSData *bookmark;
 @property (nonatomic) NSMutableOrderedSet<NSString *> *suppressedRootPaths;
 @end
 
-@implementation PendingLocationRestore
+@implementation VibePendingLocationRestore
 @end
 
-@class LocationStore;
+@class VibeLocationStore;
 
-@interface LocationGrant () {
-    LocationStore *_store;
-    LocationEntry *_entry;
+@interface VibeLocationGrant () {
+    VibeLocationStore *_store;
+    VibeLocationEntry *_entry;
 }
-- (instancetype)initWithStore:(LocationStore *)store entry:(LocationEntry *)entry;
+- (instancetype)initWithStore:(VibeLocationStore *)store entry:(VibeLocationEntry *)entry;
 @end
 
-@interface LocationStore ()
-- (void)releaseSessionGrantForEntry:(LocationEntry *)entry;
+@interface VibeLocationStore ()
+- (void)releaseSessionGrantForEntry:(VibeLocationEntry *)entry;
 @end
 
-@implementation LocationGrant
+@implementation VibeLocationGrant
 
-- (instancetype)initWithStore:(LocationStore *)store entry:(LocationEntry *)entry {
+- (instancetype)initWithStore:(VibeLocationStore *)store entry:(VibeLocationEntry *)entry {
     self = [super init];
     if (self) {
         _store = store;
@@ -84,8 +84,8 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 }
 
 - (void)dealloc {
-    LocationStore *store = _store;
-    LocationEntry *entry = _entry;
+    VibeLocationStore *store = _store;
+    VibeLocationEntry *entry = _entry;
     if (NSThread.isMainThread) {
         [store releaseSessionGrantForEntry:entry];
     }
@@ -98,12 +98,12 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 @end
 
-@implementation LocationStore {
+@implementation VibeLocationStore {
     // Main-confined. An entry remains alive after removal while a FolderSession
     // grant still retains it; retirement balances the scope when the last one
     // releases.
-    NSMutableArray<LocationEntry *> *_folders;
-    NSMutableDictionary<NSNumber *, PendingLocationRestore *> *_pendingRestorations;
+    NSMutableArray<VibeLocationEntry *> *_folders;
+    NSMutableDictionary<NSNumber *, VibePendingLocationRestore *> *_pendingRestorations;
     NSUInteger _nextEntryOrdinal;
     BOOL _restoreStarted;
 
@@ -113,38 +113,38 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     dispatch_queue_t _bookmarkQueue;
 }
 
-+ (LocationStore *)shared {
-    static LocationStore *shared;
++ (VibeLocationStore *)shared {
+    static VibeLocationStore *shared;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        shared = [[LocationStore alloc] initPrivate];
+        shared = [[VibeLocationStore alloc] initPrivate];
     });
     return shared;
 }
 
 - (instancetype)initPrivate {
     NSAssert(kSearchFolderBookmarksKey && kSearchFolderRestoreSuppressionsKey,
-             @"LocationStore: the app sets its keys before the store is used");
+             @"VibeLocationStore: the app sets its keys before the store is used");
     self = [super init];
     if (self) {
         _folders = [NSMutableArray array];
         _pendingRestorations = [NSMutableDictionary dictionary];
 
         _restoreQueue = [[NSOperationQueue alloc] init];
-        _restoreQueue.name = @"LocationStore.restore";
+        _restoreQueue.name = @"VibeLocationStore.restore";
         _restoreQueue.qualityOfService = NSQualityOfServiceUtility;
         _restoreQueue.maxConcurrentOperationCount = kMaximumConcurrentBookmarkRestorations;
 
         dispatch_queue_attr_t attributes = dispatch_queue_attr_make_with_qos_class(
                 DISPATCH_QUEUE_SERIAL, QOS_CLASS_USER_INITIATED, 0);
-        _bookmarkQueue = dispatch_queue_create("LocationStore.bookmark", attributes);
+        _bookmarkQueue = dispatch_queue_create("VibeLocationStore.bookmark", attributes);
     }
     return self;
 }
 
 - (void)dealloc {
     [_restoreQueue cancelAllOperations];
-    for (LocationEntry *folder in _folders) {
+    for (VibeLocationEntry *folder in _folders) {
         [self retireScopeTree:folder];
     }
 }
@@ -161,7 +161,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 - (NSArray<NSURL *> *)folderURLs {
     NSMutableArray<NSURL *> *urls = [NSMutableArray arrayWithCapacity:_folders.count];
-    for (LocationEntry *folder in _folders) {
+    for (VibeLocationEntry *folder in _folders) {
         [urls addObject:folder.url];
     }
     return urls;
@@ -176,7 +176,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 - (NSArray<NSURL *> *)searchRoots {
     NSMutableArray<NSURL *> *roots = [[self folderURLs] mutableCopy];
-    NSURL *documents = [LocationStore containerDocumentsURL];
+    NSURL *documents = [VibeLocationStore containerDocumentsURL];
     if (documents) {
         [roots addObject:documents];
     }
@@ -191,7 +191,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     if (rootName) {
         return rootName;
     }
-    for (LocationEntry *folder in LocationStore.shared->_folders) {
+    for (VibeLocationEntry *folder in VibeLocationStore.shared->_folders) {
         if ([VibeComparablePath(folder.url.path) isEqualToString:path]) {
             return folder.displayName ?: url.lastPathComponent;
         }
@@ -218,15 +218,15 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
         NSData *bookmark = value;
         NSUInteger ordinal = _nextEntryOrdinal++;
         NSNumber *key = @(ordinal);
-        PendingLocationRestore *pending = [[PendingLocationRestore alloc] init];
+        VibePendingLocationRestore *pending = [[VibePendingLocationRestore alloc] init];
         pending.bookmark = bookmark;
         pending.suppressedRootPaths = [NSMutableOrderedSet orderedSetWithArray:
                 [self suppressedRootPathsForBookmark:bookmark inRecords:suppressionRecords]];
         _pendingRestorations[key] = pending;
         [_restoreQueue addOperationWithBlock:^{
-            LocationEntry *folder = [self resolveBookmark:bookmark];
+            VibeLocationEntry *folder = [self resolveBookmark:bookmark];
             dispatch_async(dispatch_get_main_queue(), ^{
-                PendingLocationRestore *livePending = self->_pendingRestorations[key];
+                VibePendingLocationRestore *livePending = self->_pendingRestorations[key];
                 if (!livePending) {
                     [self retireScopeTree:folder];
                     return;
@@ -283,7 +283,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 // Restore queue only. A stale bookmark is re-minted after the scope starts,
 // since minting needs it open.
-- (LocationEntry *)resolveBookmark:(NSData *)bookmark {
+- (VibeLocationEntry *)resolveBookmark:(NSData *)bookmark {
     BOOL stale = NO;
     NSError *error = nil;
     NSURL *url = [NSURL URLByResolvingBookmarkData:bookmark
@@ -292,11 +292,11 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
                                bookmarkDataIsStale:&stale
                                              error:&error];
     if (!url) {
-        LogWarn(@"LocationStore: dropping a folder whose bookmark no longer resolves (%@)",
+        LogWarn(@"VibeLocationStore: dropping a folder whose bookmark no longer resolves (%@)",
                 error);
         return nil;
     }
-    LocationEntry *folder = [[LocationEntry alloc] init];
+    VibeLocationEntry *folder = [[VibeLocationEntry alloc] init];
     folder.url = url;
     // NO is not failure: the app's own container is not security-scoped.
     folder.scopeStarted = [url startAccessingSecurityScopedResource];
@@ -314,7 +314,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
                                       relativeToURL:nil
                                               error:&error];
     if (!bookmark) {
-        LogWarn(@"LocationStore: could not bookmark %@ (%@)", url, error);
+        LogWarn(@"VibeLocationStore: could not bookmark %@ (%@)", url, error);
     }
     return bookmark;
 }
@@ -326,7 +326,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
         return NO;
     }
 
-    LocationEntry *folder = [[LocationEntry alloc] init];
+    VibeLocationEntry *folder = [[VibeLocationEntry alloc] init];
     folder.url = url;
     folder.scopeStarted = [url startAccessingSecurityScopedResource];
     folder.ordinal = _nextEntryOrdinal++;
@@ -350,7 +350,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
             }
             folder.bookmark = bookmark;
             [self suppressPendingRestorationsCoveredByURL:folder.url];
-            for (LocationEntry *replacedEntry in folder.replacedEntries) {
+            for (VibeLocationEntry *replacedEntry in folder.replacedEntries) {
                 [self retireScopeTree:replacedEntry];
             }
             folder.replacedEntries = @[];
@@ -364,7 +364,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     if (index >= _folders.count) {
         return;
     }
-    LocationEntry *folder = _folders[index];
+    VibeLocationEntry *folder = _folders[index];
     [self suppressPendingRestorationsCoveredByURL:folder.url];
     [_folders removeObjectAtIndex:index];
     [self retireScopeTree:folder];
@@ -373,22 +373,22 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 // The one merge for additions and restores alike (FileSearchRules.h), inserting
 // by original order.
-- (BOOL)mergeEntry:(LocationEntry *)candidate {
+- (BOOL)mergeEntry:(VibeLocationEntry *)candidate {
     NSString *candidatePath = VibeComparablePath(candidate.url.path);
-    NSURL *documents = [LocationStore containerDocumentsURL];
+    NSURL *documents = [VibeLocationStore containerDocumentsURL];
     if (documents && VibeSearchRootCoversPath(
             VibeComparablePath(documents.path), candidatePath)) {
         [self retireScopeTree:candidate];
         return NO;
     }
     NSMutableArray<NSString *> *paths = [NSMutableArray arrayWithCapacity:_folders.count];
-    for (LocationEntry *folder in _folders) {
+    for (VibeLocationEntry *folder in _folders) {
         [paths addObject:VibeComparablePath(folder.url.path) ?: @""];
     }
 
     NSUInteger coveringIndex = VibeSearchFolderCoveringRootIndex(paths, candidatePath);
     if (coveringIndex != NSNotFound) {
-        LocationEntry *covering = _folders[coveringIndex];
+        VibeLocationEntry *covering = _folders[coveringIndex];
         if (!covering.bookmark) {
             covering.replacedEntries = [covering.replacedEntries
                     arrayByAddingObject:candidate];
@@ -401,14 +401,14 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     }
 
     NSIndexSet *covered = VibeSearchFolderIndexesCoveredByRoot(paths, candidatePath);
-    NSArray<LocationEntry *> *replaced = [_folders objectsAtIndexes:covered];
+    NSArray<VibeLocationEntry *> *replaced = [_folders objectsAtIndexes:covered];
     [_folders removeObjectsAtIndexes:covered];
     if (!candidate.bookmark) {
         candidate.replacedEntries = [candidate.replacedEntries
                 arrayByAddingObjectsFromArray:replaced];
     }
     else {
-        for (LocationEntry *folder in replaced) {
+        for (VibeLocationEntry *folder in replaced) {
             [self retireScopeTree:folder];
         }
     }
@@ -417,7 +417,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     }
 
     NSUInteger insertionIndex = [_folders indexOfObjectPassingTest:^BOOL(
-            LocationEntry *folder, NSUInteger index, BOOL *stop) {
+            VibeLocationEntry *folder, NSUInteger index, BOOL *stop) {
         return folder.ordinal > candidate.ordinal;
     }];
     if (insertionIndex == NSNotFound) {
@@ -432,13 +432,13 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     if (rootPath.length == 0) {
         return;
     }
-    for (PendingLocationRestore *pending in _pendingRestorations.allValues) {
+    for (VibePendingLocationRestore *pending in _pendingRestorations.allValues) {
         [pending.suppressedRootPaths addObject:rootPath];
     }
 }
 
-- (BOOL)entryIsLive:(LocationEntry *)candidate {
-    for (LocationEntry *folder in _folders) {
+- (BOOL)entryIsLive:(VibeLocationEntry *)candidate {
+    for (VibeLocationEntry *folder in _folders) {
         if ([self entry:candidate isInTree:folder]) {
             return YES;
         }
@@ -446,11 +446,11 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     return NO;
 }
 
-- (BOOL)entry:(LocationEntry *)candidate isInTree:(LocationEntry *)folder {
+- (BOOL)entry:(VibeLocationEntry *)candidate isInTree:(VibeLocationEntry *)folder {
     if (candidate == folder) {
         return YES;
     }
-    for (LocationEntry *replaced in folder.replacedEntries) {
+    for (VibeLocationEntry *replaced in folder.replacedEntries) {
         if ([self entry:candidate isInTree:replaced]) {
             return YES;
         }
@@ -466,12 +466,12 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 - (NSArray<NSString *> *)persistentRootPaths {
     NSMutableArray<NSString *> *paths = [NSMutableArray arrayWithCapacity:_folders.count + 1];
-    NSURL *documents = [LocationStore containerDocumentsURL];
+    NSURL *documents = [VibeLocationStore containerDocumentsURL];
     NSString *documentsPath = VibeComparablePath(documents.path);
     if (documentsPath.length > 0) {
         [paths addObject:documentsPath];
     }
-    for (LocationEntry *folder in _folders) {
+    for (VibeLocationEntry *folder in _folders) {
         NSString *path = VibeComparablePath(folder.url.path);
         if (path.length > 0) {
             [paths addObject:path];
@@ -482,11 +482,11 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
 #pragma mark - Session grants
 
-- (LocationGrant *)grantCoveringURL:(NSURL *)url {
+- (VibeLocationGrant *)grantCoveringURL:(NSURL *)url {
     NSString *path = VibeComparablePath(url.path);
-    LocationEntry *best = nil;
+    VibeLocationEntry *best = nil;
     NSUInteger bestLength = 0;
-    for (LocationEntry *folder in _folders) {
+    for (VibeLocationEntry *folder in _folders) {
         NSString *rootPath = VibeComparablePath(folder.url.path);
         if (VibeSearchRootCoversPath(rootPath, path) && (!best || rootPath.length > bestLength)) {
             best = folder;
@@ -497,10 +497,10 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
         return nil;
     }
     best.sessionGrantCount++;
-    return [[LocationGrant alloc] initWithStore:self entry:best];
+    return [[VibeLocationGrant alloc] initWithStore:self entry:best];
 }
 
-- (void)releaseSessionGrantForEntry:(LocationEntry *)entry {
+- (void)releaseSessionGrantForEntry:(VibeLocationEntry *)entry {
     if (entry.sessionGrantCount == 0) {
         return;
     }
@@ -508,18 +508,18 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     [self finishRetiringEntryIfPossible:entry];
 }
 
-- (void)retireScopeTree:(LocationEntry *)folder {
+- (void)retireScopeTree:(VibeLocationEntry *)folder {
     if (folder.retired) {
         return;
     }
     folder.retired = YES;
     [self finishRetiringEntryIfPossible:folder];
-    for (LocationEntry *replaced in folder.replacedEntries) {
+    for (VibeLocationEntry *replaced in folder.replacedEntries) {
         [self retireScopeTree:replaced];
     }
 }
 
-- (void)finishRetiringEntryIfPossible:(LocationEntry *)folder {
+- (void)finishRetiringEntryIfPossible:(VibeLocationEntry *)folder {
     if (!folder.retired || folder.sessionGrantCount != 0 || !folder.scopeStarted) {
         return;
     }
@@ -544,7 +544,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
     // by original ordinal.
     NSMutableDictionary<NSNumber *, NSData *> *bookmarksByOrdinal =
             [NSMutableDictionary dictionary];
-    for (LocationEntry *folder in _folders) {
+    for (VibeLocationEntry *folder in _folders) {
         [self appendDurableBookmarksForFolder:folder toDictionary:bookmarksByOrdinal];
     }
     NSArray<NSNumber *> *pendingOrdinals = [_pendingRestorations.allKeys
@@ -575,7 +575,7 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 
     NSMutableArray<NSDictionary *> *suppressionRecords = [NSMutableArray array];
     for (NSNumber *ordinal in pendingOrdinals) {
-        PendingLocationRestore *pending = _pendingRestorations[ordinal];
+        VibePendingLocationRestore *pending = _pendingRestorations[ordinal];
         if (pending.suppressedRootPaths.count > 0) {
             [suppressionRecords addObject:@{
                 kSuppressedBookmarkKey: pending.bookmark,
@@ -594,13 +594,13 @@ static NSString *_Nullable (^sRootNamer)(NSURL *, NSString *);
 }
 
 // A parent without its bookmark yet persists the entries it replaced.
-- (void)appendDurableBookmarksForFolder:(LocationEntry *)folder
+- (void)appendDurableBookmarksForFolder:(VibeLocationEntry *)folder
                            toDictionary:(NSMutableDictionary<NSNumber *, NSData *> *)bookmarksByOrdinal {
     if (folder.bookmark) {
         bookmarksByOrdinal[@(folder.ordinal)] = folder.bookmark;
         return;
     }
-    for (LocationEntry *replaced in folder.replacedEntries) {
+    for (VibeLocationEntry *replaced in folder.replacedEntries) {
         [self appendDurableBookmarksForFolder:replaced toDictionary:bookmarksByOrdinal];
     }
 }

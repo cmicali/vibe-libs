@@ -1,5 +1,5 @@
 //
-//  LocationStore.h
+//  VibeLocationStore.h
 //  vibe-libs
 //
 //  The Files tab's Locations: the folders the user granted the app, kept as
@@ -19,13 +19,13 @@ NS_ASSUME_NONNULL_BEGIN
 // a screen has appeared.
 extern NSNotificationName const VibeSearchFoldersDidChangeNotification;
 
-@interface LocationStore : NSObject
+@interface VibeLocationStore : NSObject
 
 - (instancetype)init NS_UNAVAILABLE;
 + (instancetype)new NS_UNAVAILABLE;
 
 // A singleton: a second instance would hold a second set of scopes.
-@property (class, nonatomic, readonly) LocationStore *shared;
+@property (class, nonatomic, readonly) VibeLocationStore *shared;
 
 // The Locations rows, in order; grows as launch restorations settle.
 @property (nonatomic, readonly) NSArray<NSURL *> *folderURLs;

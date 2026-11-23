@@ -5,11 +5,11 @@ A browser of the folders a user granted an iOS app and the app's own sources, su
 | File | Owns |
 | --- | --- |
 | `VibeBrowserHost.h` | the host protocol, the action and root-row values, the source protocol, the folder source, the observer events, the stack's art cache, and an alert with the host's OK |
-| `BrowserRootViewController` | the root: Locations (the host's sources, then the granted folders), the host's rows below them, the plus, the location picker, and the walk to a folder (`showDirectory:highlighting:`) |
-| `FolderViewController` | one folder: its listing, filter, bar, Select, sort, subfolder walk, equalizer, and row actions. `+Art` holds the album art and `+Actions` the bar, Select, a tap, a swipe, and a long press |
+| `VibeBrowserRootViewController` | the root: Locations (the host's sources, then the granted folders), the host's rows below them, the plus, the location picker, and the walk to a folder (`showDirectory:highlighting:`) |
+| `VibeBrowserFolderViewController` | one folder: its listing, filter, bar, Select, sort, subfolder walk, equalizer, and row actions. `+Art` holds the album art and `+Actions` the bar, Select, a tap, a swipe, and a long press |
 | `VibeBrowserArtHolder` | the holder a row's art loads into when the host has none |
 | `BrowserRules.h` | a Locations row's folder, which root covers a path, a folder's empty state, and a row's tile. Header only and Foundation only |
-| `LocationStore` | the granted folders, as persisted bookmarks whose scopes are held for the session, and the one name each folder is shown under |
+| `VibeLocationStore` | the granted folders, as persisted bookmarks whose scopes are held for the session, and the one name each folder is shown under |
 
 ## How an app uses it
 
@@ -39,7 +39,7 @@ A host whose playback, sources, or rows change takes the screens as observers (`
 
 Each trap is written beside its code too, and that comment is the authority.
 
-The store's rules are in `LocationStore`'s header and code.
+The store's rules are in `VibeLocationStore`'s header and code.
 
 ## Known shape, kept on purpose
 
@@ -52,7 +52,7 @@ Each may change once an app needs it to.
 ## Later work
 
 - **A default whole-file holder in `media/Metadata`.** `VibeBrowserArtHolder` would move beside `AudioTrackMetadataHolder`, and the two test holders that nearly copy it, `ConsumerTrack` and `VibeLoaderTestTrack`, would share it.
-- **The store as a piece of its own.** `LocationStore` and the coverage rules are Foundation only, and an app's session and search use them without the browser. A cross-platform `files/` piece would hold them, with their tests here.
+- **The store as a piece of its own.** `VibeLocationStore` and the coverage rules are Foundation only, and an app's session and search use them without the browser. A cross-platform `files/` piece would hold them, with their tests here.
 - **Comments that still describe Vibe's screens**, such as the Files tab, the Playlist tab's add sheet, and `FolderSession`.
 - **Names for the coverage rules.** `VibeSearchRootCoversPath` and its three siblings in `BrowserRules.h`, and `VibeSearchFoldersDidChangeNotification`, still carry the name of the app screen they came from.
 

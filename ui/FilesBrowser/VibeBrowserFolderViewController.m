@@ -1,9 +1,9 @@
 //
-//  FolderViewController.m
+//  VibeBrowserFolderViewController.m
 //  vibe-libs
 //
 
-#import "FolderViewControllerInternal.h"
+#import "VibeBrowserFolderViewControllerInternal.h"
 
 #import "AudioTrackMetadata.h"
 #import "AudioTrackMetadataCache.h"
@@ -12,7 +12,7 @@
 #import "FileRow.h"
 #import "FilePaths.h"
 #import "FolderWalk.h"
-#import "LocationStore.h"
+#import "VibeLocationStore.h"
 #import "PlaceholderFiles.h"
 #import "VibePlaylistFile.h"
 #import "VibeMacros.h"
@@ -34,7 +34,7 @@ static const NSUInteger kMaximumSubfolders = 500;
 // a glance, and the field would only cost its height.
 static const NSUInteger kFilterThreshold = 12;
 
-@implementation FolderViewController
+@implementation VibeBrowserFolderViewController
 
 - (instancetype)initWithHost:(id<VibeBrowserHost>)host
                 directoryURL:(NSURL *)directoryURL
@@ -57,7 +57,7 @@ static const NSUInteger kFilterThreshold = 12;
         // is IPC that can block.
         _refreshingSource = [self refreshingSourceForURL:directoryURL];
         _standardizedPath = VibeComparablePath(directoryURL.path);
-        _title = [LocationStore displayNameForFolderURL:directoryURL];
+        _title = [VibeLocationStore displayNameForFolderURL:directoryURL];
         _playback = [host conformsToProtocol:@protocol(VibeBrowserPlaybackHost)]
                 ? (id<VibeBrowserPlaybackHost>)host : nil;
         _playingPath = _playback.playingPath;
@@ -84,7 +84,7 @@ static const NSUInteger kFilterThreshold = 12;
     // library would be one playlist. The long press takes them, capped.
     // The tap's action is set by refreshBarItems, which knows whether
     // there is anything directly inside to play.
-    __weak FolderViewController *weakPlaySelf = self;
+    __weak VibeBrowserFolderViewController *weakPlaySelf = self;
     VibeBrowserAction *folderAction = _host.folderAction;
     _playItem = [[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:folderAction.symbol]
                                                   menu:[UIMenu menuWithChildren:@[VibeMenuAction(
@@ -221,7 +221,7 @@ static const NSUInteger kFilterThreshold = 12;
     uint64_t generation = ++_listingGeneration;
     NSURL *directory = _directoryURL;
     VibeFolderOpenSort sort = _host.folderSort;
-    __weak FolderViewController *weakSelf = self;
+    __weak VibeBrowserFolderViewController *weakSelf = self;
     // Off main: a granted location can be a provider's folder, whose listing
     // is IPC that can take seconds.
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
@@ -256,7 +256,7 @@ static const NSUInteger kFilterThreshold = 12;
             }
         }
         dispatch_async(dispatch_get_main_queue(), ^{
-            FolderViewController *strongSelf = weakSelf;
+            VibeBrowserFolderViewController *strongSelf = weakSelf;
             if (!strongSelf || generation != strongSelf->_listingGeneration) {
                 return;
             }
@@ -300,9 +300,9 @@ static const NSUInteger kFilterThreshold = 12;
     }
     _refreshing = YES;
     [self refreshEmptyState];
-    __weak FolderViewController *weakSelf = self;
+    __weak VibeBrowserFolderViewController *weakSelf = self;
     [_refreshingSource refreshDirectoryURL:_directoryURL completion:^(NSError *error) {
-        FolderViewController *strongSelf = weakSelf;
+        VibeBrowserFolderViewController *strongSelf = weakSelf;
         if (!strongSelf) {
             return;
         }
@@ -413,13 +413,13 @@ static const NSUInteger kFilterThreshold = 12;
     }
     _walkingSubfolders = YES;
     void (^open)(NSArray<NSURL *> *) = [_host subfoldersHandlerFromScreen:self];
-    __weak FolderViewController *weakSelf = self;
+    __weak VibeBrowserFolderViewController *weakSelf = self;
     [self walkSubfolders:[NSMutableArray arrayWithObject:_directoryURL]
                    found:[NSMutableArray array]
                   tracks:0
                  visited:0
               completion:^(NSArray<NSURL *> *folders, BOOL capped) {
-        FolderViewController *strongSelf = weakSelf;
+        VibeBrowserFolderViewController *strongSelf = weakSelf;
         if (!strongSelf) {
             return;
         }
@@ -455,7 +455,7 @@ static const NSUInteger kFilterThreshold = 12;
     NSURL *directory = pending.firstObject;
     [pending removeObjectAtIndex:0];
     VibeFolderOpenSort sort = _host.folderSort;
-    __weak FolderViewController *weakSelf = self;
+    __weak VibeBrowserFolderViewController *weakSelf = self;
     dispatch_block_t list = ^{
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
             NSArray<NSURL *> *subfolders = @[];
@@ -535,10 +535,10 @@ static const NSUInteger kFilterThreshold = 12;
 }
 
 - (void)pushDirectory:(NSURL *)url {
-    FolderViewController *folder = [[FolderViewController alloc] initWithHost:_host
-                                                                 directoryURL:url
-                                                                 highlighting:nil
-                                                                   holdsScope:NO];
+    VibeBrowserFolderViewController *folder = [[VibeBrowserFolderViewController alloc] initWithHost:_host
+                                                                                       directoryURL:url
+                                                                                       highlighting:nil
+                                                                                         holdsScope:NO];
     folder.addedRowsHandler = _addedRowsHandler;
     folder.equalizerSurfaceVisible = _equalizerSurfaceVisible;
     [self.navigationController pushViewController:folder animated:YES];
@@ -560,10 +560,10 @@ static const NSUInteger kFilterThreshold = 12;
     _highlightURL = nil;
     NSIndexPath *indexPath = [NSIndexPath indexPathForRow:(NSInteger)row inSection:VibeBrowserSectionFiles];
     [self.tableView selectRowAtIndexPath:indexPath animated:NO scrollPosition:UITableViewScrollPositionMiddle];
-    __weak FolderViewController *weakSelf = self;
+    __weak VibeBrowserFolderViewController *weakSelf = self;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kHighlightInterval * NSEC_PER_SEC)),
                    dispatch_get_main_queue(), ^{
-        FolderViewController *strongSelf = weakSelf;
+        VibeBrowserFolderViewController *strongSelf = weakSelf;
         if (strongSelf && ![strongSelf isSelecting]) {
             [strongSelf.tableView deselectRowAtIndexPath:indexPath animated:YES];
         }

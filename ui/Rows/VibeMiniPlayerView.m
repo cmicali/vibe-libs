@@ -1,9 +1,9 @@
 //
-//  MiniPlayerView.m
+//  VibeMiniPlayerView.m
 //  vibe-libs
 //
 
-#import "MiniPlayerView.h"
+#import "VibeMiniPlayerView.h"
 
 #import "FileRow.h"
 #import "VibeTrackRow.h"
@@ -17,10 +17,10 @@ static const CGFloat kArtSide = 38;
 static const CGFloat kControlSide = 44;
 static const CGFloat kGlyphPointSize = 19;
 
-@interface MiniPlayerView () <UIGestureRecognizerDelegate>
+@interface VibeMiniPlayerView () <UIGestureRecognizerDelegate>
 @end
 
-@implementation MiniPlayerView {
+@implementation VibeMiniPlayerView {
     UIImageView *_artView;
     UILabel     *_titleLabel;
     UILabel     *_subtitleLabel;
@@ -53,7 +53,7 @@ static const CGFloat kGlyphPointSize = 19;
     _artView.contentMode = UIViewContentModeScaleAspectFill;
     _artView.clipsToBounds = YES;
     _artView.isAccessibilityElement = NO;
-    _artView.layer.cornerRadius = kFileTileCornerRadius;
+    _artView.layer.cornerRadius = kVibeFileTileCornerRadius;
     _artView.layer.cornerCurve = kCACornerCurveContinuous;
     _artView.translatesAutoresizingMaskIntoConstraints = NO;
     [self addSubview:_artView];
@@ -131,7 +131,7 @@ static const CGFloat kGlyphPointSize = 19;
     ]];
 
     // Inline beside the tab bar there is no room for two lines.
-    __weak MiniPlayerView *weakSelf = self;
+    __weak VibeMiniPlayerView *weakSelf = self;
     [self registerForTraitChanges:@[UITraitTabAccessoryEnvironment.class,
                                     UITraitPreferredContentSizeCategory.class]
                       withHandler:^(id<UITraitEnvironment> environment, UITraitCollection *previous) {

@@ -5,8 +5,8 @@ The rows an iOS music app lists files and tracks in, and the mini player strip. 
 | File | Owns |
 | --- | --- |
 | `VibeTrackRow` | the value a track row draws: title, subtitle, thumbnail, duration text, number text, and the playing marker. The strip draws its title, subtitle, and thumbnail |
-| `PlaylistTrackCell` | a track's table row: the gutter, the art, the title over the subtitle, and the duration |
-| `MiniPlayerView` | the strip in the tab bar's bottom accessory: the art, the title over the subtitle, play or pause, and next |
+| `VibeTrackCell` | a track's table row: the gutter, the art, the title over the subtitle, and the duration |
+| `VibeMiniPlayerView` | the strip in the tab bar's bottom accessory: the art, the title over the subtitle, play or pause, and next |
 | `FileRow` | what every file and track row shares: the file tile, the icon slot, the name style, the opening spinner, the not-downloaded mark, a menu action, and the viewport test |
 
 ## How an app uses it

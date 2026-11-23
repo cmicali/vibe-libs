@@ -28,7 +28,7 @@ UIImage *VibeFileTileImage(BOOL playlist) {
     static UIImage *tiles[2];
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        CGRect bounds = CGRectMake(0, 0, kFileTileSide, kFileTileSide);
+        CGRect bounds = CGRectMake(0, 0, kVibeFileTileSide, kVibeFileTileSide);
         UIImageSymbolConfiguration *configuration =
                 [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightMedium];
         UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:bounds.size];
@@ -41,7 +41,7 @@ UIImage *VibeFileTileImage(BOOL playlist) {
                              renderingMode:UIImageRenderingModeAlwaysOriginal];
                 return [renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
                     [[UIColor.secondarySystemFillColor resolvedColorWithTraitCollection:traits] setFill];
-                    [[UIBezierPath bezierPathWithRoundedRect:bounds cornerRadius:kFileTileCornerRadius] fill];
+                    [[UIBezierPath bezierPathWithRoundedRect:bounds cornerRadius:kVibeFileTileCornerRadius] fill];
                     [glyph drawAtPoint:CGPointMake(CGRectGetMidX(bounds) - glyph.size.width / 2,
                                                    CGRectGetMidY(bounds) - glyph.size.height / 2)];
                 }];
@@ -68,15 +68,15 @@ UIImage *VibeFileTileImage(BOOL playlist) {
 }
 
 - (void)vibeApplyFileIconForFolder:(BOOL)folder playlist:(BOOL)playlist art:(UIImage *)art {
-    self.imageProperties.reservedLayoutSize = CGSizeMake(kFileTileSide, kFileTileSide);
-    self.imageProperties.maximumSize = CGSizeMake(kFileTileSide, kFileTileSide);
+    self.imageProperties.reservedLayoutSize = CGSizeMake(kVibeFileTileSide, kVibeFileTileSide);
+    self.imageProperties.maximumSize = CGSizeMake(kVibeFileTileSide, kVibeFileTileSide);
     self.imageProperties.tintColor = UIColor.secondaryLabelColor;
     if (folder) {
         self.image = [UIImage systemImageNamed:@"folder"];
         return;
     }
     self.image = art ?: VibeFileTileImage(playlist);
-    self.imageProperties.cornerRadius = kFileTileCornerRadius;
+    self.imageProperties.cornerRadius = kVibeFileTileCornerRadius;
 }
 
 @end
