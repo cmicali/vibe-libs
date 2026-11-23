@@ -52,9 +52,11 @@ Each may change once an app needs it to.
 ## Later work
 
 - **A default whole-file holder in `media/Metadata`.** `VibeBrowserArtHolder` would move beside `AudioTrackMetadataHolder`, and the two test holders that nearly copy it, `ConsumerTrack` and `VibeLoaderTestTrack`, would share it.
-- **The store as a piece of its own.** `VibeLocationStore` and the coverage rules are Foundation only, and an app's session and search use them without the browser. A cross-platform `files/` piece would hold them, with their tests here.
+- **The store as a piece of its own, proposed and not started.** `VibeLocationStore` and the coverage rules are Foundation only, and an app's session and search use them without the browser. Today an app that wants only the grants takes the whole browser, and UIKit with it.
+  - *What it would be.* A cross-platform piece, `files/Locations`, holding `VibeLocationStore.h` and `.m`, `VibeLocationStoreInternal.h`, and the four coverage rules, which would leave `BrowserRules.h` for a header of their own. It would depend on `core/Common` alone, for `FilePaths.h` and the log macros. The browser would then depend on it.
+  - *What it would cost.* About 750 lines move with `git mv`, and one header is split in two. The piece takes a template, a macOS test bundle, an iOS target, an `AGENTS.md`, a map row, and a delivery row. Vibe's `LocationStoreTests` (145 lines) and the coverage part of its `BrowserRulesTests` move here, filtered with their history. The rest of `BrowserRulesTests` covers Vibe's `FilesTabRules.h` and stays. Vibe's pin, its `project.yml`, and every target that lists the browser change in one pull request. The store's bookmarks have never run on macOS, so its tests there would be the first proof that the piece builds and works on both platforms.
+  - *Why not yet.* Every app that uses the store also shows the browser, so the split saves no one a dependency today. It is worth doing when an app needs the grants without the browser, or on macOS.
 - **Comments that still describe Vibe's screens**, such as the Files tab, the Playlist tab's add sheet, and `FolderSession`.
-- **Names for the coverage rules.** `VibeSearchRootCoversPath` and its three siblings in `BrowserRules.h`, and `VibeSearchFoldersDidChangeNotification`, still carry the name of the app screen they came from.
 
 ## Tests
 
