@@ -48,9 +48,8 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
             if ([view isKindOfClass:[WaveformScrubberView class]]) {
                 // An unloaded scrubber hands the gesture to the pager, or the
                 // empty strip is a swipe dead zone.
-                // So does one whose drag the model turned off.
-                WaveformScrubberView *scrubber = (WaveformScrubberView *)view;
-                if (scrubber.isScrubbingEnabled && scrubber.scrubPanRecognizer.enabled) {
+                // So does one whose scrub the model turned off.
+                if (((WaveformScrubberView *)view).isScrubbingEnabled) {
                     return NO;
                 }
                 break;

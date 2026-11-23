@@ -57,7 +57,7 @@ The track pager and the chrome over it. It owns no playback state. **Only the se
 
 ## When a scrub does nothing
 
-**The model says whether a scrub of the current track would do anything** (the playback's optional `scrubbingAvailable`). Vibe leaves it out: a scrub on a parked track reaches `seekToProgress:`, which opens the file paused at the target (`VibePlayerScrubActionFor`). An app whose parked track ignores a seek answers NO instead, or its times snap back after every drag. While it is NO, the bound page's waveform pan and slider are off, a VoiceOver adjust is ignored, and `TrackPagerView` stops declining its pan there, so the pager takes the swipe and the strip is no dead zone. `updatePlaybackUI` reads it on every refresh. Only the bound page answers to it: a rebind, a far jump, and a recycled page each turn the page's scrubbers back on.
+**The model says whether a scrub of the current track would do anything** (the playback's optional `scrubbingAvailable`). Vibe leaves it out: a scrub on a parked track reaches `seekToProgress:`, which opens the file paused at the target (`VibePlayerScrubActionFor`). An app whose parked track ignores a seek answers NO instead, or its times snap back after every drag. While it is NO, the bound page's scrubbers take no drag: the waveform's `scrubbingAllowed` is off, so it acts as an unloaded one, with no adjustable trait, and the slider is disabled. `TrackPagerView` then stops declining its pan there, so the pager takes the swipe and the strip is no dead zone. The pinch still zooms. `updatePlaybackUI` reads it on every refresh. Only the bound page answers to it: a rebind, a far jump, and a recycled page each turn the page's scrubbers back on.
 
 ## Output route
 

@@ -44,6 +44,7 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
     // setWaveform:. The pan also dies on any touch-count change, so no
     // maximumNumberOfTouches cap: see trackZoomGestureScrub:.
     _scroll.scrollEnabled = NO;
+    _scrubbingAllowed = YES;
     [self addSubview:_scroll];
 
     _rendererHost = [[CALayer alloc] init];
@@ -99,7 +100,18 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
 }
 
 - (BOOL)isScrubbingEnabled {
-    return self.waveform != nil;
+    return self.waveform != nil && _scrubbingAllowed;
+}
+
+- (void)setScrubbingAllowed:(BOOL)allowed {
+    if (_scrubbingAllowed == allowed) {
+        return;
+    }
+    _scrubbingAllowed = allowed;
+    if (!allowed && self.isScrubbing) {
+        [self cancelInteraction];
+    }
+    _scroll.scrollEnabled = self.isScrubbingEnabled;
 }
 
 - (CGFloat)overscroll {
@@ -121,7 +133,7 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
 - (void)setWaveform:(CodableAudioWaveform *)waveform {
     CGFloat fraction = [self effectiveVisibleFraction];
     _waveform = waveform;
-    _scroll.scrollEnabled = (waveform != nil);
+    _scroll.scrollEnabled = self.isScrubbingEnabled;
     [self applyVirtualGeometryIfFractionMovedFrom:fraction];
     [self layoutPlayheadLine];
 }
@@ -556,7 +568,7 @@ static const CGFloat kPlayheadLineOvershoot = 8;
     if (_isPinching) {
         [self endZoomGesture];
     }
-    _scroll.scrollEnabled = self.waveform != nil;
+    _scroll.scrollEnabled = self.isScrubbingEnabled;
     _pinch.enabled = YES;
     [self parkContentOffsetAtProgress];
     [self.delegate waveformScrubberView:self didChangeScrubbing:NO];

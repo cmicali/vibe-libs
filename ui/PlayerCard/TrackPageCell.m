@@ -938,14 +938,13 @@ static UIImage *TransportGradientImage(void) {
 }
 
 - (void)setScrubbingAvailable:(BOOL)available {
+    _waveformView.scrubbingAllowed = available;
     if (_standardScrubber.enabled == available) {
         return;
     }
     if (!available) {
-        [_waveformView cancelInteraction];
         [_standardScrubber cancelInteraction];
     }
-    _waveformView.scrubPanRecognizer.enabled = available;
     _standardScrubber.enabled = available;
 }
 

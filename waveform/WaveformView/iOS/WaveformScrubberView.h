@@ -61,9 +61,13 @@ NS_ASSUME_NONNULL_BEGIN
 // has a pending seek. Pure zoom keeps following playback.
 @property (nonatomic, readonly) BOOL isScrubbing;
 
-// Whether there is waveform data to manipulate; an unloaded scrubber stays
-// page-swipe surface.
+// Whether there is waveform data to manipulate, and the owner allows a scrub;
+// an unloaded scrubber stays page-swipe surface.
 @property (nonatomic, readonly, getter=isScrubbingEnabled) BOOL scrubbingEnabled;
+// YES by default. NO takes no drag and no VoiceOver adjust, as an unloaded
+// scrubber does, and ends a scrub under way without a seek. The pinch still
+// zooms.
+@property (nonatomic) BOOL scrubbingAllowed;
 
 // So an enclosing pager can require it to fail. The inner scroll view owns
 // it.

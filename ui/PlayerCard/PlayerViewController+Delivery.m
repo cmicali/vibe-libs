@@ -55,8 +55,8 @@
 #pragma mark - WaveformScrubberViewDelegate
 
 - (void)waveformScrubberView:(WaveformScrubberView *)view didSeek:(float)percentage {
-    if (view != _waveformView || ![self scrubbingAvailable]) {
-        return;  // a neighbor's preview, or VoiceOver's adjust with scrubbing off
+    if (view != _waveformView) {
+        return;  // a neighbor's preview
     }
     [_playback seekToProgress:percentage];
 }
