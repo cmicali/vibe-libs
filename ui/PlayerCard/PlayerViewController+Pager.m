@@ -48,6 +48,10 @@ static const NSTimeInterval kProgrammaticScrollHoldCeilingSeconds = 1.5;
     if (!cell) {
         return;
     }
+    // Only the bound page answers to the model's scrubbingAvailable.
+    if (_boundPage != cell) {
+        [_boundPage setScrubbingAvailable:YES];
+    }
     _boundPage = cell;
     _waveformView = cell.waveformView;
     _standardScrubber = cell.standardScrubber;

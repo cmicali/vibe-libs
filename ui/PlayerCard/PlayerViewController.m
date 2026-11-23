@@ -40,12 +40,17 @@ static BOOL WaveformBandsWanted(AudioWaveformCache *cache) {
         for (UIView *view = hit; view && view != self; view = view.superview) {
             // A slider drags along the pager's axis, so it keeps its touch.
             if ([view isKindOfClass:[UISlider class]]) {
-                return NO;
+                if (((UISlider *)view).enabled) {
+                    return NO;
+                }
+                break;
             }
             if ([view isKindOfClass:[WaveformScrubberView class]]) {
                 // An unloaded scrubber hands the gesture to the pager, or the
                 // empty strip is a swipe dead zone.
-                if (((WaveformScrubberView *)view).isScrubbingEnabled) {
+                // So does one whose drag the model turned off.
+                WaveformScrubberView *scrubber = (WaveformScrubberView *)view;
+                if (scrubber.isScrubbingEnabled && scrubber.scrubPanRecognizer.enabled) {
                     return NO;
                 }
                 break;
@@ -410,6 +415,7 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
         // A far jump: no live cell yet. Drop the bindings, or the incoming
         // track's state writes into the outgoing cell mid-scroll;
         // willDisplayCell rebinds.
+        [_boundPage setScrubbingAvailable:YES];
         _boundPage = nil;
         _waveformView = nil;
         _standardScrubber = nil;
@@ -515,7 +521,12 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration) {
     }
 }
 
+- (BOOL)scrubbingAvailable {
+    return ![_playback respondsToSelector:@selector(scrubbingAvailable)] || _playback.scrubbingAvailable;
+}
+
 - (void)updatePlaybackUI {
+    [_boundPage setScrubbingAvailable:[self scrubbingAvailable]];
     if ([self isScrubbing]) {
         // The scrub owns the readout (didScrubToProgress:).
         return;

@@ -112,6 +112,8 @@ NSString *VibeRightTimeText(NSTimeInterval position, NSTimeInterval duration);
 // The host asks for the slider (VibePlayerCardScrubberStandard). No
 // waveform is requested meanwhile.
 - (BOOL)usesStandardScrubber;
+// The model's scrubbingAvailable, YES when it says nothing.
+- (BOOL)scrubbingAvailable;
 - (void)updatePlayButton;
 // Only the empty state hides the transport, action bar and route control.
 - (CGFloat)chromeAlpha;

@@ -937,6 +937,18 @@ static UIImage *TransportGradientImage(void) {
     [self applyFileInfoText];
 }
 
+- (void)setScrubbingAvailable:(BOOL)available {
+    if (_standardScrubber.enabled == available) {
+        return;
+    }
+    if (!available) {
+        [_waveformView cancelInteraction];
+        [_standardScrubber cancelInteraction];
+    }
+    _waveformView.scrubPanRecognizer.enabled = available;
+    _standardScrubber.enabled = available;
+}
+
 - (void)setStandardScrubberShown:(BOOL)shown {
     if (_standardScrubber.hidden == !shown) {
         return;
@@ -1041,6 +1053,7 @@ static UIImage *TransportGradientImage(void) {
     [_waveformView prepareForWaveformLoad];
     [_standardScrubber cancelInteraction];
     _standardScrubber.value = 0;
+    [self setScrubbingAvailable:YES];
     _elapsedLabel.text = VibePlayerCardLabelText(VibePlayerCardLabelTimeUnknown);
     _remainingTimeControl.text = VibePlayerCardLabelText(VibePlayerCardLabelTimeUnknown);
     [self setGlyphPlaying:NO];

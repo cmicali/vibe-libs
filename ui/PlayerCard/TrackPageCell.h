@@ -32,6 +32,10 @@ NS_ASSUME_NONNULL_BEGIN
 // (VibePlayerCardScrubberStandard). Shown, the waveform is hidden.
 @property (nonatomic, readonly) VibeTrackPageSlider *standardScrubber;
 - (void)setStandardScrubberShown:(BOOL)shown;
+// NO turns off both scrubbers' drags, so the pager takes the swipe
+// (VibePlayerCardPlayback's scrubbingAvailable). A drag already under way
+// ends without a seek.
+- (void)setScrubbingAvailable:(BOOL)available;
 @property (nonatomic, readonly) UILabel *elapsedLabel;
 // One mode for the whole app, so the controller owns the target.
 @property (nonatomic, readonly) TrackPageTimeControl *remainingTimeControl;

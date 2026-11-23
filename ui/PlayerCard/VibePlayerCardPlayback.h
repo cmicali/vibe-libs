@@ -164,6 +164,16 @@ NS_ASSUME_NONNULL_BEGIN
 // current.
 - (void)noteLoadedArtForTrack:(id<VibePlayerCardItem>)track;
 
+@optional
+
+// NO while a scrub of the current track would do nothing, such as a parked
+// track that this app does not open from a scrub. The current page's
+// scrubber then takes no drag and no VoiceOver adjust, and the pager takes
+// the swipe. Read on every playback refresh. YES without it, so a scrub on a
+// parked track reaches seekToProgress:, which decides with
+// VibePlayerScrubActionFor.
+@property (nonatomic, readonly) BOOL scrubbingAvailable;
+
 @end
 
 NS_ASSUME_NONNULL_END
