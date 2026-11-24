@@ -14,7 +14,7 @@ List `VibeLibsTabShell` in an iOS target.
 
 - **The tabs, as `UITab` values with lazy providers.** A tab's view controller is built on its first visit. A `UISearchTab` among them keeps UIKit's behavior, and its identifier is UIKit's.
 - **The card's view controller**, which adopts `RootViewControllerCard`. The app forwards the card's downward drag to `cardDidPanWithTranslation:velocity:state:` and its grabber to `minimizeCardAnimated:`.
-- **The strip's row.** The root owns the `VibeMiniPlayerView` (`ui/Rows`) and installs it. The app sets its VoiceOver labels and pushes its row with `setMiniPlayerRow:playing:`.
+- **The strip's row.** The root owns the `VibeMiniPlayerView` (`ui/Rows`) and installs it. The app sets its VoiceOver labels and pushes its row with `setMiniPlayerRow:playing:`. In a regular width, the accessory fits the strip's width only on install and on a size class change, never per song, so the strip asks for a preferred width (the TRAP on the accessory's fit, in `ui/Rows/AGENTS.md`).
 - **A delegate** (`RootViewControllerDelegate`), held weakly, so the app keeps it. Two of its calls exist for an order the app may need. `rootViewControllerDidLoad:` comes after the card loads its view, so an observer registered there hears each event after the card's. `rootViewControllerDidChangeExposure:` lets the app tell each screen whether it is seen, such as a playing row's equalizer. It comes as a move begins, with `cardExpanded` already changed and `cardAtRest` NO, and again when the card lands.
 
 ## The card
