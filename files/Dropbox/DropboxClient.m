@@ -410,6 +410,14 @@ typedef void (^VibeDropboxTokenWaiter)(NSString *_Nullable token, uint64_t accou
 }
 
 - (void)signOut {
+    [self signOutRevoking:YES];
+}
+
+- (void)forgetAccount {
+    [self signOutRevoking:NO];
+}
+
+- (void)signOutRevoking:(BOOL)revokes {
     os_unfair_lock_lock(&_lock);
     NSString *refresh = _refreshToken;
     // An expired one is refused and the grant would outlive the sign-out.
@@ -422,6 +430,9 @@ typedef void (^VibeDropboxTokenWaiter)(NSString *_Nullable token, uint64_t accou
     [self deleteSavedAccount];
     [self postAccountDidChange];
     LogInfo(@"Dropbox: signed out");
+    if (!revokes) {
+        return;
+    }
     // Revoking needs a live access token; a stale one is refreshed first so
     // the grant really ends on Dropbox's side, not only here.
     void (^revoke)(NSString *) = ^(NSString *token) {

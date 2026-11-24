@@ -51,9 +51,11 @@ static NSMutableArray<NSMutableDictionary *> *sFaults;
 // sLock, copied out by statistics.
 static NSMutableArray<NSMutableDictionary *> *sLog;
 static NSUInteger sLogSequence;
+// Entries per list_folder page, 0 for the request's own limit.
+static NSUInteger sListPageSize;
 
 static NSArray<NSString *> *VibeFakeDropboxFaultKinds(void) {
-    return @[@"stall", @"drop", @"rev-change", @"throttle", @"expired-token", @"tail-fail", @"slow-tail", @"slow-tags", @"rate", @"latency"];
+    return @[@"stall", @"drop", @"rev-change", @"throttle", @"expired-token", @"tail-fail", @"slow-tail", @"slow-tags", @"rate", @"latency", @"fail", @"offline"];
 }
 
 // Under sLock.
@@ -214,8 +216,14 @@ static void VibeFakeDropboxNote(NSMutableDictionary *entry, NSString *outcome, u
     os_unfair_lock_lock(&sLock);
     NSDictionary<NSString *, VibeFakeDropboxItem *> *items = sItems;
     sStatistics[endpoint] = @(sStatistics[endpoint].unsignedIntegerValue + 1);
+    BOOL offline = VibeFakeDropboxFault(@"offline", nil) != nil;
     os_unfair_lock_unlock(&sLock);
 
+    if (offline) {
+        VibeFakeHTTPAnswer *answer = [[VibeFakeHTTPAnswer alloc] init];
+        answer.error = [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorNotConnectedToInternet userInfo:nil];
+        return answer;
+    }
     if ([endpoint isEqualToString:@"/2/files/download"]) {
         return [self answerDownload:request items:items];
     }
@@ -247,16 +255,21 @@ static void VibeFakeDropboxNote(NSMutableDictionary *entry, NSString *outcome, u
         if (!folder.folder) {
             return VibeFakeDropboxNotFound();
         }
-        NSString *prefix = [folder.path.lowercaseString stringByAppendingString:@"/"];
-        NSMutableArray *entries = [NSMutableArray array];
-        for (NSString *key in items) {
-            // Direct children: under the prefix, with no slash left over.
-            if (key.length > prefix.length && [key hasPrefix:prefix]
-                    && [[key substringFromIndex:prefix.length] rangeOfString:@"/"].location == NSNotFound) {
-                [entries addObject:VibeFakeDropboxEntry(items[key], nil)];
-            }
+        NSUInteger limit = [json[@"limit"] isKindOfClass:NSNumber.class] ? [json[@"limit"] unsignedIntegerValue] : 0;
+        return [self listFolder:folder from:0 limit:limit items:items];
+    }
+    if ([endpoint isEqualToString:@"/2/files/list_folder/continue"]) {
+        // The cursor is "<offset>:<limit>:<folder's lowercase path>".
+        NSString *cursor = [json[@"cursor"] isKindOfClass:NSString.class] ? json[@"cursor"] : @"";
+        NSArray<NSString *> *parts = [cursor componentsSeparatedByString:@":"];
+        VibeFakeDropboxItem *folder = parts.count >= 3
+                ? items[[[parts subarrayWithRange:NSMakeRange(2, parts.count - 2)] componentsJoinedByString:@":"]]
+                : nil;
+        if (!folder.folder) {
+            return VibeFakeDropboxJSON(409, @{@"error_summary": @"reset/", @"error": @{@".tag": @"reset"}});
         }
-        return VibeFakeDropboxJSON(200, @{@"entries": entries, @"cursor": @"fake", @"has_more": @NO});
+        return [self listFolder:folder from:(NSUInteger)parts[0].integerValue limit:(NSUInteger)parts[1].integerValue
+                          items:items];
     }
     if ([endpoint isEqualToString:@"/2/files/search_v2"]) {
         NSString *query = [json[@"query"] isKindOfClass:NSString.class] ? json[@"query"] : @"";
@@ -276,6 +289,39 @@ static void VibeFakeDropboxNote(NSMutableDictionary *entry, NSString *outcome, u
         return VibeFakeDropboxJSON(200, @{@"matches": matches, @"has_more": @NO});
     }
     return VibeFakeDropboxJSON(400, @{@"error_summary": [@"unexpected endpoint " stringByAppendingString:endpoint]});
+}
+
+// One page of a folder's direct children, in path order: at most the
+// request's limit, or the page size set, whichever is smaller.
+- (VibeFakeDropboxResponse)listFolder:(VibeFakeDropboxItem *)folder
+                                 from:(NSUInteger)from
+                                limit:(NSUInteger)limit
+                                items:(NSDictionary<NSString *, VibeFakeDropboxItem *> *)items {
+    NSString *prefix = [folder.path.lowercaseString stringByAppendingString:@"/"];
+    NSMutableArray<NSString *> *children = [NSMutableArray array];
+    for (NSString *key in items) {
+        // Direct children: under the prefix, with no slash left over.
+        if (key.length > prefix.length && [key hasPrefix:prefix]
+                && [[key substringFromIndex:prefix.length] rangeOfString:@"/"].location == NSNotFound) {
+            [children addObject:key];
+        }
+    }
+    [children sortUsingSelector:@selector(compare:)];
+    os_unfair_lock_lock(&sLock);
+    NSUInteger pageSize = sListPageSize;
+    os_unfair_lock_unlock(&sLock);
+    NSUInteger page = limit > 0 ? limit : children.count;
+    if (pageSize > 0) {
+        page = MIN(page, pageSize);
+    }
+    NSUInteger end = MIN(children.count, from + MAX(page, (NSUInteger)1));
+    NSMutableArray *entries = [NSMutableArray array];
+    for (NSUInteger i = MIN(from, end); i < end; i++) {
+        [entries addObject:VibeFakeDropboxEntry(items[children[i]], nil)];
+    }
+    NSString *cursor = [NSString stringWithFormat:@"%lu:%lu:%@", (unsigned long)end, (unsigned long)page,
+                                                  folder.path.lowercaseString];
+    return VibeFakeDropboxJSON(200, @{@"entries": entries, @"cursor": cursor, @"has_more": @(end < children.count)});
 }
 
 // files/download: the path, id or rev from the Dropbox-API-Arg header. Four
@@ -339,6 +385,18 @@ static void VibeFakeDropboxNote(NSMutableDictionary *entry, NSString *outcome, u
             [sFaults removeObject:fault];
             refusal = VibeFakeDropboxJSON(401, @{@"error_summary": @"expired_access_token/",
                                                  @"error": @{@".tag": @"expired_access_token"}});
+        }
+        else if ((fault = VibeFakeDropboxFault(@"fail", name))) {
+            // Its count of downloads, `after`, at least one. The client
+            // retries none of them, so the download fails where the app sees it.
+            uint64_t left = MAX([fault[@"after"] unsignedLongLongValue], (uint64_t)1) - 1;
+            if (left == 0) {
+                [sFaults removeObject:fault];
+            }
+            else {
+                fault[@"after"] = @(left);
+            }
+            refusal = VibeFakeDropboxNotFound();
         }
     }
     else if (tail) {
@@ -470,6 +528,7 @@ static void VibeFakeDropboxNote(NSMutableDictionary *entry, NSString *outcome, u
     sStatistics = [NSMutableDictionary dictionary];
     sDownloadKinds = [NSMutableDictionary dictionary];
     sFaults = [NSMutableArray array];
+    sListPageSize = 0;
     sLog = [NSMutableArray array];
     os_unfair_lock_unlock(&sLock);
     if (installed && client.isLinked) {
@@ -483,7 +542,10 @@ static void VibeFakeDropboxNote(NSMutableDictionary *entry, NSString *outcome, u
     if (![self isInstalled]) {
         return;
     }
-    [client signOut];
+    // TRAP: never signOut, which revokes. The adopted account has no access
+    // token, so it would refresh first, and the revoke would go out after
+    // the swap below, on the real session.
+    [client forgetAccount];
     [client useSessionConfiguration:nil];
     os_unfair_lock_lock(&sLock);
     sItems = nil;
@@ -513,6 +575,12 @@ static void VibeFakeDropboxNote(NSMutableDictionary *entry, NSString *outcome, u
     [sFaults addObject:fault];
     os_unfair_lock_unlock(&sLock);
     return YES;
+}
+
++ (void)setListPageSize:(NSUInteger)entries {
+    os_unfair_lock_lock(&sLock);
+    sListPageSize = entries;
+    os_unfair_lock_unlock(&sLock);
 }
 
 + (void)clearFaults {

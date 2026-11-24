@@ -15,6 +15,18 @@
 //  which the fake web server and the tests' HTTPStub share. This file holds
 //  the account's routes, its tree, its faults and its log.
 //
+//  TRAP: installing replaces the account the client holds, and saves the
+//  fake one in the client's Keychain service. The mirror then prunes every
+//  other account's directory, and the uninstall deletes the Keychain item. So
+//  a client with a real sign-in loses it and its downloads. Install the fake
+//  over a client made with a Keychain service and a mirror root of its own.
+//
+//  The body compiles only under DEBUG, so a call from release code fails to
+//  link. The piece's own tests script one request at a time over
+//  DropboxStubProtocol. This fake is an account backed by a directory, for an
+//  app's checks. It does not cover the PKCE sign-in (Dropbox's web sheet), an
+//  expired token on a JSON call, or a file added or removed after the install.
+//
 
 #import <Foundation/Foundation.h>
 
@@ -40,7 +52,8 @@ NS_ASSUME_NONNULL_BEGIN
              transferSeconds:(NSTimeInterval)transferSeconds
                       client:(DropboxClient *)client;
 
-// Signs the fake account out and puts the client back on the network.
+// Forgets the fake account, sending nothing, and puts the client back on the
+// network.
 + (void)uninstallFromClient:(DropboxClient *)client;
 
 + (BOOL)isInstalled;
@@ -63,12 +76,22 @@ NS_ASSUME_NONNULL_BEGIN
 //   latency     every files/download answers `seconds` late: a server's time
 //               to first byte, which the tail read pays beside the download's
 //               (persistent)
+//   fail        the file's next `after` downloads, at least one, answer 409
+//               path/not_found, which the client never retries, so the
+//               download fails where the app sees it
+//   offline     every request, JSON calls included, fails with
+//               NSURLErrorNotConnectedToInternet. It takes no file
+//               (persistent)
 + (BOOL)addFaultOfKind:(NSString *)kind
                   file:(nullable NSString *)file
                  after:(uint64_t)after
                seconds:(NSTimeInterval)seconds
                   rate:(uint64_t)rate;
 + (void)clearFaults;
+// At most this many entries per list_folder page, so a folder larger than it
+// lists through files/list_folder/continue. 0, the default after an install,
+// pages by the request's own limit.
++ (void)setListPageSize:(NSUInteger)entries;
 // Lifts every stall; the stalled downloads go on from where they stopped.
 + (void)resumeStalls;
 
