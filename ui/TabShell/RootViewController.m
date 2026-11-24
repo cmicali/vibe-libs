@@ -305,9 +305,6 @@ static const CGFloat kDismissFlickVelocity = 900;
     [self interruptCardAnimationPreservingVisualState];
     BOOL shouldAnimate = [self shouldAnimateCard:animated];
     _expanded = YES;
-    // Now, not when the backdrop changes: an interrupted move keeps its
-    // snapshot, so beginBackdropSnapshot may return before it syncs.
-    [self syncTabSurfaces];
     uint64_t accessibilityGeneration = [self beginAccessibilityTransitionToExpanded:YES];
     _card.view.hidden = NO;
     [self beginCardAppearanceTransition:YES animated:shouldAnimate];
@@ -329,9 +326,6 @@ static const CGFloat kDismissFlickVelocity = 900;
     [self interruptCardAnimationPreservingVisualState];
     BOOL shouldAnimate = [self shouldAnimateCard:animated];
     _expanded = NO;
-    // Now: after a drag the drag's snapshot is still up, so the delegate
-    // would otherwise hear only when the spring ends.
-    [self syncTabSurfaces];
     uint64_t accessibilityGeneration = [self beginAccessibilityTransitionToExpanded:NO];
     [self beginCardAppearanceTransition:NO animated:shouldAnimate];
     _card.presented = NO;
@@ -356,6 +350,10 @@ static const CGFloat kDismissFlickVelocity = 900;
                  completion:(void (^)(void))completion {
     [self interruptCardAnimationPreservingVisualState];
     _cardAnimating = YES;
+    // Here, once the move has begun: the delegate hears the new expanded
+    // state with cardAtRest already NO. A drag or an interrupted move leaves
+    // its snapshot up, so beginBackdropSnapshot may return before it syncs.
+    [self syncTabSurfaces];
     if (!animated) {
         changes();
         _cardAnimating = NO;
@@ -432,7 +430,7 @@ static const CGFloat kDismissFlickVelocity = 900;
 // jumped under the card on every expand and dismiss. A snapshot has no
 // layout to lose. Taken as the card starts moving and dropped once it rests.
 // A drag, or an interrupted move, leaves it up, so the next move returns
-// here early: expand and minimize sync the delegate themselves.
+// here early: animateCardAnimated: syncs the delegate itself.
 - (void)beginBackdropSnapshot {
     if (_backdropSnapshot) {
         return;
