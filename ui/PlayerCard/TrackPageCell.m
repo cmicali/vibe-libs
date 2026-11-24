@@ -774,9 +774,12 @@ static UIImage *TransportGradientImage(void) {
     ]];
 
     // The art takes what the waveform's row leaves, up to a share of the
-    // width that keeps the names room.
+    // width that keeps the names room. TRAP: the fill sits just above the
+    // names' compression resistance. At an equal priority a long title wins,
+    // the art collapses to a point, and the transport on its edge leaves the
+    // window.
     NSLayoutConstraint *artFill = [_artCard.bottomAnchor constraintEqualToAnchor:_waveformView.topAnchor];
-    artFill.priority = UILayoutPriorityDefaultHigh;
+    artFill.priority = UILayoutPriorityDefaultHigh + 1;
     _compactLayout = [artTransport arrayByAddingObjectsFromArray:@[
         artFill,
         [_artCard.bottomAnchor constraintLessThanOrEqualToAnchor:_waveformView.topAnchor],
