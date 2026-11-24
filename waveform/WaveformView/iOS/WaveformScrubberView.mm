@@ -100,8 +100,12 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
     return _pinch;
 }
 
+- (BOOL)hasWaveform {
+    return self.waveform != nil;
+}
+
 - (BOOL)isScrubbingEnabled {
-    return self.waveform != nil && _seekable;
+    return self.hasWaveform && _seekable;
 }
 
 - (void)setSeekable:(BOOL)seekable {
@@ -140,11 +144,11 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
 }
 
 - (BOOL)isAnimatingWaveformArrival {
-    return self.waveform && !_renderer.isSettled;
+    return self.hasWaveform && !_renderer.isSettled;
 }
 
 - (BOOL)isShowingWaveform {
-    return self.waveform && _renderer;
+    return self.hasWaveform && _renderer;
 }
 
 - (BOOL)isPinching {
@@ -394,7 +398,7 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
 // setContentOffsetX:. Disabling actions on the implicit one nests the
 // renderers' own transactions inside it.
 - (void)applyPlayedClip {
-    if (!self.waveform || !_renderer) {
+    if (!self.hasWaveform || !_renderer) {
         return;
     }
     [CATransaction setDisableActions:YES];
@@ -412,7 +416,7 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
 - (void)drawRendererWindowForcing:(BOOL)force {
     CGRect virtualBounds = [self virtualBounds];
     CGFloat width = self.bounds.size.width;
-    if (!self.waveform || !_renderer || virtualBounds.size.width <= 0 || width <= 0) {
+    if (!self.hasWaveform || !_renderer || virtualBounds.size.width <= 0 || width <= 0) {
         return;
     }
     CGRect visible = CGRectIntersection(CGRectMake(_scroll.contentOffset.x, 0, width, virtualBounds.size.height),
@@ -473,7 +477,7 @@ static NSString *const kWaveformScrubberIdentifier = @"waveform-scrubber";
 static const CGFloat kPlayheadLineOvershoot = 8;
 
 - (void)layoutPlayheadLine {
-    VibeColor *color = self.waveform ? _renderer.theme.playheadColor : nil;
+    VibeColor *color = self.hasWaveform ? _renderer.theme.playheadColor : nil;
     if (!color && _playheadLine.hidden) {
         return;
     }
@@ -681,7 +685,7 @@ static const CGFloat kPlayheadLineOvershoot = 8;
     VibeSignpostBegin(waveform_delivery);
     // Per-page cells can hydrate without prepareForWaveformLoad.
     [self installRendererIfNeeded];
-    BOOL arrival = !self.waveform;
+    BOOL arrival = !self.hasWaveform;
     self.waveform = waveform;
     [self drawRendererWindowForcing:YES];
     if (!animated) {

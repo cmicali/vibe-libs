@@ -129,7 +129,7 @@ static const CGFloat kZoomScrubSlop = 12.0;
 // The scroll's bounds origin IS the content offset, so a location in its
 // space is already a content x.
 - (void)handleTap:(UITapGestureRecognizer *)tap {
-    if (!self.waveform || tap.state != UIGestureRecognizerStateEnded) {
+    if (!self.hasWaveform || tap.state != UIGestureRecognizerStateEnded) {
         return;
     }
     CGFloat virtualWidth = [self virtualWidth];
@@ -166,7 +166,7 @@ static const CGFloat kZoomScrubSlop = 12.0;
 - (void)handlePinch:(UIPinchGestureRecognizer *)pinch {
     switch (pinch.state) {
         case UIGestureRecognizerStateBegan:
-            if (self.waveform) {
+            if (self.hasWaveform) {
                 [self beginZoomGesture];
             }
             break;
