@@ -11,7 +11,7 @@
 // TRAP: the strip is 48pt, not negotiable. UITabAccessory frames its content
 // at a fixed system height and ignores intrinsicContentSize and height
 // constraints, without logging a conflict. A taller strip means giving up the
-// accessory: Liquid Glass, inline collapse and the automatic safe-area inset.
+// accessory: Liquid Glass, inline collapse, and the automatic safe-area inset.
 // No playhead bar: one fits 48pt only by crowding the art and labels.
 static const CGFloat kArtSide = 38;
 static const CGFloat kControlSide = 44;
@@ -146,7 +146,9 @@ static const CGFloat kPreferredWidth = 360;
     _preferredWidth = [self.widthAnchor constraintGreaterThanOrEqualToConstant:kPreferredWidth];
     _preferredWidth.priority = UILayoutPriorityDefaultHigh;
 
-    // Inline beside the tab bar there is no room for two lines.
+    // The place, the text size, and the size class decide the second line and
+    // the preferred width. Inline beside the tab bar there is no room for two
+    // lines, or for the width.
     __weak VibeMiniPlayerView *weakSelf = self;
     [self registerForTraitChanges:@[UITraitTabAccessoryEnvironment.class,
                                     UITraitPreferredContentSizeCategory.class,
