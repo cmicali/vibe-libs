@@ -4,15 +4,22 @@
 PROJECT := vibe-libs.xcodeproj
 DERIVED := build/DerivedData
 
-.PHONY: help project test test-asan test-tsan build-ios consumer check-pieces test-strings fuzz fuzz-replay fuzz-triage clean
+.PHONY: help project ready-to-push test test-asan test-tsan build-ios consumer check-pieces test-strings fuzz fuzz-replay fuzz-triage clean
 
 # Every target, with the first sentence of its comment.
 help:
 	@awk '/^# /{c=substr($$0,3)} /^[a-z-]+:/{sub(":.*","",$$1); if (c) printf "  %-14s %s\n", $$1, c; c=""}' Makefile
 
-# Generates the Xcode project from project.yml.
+# Git reads a relative hooks path from each worktree's root.
+# Generates the Xcode project from project.yml, and installs the commit-msg hook.
 project:
 	xcodegen generate --quiet
+	git config core.hooksPath .githooks
+
+# SINCE is where this branch leaves origin/main, as CI's is the pull request's base.
+# Runs every step CI runs on a pull request, in order, read from the workflow.
+ready-to-push:
+	SINCE="$$(git merge-base origin/main HEAD)" python3 -I scripts/checks/ready-to-push.py .github/workflows/ci.yml
 
 # SINCE=<rev> limits test and build-ios to the targets a change since that
 # commit reaches. CI sets it on a pull request.
@@ -65,13 +72,16 @@ consumer:
 		-derivedDataPath build/ConsumerDerivedData -quiet
 	build/ConsumerDerivedData/Build/Products/Release/Consumer
 
-# The message filter a move runs has its test here too.
+# The message filter a move runs, the commit-msg hook, and ready-to-push have
+# their tests here too.
 # With SINCE, a change to a TagLib file must change TagLib's dated record too.
 # Checks the piece rules, then breaks each rule in a copy to prove the check fails.
 check-pieces:
 	python3 -I scripts/checks/check-pieces.py
 	python3 -I scripts/checks/check-pieces-test.py
 	python3 -I scripts/checks/filter-messages-test.py
+	python3 -I scripts/checks/commit-msg-test.py
+	python3 -I scripts/checks/ready-to-push-test.py
 	python3 -I scripts/checks/taglib-record.py $(if $(SINCE),--since '$(SINCE)')
 	python3 -I scripts/checks/taglib-record-test.py
 
