@@ -4,7 +4,8 @@
 //
 //  The strip in the tab bar's bottomAccessory. Tapping it anywhere but a
 //  control, or swiping up, expands the card. It draws only what it is told,
-//  and reads no model, setting or string.
+//  and reads no model, setting or string. Outside a compact width, and when
+//  not inline, it asks for at least 360 points across, below required.
 //
 
 #import <UIKit/UIKit.h>

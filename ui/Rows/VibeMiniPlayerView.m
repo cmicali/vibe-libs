@@ -17,7 +17,7 @@ static const CGFloat kArtSide = 38;
 static const CGFloat kControlSide = 44;
 static const CGFloat kGlyphPointSize = 19;
 // Room for a short song's title and artist in full.
-static const CGFloat kPreferredRegularWidth = 360;
+static const CGFloat kPreferredWidth = 360;
 
 @interface VibeMiniPlayerView () <UIGestureRecognizerDelegate>
 @end
@@ -136,13 +136,14 @@ static const CGFloat kPreferredRegularWidth = 360;
     // TRAP: in a regular width, UITabAccessory fits its width to this view's
     // content when the strip is installed and when the size class changes, and
     // never when the song changes. So the strip would keep the first song's
-    // width, and a later, longer name would be cut. A fixed preferred width
-    // gives every song the same room. It stays below required, so the row's
-    // give above still holds on a zero-width pass. In a compact width the
-    // system frames the strip, so it is off there. It is on while the size
-    // class is unspecified, because UIKit fits the strip on install before
-    // the strip has the window's traits.
-    _preferredWidth = [self.widthAnchor constraintGreaterThanOrEqualToConstant:kPreferredRegularWidth];
+    // width, and a later, longer name would be cut. A preferred width gives
+    // every song at least the same room. A name longer than that room can
+    // still be cut. It stays below required, so the row's give above still
+    // holds on a zero-width pass. It is off in a compact width, where the
+    // system frames the strip, and inline, where there is no room. It is on
+    // while the size class is unspecified, because UIKit fits the strip on
+    // install before the strip has the window's traits.
+    _preferredWidth = [self.widthAnchor constraintGreaterThanOrEqualToConstant:kPreferredWidth];
     _preferredWidth.priority = UILayoutPriorityDefaultHigh;
 
     // Inline beside the tab bar there is no room for two lines.
@@ -175,8 +176,8 @@ static const CGFloat kPreferredRegularWidth = 360;
     BOOL accessibilitySize = UIContentSizeCategoryIsAccessibilityCategory(
             self.traitCollection.preferredContentSizeCategory);
     _subtitleLabel.hidden = inline_ || accessibilitySize || _subtitleLabel.text.length == 0;
-    _preferredWidth.active =
-            self.traitCollection.horizontalSizeClass != UIUserInterfaceSizeClassCompact;
+    _preferredWidth.active = !inline_
+            && self.traitCollection.horizontalSizeClass != UIUserInterfaceSizeClassCompact;
 }
 
 #pragma mark - Rendering
