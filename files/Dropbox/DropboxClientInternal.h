@@ -15,6 +15,9 @@ NS_ASSUME_NONNULL_BEGIN
 // Links the account as a completed sign-in would, without the web sheet; the
 // access token is fetched on first use, as after a relaunch.
 - (void)adoptRefreshToken:(NSString *)refreshToken accountID:(NSString *)accountID;
+// Signs out here alone, as signOut does, but sends nothing: no refresh and no
+// revoke. The fake account's uninstall, whose grant Dropbox never made.
+- (void)forgetAccount;
 // The sign-in's own follow-up, declared for the tests: asks Dropbox for the
 // account's name and ID and stamps them, if the account is still the one asked.
 - (void)refreshAccountNameWithCompletion:(dispatch_block_t)completion;

@@ -7,6 +7,7 @@ A Dropbox account and its files as local placeholders. It uses Dropbox's HTTP AP
 | `DropboxClient` | The account: PKCE sign-in in `ASWebAuthenticationSession`, the refresh token in the Keychain, the access token in memory, and the JSON call. It subclasses `HTTPTransferClient` (`files/HTTP/AGENTS.md`), which runs the streamed download and the ranged read. This class makes their requests and reads Dropbox's answers. All three share one failure ladder (`handleFailureStatus:…`): an expired token refreshes once, any other 401 unlinks, and a throttle waits and resends. |
 | `DropboxMirror` | The account as local files: listing reconciliation, the sidecars, search and the path mapping. It subclasses `RemotePlaceholderStore` (`files/RemoteFiles/AGENTS.md`), which owns the placeholders, the directory index's storage, the streaming fetch, the ranged read and the download budget. This class names each placeholder's Dropbox `id` and reads Dropbox's answers. |
 | `DropboxRules.h` | The decisions with no network or disk: PKCE, the wire encodings, entry reading, the version check, the index key. Tested. |
+| `VibeFakeDropbox` | A stand-in account for an app's debug checks: a directory on disk answers as Dropbox over the client's own sessions, with scripted faults and a log. It came from Vibe. |
 
 **The piece reads nothing of the app's.** The app passes in its Dropbox app key and its Keychain service when it makes the client. It passes the mirror's root directory, its index xattr, and its download budget when it makes the mirror. It keeps the one mirror its screens and its remote backend share. The error domain is `vibe-libs.dropbox`.
 
@@ -51,3 +52,17 @@ The root holds one directory per account, named by the account's id. Keep it out
 - **Past the download budget the oldest downloads go back to placeholders** (the store's eviction). The budget counts the linked account's directory. The app chooses it, and may set `downloadBudget` at any time. A smaller budget applies at once and posts the new total as a download's landing does. Size and mtime are kept, so cached tags and waveforms still match. A player still reading an evicted file keeps its open descriptor. `removeDownloadsWithCompletion:` does the same to all of them.
 
 A mirror directory is an app-container URL with no security scope. A relaunch can restore from the placeholders offline.
+
+## The fake account
+
+**`VibeFakeDropbox` puts a directory under a client as its account** (the plan's rule 8: a fake lives with what it fakes). Its folders are Dropbox folders and its files Dropbox files. It swaps the client's sessions for ones over its `NSURLProtocol` and links the account as a finished sign-in would, so the mirror, a browser, search, and every open run unchanged, with no sign-in and no network. Faults script the streaming cases: a stall, a lost connection, a new version mid-download, a throttle, an expired token, a slow or failing tail or tag read, a download that fails where the app sees it (`fail`), and no connection at all (`offline`). A page size makes a listing page through `files/list_folder/continue`. `statistics` reports the requests, the downloads by kind, and a log. Its serving engine is `files/HTTP`'s `VibeFakeHTTPProtocol`. An app's debug channel installs it, and the app keeps the verbs that drive it, since they read the app's player.
+
+**Which fake to use.** `DropboxStubProtocol`, beside the tests, scripts one request at a time, for this piece's own tests. `VibeFakeDropbox` is an account backed by a directory, for an app's checks.
+
+**TRAP: installing the fake replaces the client's account.** It saves the fake account in the client's Keychain service, the mirror then prunes every other account's directory, and the uninstall deletes the Keychain item. So a real sign-in and its downloads are lost. Install it over a client made with a Keychain service and a mirror root of its own.
+
+**TRAP: the uninstall never revokes.** The fake account is adopted with no access token. A sign-out would refresh one first, and its revoke would go out after the uninstall's session swap, on the real session, to Dropbox. So the uninstall calls the client's `forgetAccount`, which signs out here and sends nothing.
+
+**What it does not cover:** the PKCE sign-in, which is Dropbox's web sheet, an expired token on a JSON call, and a file added or removed on the server after the install.
+
+**How the fake builds here.** Its header has no `#if DEBUG`, since no header here may carry one. Its `.m` wraps its whole body in `#if DEBUG`, so a release build compiles an empty object and ships none of it, and a call from release code fails to link. Only debug-only code calls it. `VibeFakeDropboxTests` drive it through the real client and mirror: a listing, a download, a lost connection's resend, a failed download and its retry, offline, a folder listed in pages, and an uninstall that sends nothing. Its state is process-wide, so only that class drives it.
