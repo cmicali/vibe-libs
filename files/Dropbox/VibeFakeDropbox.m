@@ -1,6 +1,6 @@
 //
 //  VibeFakeDropbox.m
-//  Vibe (iOS)
+//  vibe-libs
 //
 
 #if DEBUG
@@ -458,7 +458,7 @@ static void VibeFakeDropboxNote(NSMutableDictionary *entry, NSString *outcome, u
                       client:(DropboxClient *)client {
     os_unfair_lock_lock(&sLock);
     // TRAP: an install over a linked fake never links the account again. A
-    // link is an account change. It clears a playlist that reaches into the
+    // link is an account change. An app may clear what reaches into the
     // mirror, and it moves the account generation under the transfers in
     // flight. A session swap alone is safe: the old sessions finish their
     // tasks, and the client keys a transfer by its task object.

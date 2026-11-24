@@ -1,21 +1,20 @@
 //
 //  VibeFakeDropbox.h
-//  Vibe (iOS)
+//  vibe-libs
 //
-//  A stand-in Dropbox for the simulator: a directory on disk answers as the
-//  account, over the client's own HTTP boundary (an NSURLProtocol on its
-//  sessions), so the mirror, the browser, search and every open run unchanged
-//  against a scripted tree with no sign-in, no network and no account. The
-//  sign-in is Dropbox's web sheet, which only a human can fill, and the mirror
-//  is lazy — a folder exists locally only once something listed it — which is
-//  exactly the class of bug a scripted tree reproduces.
+//  A stand-in Dropbox for an app's debug checks and tests: a directory on
+//  disk answers as the account, over the client's own HTTP boundary (an
+//  NSURLProtocol on its sessions), so the mirror, the browser, search and
+//  every open run unchanged against a scripted tree with no sign-in, no
+//  network and no account. The sign-in is Dropbox's web sheet, which only a
+//  human can fill, and the mirror is lazy — a folder exists locally only
+//  once something listed it — which is exactly the class of bug a scripted
+//  tree reproduces.
 //
 //  Its serving engine is vibe-libs' files/HTTP fake (VibeFakeHTTPProtocol.h),
 //  which the fake web server and the tests' HTTPStub share. This file holds
 //  the account's routes, its tree, its faults and its log.
 //
-
-#if DEBUG
 
 #import <Foundation/Foundation.h>
 
@@ -82,5 +81,3 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 NS_ASSUME_NONNULL_END
-
-#endif

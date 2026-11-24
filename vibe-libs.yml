@@ -492,16 +492,18 @@ targetTemplates:
 
   # A Dropbox account and its files as local placeholders, over HTTP and
   # RemoteFiles' store. It lists Playlists and AudioTypes for the names the
-  # mirror keeps. Its sources are Objective-C, so their AuthenticationServices
+  # mirror keeps, and Decode for the fake account's tail window. Its sources are Objective-C, so their AuthenticationServices
   # and Security imports link those frameworks. It lists no sdk dependency,
   # since XcodeGen refuses a target that lists the same sdk twice, and an app
-  # that signs in lists both.
+  # that signs in lists both. The fake account compiles in every
+  # configuration. It wraps its body in #if DEBUG, so a release build ships
+  # none of it.
   #
   # TRAP: an app that also takes VibeLibsTaglib lists this template first, as
   # it would VibeLibsRemoteFiles, which this one lists.
   VibeLibsDropbox:
     templates: [VibeLibsCommon, VibeLibsAudioTypes, VibeLibsFileLoading, VibeLibsHTTP, VibeLibsRemoteFiles,
-                VibeLibsPlaylists]
+                VibeLibsDecode, VibeLibsPlaylists]
     sources:
       - path: files/Dropbox
         excludes: ["**/*.md", "${excludedPlatform}/**"]

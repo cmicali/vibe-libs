@@ -370,7 +370,8 @@ targets:
   # files/Dropbox, tested on macOS over DropboxStubProtocol, which sits
   # beside the tests, and a temporary root. The tests take PatternBytes and
   # StatOf from HTTP's HTTPStub.h and compile no stub. The streaming tests
-  # take the handle's fixture writers.
+  # take the handle's fixture writers. VibeFakeDropboxTests drive the fake
+  # account over no stub.
   DropboxTests:
     type: bundle.unit-test
     platform: macOS
