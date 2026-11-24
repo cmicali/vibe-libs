@@ -14,7 +14,7 @@
     if (_loadingIndicator) {
         return;
     }
-    if (!self.waveform) {
+    if (!self.hasWaveform) {
         [self resetWaveformContentState];
     }
     _loadingIndicator = [[LoadingIndicator alloc]
@@ -85,7 +85,7 @@
     }
     _loadingTrackBounds = [self loadingTrackBounds];
     [_loadingIndicator setProgress:fraction inBounds:_loadingTrackBounds];
-    if (self.waveform) {
+    if (self.hasWaveform) {
         [self hideLoadingShimmer];
     }
 }

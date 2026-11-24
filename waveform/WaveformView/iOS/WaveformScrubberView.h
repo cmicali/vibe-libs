@@ -61,8 +61,10 @@ NS_ASSUME_NONNULL_BEGIN
 // has a pending seek. Pure zoom keeps following playback.
 @property (nonatomic, readonly) BOOL isScrubbing;
 
-// Whether there is waveform data to manipulate, and the view is seekable;
-// an unloaded scrubber stays page-swipe surface.
+// Whether the view holds waveform data, whatever seekable says.
+@property (nonatomic, readonly) BOOL hasWaveform;
+// hasWaveform, and the view is seekable. An unloaded scrubber stays
+// page-swipe surface.
 @property (nonatomic, readonly, getter=isScrubbingEnabled) BOOL scrubbingEnabled;
 // Whether the view seeks at all, as the mac view's seekable. YES, the
 // default. NO takes no drag and no VoiceOver adjust, as an unloaded scrubber
