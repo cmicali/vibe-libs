@@ -161,6 +161,11 @@ normalize() {
                                    if .key == "en" or (.value.variations.plural | not) then .
                                    else .value.variations.plural |= map_values(.stringUnit.state = "needs_review") end)
                           else . end)
+                       # Write the layout sync writes: the forms first, then
+                       # the value with no state. sync rewrites any other
+                       # layout the next time it changes the catalog, so one
+                       # new key would rewrite every plural key added before.
+                       | .localizations.en |= {variations: .variations, stringUnit: {value: .stringUnit.value}}
                    else . end)
                 # Delete-then-append, never update in place: sync places the
                 # extractionState of a new key alphabetically, while the --check
