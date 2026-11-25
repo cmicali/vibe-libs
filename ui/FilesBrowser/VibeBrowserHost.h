@@ -177,8 +177,11 @@ FOUNDATION_EXTERN void VibeBrowserPresentAlert(UIViewController *screen, id<Vibe
 @property (nonatomic, readonly) VibeBrowserAction *folderAction;
 // The bar button's menu item: the folder shown with its subfolders. The host
 // is asked when the user picks it, before the walk lists anything, with the
-// folder the walk starts from, which may hold no songs itself. The browser
-// hands the folders with songs, in walk order, to the block returned.
+// folder the walk starts from, which may hold no songs itself, so it can show
+// at once that something runs. The browser hands the folders with songs, in
+// walk order, to the block returned. The walk finishes and calls the block
+// even when the screen goes first, such as a sheet closed mid-walk: then it
+// shows no alert, and a walk that found nothing calls nothing.
 @property (nonatomic, readonly) NSString *subfoldersTitle;
 - (void (^)(NSArray<NSURL *> *folders))subfoldersHandlerForFolder:(NSURL *)folder
                                                        fromScreen:(UIViewController *)screen;
@@ -193,6 +196,14 @@ FOUNDATION_EXTERN void VibeBrowserPresentAlert(UIViewController *screen, id<Vibe
 - (void)rootWillAppear:(UIViewController *)root;
 // Over the root's title. None without it.
 @property (nonatomic, readonly, copy, nullable) NSString *rootPrompt;
+
+// The subfolder walk from folder, as it goes, on main after each folder it
+// lists: how many folders it has listed, and how many songs they hold.
+- (void)subfolderWalkFromFolder:(NSURL *)folder didListFolders:(NSUInteger)folders songs:(NSUInteger)songs;
+// The walk from folder has ended, on main, before the block from
+// subfoldersHandlerForFolder:fromScreen: gets its folders, or an alert
+// shows. Every walk the host was asked about ends once.
+- (void)subfolderWalkDidEndFromFolder:(NSURL *)folder;
 
 // Held weakly, by a host whose state changes: its playback, its sources, or
 // its root rows.
