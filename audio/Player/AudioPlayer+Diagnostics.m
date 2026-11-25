@@ -156,7 +156,8 @@ static NSString *VibeSampleFormatName(AVAudioFormat *format) {
         [output addEntriesFromDictionary:outputUnitPath.firstObject];
     }
 
-    NSMutableArray *stages = [NSMutableArray arrayWithObjects:source, decode, busStage, varispeedStage, fx, meter, output, nil];
+    NSMutableArray *stages = [NSMutableArray arrayWithObjects:source, decode, busStage, varispeedStage, fx,
+                              renderFacts[@"loudness"], meter, output, nil];
     if (outputUnitPath.count > 1) [stages addObjectsFromArray:[outputUnitPath subarrayWithRange:NSMakeRange(1, outputUnitPath.count - 1)]];
 
     return stages;
@@ -477,11 +478,12 @@ static const NSTimeInterval kSignalProbePollSeconds = 0.1;
 // half / ratio output frames. So the cutoff is padded by
 // varispeedLatencyOnQueue, which is 0 at zero pitch, where the converter is
 // skipped. Unpadded, the probe reads the outgoing track's tail as the
-// incoming one's first signal.
+// incoming one's first signal. The loudness stage, engaged, plays late too.
+// The meter sees its output, so its frame and look-ahead pad the cutoff as well.
 - (void)noteRetiringAudioSilentOnQueue {
 #if VIBE_VERBOSE_LOGGING
     AudioTimeStamp time = [self outputRenderTimeOnQueue];
-    NSTimeInterval latency = [self varispeedLatencyOnQueue];
+    NSTimeInterval latency = [self varispeedLatencyOnQueue] + [self loudnessLatencyOnQueue];
     if ((time.mFlags & kAudioTimeStampSampleTimeValid) && latency > 0) {
         time.mSampleTime += ceil(latency * _masterFormat.sampleRate);
     }

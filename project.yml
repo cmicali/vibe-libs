@@ -245,6 +245,28 @@ targets:
     sources:
       - path: Tests/audio/Meter/MeterProbe.m
 
+  # audio/LoudnessEqualizer, tested on macOS.
+  LoudnessEqualizerTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsLoudnessEqualizer]
+    templateAttributes:
+      excludedPlatform: iOS
+    sources:
+      - path: Tests/audio/LoudnessEqualizer
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  # audio/LoudnessEqualizer built for iOS, so an AppKit leak fails here.
+  LoudnessEqualizer-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsLoudnessEqualizer]
+    templateAttributes:
+      excludedPlatform: Mac
+
   # files/FileLoading, tested on macOS. The tests drive the seams and the fake
   # cloud, which compile only under DEBUG, so the bundle defines it in every
   # configuration. The coordinator's
@@ -1244,6 +1266,8 @@ schemes:
         FX-iOS: all
         MeterTests: [test]
         Meter-iOS: all
+        LoudnessEqualizerTests: [test]
+        LoudnessEqualizer-iOS: all
         FileLoadingTests: [test]
         FileLoading-iOS: all
         DiskCacheTests: [test]
@@ -1322,7 +1346,7 @@ schemes:
         SparkleTests: [test]
     test:
       targets: [CommonTests, GraphicsTests, AudioTypesTests, DSPTests, AnalysisTests, OutputDevicesTests,
-                FXTests, MeterTests, FileLoadingTests, DiskCacheTests, HTTPTests,
+                FXTests, MeterTests, LoudnessEqualizerTests, FileLoadingTests, DiskCacheTests, HTTPTests,
                 RemoteFilesTests, DropboxTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
                 MetadataTests, PlayQueueTests, PlaylistsTests, FolderScanTests, WaveformTests, WaveformLoadingTests,
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,

@@ -1442,6 +1442,22 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     });
 }
 
+- (BOOL)loudnessEqualization {
+    os_unfair_lock_lock(&_stateLock);
+    BOOL enabled = _loudnessEqualization;
+    os_unfair_lock_unlock(&_stateLock);
+    return enabled;
+}
+
+- (void)setLoudnessEqualization:(BOOL)loudnessEqualization {
+    os_unfair_lock_lock(&_stateLock);
+    _loudnessEqualization = loudnessEqualization;
+    os_unfair_lock_unlock(&_stateLock);
+    dispatch_async(_queue, ^{
+        [self applyLoudnessOnQueue];
+    });
+}
+
 - (float)maxPitch {
     os_unfair_lock_lock(&_stateLock);
     float maxPitch = _maxPitch;

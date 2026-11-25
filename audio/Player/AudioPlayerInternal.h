@@ -125,6 +125,7 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
     BOOL                    _stalled;
     BOOL                    _outputIdle;
     float                   _pitch;             // percent; see the trap below
+    BOOL                    _loudnessEqualization; // under _stateLock, as _pitch
     // The request identifiers' one sequence, which plays and prefetches draw
     // from under _stateLock (AudioPlayer.h, Request identifiers).
     uint64_t                _lastRequestIdentifier;

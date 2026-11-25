@@ -37,6 +37,12 @@ NS_ASSUME_NONNULL_BEGIN
 // Fader range in percent, 8 by default. Shrinking it re-clamps pitch.
 @property (nonatomic) float maxPitch;
 
+// Loudness equalization (audio/LoudnessEqualizer): a slow gain that evens out
+// quiet and loud passages, with a limiter. NO by default. A change crossfades
+// over 10 ms. Under bit-perfect output it is out of the path, as pitch is,
+// and the setting is kept for later.
+@property (nonatomic) BOOL loudnessEqualization;
+
 // Track-change crossfade in milliseconds, default the 10 ms declick minimum.
 // Applies only when a play replaces an audibly playing track. Raising it past
 // the minimum unqueues a gapless successor unless it is a contiguous CUE
