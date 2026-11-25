@@ -42,8 +42,6 @@ NS_ASSUME_NONNULL_BEGIN
 // over 10 ms. Under bit-perfect output it is out of the path, as pitch is,
 // and the setting is kept for later.
 @property (nonatomic) BOOL loudnessEqualization;
-// How slowly its gain rises after a loud passage, 2 (fast) to 7 (slow); 4 by default.
-@property (nonatomic) int loudnessRelease;
 
 // Track-change crossfade in milliseconds, default the 10 ms declick minimum.
 // Applies only when a play replaces an audibly playing track. Raising it past

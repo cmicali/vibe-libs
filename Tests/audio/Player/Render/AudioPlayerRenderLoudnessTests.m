@@ -16,9 +16,7 @@
     [self play:noise paused:NO position:0];
     [self assertReference:VibePCM([self read:noise]) capture:[self renderSeconds:2.1] skip:[self startupSkip] tolerance:0];
     NSDictionary *counts = _player.debugRenderCounts;
-    XCTAssertTrue([counts[@"loudness"] boolValue], @"ordinary playback hosts the stage");
-    XCTAssertFalse([counts[@"loudnessEngaged"] boolValue]);
-    XCTAssertEqual([counts[@"loudnessRenders"] unsignedLongLongValue], 0ull, @"the stage rendered while off");
+    XCTAssertFalse([counts[@"loudness"] boolValue], @"no stage before the first turn on");
     XCTAssertEqual([counts[@"loudnessLatency"] doubleValue], 0.0);
 
     // A quiet low tone is raised, and the limiter keeps it under full scale.
@@ -33,16 +31,13 @@
     NSUInteger frames = _capture.length / sizeof(float) / 2;
     double rms = VibeRMS(_capture, 2, 0, NSMakeRange(frames - 9600, 9600));
     XCTAssertGreaterThan(rms, 1.5 * 0.25 / sqrt(2), @"the quiet tone was not raised");
-    const float *out = _capture.bytes;
-    for (NSUInteger i = 0; i < frames * 2; i++) {
-        XCTAssertLessThanOrEqual(fabsf(out[i]), 1.0f, @"sample %lu", (unsigned long)i);
-        if (fabsf(out[i]) > 1.0f) break;
-    }
+    [self assertFinite:_capture peak:1.0f];
 
     // Off: after its 10 ms fade the track plays on as the file, bit for bit.
     _player.loudnessEqualization = NO;
     [self play:noise paused:NO position:0];
     [self render:12000];
+    XCTAssertTrue([_player.debugRenderCounts[@"loudness"] boolValue], @"kept once off, so the switch fades out");
     XCTAssertFalse([_player.debugRenderCounts[@"loudnessEngaged"] boolValue]);
     uint64_t renders = [_player.debugRenderCounts[@"loudnessRenders"] unsignedLongLongValue];
     [_capture setLength:0];

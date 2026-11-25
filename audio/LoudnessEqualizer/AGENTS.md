@@ -6,13 +6,13 @@ Loudness equalization: a slow automatic gain that plays quiet and loud passages 
 
 ## The host
 
-**A host creates a stage at its output's rate and channels**, sets its switch and its release from any thread, and renders slices through it in place on the audio thread. `audio/Player` is the one host today. It runs the stage after the FX and before the meter, so a level display shows what is heard. It hosts one wherever pitch could apply: in ordinary playback on macOS, and always on iOS. Under bit-perfect output the stage is out of the path. A change of rate or channels makes a new stage. The old one is freed once the render leaves.
+**A host creates a stage at its output's rate and channels**, sets its switch and its release from any thread, and renders slices through it in place on the audio thread. A change of rate or channels needs a new stage. A host frees a stage only with no render inside it. `audio/Player` is the one host today, and its AGENTS.md says where it runs the stage.
 
 **Off, it is a bit-perfect pass-through.** The render reads one flag and returns, so it touches no sample and counts no render.
 
 **Turning it on warms it first.** The render resets the stage and plays the input as it is until the stage holds a full frame and the limiter's look-ahead, N + L frames. Then it crossfades to the leveled signal over 10 ms. Turning it off crossfades back over 10 ms, and the stage rests. The wet signal is late by N + L, so a switch skips or repeats about 12 ms. A crossfade over that is quieter than a cut. Turned back on while fading out, it fades straight back in with the state it kept.
 
-**The latency, engaged, is N + L frames**: 576 at 44.1 and 48 kHz. `VibeLoudnessEqualizerLatencyFrames` reports it, and 0 while the stage rests. `audio/Player` pads its signal probe's cutoff by it, as it does for the varispeed.
+**The latency, engaged, is N + L frames**: 576 at 44.1 and 48 kHz. `VibeLoudnessEqualizerLatencyFrames` reports it, and 0 while the stage rests. A host that reports what is heard adds it.
 
 ## The leveler
 

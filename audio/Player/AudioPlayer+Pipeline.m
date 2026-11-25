@@ -535,20 +535,30 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
 - (void)applyLoudnessOnQueue {
     AVAudioFormat *format = _masterFormat;
 #if TARGET_OS_OSX
-    BOOL wanted = format != nil && ![self bitPerfectOnQueue];
+    BOOL allowed = format != nil && ![self bitPerfectOnQueue];
 #else
-    BOOL wanted = format != nil;
+    BOOL allowed = format != nil;
 #endif
+    os_unfair_lock_lock(&_stateLock);
+    BOOL enabled = _loudnessEqualization;
+    os_unfair_lock_unlock(&_stateLock);
     uint32_t channels = VibeMasterBusChannels(_masterBus);
     VibeLoudnessEqualizer *loudness = atomic_load_explicit(&_masterBus->loudness, memory_order_relaxed);
     BOOL fits = loudness && VibeLoudnessEqualizerChannels(loudness) == channels
             && VibeLoudnessEqualizerSampleRate(loudness) == format.sampleRate;
-    if (loudness && (!wanted || !fits)) {
+    if (loudness && (!allowed || !fits)) {
         VibeLoudnessEqualizer *old = atomic_exchange_explicit(&_masterBus->loudness, NULL, memory_order_seq_cst);
         [self afterRenderLeavesOnQueue:^{ VibeLoudnessEqualizerFree(old); }];
         loudness = NULL;
     }
-    if (wanted && !loudness) {
+    if (!allowed) {
+        return;
+    }
+    // Built at the first turn on, and kept once off, so the switch can fade out.
+    if (!loudness) {
+        if (!enabled) {
+            return;
+        }
         loudness = VibeLoudnessEqualizerCreate(channels, format.sampleRate);
         if (!loudness) {
             LogError(@"AudioPlayer: no loudness stage for %u channels at %.0f Hz", channels, format.sampleRate);
@@ -556,14 +566,6 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
         }
         atomic_store_explicit(&_masterBus->loudness, loudness, memory_order_release);
     }
-    if (!loudness) {
-        return;
-    }
-    os_unfair_lock_lock(&_stateLock);
-    BOOL enabled = _loudnessEqualization;
-    int release = _loudnessRelease;
-    os_unfair_lock_unlock(&_stateLock);
-    VibeLoudnessEqualizerSetRelease(loudness, release);
     VibeLoudnessEqualizerSetEnabled(loudness, enabled);
 }
 
@@ -703,14 +705,11 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
     NSDictionary *loudnessStage = @{
         @"stage": @"loudness", @"present": @(loudness != NULL),
         @"enabled": @(self.loudnessEqualization),
-        @"wanted": @(loudness && VibeLoudnessEqualizerEnabled(loudness)),
         @"engaged": @(loudness && VibeLoudnessEqualizerEngaged(loudness)),
-        @"release": @(loudness ? VibeLoudnessEqualizerRelease(loudness) : self.loudnessRelease),
         @"gain": @(loudness ? VibeLoudnessEqualizerGain(loudness) : 1),
         @"limiterGain": @(loudness ? VibeLoudnessEqualizerLimiterGain(loudness) : 1),
         @"sampleRate": @(loudness ? VibeLoudnessEqualizerSampleRate(loudness) : 0),
         @"latencySeconds": @([self loudnessLatencyOnQueue]),
-        @"latencyFrames": @(loudness ? VibeLoudnessEqualizerLatencyFrames(loudness) : 0),
         @"renders": @(loudness ? VibeLoudnessEqualizerRenders(loudness) : 0),
     };
 

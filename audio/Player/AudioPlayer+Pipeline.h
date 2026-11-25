@@ -113,8 +113,8 @@ NS_ASSUME_NONNULL_BEGIN
 // Pitch in percent onto the varispeed's ratio and kernel, and whether it is
 // in the chain at all (off zero); a no-op without one.
 - (void)applyPitchOnQueue:(float)pitch;
-// Hosts the loudness stage where the mode wants it, at the bus's rate and
-// channels, and pushes the switch and the release onto it. A stage it
+// Hosts the loudness stage where the mode allows it, at the bus's rate and
+// channels, from its first turn on, and pushes the switch onto it. A stage it
 // replaces is freed once the render leaves. Hosting needs no output stop:
 // the render reads the pointer once a slice.
 - (void)applyLoudnessOnQueue;

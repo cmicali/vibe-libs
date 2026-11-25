@@ -4,6 +4,7 @@
 //
 
 #import "VibeLoudnessEqualizer.h"
+#import "HelperMacros.h"
 #import "VibeMacros.h"
 #import <Accelerate/Accelerate.h>
 #include <math.h>
@@ -91,6 +92,7 @@ struct VibeLoudnessEqualizer {
     _Atomic int32_t engaged;
     _Atomic float reportGain;
     _Atomic float reportLimitGain;
+    uint64_t rendered;  // the render's count, published as renders
     _Atomic uint64_t renders;
 };
 
@@ -102,7 +104,7 @@ static unsigned VibeLoudnessFrameSize(double sampleRate) {
     while (size < target && size < kMaxFrameSize) {
         size <<= 1;
     }
-    return size < 2 ? 2 : size;
+    return size;
 }
 
 static unsigned VibeLoudnessLookAhead(double sampleRate) {
@@ -223,7 +225,7 @@ BOOL VibeLoudnessEqualizerEnabled(const VibeLoudnessEqualizer *stage) {
 }
 
 void VibeLoudnessEqualizerSetRelease(VibeLoudnessEqualizer *stage, int release) {
-    release = MAX(kVibeLoudnessReleaseFastest, MIN(kVibeLoudnessReleaseSlowest, release));
+    release = clampRange(release, kVibeLoudnessReleaseFastest, kVibeLoudnessReleaseSlowest);
     atomic_store_explicit(&stage->release, release, memory_order_relaxed);
     atomic_store_explicit(&stage->weight, VibeLoudnessWeight(stage, release), memory_order_relaxed);
 }
@@ -448,6 +450,17 @@ static void VibeLoudnessLimit(VibeLoudnessEqualizer *stage, uint32_t frames) CA_
 static void VibeLoudnessMix(VibeLoudnessEqualizer *stage, float *const *channels, uint32_t offset, uint32_t frames,
                             BOOL wanted) CA_REALTIME_API {
     uint32_t count = stage->channels;
+    // Settled on, the chunk is the wet signal; warming, it is the input.
+    if (wanted && stage->warm == 0 && stage->mix == 1.0f) {
+        for (uint32_t c = 0; c < count; c++) {
+            VibeLoudnessCopy(channels[c] + offset, stage->wet[c], frames);
+        }
+        return;
+    }
+    if (wanted && stage->mix == 0.0f && stage->warm >= frames) {
+        stage->warm -= frames;
+        return;
+    }
     for (uint32_t i = 0; i < frames; i++) {
         float mix = stage->mix;
         if (!wanted) {
@@ -497,7 +510,7 @@ void VibeLoudnessEqualizerRender(VibeLoudnessEqualizer *stage, float *const *cha
         }
         done += count;
     }
-    atomic_fetch_add_explicit(&stage->renders, 1, memory_order_relaxed);
+    atomic_store_explicit(&stage->renders, ++stage->rendered, memory_order_relaxed);
     if (!wanted && stage->mix == 0.0f) {
         stage->running = NO;
         atomic_store_explicit(&stage->engaged, 0, memory_order_relaxed);
