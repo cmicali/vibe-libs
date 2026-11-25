@@ -116,6 +116,18 @@ expect "extraction writes a plural key's English forms" 0 "4 keys in Localizable
 plural() { jq -r '.strings["songs.count"].localizations.en.variations.plural | "\(.one.stringUnit.value) / \(.other.stringUnit.value)"' "$COPY/Localizable.xcstrings"; }
 expect "the singular is the comment's, and the plural the value" 0 "%ld song / %ld songs" plural
 expect "a catalog with them is in sync" 0 "string catalogs are in sync" extract --check
+# sync rewrites a plural key in its own layout whenever it changes the catalog,
+# so extraction writes that layout first, and a later key leaves it alone.
+entry() { jq -c '.strings["songs.count"]' "$COPY/Localizable.xcstrings"; }
+before=$(entry)
+add_macro '#define STR_NEW NSLS(@"greeting.new", @"New", @"A new key.")'
+extract >/dev/null
+CASES=$((CASES + 1))
+if [ "$(entry)" != "$before" ]; then
+    echo "FAIL: a new key rewrote the plural key added before it"
+    diff <(echo "$before") <(entry) | sed 's/^/    /'
+    FAILURES=$((FAILURES + 1))
+fi
 set_json Localizable.xcstrings '.strings["songs.count"].localizations.en.variations.plural.one.stringUnit.value = "%ld songz"'
 expect "a form that doesn't follow its declaration fails the check" 1 "error: Localizable.xcstrings is out of date" extract --check
 set_json Localizable.xcstrings '.strings["songs.count"].localizations.de = {variations: {plural: {one: {stringUnit: {state: "translated", value: "%ld Lied"}}, other: {stringUnit: {state: "translated", value: "%ld Lieder"}}}}}'
