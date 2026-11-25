@@ -49,14 +49,7 @@ static const CGFloat kCellActionBarFillAlpha = 0.12;
 static const CGFloat kCellTimeWaveformOverlap = 12;
 // Apple Music's rendered glyph sizes, in far larger tap targets.
 static const CGFloat kCellGlyphPointSize = 34;
-static const CGFloat kCellSideGlyphPointSize = 23;
-
-// The constraint, at priority.
-static NSLayoutConstraint *VibeTrackPagePriority(NSLayoutConstraint *constraint, UILayoutPriority priority) {
-    constraint.priority = priority;
-    return constraint;
-}
-static const CGFloat kTransportButtonSide = 66;
+static const CGFloat kCellSideGlyphPointSize = 23;static const CGFloat kTransportButtonSide = 66;
 static const CGFloat kTransportButtonGap = 41;
 // Shuffle and repeat: smaller glyphs in narrower targets. Their gaps give way
 // before the three's, and the three's before the edges or the route name.
@@ -385,6 +378,11 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         NSLayoutConstraint *sliderTrailing = [_standardScrubber.trailingAnchor
                 constraintEqualToAnchor:_waveformView.trailingAnchor constant:-kCellTimeEdgeInset];
         sliderTrailing.priority = UILayoutPriorityRequired - 1;
+        // Below required, so portrait's circle sizes the queue control.
+        NSLayoutConstraint *queueWidth = [_queueButton.widthAnchor constraintEqualToConstant:kTransportFlankButtonSide];
+        queueWidth.priority = UILayoutPriorityRequired - 1;
+        NSLayoutConstraint *queueHeight = [_queueButton.heightAnchor constraintEqualToConstant:kTransportFlankButtonSide];
+        queueHeight.priority = UILayoutPriorityRequired - 1;
         [NSLayoutConstraint activateConstraints:@[
             [_backdropView.topAnchor constraintEqualToAnchor:content.topAnchor],
             [_backdropView.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
@@ -407,11 +405,8 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             [_actionBar.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
             [_fxPadView.widthAnchor constraintEqualToConstant:kCellActionBarHeight],
             [_fxPadView.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
-            // Below required, so portrait's circle sizes the control.
-            VibeTrackPagePriority([_queueButton.widthAnchor constraintEqualToConstant:kTransportFlankButtonSide],
-                                  UILayoutPriorityRequired - 1),
-            VibeTrackPagePriority([_queueButton.heightAnchor constraintEqualToConstant:kTransportFlankButtonSide],
-                                  UILayoutPriorityRequired - 1),
+            queueWidth,
+            queueHeight,
             [_queueCircle.widthAnchor constraintEqualToConstant:kCellActionBarHeight],
             [_queueCircle.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
             waveformFullWidth,
@@ -577,6 +572,10 @@ static UIImage *TransportGradientImage(void) {
     NSLayoutConstraint *actionBarLeadingFull = [_actionBar.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
                                                                                         constant:kCellActionBarInset];
     actionBarLeadingFull.priority = UILayoutPriorityDefaultHigh;
+    // Below required too, so the pad moves past the queue circle when it shows.
+    NSLayoutConstraint *padLeadingFull = [_fxPadView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
+                                                                                  constant:kCellActionBarInset];
+    padLeadingFull.priority = UILayoutPriorityDefaultHigh;
 
     // The single-line labels keep their line reserved, so a missing artist
     // lays out like a present one.
@@ -650,10 +649,7 @@ static UIImage *TransportGradientImage(void) {
         [_routeView.trailingAnchor constraintEqualToAnchor:_actionBar.trailingAnchor
                                                   constant:-kCellActionBarContentInset],
         [_fxPadView.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
-        // Below required, so the pad moves past the queue circle when it shows.
-        VibeTrackPagePriority([_fxPadView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
-                                                                       constant:kCellActionBarInset],
-                              UILayoutPriorityDefaultHigh),
+        padLeadingFull,
         // The queue control's circle, in the bottom-leading corner, and the
         // control filling it, so the whole circle takes the tap.
         [_queueCircle.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
@@ -917,11 +913,15 @@ static UIImage *TransportGradientImage(void) {
     // Off before on, so no two leading edges hold at once.
     BOOL queueInBar = _queueSymbol && !_landscapeActive;
     _queueCircle.hidden = !queueInBar;
-    _padLeadingAfterQueue.active = NO;
-    _actionBarLeadingAfterQueue.active = NO;
+    BOOL padAfterQueue = queueInBar && _fxPadShown;
+    BOOL barAfterQueue = queueInBar && !_fxPadShown;
+    if (_padLeadingAfterQueue.active != padAfterQueue || _actionBarLeadingAfterQueue.active != barAfterQueue) {
+        _padLeadingAfterQueue.active = NO;
+        _actionBarLeadingAfterQueue.active = NO;
+        _padLeadingAfterQueue.active = padAfterQueue;
+        _actionBarLeadingAfterQueue.active = barAfterQueue;
+    }
     _actionBarLeadingAfterPad.active = _fxPadShown && !_landscapeActive;
-    _padLeadingAfterQueue.active = queueInBar && _fxPadShown;
-    _actionBarLeadingAfterQueue.active = queueInBar && !_fxPadShown;
     _actionBar.hidden = _compactActive;
     _routeView.hidden = _compactActive;
     BOOL padHidden = !_fxPadShown || _compactActive;
@@ -1057,6 +1057,8 @@ static UIImage *TransportGradientImage(void) {
         [self setGlyph:symbol onButton:_queueButton pointSize:kCellSideGlyphPointSize];
     }
     [self applyQueueControl];
+    // Portrait's bar makes room for the circle, or closes up.
+    [self applyActionBarSplit];
 }
 
 - (void)setChromeAlpha:(CGFloat)alpha {
@@ -1072,7 +1074,6 @@ static UIImage *TransportGradientImage(void) {
 - (void)applyQueueControl {
     _queueButton.hidden = !_queueSymbol;
     _fileInfoTrailingBeforeQueue.active = _queueSymbol && _landscapeActive;
-    [self applyActionBarSplit];
 }
 
 - (void)setFXPadShown:(BOOL)shown {
