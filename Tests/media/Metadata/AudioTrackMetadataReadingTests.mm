@@ -9,6 +9,7 @@
 #import <XCTest/XCTest.h>
 
 #import "AudioLoadingConfiguration.h"
+#import "AudioTrackArtwork.h"
 #import "AudioTrackMetadataCache.h"
 #import "AudioTrackMetadataCache+Debug.h"
 #import "AudioTrackMetadataInternal.h"
@@ -53,6 +54,19 @@ static int VibeAutoreleasedTemporary(VibeReadingTestTemporary *__autoreleasing *
     *object = [[VibeReadingTestTemporary alloc] init];
     return atomic_load(&sVibeReadingTestTemporariesAlive);
 }
+
+// A file the app's home moved under: it answers the key it had before.
+@interface VibeMovedHomeTrack : VibeLoaderTestTrack
+@property (nonatomic, copy) NSString *keptKey;
+@end
+
+@implementation VibeMovedHomeTrack
+
+- (NSString *)cacheKey {
+    return self.keptKey;
+}
+
+@end
 
 @interface AudioTrackMetadataReadingTests : XCTestCase
 @end
@@ -192,6 +206,33 @@ static int VibeAutoreleasedTemporary(VibeReadingTestTemporary *__autoreleasing *
     }
     XCTAssertEqual(hits.deliveredTracks.count, 1u, @"the read was not filed");
     XCTAssertEqualObjects(track.metadata.title, kVibeTagTitle);
+    reopened.delegate = nil;
+}
+
+// A file under the app's home keeps its key when iOS moves the home, as it
+// does on each install (CH32). The entry still names the old path, so a hit
+// takes the path it was read for, or the art reads a file that isn't there.
+- (void)testACacheHitReadsItsArtWhereTheFileIsNow {
+    NSURL *url = [self taggedFile];
+    NSString *key = url.cacheKey;
+    XCTAssertEqual([self read:@[url] policy:VibeMetadataReadPolicyLocal].firstObject.outcome,
+                   VibeMetadataReadOutcomeRead);
+    NSURL *moved = [_dir URLByAppendingPathComponent:@"moved home.wav"];
+    XCTAssertTrue([NSFileManager.defaultManager moveItemAtURL:url toURL:moved error:NULL]);
+    AudioTrackMetadataCache *reopened =
+            [[AudioTrackMetadataCache alloc] initWithRootPath:[_dir URLByAppendingPathComponent:@"cache"].path];
+    VibeMetadataLoaderDelegate *hits = [[VibeMetadataLoaderDelegate alloc] init];
+    reopened.delegate = hits;
+    VibeMovedHomeTrack *track = [[VibeMovedHomeTrack alloc] initWithURL:moved];
+    track.keptKey = key;
+    [reopened loadCachedMetadata:@[track]];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
+    while (hits.deliveredTracks.count == 0 && deadline.timeIntervalSinceNow > 0) {
+        [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
+    }
+    XCTAssertEqual(hits.deliveredTracks.count, 1u, @"the moved file's key found no entry");
+    XCTAssertEqualObjects(track.metadata.title, kVibeTagTitle);
+    XCTAssertEqualObjects(track.metadata.artwork.sourceFilePath, moved.path);
     reopened.delegate = nil;
 }
 

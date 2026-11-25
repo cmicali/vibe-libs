@@ -94,6 +94,12 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
     return self;
 }
 
+- (void)adoptSourceFilePath:(NSString *)sourceFilePath {
+    @synchronized (self) {
+        _sourceFilePath = [sourceFilePath copy];
+    }
+}
+
 // Keyed by this instance alone, so nothing else can remove the entry. A
 // decode in flight retains self, so none lands after.
 - (void)dealloc {
