@@ -94,10 +94,9 @@ static ArtworkLoadRegistry *VibeExistingArtworkLoadRegistry(void) {
     return self;
 }
 
+// Before publication, on the only thread that holds the artwork: no lock.
 - (void)adoptSourceFilePath:(NSString *)sourceFilePath {
-    @synchronized (self) {
-        _sourceFilePath = [sourceFilePath copy];
-    }
+    _sourceFilePath = [sourceFilePath copy];
 }
 
 // Keyed by this instance alone, so nothing else can remove the entry. A

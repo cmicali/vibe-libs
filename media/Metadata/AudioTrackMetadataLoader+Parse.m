@@ -79,9 +79,10 @@ static void VibeInstallArchivedArtProviders(AudioTrackMetadata *metadata,
         return nil;
     }
     // The art reads the file where it is now, not where the entry's parse
-    // found it (AudioTrackArtworkInternal.h).
-    if (url.path) {
-        [cachedMetaData.artwork adoptSourceFilePath:url.path];
+    // found it (AudioTrackArtwork.h). With no URL it reads nothing.
+    NSString *path = url.path;
+    if (path) {
+        [cachedMetaData.artwork adoptSourceFilePath:path];
     }
     // CH17: an older row's answer names no version, so a holder takes the
     // next answer in its place.
