@@ -390,6 +390,11 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
     return varispeed ? VibeVarispeedDelayFrames(varispeed) / _masterFormat.sampleRate : 0;
 }
 
+- (NSTimeInterval)loudnessLatencyOnQueue {
+    VibeLoudnessEqualizer *loudness = atomic_load_explicit(&_masterBus->loudness, memory_order_relaxed);
+    return loudness ? VibeLoudnessEqualizerLatencyFrames(loudness) / VibeLoudnessEqualizerSampleRate(loudness) : 0;
+}
+
 #pragma mark - The source segment
 
 - (BOOL)ensureSourceSegmentOnQueueRebuilt:(BOOL *)rebuilt {
@@ -409,6 +414,7 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
     BOOL wantVarispeed = NO;
 #endif
     if (_voiceBus && VibePCMFormatsMatch(_voiceBus.format, busFormat) && [self varispeedPresentOnQueue] == wantVarispeed) {
+        [self applyLoudnessOnQueue];
         return YES;
     }
     // Every voice dies with the old segment; the callers made sure none was
@@ -449,6 +455,7 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
     os_unfair_lock_unlock(&_stateLock);
     atomic_store_explicit(&_masterBus->mix, bus.mix, memory_order_release);
     [self applyPitchOnQueue:pitch];
+    [self applyLoudnessOnQueue];
     if (rebuilt) {
         *rebuilt = YES;
     }
@@ -523,6 +530,41 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
     if (replaced) {
         [self afterRenderLeavesOnQueue:^{ VibeVarispeedRetire(varispeed, replaced); }];
     }
+}
+
+- (void)applyLoudnessOnQueue {
+    AVAudioFormat *format = _masterFormat;
+#if TARGET_OS_OSX
+    BOOL wanted = format != nil && ![self bitPerfectOnQueue];
+#else
+    BOOL wanted = format != nil;
+#endif
+    uint32_t channels = VibeMasterBusChannels(_masterBus);
+    VibeLoudnessEqualizer *loudness = atomic_load_explicit(&_masterBus->loudness, memory_order_relaxed);
+    BOOL fits = loudness && VibeLoudnessEqualizerChannels(loudness) == channels
+            && VibeLoudnessEqualizerSampleRate(loudness) == format.sampleRate;
+    if (loudness && (!wanted || !fits)) {
+        VibeLoudnessEqualizer *old = atomic_exchange_explicit(&_masterBus->loudness, NULL, memory_order_seq_cst);
+        [self afterRenderLeavesOnQueue:^{ VibeLoudnessEqualizerFree(old); }];
+        loudness = NULL;
+    }
+    if (wanted && !loudness) {
+        loudness = VibeLoudnessEqualizerCreate(channels, format.sampleRate);
+        if (!loudness) {
+            LogError(@"AudioPlayer: no loudness stage for %u channels at %.0f Hz", channels, format.sampleRate);
+            return;
+        }
+        atomic_store_explicit(&_masterBus->loudness, loudness, memory_order_release);
+    }
+    if (!loudness) {
+        return;
+    }
+    os_unfair_lock_lock(&_stateLock);
+    BOOL enabled = _loudnessEqualization;
+    int release = _loudnessRelease;
+    os_unfair_lock_unlock(&_stateLock);
+    VibeLoudnessEqualizerSetRelease(loudness, release);
+    VibeLoudnessEqualizerSetEnabled(loudness, enabled);
 }
 
 #pragma mark - Starting and stopping
@@ -657,7 +699,23 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
         @"historyWrites": @(varispeed ? VibeVarispeedHistoryWrites(varispeed) : 0),
     };
 
+    VibeLoudnessEqualizer *loudness = atomic_load_explicit(&master->loudness, memory_order_relaxed);
+    NSDictionary *loudnessStage = @{
+        @"stage": @"loudness", @"present": @(loudness != NULL),
+        @"enabled": @(self.loudnessEqualization),
+        @"wanted": @(loudness && VibeLoudnessEqualizerEnabled(loudness)),
+        @"engaged": @(loudness && VibeLoudnessEqualizerEngaged(loudness)),
+        @"release": @(loudness ? VibeLoudnessEqualizerRelease(loudness) : self.loudnessRelease),
+        @"gain": @(loudness ? VibeLoudnessEqualizerGain(loudness) : 1),
+        @"limiterGain": @(loudness ? VibeLoudnessEqualizerLimiterGain(loudness) : 1),
+        @"sampleRate": @(loudness ? VibeLoudnessEqualizerSampleRate(loudness) : 0),
+        @"latencySeconds": @([self loudnessLatencyOnQueue]),
+        @"latencyFrames": @(loudness ? VibeLoudnessEqualizerLatencyFrames(loudness) : 0),
+        @"renders": @(loudness ? VibeLoudnessEqualizerRenders(loudness) : 0),
+    };
+
     return @{@"varispeed": varispeedStage,
+             @"loudness": loudnessStage,
              @"fxInRender": @(atomic_load_explicit(&master->chain, memory_order_relaxed) != NULL),
              @"meterInRender": @(atomic_load_explicit(&master->meter, memory_order_relaxed) != NULL),
              @"silent": @(atomic_load_explicit(&master->silent, memory_order_relaxed) != 0),

@@ -117,7 +117,8 @@ static BOOL VibeDebugSilentOutput;
     [self runSyncOnQueue:^{
         VibeVoiceSnapshot snapshot = [self->_voiceBus snapshotOfVoice:self->_voice];
         NSDictionary *unit = [self outputUnitCountersOnQueue];
-        NSDictionary *varispeed = [self pipelineRenderSnapshotOnQueue][@"varispeed"];
+        NSDictionary *render = [self pipelineRenderSnapshotOnQueue];
+        NSDictionary *varispeed = render[@"varispeed"], *loudness = render[@"loudness"];
         counts = @{@"hostedUnits": @(self.fx.hostedUnitCount),
                    @"unitRenders": @(self.fx.unitRenders),
                    @"outputDropouts": unit[@"dropouts"],
@@ -143,6 +144,11 @@ static BOOL VibeDebugSilentOutput;
                    @"varispeedEngaged": varispeed[@"engaged"],
                    @"varispeedRenders": varispeed[@"renders"],
                    @"varispeedHistoryWrites": varispeed[@"historyWrites"],
+                   @"loudness": loudness[@"present"],
+                   @"loudnessEngaged": loudness[@"engaged"],
+                   @"loudnessRenders": loudness[@"renders"],
+                   @"loudnessGain": loudness[@"gain"],
+                   @"loudnessLatency": loudness[@"latencySeconds"],
                    @"outputRate": @([self masterBusFormatOnQueue].sampleRate)};
     }];
     return counts;

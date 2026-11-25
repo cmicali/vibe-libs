@@ -93,6 +93,8 @@ NS_ASSUME_NONNULL_BEGIN
 // rest of its state is pipelineRenderSnapshotOnQueue's.
 - (BOOL)varispeedPresentOnQueue;
 - (NSTimeInterval)varispeedLatencyOnQueue;
+// The loudness stage: how late it plays while engaged, 0 otherwise.
+- (NSTimeInterval)loudnessLatencyOnQueue;
 // Renders the pipeline turned away because another was inside; cumulative,
 // zero through every soak.
 - (uint64_t)renderRefusalsOnQueue;
@@ -111,6 +113,11 @@ NS_ASSUME_NONNULL_BEGIN
 // Pitch in percent onto the varispeed's ratio and kernel, and whether it is
 // in the chain at all (off zero); a no-op without one.
 - (void)applyPitchOnQueue:(float)pitch;
+// Hosts the loudness stage where the mode wants it, at the bus's rate and
+// channels, and pushes the switch and the release onto it. A stage it
+// replaces is freed once the render leaves. Hosting needs no output stop:
+// the render reads the pointer once a slice.
+- (void)applyLoudnessOnQueue;
 
 // Opens the gate and starts the output unit, then the meter. Every start and
 // resume goes through here, which is what cancels a pending idle stop.

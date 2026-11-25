@@ -96,6 +96,7 @@ VibeAudioFileOpener const VibePlayerFileOpener =
         _outputIdle = YES;
         _pendingRequest = [PlaybackRequestCoordinator new];
         _maxPitch = kDefaultMaxPitchPercent;
+        _loudnessRelease = kVibeLoudnessReleaseDefault;
         _volume = 1.0f;
         _currentFileGain = kVibeFileGainUnity;
         _crossfadeMilliseconds = kFadeDurationMilliseconds;
@@ -1439,6 +1440,39 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     os_unfair_lock_unlock(&_stateLock);
     dispatch_async(_queue, ^{
         [self applyPitchOnQueue:pitch];
+    });
+}
+
+- (BOOL)loudnessEqualization {
+    os_unfair_lock_lock(&_stateLock);
+    BOOL enabled = _loudnessEqualization;
+    os_unfair_lock_unlock(&_stateLock);
+    return enabled;
+}
+
+- (void)setLoudnessEqualization:(BOOL)loudnessEqualization {
+    os_unfair_lock_lock(&_stateLock);
+    _loudnessEqualization = loudnessEqualization;
+    os_unfair_lock_unlock(&_stateLock);
+    dispatch_async(_queue, ^{
+        [self applyLoudnessOnQueue];
+    });
+}
+
+- (int)loudnessRelease {
+    os_unfair_lock_lock(&_stateLock);
+    int release = _loudnessRelease;
+    os_unfair_lock_unlock(&_stateLock);
+    return release;
+}
+
+- (void)setLoudnessRelease:(int)loudnessRelease {
+    loudnessRelease = MAX(kVibeLoudnessReleaseFastest, MIN(kVibeLoudnessReleaseSlowest, loudnessRelease));
+    os_unfair_lock_lock(&_stateLock);
+    _loudnessRelease = loudnessRelease;
+    os_unfair_lock_unlock(&_stateLock);
+    dispatch_async(_queue, ^{
+        [self applyLoudnessOnQueue];
     });
 }
 

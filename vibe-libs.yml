@@ -124,6 +124,17 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/audio/Meter"]
 
+  # Loudness equalization and its limiter, a realtime stage with a C API. It
+  # lists Common for the realtime macros only.
+  VibeLibsLoudnessEqualizer:
+    templates: [VibeLibsCommon]
+    sources:
+      - path: audio/LoudnessEqualizer
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/audio/LoudnessEqualizer"]
+
   # Claim/ decides which open runs, and Transfer/ moves the bytes. Each
   # directory is searched, since the files name each other's headers alone.
   # The seams and the fake cloud compile in every configuration. Each wraps
@@ -233,7 +244,7 @@ targetTemplates:
   # it would VibeLibsDecode, which this one lists.
   VibeLibsPlayer:
     templates: [VibeLibsCommon, VibeLibsAudioTypes, VibeLibsDSP, VibeLibsDecode, VibeLibsFX, VibeLibsMeter,
-                VibeLibsOutputDevices, VibeLibsFileLoading]
+                VibeLibsLoudnessEqualizer, VibeLibsOutputDevices, VibeLibsFileLoading]
     sources:
       - path: audio/Player
         excludes: ["**/*.md", "${excludedPlatform}/**"]
