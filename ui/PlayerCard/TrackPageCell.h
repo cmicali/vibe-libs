@@ -60,9 +60,11 @@ NS_ASSUME_NONNULL_BEGIN
 // takes the whole width. The controller sets it from the setting on every
 // configure, so a recycled cell and a settings change both land.
 - (void)setFXPadShown:(BOOL)shown;
-// The host's queue control, in the page's top-trailing corner in every
-// layout: beside the grabber's band in portrait, and past the info label in
-// the wide ones. A nil symbol hides it, and nothing moves.
+// The host's queue control. In portrait it is a circle of the action bar's
+// fill in the bottom-leading corner, before the FX pad's circle and the
+// route capsule, which move over for it. In the wide layouts it is in the
+// top-trailing corner, past the info label. A nil symbol hides it, and the
+// portrait bar closes up.
 @property (nonatomic, readonly) UIButton *queueButton;
 - (void)setQueueSymbol:(nullable NSString *)symbol;
 // The chrome only the empty state fades: the transport, the action bar, the
