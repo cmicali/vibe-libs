@@ -112,7 +112,8 @@ def inside(path, directory):
 def walk(directory):
     for dirpath, dirs, names in os.walk(directory):
         dirs[:] = sorted(d for d in dirs if d not in (".git", "build") and not d.endswith(".xcodeproj"))
-        for n in sorted(names):
+        # In a worktree, .git is a file that holds the path of its git folder, which no check reads.
+        for n in sorted(n for n in names if n != ".git"):
             yield os.path.normpath(os.path.join(dirpath, n))
 
 
