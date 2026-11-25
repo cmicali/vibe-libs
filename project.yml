@@ -259,15 +259,13 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
-  # audio/LoudnessEqualizer built for iOS, with a probe of its header.
+  # audio/LoudnessEqualizer built for iOS, so an AppKit leak fails here.
   LoudnessEqualizer-iOS:
     type: library.static
     platform: iOS
     templates: [VibeLibsLoudnessEqualizer]
     templateAttributes:
       excludedPlatform: Mac
-    sources:
-      - path: Tests/audio/LoudnessEqualizer/LoudnessEqualizerProbe.m
 
   # files/FileLoading, tested on macOS. The tests drive the seams and the fake
   # cloud, which compile only under DEBUG, so the bundle defines it in every
