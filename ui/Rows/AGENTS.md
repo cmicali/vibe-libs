@@ -17,6 +17,8 @@ List `VibeLibsRows` in an iOS target.
 
 **The cell's gutter has three states, in this order: loading, playing, number.** Loading is pushed on its own, through `loading` and `loadingProgress`, since a transfer changes without the row. The app also pushes the equalizer's level source, whether audio is output, and whether the row is materially visible. A loading row should be told that audio is not output and that it is not visible, so its hidden marker holds no poller (`ui/Controls/AGENTS.md`).
 
+**A track row keeps its title and subtitle to one line unless the app asks it to wrap.** With `wrapsTextAtAccessibilitySizes`, at an accessibility text size the title takes as many lines as it needs and the subtitle two, so the largest sizes cut nothing. It is off by default, because a table that gives every row one height, as an Up Next list over thousands of rows does, would clip a wrapped title. Turn it on in a table whose rows size themselves.
+
 **The strip takes its four VoiceOver labels in one call.** The play button names what a tap will do: play while paused, and pause while playing.
 
 **An icon slot is told whether the file is a playlist.** The piece does not know a playlist's extensions.
