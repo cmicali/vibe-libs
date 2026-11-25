@@ -110,6 +110,12 @@ typedef AudioTrackArchivedArtProvider AudioTrackArchivedDisplayArtProvider;
 @property (nonatomic, copy, nullable) AudioTrackArtworkClock clock;
 @property (nullable, readonly, copy) NSString *sourceFilePath;
 
+// The file a cache hit was read for, before publication. An entry keeps the
+// path its parse had, and a file keeps its key when its folder moves, as an
+// iOS app's container does on an update. So without this, the art would
+// read a path that no longer exists.
+- (void)adoptSourceFilePath:(NSString *)sourceFilePath;
+
 // After the thumbnail is encoded, before publication.
 - (void)discardArtData;
 

@@ -447,7 +447,10 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedTexts(NSCoder *c
         // PINDiskCache unarchives without secure coding: any wrong class is a
         // miss, or a persistent bad entry crashes every launch.
         BOOL wrong = NO;
-        NSString *sourceFilePath = DecodedObject(coder, @"sourceFilePath", NSString.class, &wrong);
+        // The stored sourceFilePath is not read: a hit takes the path it was
+        // read for (cachedMetadataForKey:url:acceptingOlder:), since a key
+        // outlives a move of the home (CH32). It is still written, for
+        // builds before this one.
         self.title = DecodedObject(coder, @"title", NSString.class, &wrong);
         self.artist = DecodedObject(coder, @"artist", NSString.class, &wrong);
         self.fileType = DecodedObject(coder, @"fileType", NSString.class, &wrong);
@@ -492,7 +495,7 @@ static NSDictionary<VibeTagField, NSString *> *_Nullable DecodedTexts(NSCoder *c
         self.compilation = DecodedCount(coder, @"compilation") > 0;
         NSInteger bitDepth = DecodedCount(coder, @"bitDepth");
         self.bitDepth = bitDepth <= 64 ? bitDepth : 0;
-        self.artwork = [[AudioTrackArtwork alloc] initWithSourceFilePath:sourceFilePath
+        self.artwork = [[AudioTrackArtwork alloc] initWithSourceFilePath:nil
                                                                extractor:VibeTagLibArtExtractor()];
         // The thumbnail's bytes are in their own store. The loader stamps
         // the providers that read it and the rendition.
