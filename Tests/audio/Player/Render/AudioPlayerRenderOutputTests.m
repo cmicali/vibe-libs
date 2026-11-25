@@ -651,8 +651,9 @@
     [self render:4800];
     NSArray<NSDictionary *> *path = _player.audioPathSnapshot;
     XCTAssertEqualObjects([path valueForKey:@"stage"],
-                          (@[@"source", @"decode", @"bus", @"varispeed", @"fx", @"meter", @"output", @"device"]));
-    NSDictionary *source = path[0], *decode = path[1], *bus = path[2], *varispeed = path[3], *fx = path[4], *meter = path[5], *output = path[6], *device = path[7];
+                          (@[@"source", @"decode", @"bus", @"varispeed", @"fx", @"loudness", @"meter", @"output", @"device"]));
+    NSDictionary *source = path[0], *decode = path[1], *bus = path[2], *varispeed = path[3], *fx = path[4], *loudness = path[5],
+                 *meter = path[6], *output = path[7], *device = path[8];
     XCTAssertEqualObjects(source[@"file"], @"noise-44100-16-2.wav");
     XCTAssertEqualObjects(source[@"codec"], @"PCM");
     XCTAssertEqual([source[@"sampleRate"] doubleValue], 44100.0);
@@ -679,6 +680,7 @@
     XCTAssertEqual([fx[@"hostedUnits"] intValue], 10);
     XCTAssertNotNil(fx[@"latencySeconds"], @"the dry path's latency");
     XCTAssertGreaterThanOrEqual([fx[@"latencySeconds"] doubleValue], 0);
+    XCTAssertFalse([loudness[@"present"] boolValue], @"no stage before the first turn on");
     XCTAssertFalse([meter[@"present"] boolValue]);
     XCTAssertEqualObjects(output[@"renderedBy"], @"pump");
     XCTAssertEqual([output[@"sampleRate"] doubleValue], 48000.0);
@@ -689,11 +691,11 @@
     // says so; after it, the output is idle.
     [_player stop];
     [self render:4800];
-    output = _player.audioPathSnapshot[6];
+    output = _player.audioPathSnapshot[7];
     XCTAssertTrue([output[@"running"] boolValue]);
     XCTAssertTrue([output[@"idleStopPending"] boolValue]);
     [self render:48000 * 7];
-    output = _player.audioPathSnapshot[6];
+    output = _player.audioPathSnapshot[7];
     XCTAssertFalse([output[@"running"] boolValue]);
     XCTAssertFalse([output[@"idleStopPending"] boolValue]);
 }
@@ -716,7 +718,7 @@
     XCTAssertGreaterThan(tail, 6.0, @"a tail the idle stop's delay already covers proves nothing");
     [self renderSeconds:6.5];
     XCTAssertTrue([_player.debugRenderCounts[@"running"] boolValue], @"the idle stop cut a ringing tail");
-    XCTAssertTrue([_player.audioPathSnapshot[6][@"idleStopPending"] boolValue]);
+    XCTAssertTrue([_player.audioPathSnapshot[7][@"idleStopPending"] boolValue]);
     [self renderSeconds:tail + 1.5];
     [_player runSyncOnQueue:^{ active = self->_player.fx.sendsActive; }];
     XCTAssertFalse(active, @"the tail never rested");
