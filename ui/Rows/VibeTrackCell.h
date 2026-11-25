@@ -25,6 +25,11 @@ static const CGFloat kVibeTrackCellEstimatedHeight = 64;
 // A transfer outranks the playing marker, including during streamed playback.
 @property (nonatomic, getter=isLoading) BOOL loading;
 @property (nonatomic) float loadingProgress;
+// At an accessibility text size, the title wraps to as many lines as it
+// needs and the subtitle to two, so nothing is cut short. Off by default,
+// for a table that gives every row one height. Turn it on only in a table
+// whose rows size themselves (UITableViewAutomaticDimension).
+@property (nonatomic) BOOL wrapsTextAtAccessibilitySizes;
 // YES when the row's height can have moved; a caller rendering in place then
 // owes the table a height pass (refreshVisibleRowAtIndex:).
 - (BOOL)renderRow:(VibeTrackRow *)row;

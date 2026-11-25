@@ -36,6 +36,12 @@ static const CGFloat kArtTextGap = 14;
     self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
     if (self) {
         [self build];
+        __weak VibeTrackCell *weakSelf = self;
+        [self registerForTraitChanges:@[UITraitPreferredContentSizeCategory.class]
+                          withHandler:^(__kindof id<UITraitEnvironment> environment,
+                                        UITraitCollection *previous) {
+            [weakSelf applyLineLimits];
+        }];
     }
     return self;
 }
@@ -154,6 +160,23 @@ static const CGFloat kArtTextGap = 14;
         [_durationLabel.topAnchor constraintGreaterThanOrEqualToAnchor:content.topAnchor constant:8],
         [_durationLabel.bottomAnchor constraintLessThanOrEqualToAnchor:content.bottomAnchor constant:-8],
     ]];
+}
+
+- (void)setWrapsTextAtAccessibilitySizes:(BOOL)wraps {
+    if (_wrapsTextAtAccessibilitySizes == wraps) {
+        return;
+    }
+    _wrapsTextAtAccessibilitySizes = wraps;
+    [self applyLineLimits];
+}
+
+// One line each, or at an accessibility size in a row that wraps, the whole
+// title and two lines of the subtitle.
+- (void)applyLineLimits {
+    BOOL wraps = _wrapsTextAtAccessibilitySizes &&
+                 UIContentSizeCategoryIsAccessibilityCategory(self.traitCollection.preferredContentSizeCategory);
+    _titleLabel.numberOfLines = wraps ? 0 : 1;
+    _subtitleLabel.numberOfLines = wraps ? 2 : 1;
 }
 
 + (CGFloat)separatorLeadingInset {
