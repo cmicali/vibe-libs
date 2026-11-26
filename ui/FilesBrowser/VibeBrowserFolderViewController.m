@@ -60,7 +60,8 @@ static const NSUInteger kFilterThreshold = 12;
         // TRAP: nothing here may touch the disk. A screen is made on main as
         // a folder opens, and for a provider's folder a stat or a name lookup
         // is IPC that can block.
-        _refreshingSource = [self refreshingSourceForURL:directoryURL];
+        // Asked in the initializer, so it never touches the disk.
+        _refreshingSource = VibeBrowserRefreshingSource(host.sources, directoryURL);
         _standardizedPath = VibeComparablePath(directoryURL.path);
         _title = [VibeLocationStore displayNameForFolderURL:directoryURL];
         _playback = [host conformsToProtocol:@protocol(VibeBrowserPlaybackHost)]
@@ -190,15 +191,6 @@ static const NSUInteger kFilterThreshold = 12;
             ? _refreshingSource.unavailableMessage : [_host label:VibeBrowserLabelUnavailable];
 }
 
-// Asked in the initializer, so it never touches the disk.
-- (id<VibeBrowserSource>)refreshingSourceForURL:(NSURL *)url {
-    for (id<VibeBrowserSource> source in _host.sources) {
-        if ([source respondsToSelector:@selector(refreshesDirectoryURL:)] && [source refreshesDirectoryURL:url]) {
-            return source;
-        }
-    }
-    return nil;
-}
 
 // A download landed, or the downloads were removed: the mark and the art
 // follow the file, so a mirrored folder on screen reads its listing again.
@@ -438,8 +430,10 @@ static const NSUInteger kFilterThreshold = 12;
         if (strongSelf) {
             strongSelf->_walkingSubfolders = NO;
         }
-        // An alert needs the screen on screen. Without it, the walk's
-        // folders still go to the host, and an empty walk ends quietly.
+        // An alert needs this screen in a window, which it isn't once its
+        // sheet closed, or a deeper folder was pushed over it. Then the
+        // walk's folders still go to the host, and an empty walk ends
+        // quietly.
         UIViewController *screen = strongSelf.viewIfLoaded.window ? strongSelf : nil;
         if (folders.count == 0) {
             if (screen) {

@@ -50,7 +50,7 @@ static const NSUInteger kWalkWidth = 4;
     walk->_sources = [sources copy];
     walk->_progress = [progress copy];
     walk->_completion = [completion copy];
-    // Each listing's block holds the walk until it ends.
+    // The listings' blocks hold the walk until the last one returns.
     [walk next];
 }
 
@@ -100,8 +100,13 @@ static const NSUInteger kWalkWidth = 4;
         return YES;
     }];
     if (!waiting) {
+        // The blocks go now, not when the last extra listing returns, which
+        // can be a slow cloud refresh, so the host isn't held that long.
         _ended = YES;
-        _completion(found, capped);
+        void (^completion)(NSArray<NSURL *> *, BOOL) = _completion;
+        _completion = nil;
+        _progress = nil;
+        completion(found, capped);
         return;
     }
     [self visitInOrder:^BOOL(VibeBrowserWalkFolder *folder) {
@@ -132,7 +137,7 @@ static const NSUInteger kWalkWidth = 4;
     };
     // The open that follows reads a listed folder as it is, so each is
     // listed once.
-    id<VibeBrowserSource> source = [self refreshingSourceForURL:directory];
+    id<VibeBrowserSource> source = VibeBrowserRefreshingSource(_sources, directory);
     if (source) {
         [source refreshDirectoryURL:directory completion:^(NSError *error) {
             list();
@@ -161,15 +166,6 @@ static const NSUInteger kWalkWidth = 4;
         _progress(_listed, _songs);
     }
     [self next];
-}
-
-- (nullable id<VibeBrowserSource>)refreshingSourceForURL:(NSURL *)url {
-    for (id<VibeBrowserSource> source in _sources) {
-        if ([source respondsToSelector:@selector(refreshesDirectoryURL:)] && [source refreshesDirectoryURL:url]) {
-            return source;
-        }
-    }
-    return nil;
 }
 
 @end

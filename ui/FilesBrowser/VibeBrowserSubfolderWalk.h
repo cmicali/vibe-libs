@@ -26,9 +26,10 @@ FOUNDATION_EXTERN const NSUInteger VibeBrowserMaximumSubfolders;
 // such as a Dropbox mirror's, is refreshed by that source before it is read,
 // since a mirror holds only what something has listed. progress runs on main
 // after each folder is listed, with how many folders were listed and how many
-// songs they hold. completion runs once, on main: the folders with songs, and
-// whether the caps left folders unvisited. The walk holds itself until it
-// ends, so it finishes when the screen that started it goes.
+// songs they hold, including a few the caps may drop. completion runs once,
+// on main: the folders with songs, and whether the caps left folders
+// unvisited. The walk holds itself until it ends, so it finishes even when
+// the screen that started it goes.
 + (void)walkFolder:(NSURL *)folder
             sortedBy:(VibeFolderOpenSort)sort
              sources:(NSArray<id<VibeBrowserSource>> *)sources

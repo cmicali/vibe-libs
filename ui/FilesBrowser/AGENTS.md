@@ -7,7 +7,7 @@ A browser of the folders a user granted an iOS app and the app's own sources, su
 | `VibeBrowserHost.h` | the host protocol, the action and root-row values, the source protocol, the folder source, the observer events, the stack's art cache, and an alert with the host's OK |
 | `VibeBrowserRootViewController` | the root: Locations (the host's sources, then the granted folders), the host's rows below them, the plus, the location picker, and the walk to a folder (`showDirectory:highlighting:`) |
 | `VibeBrowserFolderViewController` | one folder: its listing, filter, bar, Select, sort, subfolder walk, equalizer, and row actions. `+Art` holds the album art and `+Actions` the bar, Select, a tap, a swipe, and a long press |
-| `VibeBrowserSubfolderWalk` | the walk behind "with subfolders": up to four folders listed at once, each refreshed by its source first, and the folders with songs handed back in depth-first order under the caps, as a walk of one folder at a time finds them. It holds itself until it ends, so it finishes when its screen goes |
+| `VibeBrowserSubfolderWalk` | the walk behind "with subfolders". It lists up to four folders at once, each refreshed by its source first. It hands back the folders with songs in the order and under the caps of a walk of one folder at a time. It holds itself until it ends, so it finishes even when its screen goes |
 | `BrowserRules.h` | a Locations row's folder, which root covers a path, a folder's empty state, and a row's tile. Header only and Foundation only |
 | `VibeLocationStore` | the granted folders, as persisted bookmarks whose scopes are held for the session, and the one name each folder is shown under |
 

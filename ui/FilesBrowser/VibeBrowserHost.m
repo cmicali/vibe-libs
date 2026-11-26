@@ -73,6 +73,15 @@
 
 @end
 
+id<VibeBrowserSource> VibeBrowserRefreshingSource(NSArray<id<VibeBrowserSource>> *sources, NSURL *url) {
+    for (id<VibeBrowserSource> source in sources) {
+        if ([source respondsToSelector:@selector(refreshesDirectoryURL:)] && [source refreshesDirectoryURL:url]) {
+            return source;
+        }
+    }
+    return nil;
+}
+
 void VibeBrowserPresentAlert(UIViewController *screen, id<VibeBrowserHost> host, NSString *title,
                              NSString *message, dispatch_block_t then) {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title
