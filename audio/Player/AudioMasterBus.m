@@ -127,7 +127,12 @@ static OSStatus VibeMasterBusRenderSlice(VibeMasterBus *master, const AudioTimeS
             status = fxStatus;
         }
     }
-    // Before the meter, so a level display shows what is heard.
+    // Both stages run before the meter, so a level display shows what is heard.
+    VibeListeningStage *listening = atomic_load_explicit(&master->listening, memory_order_seq_cst);
+    if (listening && VibeListeningStageChannels(listening) == channels) {
+        float *buffers[2] = { list->mBuffers[0].mData, list->mBuffers[channels - 1].mData };
+        VibeListeningStageRender(listening, buffers, frames);
+    }
     VibeLoudnessEqualizer *loudness = atomic_load_explicit(&master->loudness, memory_order_seq_cst);
     if (loudness && VibeLoudnessEqualizerChannels(loudness) == channels) {
         float *buffers[2] = { list->mBuffers[0].mData, list->mBuffers[channels - 1].mData };
@@ -210,5 +215,6 @@ void VibeMasterBusSetVolume(VibeMasterBus *master, float gain) {
 void VibeMasterBusFree(VibeMasterBus *master) {
     VibeVarispeedFree(atomic_exchange_explicit(&master->varispeed, NULL, memory_order_seq_cst));
     VibeLoudnessEqualizerFree(atomic_exchange_explicit(&master->loudness, NULL, memory_order_seq_cst));
+    VibeListeningStageFree(atomic_exchange_explicit(&master->listening, NULL, memory_order_seq_cst));
     free(master);
 }

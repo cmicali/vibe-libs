@@ -157,7 +157,7 @@ static NSString *VibeSampleFormatName(AVAudioFormat *format) {
     }
 
     NSMutableArray *stages = [NSMutableArray arrayWithObjects:source, decode, busStage, varispeedStage, fx,
-                              renderFacts[@"loudness"], meter, output, nil];
+                              renderFacts[@"listening"], renderFacts[@"loudness"], meter, output, nil];
     if (outputUnitPath.count > 1) [stages addObjectsFromArray:[outputUnitPath subarrayWithRange:NSMakeRange(1, outputUnitPath.count - 1)]];
 
     return stages;

@@ -690,5 +690,8 @@ involuntaryFallbackName:(NSString *)fallbackName carriedModesFromUID:(NSString *
             @"carriedModes": carriedUID ?: @""}];
 }
 - (void)audioPlayer:(AudioPlayer *)p error:(NSError *)error { _playError=error; [self record:@"error" track:nil]; }
+- (void)audioPlayerDidChangeListeningClipping:(AudioPlayer *)p {
+    [_events addObject:@{@"event": @"clipping", @"clipping": @(p.listeningClipping)}];
+}
 
 @end

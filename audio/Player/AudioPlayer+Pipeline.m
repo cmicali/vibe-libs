@@ -414,6 +414,7 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
     BOOL wantVarispeed = NO;
 #endif
     if (_voiceBus && VibePCMFormatsMatch(_voiceBus.format, busFormat) && [self varispeedPresentOnQueue] == wantVarispeed) {
+        [self applyListeningOnQueue];
         [self applyLoudnessOnQueue];
         return YES;
     }
@@ -455,6 +456,7 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
     os_unfair_lock_unlock(&_stateLock);
     atomic_store_explicit(&_masterBus->mix, bus.mix, memory_order_release);
     [self applyPitchOnQueue:pitch];
+    [self applyListeningOnQueue];
     [self applyLoudnessOnQueue];
     if (rebuilt) {
         *rebuilt = YES;
@@ -567,6 +569,67 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
         atomic_store_explicit(&_masterBus->loudness, loudness, memory_order_release);
     }
     VibeLoudnessEqualizerSetEnabled(loudness, enabled);
+}
+
+- (void)applyListeningOnQueue {
+    AVAudioFormat *format = _masterFormat;
+#if TARGET_OS_OSX
+    BOOL allowed = format != nil && ![self bitPerfectOnQueue];
+#else
+    BOOL allowed = format != nil;
+#endif
+    VibeListeningSettings *settings = self.listening;
+    uint32_t channels = VibeMasterBusChannels(_masterBus);
+    VibeListeningStage *listening = atomic_load_explicit(&_masterBus->listening, memory_order_relaxed);
+    BOOL fits = listening && VibeListeningStageChannels(listening) == channels
+            && VibeListeningStageSampleRate(listening) == format.sampleRate;
+    if (listening && (!allowed || !fits)) {
+        VibeListeningStage *old = atomic_exchange_explicit(&_masterBus->listening, NULL, memory_order_seq_cst);
+        [self afterRenderLeavesOnQueue:^{ VibeListeningStageFree(old); }];
+        listening = NULL;
+        _listeningPublished = nil;
+    }
+    if (allowed) {
+        // Built at the first settings that change samples, and kept once
+        // neutral, so the change fades out.
+        if (!listening && !settings.neutral) {
+            listening = VibeListeningStageCreate(channels, format.sampleRate);
+            if (!listening) {
+                LogError(@"AudioPlayer: no listening stage for %u channels at %.0f Hz", channels, format.sampleRate);
+            }
+            else {
+                atomic_store_explicit(&_masterBus->listening, listening, memory_order_release);
+            }
+        }
+        // Every open re-applies, so only a change builds new filters.
+        if (listening && ![settings isEqual:_listeningPublished]) {
+            if (VibeListeningStageSetSettings(listening, settings)) {
+                _listeningPublished = settings;
+            }
+            else {
+                LogError(@"AudioPlayer: no listening filters; the last settings play on");
+            }
+        }
+    }
+    [self updateListeningClippingOnQueue];
+}
+
+- (void)updateListeningClippingOnQueue {
+    VibeListeningStage *listening = atomic_load_explicit(&_masterBus->listening, memory_order_relaxed);
+    BOOL clipping = listening && VibeListeningStageClipping(listening);
+    os_unfair_lock_lock(&_stateLock);
+    BOOL changed = _listeningClipping != clipping;
+    _listeningClipping = clipping;
+    os_unfair_lock_unlock(&_stateLock);
+    if (!changed) {
+        return;
+    }
+    run_on_main_thread({
+        id<AudioPlayerDelegate> delegate = self.delegate;
+        if ([delegate respondsToSelector:@selector(audioPlayerDidChangeListeningClipping:)]) {
+            [delegate audioPlayerDidChangeListeningClipping:self];
+        }
+    });
 }
 
 #pragma mark - Starting and stopping
@@ -682,6 +745,7 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
     }];
     [self updateBufferingOnQueue];
     [self maybeCrossfadeIntoParkOnQueue];
+    [self updateListeningClippingOnQueue];
     [self noteDrainOnQueue];
     [self updateDrainTimerOnQueue];
 }
@@ -713,7 +777,19 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
         @"renders": @(loudness ? VibeLoudnessEqualizerRenders(loudness) : 0),
     };
 
+    VibeListeningStage *listening = atomic_load_explicit(&master->listening, memory_order_relaxed);
+    NSDictionary *listeningStage = @{
+        @"stage": @"listening", @"present": @(listening != NULL),
+        @"neutral": @(self.listening.neutral),
+        @"engaged": @(listening && VibeListeningStageEngaged(listening)),
+        @"clips": @(listening ? VibeListeningStageClips(listening) : 0),
+        @"clipping": @(listening && VibeListeningStageClipping(listening)),
+        @"sampleRate": @(listening ? VibeListeningStageSampleRate(listening) : 0),
+        @"renders": @(listening ? VibeListeningStageRenders(listening) : 0),
+    };
+
     return @{@"varispeed": varispeedStage,
+             @"listening": listeningStage,
              @"loudness": loudnessStage,
              @"fxInRender": @(atomic_load_explicit(&master->chain, memory_order_relaxed) != NULL),
              @"meterInRender": @(atomic_load_explicit(&master->meter, memory_order_relaxed) != NULL),

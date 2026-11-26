@@ -14,6 +14,7 @@
 #import "AudioError.h"     // domain, userInfo key and codes; re-exported here
 #import "PlaybackGainRules.h"
 #import "PlaybackIntent.h"
+#import "VibeListeningSettings.h"
 #import "VibePlayableItem.h"
 
 NS_ASSUME_NONNULL_BEGIN
@@ -42,6 +43,15 @@ NS_ASSUME_NONNULL_BEGIN
 // over 10 ms. Under bit-perfect output it is out of the path, as pitch is,
 // and the setting is kept for later.
 @property (nonatomic) BOOL loudnessEqualization;
+
+// The listening settings (audio/Listening): an EQ, a preamp, crossfeed, and
+// the channel tools. Neutral by default, and a neutral setting touches no
+// sample. A change crossfades over 10 ms. Under bit-perfect output the stage
+// is out of the path, as pitch is, and the setting is kept for later.
+@property (copy) VibeListeningSettings *listening;
+// The listening stage's output passed full scale within the last second it
+// played. The delegate hears of a change.
+@property (readonly) BOOL listeningClipping;
 
 // Track-change crossfade in milliseconds, default the 10 ms declick minimum.
 // Applies only when a play replaces an audibly playing track. Raising it past
@@ -314,6 +324,9 @@ openRequestIdentifier:(uint64_t)openRequestIdentifier;
 - (void)audioPlayer:(AudioPlayer *)audioPlayer error:(NSError *)error;
 
 @optional
+// Main thread, on a change of listeningClipping.
+- (void)audioPlayerDidChangeListeningClipping:(AudioPlayer *)audioPlayer;
+
 // macOS only, main thread, sent on EVERY settled device mutation, the id
 // moved or not. The app persists the choice and updates its device list. A
 // fallback to System Output (-1) the user did NOT choose carries the UID and

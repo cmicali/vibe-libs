@@ -19,6 +19,7 @@ vibe-libs is licensed under Apache 2.0 (see `LICENSE`). Each library under `thir
 | libwavpack | `third_party/wavpack/` | BSD 3-Clause |
 | Monkey's Audio SDK | `third_party/monkeys_audio/` | BSD 3-Clause; modified |
 | RSA Data Security MD5 | `third_party/monkeys_audio/MACLib/MD5.*` | RSA's MD5 license (permissive, with attribution) |
+| bs2b's crossfeed | `audio/Listening/VibeListeningStage.m` | MIT; its filters and levels, rewritten |
 
 ## TagLib
 
@@ -237,4 +238,33 @@ without express or implied warranty of any kind.
 
 These notices must be retained in any copies of any part of this
 documentation and/or software.
+```
+
+## bs2b
+
+`audio/Listening`'s crossfeed follows the Bauer stereophonic-to-binaural
+method as libbs2b implements it: its two first-order filters, their
+coefficients, and its three standard levels. The code is rewritten, not
+copied. libbs2b's notice:
+
+```
+Copyright (c) 2005 Boris Mikhaylov
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
