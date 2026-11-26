@@ -365,6 +365,39 @@
     XCTAssertEqual([curve nodeIndexAtPoint:center], 0u);
 }
 
+- (void)testDoubleClickAddsAPeakAtThePointerAndItsMenuRemovesThatBand {
+    [self showParametric:[self parametricSettings]];
+    VibeEQCurveView *curve = _editor.curveView;
+    NSRect plot = curve.plotRect;
+    NSPoint point = NSMakePoint(VibeEQXForFrequency(800, NSMinX(plot), NSWidth(plot)),
+                                VibeEQYForGain(-6, NSMinY(plot), NSHeight(plot), curve.rangeDB));
+    NSEvent *add = [self mouse:NSEventTypeLeftMouseDown at:point in:curve flags:0 clicks:2];
+    [curve mouseDown:add];
+    NSArray *bands = _editor.settings.bands;
+    XCTAssertEqual(bands.count, 4u);
+    VibeEQBand *added = bands.lastObject;
+    XCTAssertEqual(added.type, VibeEQBandTypePeak);
+    XCTAssertEqual(added.frequency, 800);
+    XCTAssertEqualWithAccuracy(added.gainDB, -6, 0.001);
+    XCTAssertEqual(curve.selectedIndex, 3u);
+    XCTAssertEqual(_ends, 1u);
+    [curve mouseDown:add];
+    XCTAssertEqual(_editor.settings.bands.count, 4u);
+
+    _editor.selectedBandIndex = 0;
+    NSEvent *click = [self mouse:NSEventTypeRightMouseDown at:point in:curve flags:0 clicks:1];
+    NSMenuItem *remove = [curve menuForEvent:click].itemArray.firstObject;
+    XCTAssertEqualObjects(remove.title, _editor.strings.removeBand);
+    XCTAssertEqual(curve.selectedIndex, 3u);
+    [NSApp sendAction:remove.action to:remove.target from:remove];
+    XCTAssertEqualObjects(_editor.settings, [self parametricSettings]);
+    XCTAssertEqual(_ends, 2u);
+    XCTAssertNil([curve menuForEvent:click]);
+    _editor.enabled = NO;
+    [curve mouseDown:add];
+    XCTAssertEqual(_editor.settings.bands.count, 3u);
+}
+
 - (void)testDraggingANodeMovesItsFrequencyAndGain {
     [self showParametric:[self parametricSettings]];
     VibeEQCurveView *curve = _editor.curveView;

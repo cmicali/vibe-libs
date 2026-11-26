@@ -406,12 +406,58 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     [self.window makeFirstResponder:self];
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     NSUInteger index = [self nodeIndexAtPoint:point];
+    if (index == NSNotFound && event.clickCount == 2 && NSPointInRect(point, self.plotRect) &&
+        _bands.count < kVibeListeningMaxBands) {
+        NSRect plot = self.plotRect;
+        double frequency = VibeEQRoundFrequency(VibeEQFrequencyForX(point.x, NSMinX(plot), NSWidth(plot)));
+        double gain = VibeEQSnapGain(VibeEQGainForY(point.y, NSMinY(plot), NSHeight(plot), self.rangeDB),
+                                     kVibeEQParametricStepDB, kVibeEQMaxGainDB);
+        VibeEQBand *band = [VibeEQBand bandWithType:VibeEQBandTypePeak frequency:frequency gainDB:gain q:1];
+        [self commitBands:[_bands arrayByAddingObject:band] selecting:_bands.count];
+        return;
+    }
     [self selectBand:index];
     if (index == NSNotFound) {
         return;
     }
     _heldRange = self.rangeDB;
     [self anchorDragAt:point option:(event.modifierFlags & NSEventModifierFlagOption) != 0];
+}
+
+- (void)commitBands:(NSArray<VibeEQBand *> *)bands selecting:(NSUInteger)next {
+    self.bands = bands;
+    [self.owner face:self didChangeBands:_bands];
+    self.selectedIndex = next;
+    [self.owner face:self didSelectBandAtIndex:_selectedIndex];
+    [self.owner faceDidEndEditing:self];
+}
+
+- (NSMenu *)menuForEvent:(NSEvent *)event {
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    NSUInteger index = [self nodeIndexAtPoint:point];
+    if (!self.enabled || index == NSNotFound) {
+        return nil;
+    }
+    [self selectBand:index];
+    NSMenu *menu = [[NSMenu alloc] init];
+    NSMenuItem *item = [menu addItemWithTitle:_strings.removeBand action:@selector(removeClickedBand:) keyEquivalent:@""];
+    item.target = self;
+    item.tag = index;
+    item.representedObject = _bands[index];
+    return menu;
+}
+
+- (void)removeClickedBand:(NSMenuItem *)item {
+    NSUInteger index = item.tag;
+    if (self.enabled && index < _bands.count && _bands[index] == item.representedObject) {
+        [self removeBandAtIndex:index];
+    }
+}
+
+- (void)removeBandAtIndex:(NSUInteger)index {
+    NSMutableArray *bands = [_bands mutableCopy];
+    [bands removeObjectAtIndex:index];
+    [self commitBands:bands selecting:VibeEQSelectionAfterRemoving(index, bands.count)];
 }
 
 // A drag's changes are measured from its anchor, which moves when Option is
@@ -569,14 +615,7 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
         }
         case NSDeleteCharacter:
         case NSDeleteFunctionKey: {
-            NSMutableArray<VibeEQBand *> *bands = [_bands mutableCopy];
-            [bands removeObjectAtIndex:_selectedIndex];
-            NSUInteger next = VibeEQSelectionAfterRemoving(_selectedIndex, bands.count);
-            self.bands = bands;
-            [self.owner face:self didChangeBands:_bands];
-            _selectedIndex = NSNotFound;
-            [self selectBand:next];
-            [self.owner faceDidEndEditing:self];
+            [self removeBandAtIndex:_selectedIndex];
             return YES;
         }
         default:
