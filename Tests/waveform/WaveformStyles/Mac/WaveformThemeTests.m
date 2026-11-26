@@ -289,4 +289,60 @@ static NSArray<VibeColor *> *SpectrumPalette(NSString *identifier, BOOL isDark) 
     }
 }
 
+// An empty choice draws each list's default: Mono, Rekord Bin, RGB, and
+// Spectrum by section.
+- (void)testEmptyChoiceDrawsTheDefaults {
+    WaveformThemeChoice *choice = [[WaveformThemeChoice alloc] init];
+    choice.bandTheme = @"retired";
+    WaveformTheme *theme = [WaveformTheme themeForChoice:choice isDark:YES artworkColor:nil];
+    WaveformTheme *mono = [WaveformTheme monochromeThemeIsDark:YES];
+    XCTAssertEqualObjects(theme.paletteSignature,
+                          [mono.paletteSignature stringByAppendingString:@"sections"]);
+    XCTAssertTrue(theme.spectrumColorsBySection);
+}
+
+// Every list starts with its default and, but for the colorings, ends on
+// Custom.
+- (void)testListsStartOnTheDefault {
+    XCTAssertEqualObjects(WaveformTheme.themeIdentifiers.firstObject, SETTINGS_VALUE_WAVEFORM_THEME_MONO);
+    XCTAssertEqualObjects(WaveformTheme.bandThemeIdentifiers.lastObject, SETTINGS_VALUE_WAVEFORM_BAND_THEME_CUSTOM);
+    XCTAssertEqualObjects(WaveformTheme.spectrumPaletteIdentifiers.firstObject,
+                          SETTINGS_VALUE_WAVEFORM_SPECTRUM_PALETTE_RGB);
+    XCTAssertEqualObjects(WaveformTheme.spectrumColoringIdentifiers.firstObject,
+                          SETTINGS_VALUE_WAVEFORM_SPECTRUM_COLORING_SECTIONS);
+}
+
+// The band wells feed both Customs. An unset well draws Rekord Bin's band.
+- (void)testCustomWellsFeedBothCustoms {
+    WaveformThemeChoice *choice = [[WaveformThemeChoice alloc] init];
+    choice.bandTheme = SETTINGS_VALUE_WAVEFORM_BAND_THEME_CUSTOM;
+    choice.spectrumPalette = SETTINGS_VALUE_WAVEFORM_SPECTRUM_PALETTE_CUSTOM;
+    choice.spectrumColoring = SETTINGS_VALUE_WAVEFORM_SPECTRUM_COLORING_PRECISE;
+    choice.customMid = NSColor.greenColor;
+    WaveformTheme *theme = [WaveformTheme themeForChoice:choice isDark:YES artworkColor:nil];
+    NSArray<VibeColor *> *rekordBin = [WaveformTheme bandColorsForIdentifier:SETTINGS_VALUE_WAVEFORM_BAND_THEME_REKORD_BIN
+                                                                      isDark:YES customBands:@[]];
+    XCTAssertTrue(SameRGB(theme.spectrumColors[0], rekordBin[0]));
+    XCTAssertTrue(SameRGB(theme.spectrumColors[1], NSColor.greenColor));
+    XCTAssertTrue(SameRGB(theme.bandColors[1], NSColor.greenColor));
+    XCTAssertFalse(theme.spectrumColorsBySection);
+}
+
+// A built-in palette's swatch is its low, mid and high. Custom and the theme
+// kind have none.
+- (void)testSwatchColors {
+    NSArray<VibeColor *> *dengine = [WaveformTheme swatchColorsForPaletteKind:VibeWaveformPaletteKindBands
+                                                                   identifier:SETTINGS_VALUE_WAVEFORM_BAND_THEME_DENGINE
+                                                                       isDark:NO];
+    XCTAssertEqual(dengine.count, 3u);
+    XCTAssertTrue(SameRGB(dengine[1], [WaveformTheme bandColorsForIdentifier:SETTINGS_VALUE_WAVEFORM_BAND_THEME_DENGINE
+                                                                      isDark:NO customBands:@[]][1]));
+    XCTAssertEqual([WaveformTheme swatchColorsForPaletteKind:VibeWaveformPaletteKindSpectrum
+                                                  identifier:SETTINGS_VALUE_WAVEFORM_SPECTRUM_PALETTE_CUSTOM
+                                                      isDark:YES].count, 0u);
+    XCTAssertEqual([WaveformTheme swatchColorsForPaletteKind:VibeWaveformPaletteKindTheme
+                                                  identifier:SETTINGS_VALUE_WAVEFORM_THEME_MONO
+                                                      isDark:YES].count, 0u);
+}
+
 @end
