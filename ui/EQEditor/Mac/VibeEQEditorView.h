@@ -81,6 +81,9 @@ typedef NS_ENUM(NSInteger, VibeEQEditorFace) {
 @property (nonatomic) BOOL compactPresentation;
 // NSNotFound clears the selection.
 @property (nonatomic) NSUInteger selectedBandIndex;
+// The same edits as the parametric list's plus and minus buttons.
+- (IBAction)addBand:(nullable id)sender;
+- (IBAction)removeBand:(nullable id)sender;
 
 // NO dims the view and ignores every input. YES by default.
 @property (nonatomic, getter=isEnabled) BOOL enabled;

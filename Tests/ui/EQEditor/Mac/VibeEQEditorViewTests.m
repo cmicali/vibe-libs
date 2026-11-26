@@ -164,6 +164,11 @@
     XCTAssertTrue(NSEqualRects(_editor.curveView.frame, _editor.bounds));
     _editor.selectedBandIndex = 4;
     XCTAssertEqual(_editor.curveView.selectedIndex, 4u);
+    [_editor addBand:nil];
+    XCTAssertEqual(_editor.settings.bands.count, 11u);
+    XCTAssertEqual(_editor.selectedBandIndex, 10u);
+    [_editor removeBand:nil];
+    XCTAssertEqual(_editor.settings.bands.count, 10u);
     _editor.compactPresentation = NO;
     XCTAssertFalse(_editor.faceControl.hidden);
     XCTAssertFalse(_editor.bandList.hidden);

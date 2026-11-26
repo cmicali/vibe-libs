@@ -149,6 +149,18 @@ static const CGFloat kGap = 10;
     _bandList.selectedIndex = _curveView.selectedIndex;
 }
 
+- (IBAction)addBand:(id)sender {
+    if (_enabled && _face == VibeEQEditorFaceParametric) {
+        [_bandList addBand:sender];
+    }
+}
+
+- (IBAction)removeBand:(id)sender {
+    if (_enabled && _face == VibeEQEditorFaceParametric) {
+        [_bandList removeBand:sender];
+    }
+}
+
 - (BOOL)graphicFaceAvailable {
     return _settings.bands.count == 0 || _settings.isGraphic;
 }

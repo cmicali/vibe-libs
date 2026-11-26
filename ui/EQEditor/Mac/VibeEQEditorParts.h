@@ -92,6 +92,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSTableView *tableView;
 @property (nonatomic, readonly) NSButton *addButton;
 @property (nonatomic, readonly) NSButton *removeButton;
+- (void)addBand:(nullable id)sender;
+- (void)removeBand:(nullable id)sender;
 @end
 
 // The band types whose gain counts: a peak and the shelves.
