@@ -101,6 +101,14 @@ static const CGFloat kGap = 10;
 - (void)layout {
     [super layout];
     NSRect bounds = self.bounds;
+    if (_compactPresentation) {
+        CGFloat sliders = _face == VibeEQEditorFaceGraphic ? MIN(100, round(NSHeight(bounds) * 0.45)) : 0;
+        NSRect curve, faders;
+        NSDivideRect(bounds, &faders, &curve, sliders, NSMaxYEdge);
+        _curveView.frame = curve;
+        _graphicView.frame = faders;
+        return;
+    }
     CGFloat controlWidth = MIN(NSWidth(bounds), 240);
     _faceControl.frame = NSMakeRect(round((NSWidth(bounds) - controlWidth) / 2), 0, controlWidth, kFaceControlHeight);
     CGFloat top = kFaceControlHeight + kGap;
@@ -126,6 +134,35 @@ static const CGFloat kGap = 10;
     [self updateFace];
 }
 
+- (void)setCompactPresentation:(BOOL)compact {
+    if (compact == _compactPresentation) {
+        return;
+    }
+    _compactPresentation = compact;
+    [self updateFace];
+}
+
+- (NSUInteger)selectedBandIndex {
+    return _curveView.selectedIndex;
+}
+
+- (void)setSelectedBandIndex:(NSUInteger)index {
+    _curveView.selectedIndex = index;
+    _bandList.selectedIndex = _curveView.selectedIndex;
+}
+
+- (IBAction)addBand:(id)sender {
+    if (_enabled && _face == VibeEQEditorFaceParametric) {
+        [_bandList addBand:sender];
+    }
+}
+
+- (IBAction)removeBand:(id)sender {
+    if (_enabled && _face == VibeEQEditorFaceParametric) {
+        [_bandList removeBand:sender];
+    }
+}
+
 - (BOOL)graphicFaceAvailable {
     return _settings.bands.count == 0 || _settings.isGraphic;
 }
@@ -147,7 +184,7 @@ static const CGFloat kGap = 10;
     _enabled = enabled;
     _faceControl.enabled = enabled;
     _graphicView.enabled = enabled;
-    _curveView.enabled = enabled;
+    [self updateCurveEnabled];
     _bandList.enabled = enabled;
     CGFloat alpha = enabled ? 1 : 0.5;
     for (NSView *part in @[_faceControl, _graphicView, _curveView, _bandList]) {
@@ -204,9 +241,17 @@ static const CGFloat kGap = 10;
                                                                                : VibeEQEditorFaceParametric;
     BOOL graphic = _face == VibeEQEditorFaceGraphic;
     _graphicView.hidden = !graphic;
-    _curveView.hidden = graphic;
-    _bandList.hidden = graphic;
+    _curveView.hidden = graphic && !_compactPresentation;
+    _bandList.hidden = graphic || _compactPresentation;
+    _faceControl.hidden = _compactPresentation;
+    [self updateCurveEnabled];
     [self updateFaceControl];
+    self.needsLayout = YES;
+}
+
+// Above the compact graphic sliders the curve only shows the response.
+- (void)updateCurveEnabled {
+    _curveView.enabled = _enabled && !(_compactPresentation && _face == VibeEQEditorFaceGraphic);
 }
 
 - (void)updateFaceControl {
@@ -248,6 +293,9 @@ static const CGFloat kGap = 10;
     }
     if (face != _bandList) {
         _bandList.selectedIndex = index;
+    }
+    if ([self.delegate respondsToSelector:@selector(eqEditorViewDidSelectBand:)]) {
+        [self.delegate eqEditorViewDidSelectBand:self];
     }
 }
 

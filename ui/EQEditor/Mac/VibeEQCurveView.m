@@ -424,12 +424,69 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     [self.window makeFirstResponder:self];
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     NSUInteger index = [self nodeIndexAtPoint:point];
+    if (index == NSNotFound && event.clickCount == 2 && NSPointInRect(point, self.plotRect) &&
+        _bands.count < kVibeListeningMaxBands) {
+        VibeEQBand *band = [VibeEQBand bandWithType:VibeEQBandTypePeak
+                                          frequency:[self frequencyAtX:point.x]
+                                             gainDB:[self gainAtY:point.y]
+                                                  q:1];
+        [self commitBands:[_bands arrayByAddingObject:band] selecting:_bands.count];
+        return;
+    }
     [self selectBand:index];
     if (index == NSNotFound) {
         return;
     }
     _heldRange = self.rangeDB;
     [self anchorDragAt:point option:(event.modifierFlags & NSEventModifierFlagOption) != 0];
+}
+
+// The band values at a point of the plot, rounded and snapped as an edit
+// stores them.
+- (double)frequencyAtX:(CGFloat)x {
+    NSRect plot = self.plotRect;
+    return VibeEQRoundFrequency(VibeEQFrequencyForX(x, NSMinX(plot), NSWidth(plot)));
+}
+
+- (double)gainAtY:(CGFloat)y {
+    NSRect plot = self.plotRect;
+    return VibeEQSnapGain(VibeEQGainForY(y, NSMinY(plot), NSHeight(plot), self.rangeDB), kVibeEQParametricStepDB,
+                          kVibeEQMaxGainDB);
+}
+
+- (void)commitBands:(NSArray<VibeEQBand *> *)bands selecting:(NSUInteger)next {
+    self.bands = bands;
+    [self.owner face:self didChangeBands:_bands];
+    self.selectedIndex = next;
+    [self.owner face:self didSelectBandAtIndex:_selectedIndex];
+    [self.owner faceDidEndEditing:self];
+}
+
+- (NSMenu *)menuForEvent:(NSEvent *)event {
+    NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
+    NSUInteger index = [self nodeIndexAtPoint:point];
+    if (!self.enabled || index == NSNotFound) {
+        return nil;
+    }
+    [self selectBand:index];
+    NSMenu *menu = [[NSMenu alloc] init];
+    NSMenuItem *item = [menu addItemWithTitle:_strings.removeBand action:@selector(removeClickedBand:) keyEquivalent:@""];
+    item.target = self;
+    item.representedObject = _bands[index];
+    return menu;
+}
+
+- (void)removeClickedBand:(NSMenuItem *)item {
+    NSUInteger index = [_bands indexOfObjectIdenticalTo:item.representedObject];
+    if (self.enabled && index != NSNotFound) {
+        [self removeBandAtIndex:index];
+    }
+}
+
+- (void)removeBandAtIndex:(NSUInteger)index {
+    NSMutableArray *bands = [_bands mutableCopy];
+    [bands removeObjectAtIndex:index];
+    [self commitBands:bands selecting:VibeEQSelectionAfterRemoving(index, bands.count)];
 }
 
 // A drag's changes are measured from its anchor, which moves when Option is
@@ -457,14 +514,8 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
         [self replaceBandAtIndex:_selectedIndex with:VibeEQBandMoved(band, band.frequency, band.gainDB, q)];
         return;
     }
-    NSRect plot = self.plotRect;
-    double frequency = VibeEQRoundFrequency(VibeEQFrequencyForX(point.x + _grabOffset.x, NSMinX(plot), NSWidth(plot)));
-    double gain = band.gainDB;
-    if (VibeEQBandHasGain(band.type)) {
-        double range = self.rangeDB;
-        gain = VibeEQSnapGain(VibeEQGainForY(point.y + _grabOffset.y, NSMinY(plot), NSHeight(plot), range),
-                              kVibeEQParametricStepDB, kVibeEQMaxGainDB);
-    }
+    double frequency = [self frequencyAtX:point.x + _grabOffset.x];
+    double gain = VibeEQBandHasGain(band.type) ? [self gainAtY:point.y + _grabOffset.y] : band.gainDB;
     [self replaceBandAtIndex:_selectedIndex with:VibeEQBandMoved(band, frequency, gain, band.q)];
     // A widened axis moves every node, so the grab is measured again.
     if (self.rangeDB > _heldRange) {
@@ -587,14 +638,7 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
         }
         case NSDeleteCharacter:
         case NSDeleteFunctionKey: {
-            NSMutableArray<VibeEQBand *> *bands = [_bands mutableCopy];
-            [bands removeObjectAtIndex:_selectedIndex];
-            NSUInteger next = VibeEQSelectionAfterRemoving(_selectedIndex, bands.count);
-            self.bands = bands;
-            [self.owner face:self didChangeBands:_bands];
-            _selectedIndex = NSNotFound;
-            [self selectBand:next];
-            [self.owner faceDidEndEditing:self];
+            [self removeBandAtIndex:_selectedIndex];
             return YES;
         }
         default:
