@@ -147,6 +147,28 @@
 
 #pragma mark - Faces
 
+- (void)testCompactEditorKeepsTheCurveAboveTheGraphicSliders {
+    _editor.settings = [self graphicSettings];
+    _editor.compactPresentation = YES;
+    [_editor layoutSubtreeIfNeeded];
+    XCTAssertTrue(_editor.faceControl.hidden);
+    XCTAssertFalse(_editor.curveView.hidden);
+    XCTAssertFalse(_editor.graphicView.hidden);
+    XCTAssertFalse(_editor.curveView.enabled);
+    XCTAssertEqual(NSMaxY(_editor.curveView.frame), NSMinY(_editor.graphicView.frame));
+
+    _editor.face = VibeEQEditorFaceParametric;
+    [_editor layoutSubtreeIfNeeded];
+    XCTAssertTrue(_editor.curveView.enabled);
+    XCTAssertTrue(_editor.bandList.hidden);
+    XCTAssertTrue(NSEqualRects(_editor.curveView.frame, _editor.bounds));
+    _editor.selectedBandIndex = 4;
+    XCTAssertEqual(_editor.curveView.selectedIndex, 4u);
+    _editor.compactPresentation = NO;
+    XCTAssertFalse(_editor.faceControl.hidden);
+    XCTAssertFalse(_editor.bandList.hidden);
+}
+
 - (void)testNeutralSettingsShowFlatSliders {
     XCTAssertEqualObjects(_editor.settings, [VibeListeningSettings neutralSettings]);
     XCTAssertTrue(_editor.graphicFaceAvailable);

@@ -102,8 +102,11 @@ static const CGFloat kGap = 10;
     [super layout];
     NSRect bounds = self.bounds;
     if (_compactPresentation) {
-        _graphicView.frame = bounds;
-        _curveView.frame = bounds;
+        CGFloat sliders = _face == VibeEQEditorFaceGraphic ? MIN(100, round(NSHeight(bounds) * 0.45)) : 0;
+        NSRect curve, faders;
+        NSDivideRect(bounds, &faders, &curve, sliders, NSMaxYEdge);
+        _curveView.frame = curve;
+        _graphicView.frame = faders;
         return;
     }
     CGFloat controlWidth = MIN(NSWidth(bounds), 240);
@@ -159,7 +162,7 @@ static const CGFloat kGap = 10;
     _enabled = enabled;
     _faceControl.enabled = enabled;
     _graphicView.enabled = enabled;
-    _curveView.enabled = enabled;
+    _curveView.enabled = enabled && !(_compactPresentation && _face == VibeEQEditorFaceGraphic);
     _bandList.enabled = enabled;
     CGFloat alpha = enabled ? 1 : 0.5;
     for (NSView *part in @[_faceControl, _graphicView, _curveView, _bandList]) {
@@ -216,7 +219,9 @@ static const CGFloat kGap = 10;
                                                                                : VibeEQEditorFaceParametric;
     BOOL graphic = _face == VibeEQEditorFaceGraphic;
     _graphicView.hidden = !graphic;
-    _curveView.hidden = graphic;
+    _curveView.hidden = graphic && !_compactPresentation;
+    _curveView.enabled = _enabled && !(_compactPresentation && graphic);
+    self.needsLayout = YES;
     _bandList.hidden = graphic || _compactPresentation;
     _faceControl.hidden = _compactPresentation;
     [self updateFaceControl];
