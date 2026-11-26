@@ -187,7 +187,7 @@ static const CGFloat kPreferredWidth = 360;
 - (void)renderRow:(VibeTrackRow *)row {
     _titleLabel.text = row.title ?: @"";
     _subtitleLabel.text = row.subtitle ?: @"";
-    _artView.image = row.thumbnail ?: VibeFileTileImage(NO);
+    _artView.image = row.thumbnail ?: VibeSongTileImage();
     _expandButton.accessibilityValue = row.title;
     [self applyAccessoryEnvironment];
 }
