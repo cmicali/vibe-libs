@@ -8,8 +8,6 @@
 //  Every setter holds its value to its range, so a bad value never reaches the
 //  render.
 //
-//  The response math is the RBJ cookbook's biquads, the same the stage plays.
-//
 
 #import <Foundation/Foundation.h>
 
@@ -59,7 +57,7 @@ typedef NS_ENUM(NSInteger, VibeCrossfeed) {
 };
 
 // The most bands an EQ holds. A longer array is cut to this.
-static const NSUInteger kVibeListeningMaxBands = 20;
+enum { kVibeListeningMaxBands = 20 };
 // The manual preamp's range, in dB.
 static const double kVibeListeningPreampMinDB = -24;
 static const double kVibeListeningPreampMaxDB = 0;
@@ -121,7 +119,7 @@ double VibeListeningResponseDB(NSArray<VibeEQBand *> *bands, double frequency, d
 
 // Minus the curve's highest boost, sampled densely on a log scale from 20 Hz to
 // 20 kHz at 48 kHz, so the boost can't clip a full-scale tone. 0 when nothing
-// boosts.
+// boosts. It has no floor: it cuts as far as the curve boosts.
 double VibeListeningAutomaticPreampDB(NSArray<VibeEQBand *> *bands);
 
 #ifdef __cplusplus

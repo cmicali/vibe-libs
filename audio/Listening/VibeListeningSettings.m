@@ -26,6 +26,8 @@ static BOOL VibeBandTypeIsPass(VibeEQBandType type) {
 static NSString *const kTypeNames[] = {@"peak", @"lowShelf", @"highShelf", @"lowPass", @"highPass"};
 static NSString *const kCrossfeedNames[] = {@"off", @"light", @"medium", @"strong"};
 
+#define VibeCount(array) ((NSInteger)(sizeof(array) / sizeof(*(array))))
+
 static NSInteger VibeIndexOfName(id name, NSString *const *names, NSInteger count) {
     if (![name isKindOfClass:[NSString class]]) {
         return -1;
@@ -53,7 +55,8 @@ static NSUInteger VibeHashDouble(double value) {
 }
 
 static const double kGraphicQ = 1.41;
-static const NSUInteger kGraphicBandCount = 10;
+static const double kGraphicFrequencies[] = {31, 62, 125, 250, 500, 1000, 2000, 4000, 8000, 16000};
+static const NSUInteger kGraphicBandCount = VibeCount(kGraphicFrequencies);
 
 #pragma mark - VibeEQBand
 
@@ -82,11 +85,11 @@ static const NSUInteger kGraphicBandCount = 10;
 }
 
 - (instancetype)bandWithEnabled:(BOOL)enabled {
-    return [[VibeEQBand alloc] initWithType:_type frequency:_frequency gainDB:_gainDB q:_q enabled:enabled];
+    return [[[self class] alloc] initWithType:_type frequency:_frequency gainDB:_gainDB q:_q enabled:enabled];
 }
 
 - (instancetype)bandWithGainDB:(double)gainDB {
-    return [[VibeEQBand alloc] initWithType:_type frequency:_frequency gainDB:gainDB q:_q enabled:_enabled];
+    return [[[self class] alloc] initWithType:_type frequency:_frequency gainDB:gainDB q:_q enabled:_enabled];
 }
 
 - (BOOL)isNeutral {
@@ -127,7 +130,7 @@ static const NSUInteger kGraphicBandCount = 10;
     if (![plist isKindOfClass:[NSDictionary class]]) {
         return nil;
     }
-    NSInteger type = VibeIndexOfName(plist[@"type"], kTypeNames, 5);
+    NSInteger type = VibeIndexOfName(plist[@"type"], kTypeNames, VibeCount(kTypeNames));
     if (type < 0) {
         return nil;
     }
@@ -209,18 +212,12 @@ static VibeCrossfeed VibeHoldCrossfeed(NSInteger crossfeed) {
                                                                                : VibeCrossfeedOff;
 }
 
-// The fields, each held to its range. The one way in, for every initializer
-// and setter.
-- (void)holdBands:(NSArray *)bands {
-    _bands = VibeHoldBands(bands);
+static double VibeHoldPreamp(double preampDB) {
+    return VibeHold(preampDB, kVibeListeningPreampMinDB, kVibeListeningPreampMaxDB, 0);
 }
 
-- (void)holdPreampDB:(double)preampDB {
-    _preampDB = VibeHold(preampDB, kVibeListeningPreampMinDB, kVibeListeningPreampMaxDB, 0);
-}
-
-- (void)holdBalance:(double)balance {
-    _balance = VibeHold(balance, -1, 1, 0);
+static double VibeHoldBalance(double balance) {
+    return VibeHold(balance, -1, 1, 0);
 }
 
 - (instancetype)initWithSettings:(VibeListeningSettings *)other {
@@ -240,15 +237,13 @@ static VibeCrossfeed VibeHoldCrossfeed(NSInteger crossfeed) {
     if (!_eqEnabled) {
         return NO;
     }
-    if (self.effectivePreampDB != 0) {
-        return YES;
-    }
     for (VibeEQBand *band in _bands) {
         if (!band.neutral) {
             return YES;
         }
     }
-    return NO;
+    // Every band is neutral, so the automatic preamp is 0.
+    return !_preampAutomatic && _preampDB != 0;
 }
 
 - (BOOL)isNeutral {
@@ -291,14 +286,14 @@ static VibeCrossfeed VibeHoldCrossfeed(NSInteger crossfeed) {
 - (nullable instancetype)initWithCoder:(NSCoder *)coder {
     self = [self init];
     _eqEnabled = [coder decodeBoolForKey:@"eqEnabled"];
-    [self holdBands:[coder decodeArrayOfObjectsOfClass:[VibeEQBand class] forKey:@"bands"] ?: @[]];
+    _bands = VibeHoldBands([coder decodeArrayOfObjectsOfClass:[VibeEQBand class] forKey:@"bands"]);
     _preampAutomatic =
         [coder containsValueForKey:@"preampAutomatic"] ? [coder decodeBoolForKey:@"preampAutomatic"] : YES;
-    [self holdPreampDB:[coder decodeDoubleForKey:@"preampDB"]];
+    _preampDB = VibeHoldPreamp([coder decodeDoubleForKey:@"preampDB"]);
     _crossfeed = VibeHoldCrossfeed([coder decodeIntegerForKey:@"crossfeed"]);
     _mono = [coder decodeBoolForKey:@"mono"];
     _swapChannels = [coder decodeBoolForKey:@"swapChannels"];
-    [self holdBalance:[coder decodeDoubleForKey:@"balance"]];
+    _balance = VibeHoldBalance([coder decodeDoubleForKey:@"balance"]);
     return self;
 }
 
@@ -338,31 +333,34 @@ static VibeCrossfeed VibeHoldCrossfeed(NSInteger crossfeed) {
             }
         }
     }
-    [self holdBands:bands];
+    _bands = VibeHoldBands(bands);
     _preampAutomatic = VibeBool(plist, @"preampAutomatic", YES);
-    [self holdPreampDB:VibeNumber(plist, @"preampDB", 0)];
-    NSInteger crossfeed = VibeIndexOfName(plist[@"crossfeed"], kCrossfeedNames, 4);
+    _preampDB = VibeHoldPreamp(VibeNumber(plist, @"preampDB", 0));
+    NSInteger crossfeed = VibeIndexOfName(plist[@"crossfeed"], kCrossfeedNames, VibeCount(kCrossfeedNames));
     _crossfeed = crossfeed < 0 ? VibeCrossfeedOff : (VibeCrossfeed)crossfeed;
     _mono = VibeBool(plist, @"mono", NO);
     _swapChannels = VibeBool(plist, @"swapChannels", NO);
-    [self holdBalance:VibeNumber(plist, @"balance", 0)];
+    _balance = VibeHoldBalance(VibeNumber(plist, @"balance", 0));
     return self;
 }
 
 #pragma mark The graphic face
 
 + (NSArray<NSNumber *> *)graphicFrequencies {
-    return @[@31, @62, @125, @250, @500, @1000, @2000, @4000, @8000, @16000];
+    NSMutableArray<NSNumber *> *frequencies = [NSMutableArray arrayWithCapacity:kGraphicBandCount];
+    for (NSUInteger i = 0; i < kGraphicBandCount; i++) {
+        [frequencies addObject:@(kGraphicFrequencies[i])];
+    }
+    return [frequencies copy];
 }
 
 + (NSArray<VibeEQBand *> *)graphicBandsWithGains:(NSArray<NSNumber *> *)gains {
-    NSArray<NSNumber *> *frequencies = [self graphicFrequencies];
     NSMutableArray<VibeEQBand *> *bands = [NSMutableArray arrayWithCapacity:kGraphicBandCount];
     for (NSUInteger i = 0; i < kGraphicBandCount; i++) {
         id gain = i < gains.count ? gains[i] : nil;
         double dB = [gain isKindOfClass:[NSNumber class]] ? [gain doubleValue] : 0;
         [bands addObject:[VibeEQBand bandWithType:VibeEQBandTypePeak
-                                        frequency:frequencies[i].doubleValue
+                                        frequency:kGraphicFrequencies[i]
                                            gainDB:dB
                                                 q:kGraphicQ]];
     }
@@ -370,14 +368,13 @@ static VibeCrossfeed VibeHoldCrossfeed(NSInteger crossfeed) {
 }
 
 - (BOOL)isGraphic {
-    NSArray<NSNumber *> *frequencies = [VibeListeningSettings graphicFrequencies];
     if (_bands.count != kGraphicBandCount) {
         return NO;
     }
     for (NSUInteger i = 0; i < kGraphicBandCount; i++) {
         VibeEQBand *band = _bands[i];
         if (band.type != VibeEQBandTypePeak || !band.enabled || band.q != kGraphicQ ||
-            band.frequency != frequencies[i].doubleValue) {
+            band.frequency != kGraphicFrequencies[i]) {
             return NO;
         }
     }
@@ -401,7 +398,7 @@ static VibeCrossfeed VibeHoldCrossfeed(NSInteger crossfeed) {
 }
 
 - (NSUInteger)hash {
-    return _bands.hash ^ ((NSUInteger)_eqEnabled << 1) ^ ((NSUInteger)_preampAutomatic << 2) ^
+    return _bands.hash ^ _bands.firstObject.hash ^ ((NSUInteger)_eqEnabled << 1) ^ ((NSUInteger)_preampAutomatic << 2) ^
            ((NSUInteger)_mono << 3) ^ ((NSUInteger)_swapChannels << 4) ^ ((NSUInteger)_crossfeed << 5) ^
            (VibeHashDouble(_preampDB) * 31) ^ (VibeHashDouble(_balance) * 131);
 }
@@ -427,7 +424,7 @@ static VibeCrossfeed VibeHoldCrossfeed(NSInteger crossfeed) {
 }
 
 - (void)setBands:(NSArray<VibeEQBand *> *)bands {
-    [self holdBands:bands ?: @[]];
+    _bands = VibeHoldBands(bands);
 }
 
 - (void)setPreampAutomatic:(BOOL)preampAutomatic {
@@ -435,7 +432,7 @@ static VibeCrossfeed VibeHoldCrossfeed(NSInteger crossfeed) {
 }
 
 - (void)setPreampDB:(double)preampDB {
-    [self holdPreampDB:preampDB];
+    _preampDB = VibeHoldPreamp(preampDB);
 }
 
 - (void)setCrossfeed:(VibeCrossfeed)crossfeed {
@@ -451,23 +448,40 @@ static VibeCrossfeed VibeHoldCrossfeed(NSInteger crossfeed) {
 }
 
 - (void)setBalance:(double)balance {
-    [self holdBalance:balance];
+    _balance = VibeHoldBalance(balance);
 }
 
 @end
 
 #pragma mark - The response
 
-double VibeListeningResponseDB(NSArray<VibeEQBand *> *bands, double frequency, double sampleRate) {
-    double dB = 0;
+typedef struct {
+    NSUInteger count;
+    VibeListeningBiquad filters[kVibeListeningMaxBands];
+} VibeFilterSet;
+
+static VibeFilterSet VibeFilterSetMake(NSArray<VibeEQBand *> *bands, double sampleRate) {
+    VibeFilterSet set = {0};
     for (VibeEQBand *band in bands) {
-        if (!band.enabled) {
-            continue;
+        if (band.enabled && set.count < kVibeListeningMaxBands) {
+            set.filters[set.count++] =
+                VibeListeningBiquadMake(band.type, band.frequency, band.gainDB, band.q, sampleRate);
         }
-        VibeListeningBiquad f = VibeListeningBiquadMake(band.type, band.frequency, band.gainDB, band.q, sampleRate);
-        dB += VibeListeningBiquadResponseDB(f, frequency, sampleRate);
+    }
+    return set;
+}
+
+static double VibeFilterSetResponseDB(const VibeFilterSet *set, double frequency, double sampleRate) {
+    double dB = 0;
+    for (NSUInteger i = 0; i < set->count; i++) {
+        dB += VibeListeningBiquadResponseDB(set->filters[i], frequency, sampleRate);
     }
     return dB;
+}
+
+double VibeListeningResponseDB(NSArray<VibeEQBand *> *bands, double frequency, double sampleRate) {
+    VibeFilterSet set = VibeFilterSetMake(bands, sampleRate);
+    return VibeFilterSetResponseDB(&set, frequency, sampleRate);
 }
 
 double VibeListeningAutomaticPreampDB(NSArray<VibeEQBand *> *bands) {
@@ -475,34 +489,43 @@ double VibeListeningAutomaticPreampDB(NSArray<VibeEQBand *> *bands) {
     static const int kPoints = 1024;
     BOOL boosts = NO;
     for (VibeEQBand *band in bands) {
-        boosts = boosts || (band.enabled && !band.neutral);
+        boosts = boosts || !band.neutral;
     }
     if (!boosts) {
         return 0;
     }
-    // A log grid, then a golden-section search on the best point's
-    // neighborhood, so a narrow peak between two points still counts.
+    VibeFilterSet set = VibeFilterSetMake(bands, kRate);
+    // A log grid, then a golden-section search beside the best point, so a
+    // narrow peak between two points still counts.
     double low = log(20.0), high = log(20000.0), step = (high - low) / (kPoints - 1);
     double best = -INFINITY;
     int bestIndex = 0;
     for (int i = 0; i < kPoints; i++) {
-        double dB = VibeListeningResponseDB(bands, exp(low + step * i), kRate);
+        double dB = VibeFilterSetResponseDB(&set, exp(low + step * i), kRate);
         if (dB > best) {
             best = dB;
             bestIndex = i;
         }
     }
-    double a = fmax(low, low + step * (bestIndex - 1)), b = fmin(high, low + step * (bestIndex + 1));
     const double ratio = 0.6180339887498949;
-    for (int i = 0; i < 40; i++) {
-        double c = b - ratio * (b - a), d = a + ratio * (b - a);
-        double fc = VibeListeningResponseDB(bands, exp(c), kRate), fd = VibeListeningResponseDB(bands, exp(d), kRate);
-        best = fmax(best, fmax(fc, fd));
+    double a = fmax(low, low + step * (bestIndex - 1)), b = fmin(high, low + step * (bestIndex + 1));
+    double c = b - ratio * (b - a), d = a + ratio * (b - a);
+    double fc = VibeFilterSetResponseDB(&set, exp(c), kRate), fd = VibeFilterSetResponseDB(&set, exp(d), kRate);
+    for (int i = 0; i < 30; i++) {
         if (fc > fd) {
             b = d;
+            d = c;
+            fd = fc;
+            c = b - ratio * (b - a);
+            fc = VibeFilterSetResponseDB(&set, exp(c), kRate);
         } else {
             a = c;
+            c = d;
+            fc = fd;
+            d = a + ratio * (b - a);
+            fd = VibeFilterSetResponseDB(&set, exp(d), kRate);
         }
+        best = fmax(best, fmax(fc, fd));
     }
     return best > 0 ? -best : 0;
 }

@@ -2,7 +2,7 @@
 //  VibeListeningBiquad.h
 //  vibe-libs
 //
-//  The RBJ cookbook's biquads, which both the response math and the stage use,
+//  The RBJ cookbook's biquads. The response math uses them, and a stage must,
 //  so the curve an editor draws is the one that plays.
 //
 
@@ -70,7 +70,6 @@ static inline VibeListeningBiquad VibeListeningBiquadMake(VibeEQBandType type, d
     return (VibeListeningBiquad){b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0};
 }
 
-// The filter's magnitude, in dB, at `frequency`.
 static inline double VibeListeningBiquadResponseDB(VibeListeningBiquad f, double frequency, double sampleRate) {
     double w = 2.0 * M_PI * frequency / sampleRate;
     double c1 = cos(w), s1 = sin(w), c2 = cos(2 * w), s2 = sin(2 * w);
