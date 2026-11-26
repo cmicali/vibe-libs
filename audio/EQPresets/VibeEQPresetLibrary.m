@@ -5,8 +5,20 @@
 
 #import "VibeEQPresetLibrary.h"
 
+// Lowercase, with no marks. The letters that hold no mark to strip, as in
+// "RØDE", are spelled out, so "rode" finds it.
 static NSString *Folded(NSString *text) {
-    return [text stringByFoldingWithOptions:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch locale:nil];
+    static NSDictionary<NSString *, NSString *> *letters;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        letters = @{@"ø" : @"o", @"æ" : @"ae", @"œ" : @"oe", @"ß" : @"ss", @"đ" : @"d", @"ł" : @"l", @"ı" : @"i"};
+    });
+    NSString *folded = [text stringByFoldingWithOptions:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch
+                                                 locale:nil];
+    for (NSString *letter in letters) {
+        folded = [folded stringByReplacingOccurrencesOfString:letter withString:letters[letter]];
+    }
+    return folded;
 }
 
 static VibeEQPreset *BuiltIn(NSString *identifier, NSString *name, NSArray<NSNumber *> *gains) {
@@ -51,7 +63,8 @@ static NSUInteger Rank(NSString *name, NSString *query, NSArray<NSString *> *wor
 @implementation VibeEQPresetLibrary {
     NSArray<VibeEQPreset *> * (^_loader)(void);
     dispatch_queue_t _queue;
-    // Set once, on _queue: the headphones sorted by folded name, and both lookups.
+    // Set once, on _queue: the headphones in name order, their folded names,
+    // and the lookup.
     NSArray<VibeEQPreset *> *_headphones;
     NSArray<NSString *> *_foldedNames;
     NSDictionary<NSString *, VibeEQPreset *> *_byIdentifier;
@@ -90,32 +103,19 @@ static NSUInteger Rank(NSString *name, NSString *query, NSArray<NSString *> *wor
     if (_headphones != nil) {
         return;
     }
-    NSArray<VibeEQPreset *> *loaded = _loader() ?: @[];
+    NSArray<VibeEQPreset *> *headphones =
+        [_loader() ?: @[] sortedArrayUsingComparator:^NSComparisonResult(VibeEQPreset *a, VibeEQPreset *b) {
+            NSComparisonResult result =
+                [a.name compare:b.name options:NSCaseInsensitiveSearch | NSDiacriticInsensitiveSearch];
+            return result != NSOrderedSame ? result : [a.name compare:b.name];
+        }];
     _loader = nil;
-    NSMutableArray<NSString *> *names = [NSMutableArray arrayWithCapacity:loaded.count];
-    for (VibeEQPreset *preset in loaded) {
-        [names addObject:Folded(preset.name)];
-    }
-    NSMutableArray<NSNumber *> *order = [NSMutableArray arrayWithCapacity:loaded.count];
-    for (NSUInteger i = 0; i < loaded.count; i++) {
-        [order addObject:@(i)];
-    }
-    [order sortUsingComparator:^NSComparisonResult(NSNumber *a, NSNumber *b) {
-        NSComparisonResult result = [names[a.unsignedIntegerValue] compare:names[b.unsignedIntegerValue]];
-        return result != NSOrderedSame ? result
-                                       : [loaded[a.unsignedIntegerValue].name compare:loaded[b.unsignedIntegerValue].name];
-    }];
-    NSMutableArray<VibeEQPreset *> *headphones = [NSMutableArray arrayWithCapacity:loaded.count];
-    NSMutableArray<NSString *> *foldedNames = [NSMutableArray arrayWithCapacity:loaded.count];
-    NSMutableDictionary<NSString *, VibeEQPreset *> *byIdentifier = [NSMutableDictionary dictionaryWithCapacity:loaded.count];
-    for (NSNumber *index in order) {
-        VibeEQPreset *preset = loaded[index.unsignedIntegerValue];
-        [headphones addObject:preset];
-        [foldedNames addObject:names[index.unsignedIntegerValue]];
-        byIdentifier[preset.identifier] = preset;
+    NSMutableArray<NSString *> *foldedNames = [NSMutableArray arrayWithCapacity:headphones.count];
+    for (VibeEQPreset *preset in headphones) {
+        [foldedNames addObject:Folded(preset.name)];
     }
     _foldedNames = foldedNames;
-    _byIdentifier = byIdentifier;
+    _byIdentifier = [NSDictionary dictionaryWithObjects:headphones forKeys:[headphones valueForKey:@"identifier"]];
     _headphones = headphones;
 }
 
@@ -138,8 +138,12 @@ static NSUInteger Rank(NSString *name, NSString *query, NSArray<NSString *> *wor
     if (query.length == 0) {
         return _headphones.count > cap ? [_headphones subarrayWithRange:NSMakeRange(0, cap)] : _headphones;
     }
-    NSArray<NSString *> *words = [[query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet]
-        filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+    NSMutableArray<NSString *> *words = [NSMutableArray array];
+    for (NSString *word in [query componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet]) {
+        if (word.length > 0) {
+            [words addObject:word];
+        }
+    }
     NSMutableArray<VibeEQPreset *> *ranked[kRankCount];
     for (NSUInteger rank = 0; rank < kRankCount; rank++) {
         ranked[rank] = [NSMutableArray array];
@@ -148,10 +152,6 @@ static NSUInteger Rank(NSString *name, NSString *query, NSArray<NSString *> *wor
         NSUInteger rank = Rank(_foldedNames[index], query, words);
         if (rank < kRankCount) {
             [ranked[rank] addObject:_headphones[index]];
-            // Enough best matches end the search early.
-            if (rank == kRankPrefix && ranked[kRankPrefix].count >= cap) {
-                break;
-            }
         }
     }
     NSMutableArray<VibeEQPreset *> *results = [NSMutableArray array];

@@ -7,12 +7,10 @@
 
 NSErrorDomain const VibeEQPresetFileErrorDomain = @"VibeEQPresetFileErrorDomain";
 
-static const double kDefaultQ = 0.707;
-
-// A number with a point as the decimal mark, whatever the locale, or NO.
+// A number with a point as the decimal mark, whatever the locale, or NO. A
+// scanner's locale is nil unless set, which reads a point.
 static BOOL ReadNumber(NSString *token, double *value) {
     NSScanner *scanner = [NSScanner scannerWithString:token];
-    scanner.locale = nil;
     double read = 0;
     if (![scanner scanDouble:&read] || !scanner.isAtEnd || !isfinite(read)) {
         return NO;
@@ -22,8 +20,13 @@ static BOOL ReadNumber(NSString *token, double *value) {
 }
 
 static NSArray<NSString *> *Tokens(NSString *text) {
-    NSArray *parts = [text componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
-    return [parts filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"length > 0"]];
+    NSMutableArray<NSString *> *tokens = [NSMutableArray array];
+    for (NSString *part in [text componentsSeparatedByCharactersInSet:NSCharacterSet.whitespaceCharacterSet]) {
+        if (part.length > 0) {
+            [tokens addObject:part];
+        }
+    }
+    return tokens;
 }
 
 static BOOL ReadType(NSString *token, VibeEQBandType *type) {
@@ -46,7 +49,8 @@ static BOOL ReadType(NSString *token, VibeEQBandType *type) {
     return YES;
 }
 
-// "ON PK Fc 105 Hz Gain -3.1 dB Q 0.70", the part after "Filter 1:".
+// "ON PK Fc 105 Hz Gain -3.1 dB Q 0.70", the part after "Filter 1:". A missing
+// gain or Q stays NAN, which VibeEQBand reads as its default.
 static VibeEQBand *ReadFilter(NSString *text) {
     NSArray<NSString *> *tokens = Tokens(text);
     if (tokens.count < 2) {
@@ -60,7 +64,7 @@ static VibeEQBand *ReadFilter(NSString *text) {
     if (!ReadType(tokens[1], &type)) {
         return nil;
     }
-    double frequency = NAN, gain = 0, q = kDefaultQ;
+    double frequency = NAN, gain = NAN, q = NAN;
     for (NSUInteger i = 2; i + 1 < tokens.count; i++) {
         NSString *key = tokens[i].lowercaseString;
         double *slot = [key isEqualToString:@"fc"] ? &frequency
@@ -96,10 +100,13 @@ static NSString *Number(double value) {
 @implementation VibeEQPresetFile
 
 + (VibeEQPreset *)presetFromEqualizerAPOText:(NSString *)text name:(NSString *)name error:(NSError **)error {
+    // A file saved on Windows may start with a byte order mark.
+    NSMutableCharacterSet *blank = [NSMutableCharacterSet whitespaceCharacterSet];
+    [blank addCharactersInString:@"\uFEFF"];
     double preamp = 0;
     NSMutableArray<VibeEQBand *> *bands = [NSMutableArray array];
     for (NSString *rawLine in [text componentsSeparatedByCharactersInSet:NSCharacterSet.newlineCharacterSet]) {
-        NSString *line = [rawLine stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        NSString *line = [rawLine stringByTrimmingCharactersInSet:blank];
         NSRange colon = [line rangeOfString:@":"];
         if (colon.location == NSNotFound) {
             continue;
@@ -111,7 +118,7 @@ static NSString *Number(double value) {
             if (value != nil) {
                 ReadNumber(value, &preamp);
             }
-        } else if ([label hasPrefix:@"filter"] && bands.count < kVibeListeningMaxBands) {
+        } else if ([label hasPrefix:@"filter"]) {
             VibeEQBand *band = ReadFilter(rest);
             if (band != nil) {
                 [bands addObject:band];
@@ -126,6 +133,7 @@ static NSString *Number(double value) {
         }
         return nil;
     }
+    // The preset keeps the first 20 bands and holds the preamp to its range.
     return [[VibeEQPreset alloc] initWithIdentifier:[@"user." stringByAppendingString:NSUUID.UUID.UUIDString]
                                                name:name
                                                kind:VibeEQPresetKindUser
@@ -135,27 +143,18 @@ static NSString *Number(double value) {
 }
 
 + (NSString *)equalizerAPOTextForPreset:(VibeEQPreset *)preset {
+    static NSString *const kTypeNames[] = {
+        [VibeEQBandTypePeak] = @"PK",     [VibeEQBandTypeLowShelf] = @"LSC", [VibeEQBandTypeHighShelf] = @"HSC",
+        [VibeEQBandTypeLowPass] = @"LPQ", [VibeEQBandTypeHighPass] = @"HPQ",
+    };
     NSMutableString *text = [NSMutableString stringWithFormat:@"Preamp: %@ dB\n", Number(preset.preampDB)];
     [preset.bands enumerateObjectsUsingBlock:^(VibeEQBand *band, NSUInteger index, BOOL *stop) {
-        NSString *state = band.enabled ? @"ON" : @"OFF";
-        NSString *fc = Number(band.frequency), *q = Number(band.q);
-        switch (band.type) {
-            case VibeEQBandTypeLowPass:
-            case VibeEQBandTypeHighPass:
-                [text appendFormat:@"Filter %lu: %@ %@ Fc %@ Hz Q %@\n", (unsigned long)index + 1, state,
-                                   band.type == VibeEQBandTypeLowPass ? @"LPQ" : @"HPQ", fc, q];
-                break;
-            case VibeEQBandTypePeak:
-            case VibeEQBandTypeLowShelf:
-            case VibeEQBandTypeHighShelf: {
-                NSString *type = band.type == VibeEQBandTypePeak ? @"PK"
-                               : band.type == VibeEQBandTypeLowShelf ? @"LSC"
-                               : @"HSC";
-                [text appendFormat:@"Filter %lu: %@ %@ Fc %@ Hz Gain %@ dB Q %@\n", (unsigned long)index + 1, state,
-                                   type, fc, Number(band.gainDB), q];
-                break;
-            }
+        [text appendFormat:@"Filter %lu: %@ %@ Fc %@ Hz", (unsigned long)index + 1, band.enabled ? @"ON" : @"OFF",
+                           kTypeNames[band.type], Number(band.frequency)];
+        if (band.type != VibeEQBandTypeLowPass && band.type != VibeEQBandTypeHighPass) {
+            [text appendFormat:@" Gain %@ dB", Number(band.gainDB)];
         }
+        [text appendFormat:@" Q %@\n", Number(band.q)];
     }];
     return text;
 }

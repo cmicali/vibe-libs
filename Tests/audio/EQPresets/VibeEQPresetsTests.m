@@ -111,6 +111,11 @@ static VibeEQPreset *Headphone(NSString *name) {
     XCTAssertNil([VibeEQPresetFile presetFromEqualizerAPOText:@"" name:@"Bad" error:NULL]);
 }
 
+- (void)testItReadsAFileThatStartsWithAByteOrderMark {
+    NSString *text = [@"\uFEFF" stringByAppendingString:kAutoEQText];
+    XCTAssertEqual([VibeEQPresetFile presetFromEqualizerAPOText:text name:@"BOM" error:NULL].preampDB, -5.4);
+}
+
 - (void)testItReadsAtMostTwentyFiltersAndHoldsThePreampToItsRange {
     NSMutableString *text = [NSMutableString stringWithString:@"Preamp: 6 dB\n"];
     for (int i = 1; i <= 25; i++) {
@@ -268,6 +273,7 @@ static VibeEQPreset *Headphone(NSString *name) {
                           (@[ @"Apple AirPods Pro", @"Beyerdynamic DT 770 Pro" ]));
     XCTAssertEqualObjects([self namesFromSearch:@"erlkonig" limit:0 library:library], @[ @"Vision Ears Erlkönig" ]);
     XCTAssertEqualObjects([self namesFromSearch:@"nth" limit:0 library:library], @[ @"RØDE NTH-100" ]);
+    XCTAssertEqualObjects([self namesFromSearch:@"rode" limit:0 library:library], @[ @"RØDE NTH-100" ]);
     XCTAssertEqualObjects([self namesFromSearch:@"650 sennheiser" limit:0 library:library], @[ @"Sennheiser HD 650" ]);
     XCTAssertEqualObjects([self namesFromSearch:@"hd" limit:2 library:library], (@[ @"HDX Studio", @"Moondrop HDR" ]));
     XCTAssertEqualObjects([self namesFromSearch:@"zzz" limit:0 library:library], @[]);
