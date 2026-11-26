@@ -135,10 +135,10 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/audio/LoudnessEqualizer"]
 
-  # The listening settings and their response math: the EQ's bands, the
-  # preamp, crossfeed, and the channel tools.
+  # The listening settings and their response math, and the realtime stage
+  # that plays them, with a C API. It lists DSP for the fades.
   VibeLibsListening:
-    templates: [VibeLibsCommon]
+    templates: [VibeLibsCommon, VibeLibsDSP]
     sources:
       - path: audio/Listening
         excludes: ["**/*.md", "${excludedPlatform}/**"]
@@ -266,7 +266,7 @@ targetTemplates:
   # it would VibeLibsDecode, which this one lists.
   VibeLibsPlayer:
     templates: [VibeLibsCommon, VibeLibsAudioTypes, VibeLibsDSP, VibeLibsDecode, VibeLibsFX, VibeLibsMeter,
-                VibeLibsLoudnessEqualizer, VibeLibsOutputDevices, VibeLibsFileLoading]
+                VibeLibsListening, VibeLibsLoudnessEqualizer, VibeLibsOutputDevices, VibeLibsFileLoading]
     sources:
       - path: audio/Player
         excludes: ["**/*.md", "${excludedPlatform}/**"]
@@ -509,6 +509,20 @@ targetTemplates:
     settings:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/DropWells/Mac"]
+
+  # An EQ's editor: the graphic face's sliders and the parametric face's
+  # curve, nodes, and band list. macOS only, so no iOS target may list it.
+  # Its files sit in its Mac/ half, as Shortcuts' do. It lists Listening for
+  # the bands and the curve's math, and Controls for the drawn switch, which
+  # lists Graphics.
+  VibeLibsEQEditor:
+    templates: [VibeLibsListening, VibeLibsControls]
+    sources:
+      - path: ui/EQEditor
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/EQEditor/Mac"]
 
   # Security-scoped bookmarks and folder grants, with the grant panel. macOS
   # only, so no iOS target may list it. Its files sit in its Mac/ half, as

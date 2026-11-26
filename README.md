@@ -6,7 +6,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first fifty-six pieces are here.** Each came from Vibe, but for libwavpack, the Monkey's Audio SDK, `audio/LoudnessEqualizer`, `audio/Listening`, and `audio/EQPresets`. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first fifty-seven pieces are here.** Each came from Vibe, but for libwavpack, the Monkey's Audio SDK, `audio/LoudnessEqualizer`, `audio/Listening`, `audio/EQPresets`, and `ui/EQEditor`. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |
@@ -43,6 +43,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `ui/SettingsWindow` | A System Settings window with a sidebar, search, history, and form views. macOS only. |
 | `ui/Shortcuts` | Remappable shortcuts and their recorder pane. macOS only. |
 | `ui/DropWells` | The wells a drag of files over a window shows. macOS only. |
+| `ui/EQEditor` | An EQ's editor: ten graphic sliders, or the curve with a node and a row for each band. macOS only. |
 | `ui/Rows` | The track row, the mini player strip, and the file row pieces an iOS music app lists with. iOS only. |
 | `ui/FilesBrowser` | A browser of granted folders and an app's sources, with the app's actions and rows. iOS only. |
 | `ui/PlayerCard` | An iOS music app's now-playing card: a pager of tracks, each with its art, waveform scrubber, transport, FX pad, and output route. iOS only. |

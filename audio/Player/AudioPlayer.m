@@ -1458,6 +1458,30 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     });
 }
 
+- (VibeListeningSettings *)listening {
+    os_unfair_lock_lock(&_stateLock);
+    VibeListeningSettings *settings = _listening;
+    os_unfair_lock_unlock(&_stateLock);
+    return settings ?: [VibeListeningSettings neutralSettings];
+}
+
+- (void)setListening:(VibeListeningSettings *)listening {
+    VibeListeningSettings *settings = [listening copy];
+    os_unfair_lock_lock(&_stateLock);
+    _listening = settings;
+    os_unfair_lock_unlock(&_stateLock);
+    dispatch_async(_queue, ^{
+        [self applyListeningOnQueue];
+    });
+}
+
+- (BOOL)listeningClipping {
+    os_unfair_lock_lock(&_stateLock);
+    BOOL clipping = _listeningClipping;
+    os_unfair_lock_unlock(&_stateLock);
+    return clipping;
+}
+
 - (float)maxPitch {
     os_unfair_lock_lock(&_stateLock);
     float maxPitch = _maxPitch;

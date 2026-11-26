@@ -108,8 +108,8 @@ vibe-libs/
 │   ├── Meter ●          live band levels from inside a render, only while someone looks
 │   ├── FX ●             the DJ chain over Apple's audio units
 │   ├── LoudnessEqualizer ● loudness equalization and its limiter, a realtime stage
-│   ├── Listening ●      an EQ, a preamp, crossfeed, and the channel tools, with their
-│   │                    settings and response math
+│   ├── Listening ●      an EQ, a preamp, crossfeed, and the channel tools: their
+│   │                    settings, response math, and realtime stage
 │   ├── EQPresets ●      EQ presets: the built-ins, Equalizer APO's text, and a headphone
 │   │                    search
 │   ├── OutputDevices ●  Mac/ device discovery, rates, hog mode, format rules, event log;
@@ -151,6 +151,8 @@ vibe-libs/
 │   │                    layout, and the recorder pane over rows the app supplies
 │   ├── DropWells        macOS only: the wells a drag of files over a window shows, each a
 │   │                    symbol, a label, and the app's action, lit under the pointer
+│   ├── EQEditor         macOS only: an EQ's editor, a graphic face of ten sliders and a
+│   │                    parametric face with the curve, a node, and a row for each band
 │   ├── Rows             iOS only: the track row, the mini player strip, the file row
 │   │                    pieces, and the track row value they draw
 │   ├── FilesBrowser     iOS only: a browser of the folders a user granted and the
@@ -214,10 +216,10 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | audio/Meter | nothing |
 | audio/FX | audio/DSP |
 | audio/LoudnessEqualizer | nothing but Accelerate |
-| audio/Listening | nothing |
+| audio/Listening | audio/DSP |
 | audio/EQPresets | audio/Listening |
 | audio/OutputDevices | nothing |
-| audio/Player | audio/AudioTypes, audio/DSP, audio/Decode, audio/FX, audio/Meter, audio/LoudnessEqualizer, audio/OutputDevices, files/FileLoading |
+| audio/Player | audio/AudioTypes, audio/DSP, audio/Decode, audio/FX, audio/Meter, audio/Listening, audio/LoudnessEqualizer, audio/OutputDevices, files/FileLoading |
 | media/Tags | audio/AudioTypes, third_party/taglib |
 | media/Metadata | audio/AudioTypes, audio/Decode, media/Tags, files/DiskCache, files/FileLoading, core/Graphics, third_party/taglib |
 | media/PlayQueue | nothing: its entries are opaque objects (seam 19) |
@@ -231,6 +233,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | ui/SettingsWindow | ui/Controls, core/Graphics, macOS only |
 | ui/Shortcuts | ui/SettingsWindow, macOS only |
 | ui/DropWells | core/Graphics, macOS only |
+| ui/EQEditor | audio/Listening, ui/Controls, core/Graphics, macOS only |
 | ui/Rows | ui/Controls, iOS only |
 | ui/FilesBrowser | ui/Rows, ui/Controls, media/Metadata, media/FolderScan, media/Playlists, files/FileLoading, iOS only |
 | ui/PlayerCard | waveform/WaveformView, waveform/WaveformLoading, waveform/WaveformStyles, media/Metadata, media/PlayQueue, audio/AudioTypes, audio/FX, audio/OutputDevices, files/FileLoading, core/Graphics, iOS only |
@@ -662,6 +665,8 @@ Each remaining candidate moves when a second app needs it, with the cuts it was 
 - **The standard debug verbs and the debug client**, since Vibe, the other app, and the third app each need them. [debug-verbs.md](debug-verbs.md) is the plan: a new piece, `dev/DebugVerbs`, the client's move into DebugChannel's `Mac/` half, and each app taking them. Planned on 2026-10-30. They moved on 2026-10-30 (this repo's #87). The piece's 16 files, its doc, and the client's 2 files moved with their history, after a prep pull request in Vibe staged them. Their tests are new here. The consumer answers `dump_build` and `dump_health` from the standard table.
 
 - **The drop wells**, since Vibe and the other app each show them over a drop. Built on 2026-11-07 as a new piece, `ui/DropWells`, from Vibe's playlist drop zone. Its wells, their titles, symbols, and actions, and its style are values the app passes. Vibe's drop zone keeps its rest well and uses the piece for the drag.
+
+- **The EQ editor**, since Vibe and the other app each edit the listening stage's EQ. Built on 2026-11-26 as a new piece, `ui/EQEditor`, beside `audio/Listening`, whose bands and curve it draws. It edits only the bands. Its words, its locale, and the face are the app's.
 
 - **The Dropbox client and mirror**, since another app needs Dropbox as Vibe's iOS app has it. They move as a new piece, `files/Dropbox`, with their tests and their doc. Vibe decoupled them first (Vibe #447). The app now passes in its app key, its Keychain service, the mirror's index xattr, its directory, and its download budget. The budget's choices and the shared mirror stay in Vibe. The piece builds on both platforms. **The fake account followed on 2026-11-23** (`VibeFakeDropbox`), since another app's simulator checks drive its Dropbox the way Vibe's do. It imported only this repo's pieces, so Vibe needed no cut first. Its 2 files moved with their history, it joined `files/Dropbox` beside what it fakes (rule 8), the map gained the edge to `audio/Decode` it already had through RemoteFiles, for the tail window's size, and `VibeFakeDropboxTests` are new here. Its header lost its `#if DEBUG`, and its body keeps it. Each app's debug verbs that drive it stay in that app.
 - **The iOS rows**, since the other app lists files and tracks on iOS as Vibe does. They moved on 2026-11-22 as a new piece, `ui/Rows`, which is iOS only (this repo's #178). Its 8 files moved with their history: the track row, the mini player strip, the file row pieces, and `VibeTrackRow`, the value they draw. Two prep pull requests in Vibe came first (Vibe #448 and #450). They were the piece's part of seam 21. The views stopped reading `AudioTrack` and Vibe's strings. They draw a `VibeTrackRow` that the app fills, and the strip takes its VoiceOver labels. The value got a header of its own. Their tests stay in Vibe's simulator suite (`ui/Rows/AGENTS.md`).

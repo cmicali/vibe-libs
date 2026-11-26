@@ -893,6 +893,22 @@ targets:
       base:
         GENERATE_INFOPLIST_FILE: YES
 
+  # ui/EQEditor, tested on macOS. It is macOS only, so it has no iOS target.
+  # Its tests share the drawn-view support with Controls'.
+  EQEditorTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsEQEditor]
+    templateAttributes:
+      excludedPlatform: iOS
+    sources:
+      - path: Tests/ui/EQEditor
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(SRCROOT)/Tests/Support"]
+
   # ui/Shortcuts, tested on macOS. It is macOS only, so it has no iOS target.
   ShortcutsTests:
     type: bundle.unit-test
@@ -1355,6 +1371,7 @@ schemes:
         SettingsWindowTests: [test]
         ShortcutsTests: [test]
         DropWellsTests: [test]
+        EQEditorTests: [test]
         SandboxAccessTests: [test]
         NowPlayingTests: [test]
         NowPlaying-iOS: all
@@ -1398,7 +1415,7 @@ schemes:
                 HTTPTests, RemoteFilesTests, DropboxTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
                 MetadataTests, PlayQueueTests, PlaylistsTests, FolderScanTests, WaveformTests, WaveformLoadingTests,
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
-                SandboxAccessTests, NowPlayingTests, WidgetStateTests, WidgetTests, AppOpeningTests, UpdatesTests,
+                EQEditorTests, SandboxAccessTests, NowPlayingTests, WidgetStateTests, WidgetTests, AppOpeningTests, UpdatesTests,
                 DebugChannelTests, DebugVerbsTests,
                 TaglibTests, R8brainTests, DrMp3Tests, DrFlacTests, DrWavTests,
                 OggTests, VorbisTests, SparkleTests, WavpackTests, MonkeysAudioTests]

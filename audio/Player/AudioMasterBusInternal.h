@@ -10,6 +10,7 @@
 #import "AudioFX+Pipeline.h"
 #import "AudioLevelMeter.h"
 #import "AudioVarispeed.h"
+#import "VibeListeningStage.h"
 #import "VibeLoudnessEqualizer.h"
 #import "VibeMacros.h"
 #include <stdatomic.h>
@@ -56,6 +57,10 @@ struct VibeMasterBus {
     // could be, and on iOS, at the output's rate and channels. Off, it is a
     // bit-perfect pass-through (VibeLoudnessEqualizer.h).
     _Atomic(VibeLoudnessEqualizer *) loudness; // NULL without one
+    // The listening stage, after the FX and before loudness: hosted where
+    // loudness is. Neutral, it is a bit-perfect pass-through
+    // (VibeListeningStage.h).
+    _Atomic(VibeListeningStage *) listening; // NULL without one
     // Debug builds only. A test's stuck render: while set, a render blocks
     // inside the pipeline after reading the bus; rendersHeld counts them.
     _Atomic int32_t holdRenderInside;

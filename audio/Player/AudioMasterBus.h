@@ -2,8 +2,8 @@
 //  AudioMasterBus.h
 //  vibe-libs
 //
-//  The render: voice bus -> [varispeed] -> [FX] -> [loudness] -> [meter] ->
-//  [volume] -> the output unit's buffers. AudioPlayer+Pipeline is its player-queue side.
+//  The render: voice bus -> [varispeed] -> [FX] -> [listening] -> [loudness] ->
+//  [meter] -> [volume] -> the output unit's buffers. AudioPlayer+Pipeline is its player-queue side.
 //  AudioMasterBusInternal.h is its layout.
 //
 
@@ -29,7 +29,7 @@ VibeMasterBus *VibeMasterBusCreate(void);
 // across its next slice, or lands on it at the next output start. 1, the
 // default, leaves every sample untouched.
 void VibeMasterBusSetVolume(VibeMasterBus *master, float gain);
-// Frees the varispeed, the loudness stage, and the master bus; the output
+// Frees the varispeed, the listening and loudness stages, and the master bus; the output
 // unit is stopped and no render is inside. The player's dealloc.
 void VibeMasterBusFree(VibeMasterBus *master);
 
