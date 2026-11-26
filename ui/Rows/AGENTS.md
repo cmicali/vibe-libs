@@ -1,13 +1,13 @@
 # ui/Rows
 
-The rows an iOS music app lists files and tracks in, and the mini player strip. **It is iOS only.** It depends on `ui/Controls`, for the equalizer bars and the loading indicator in a track row's gutter. None of it reads an app's settings, strings, or model. The app fills a value or pushes a label in. The strip lives here because it draws a `VibeTrackRow` and the file tile, so a piece of its own would save no dependency.
+The rows an iOS music app lists files and tracks in, and the mini player strip. **It is iOS only.** It depends on `ui/Controls`, for the equalizer bars and the loading indicator in a track row's gutter. None of it reads an app's settings, strings, or model. The app fills a value or pushes a label in. The strip lives here because it draws a `VibeTrackRow` and the song tile, so a piece of its own would save no dependency.
 
 | File | Owns |
 | --- | --- |
 | `VibeTrackRow` | the value a track row draws: title, subtitle, thumbnail, duration text, number text, and the playing marker. The strip draws its title, subtitle, and thumbnail |
 | `VibeTrackCell` | a track's table row: the gutter, the art, the title over the subtitle, and the duration |
 | `VibeMiniPlayerView` | the strip in the tab bar's bottom accessory: the art, the title over the subtitle, play or pause, and next |
-| `FileRow` | what every file and track row shares: the file tile, the icon slot, the name style, the opening spinner, the not-downloaded mark, a menu action, and the viewport test |
+| `FileRow` | what every file and track row shares: the tiles a row shows where it has no art, the icon slot, the name style, the opening spinner, the not-downloaded mark, a menu action, and the viewport test |
 
 ## How an app uses it
 
@@ -22,6 +22,8 @@ List `VibeLibsRows` in an iOS target.
 **The strip takes its four VoiceOver labels in one call.** The play button names what a tap will do: play while paused, and pause while playing.
 
 **An icon slot is told whether the file is a playlist.** The piece does not know a playlist's extensions.
+
+**A row with no art shows a tile of the same size.** A file's row shows a waveform, and a playlist file's a note list. A track row and the strip show a song, so they show a music note, as the system's Music app does.
 
 ## TRAPs
 

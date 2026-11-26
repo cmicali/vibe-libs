@@ -267,6 +267,28 @@ targets:
     templateAttributes:
       excludedPlatform: Mac
 
+  # audio/Listening, tested on macOS.
+  ListeningTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsListening]
+    templateAttributes:
+      excludedPlatform: iOS
+    sources:
+      - path: Tests/audio/Listening
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  # audio/Listening built for iOS, so an AppKit leak fails here.
+  Listening-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsListening]
+    templateAttributes:
+      excludedPlatform: Mac
+
   # files/FileLoading, tested on macOS. The tests drive the seams and the fake
   # cloud, which compile only under DEBUG, so the bundle defines it in every
   # configuration. The coordinator's
@@ -1268,6 +1290,8 @@ schemes:
         Meter-iOS: all
         LoudnessEqualizerTests: [test]
         LoudnessEqualizer-iOS: all
+        ListeningTests: [test]
+        Listening-iOS: all
         FileLoadingTests: [test]
         FileLoading-iOS: all
         DiskCacheTests: [test]
@@ -1346,8 +1370,8 @@ schemes:
         SparkleTests: [test]
     test:
       targets: [CommonTests, GraphicsTests, AudioTypesTests, DSPTests, AnalysisTests, OutputDevicesTests,
-                FXTests, MeterTests, LoudnessEqualizerTests, FileLoadingTests, DiskCacheTests, HTTPTests,
-                RemoteFilesTests, DropboxTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
+                FXTests, MeterTests, LoudnessEqualizerTests, ListeningTests, FileLoadingTests, DiskCacheTests,
+                HTTPTests, RemoteFilesTests, DropboxTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
                 MetadataTests, PlayQueueTests, PlaylistsTests, FolderScanTests, WaveformTests, WaveformLoadingTests,
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
                 SandboxAccessTests, NowPlayingTests, WidgetStateTests, WidgetTests, AppOpeningTests, UpdatesTests,
