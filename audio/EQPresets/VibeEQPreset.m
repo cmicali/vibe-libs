@@ -44,7 +44,12 @@ static NSString *const kPreampKey = @"preampDB";
 }
 
 - (BOOL)matchesSettings:(VibeListeningSettings *)settings {
-    return settings.eqEnabled && [settings.bands isEqualToArray:self.bands] &&
+    if (!settings.eqEnabled || ![settings.bands isEqualToArray:self.bands]) {
+        return NO;
+    }
+    // A manual preamp the preset saved matches too, though applying would turn
+    // one that cuts less than the automatic preamp back to automatic.
+    return (!settings.preampAutomatic && settings.preampDB == self.preampDB) ||
            fabs(settings.effectivePreampDB - [self applyingToSettings:settings].effectivePreampDB) < 1e-9;
 }
 
@@ -95,7 +100,7 @@ static NSString *const kKindNames[] = {
         kPreampKey : @(self.preampDB),
     } mutableCopy];
     plist[kSourceKey] = self.source;
-    return plist;
+    return [plist copy];
 }
 
 - (instancetype)initWithPropertyList:(id)propertyList {
@@ -104,21 +109,22 @@ static NSString *const kKindNames[] = {
     }
     NSDictionary *plist = propertyList;
     id identifier = plist[kIdentifierKey], name = plist[kNameKey], source = plist[kSourceKey], preamp = plist[kPreampKey];
+    id kindName = plist[kKindKey];
     NSInteger kind = -1;
-    for (NSInteger i = VibeEQPresetKindBuiltIn; i <= VibeEQPresetKindUser; i++) {
-        if ([kKindNames[i] isEqual:plist[kKindKey]]) {
+    for (NSInteger i = VibeEQPresetKindBuiltIn; i <= VibeEQPresetKindUser && kind < 0; i++) {
+        if ([kKindNames[i] isEqual:kindName]) {
             kind = i;
         }
     }
     if (![identifier isKindOfClass:[NSString class]] || ![name isKindOfClass:[NSString class]] || kind < 0) {
         return nil;
     }
-    id bands = plist[kBandsKey];
+    // The settings read the same "bands" key, and never throw.
     return [self initWithIdentifier:identifier
                                name:name
                                kind:kind
                              source:[source isKindOfClass:[NSString class]] ? source : nil
-                              bands:[[VibeListeningSettings alloc] initWithPropertyList:bands ? @{@"bands" : bands} : nil].bands
+                              bands:[[VibeListeningSettings alloc] initWithPropertyList:plist].bands
                            preampDB:[preamp isKindOfClass:[NSNumber class]] ? [preamp doubleValue] : 0];
 }
 

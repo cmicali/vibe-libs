@@ -50,8 +50,8 @@ typedef NS_ENUM(NSInteger, VibeEQPresetKind) {
 // automatic one would. Everything else in `settings` stays.
 - (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings;
 
-// The settings' EQ is on with these bands, at the preamp this preset applies,
-// so an app can show this preset's name.
+// The settings' EQ is on with these bands, at the preamp this preset applies
+// or at this preset's own manual preamp, so an app can show this preset's name.
 - (BOOL)matchesSettings:(VibeListeningSettings *)settings;
 
 @end

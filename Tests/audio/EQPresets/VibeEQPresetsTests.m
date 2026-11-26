@@ -296,6 +296,14 @@ static VibeEQPreset *Headphone(NSString *name) {
     XCTAssertEqual(manual.preampDB, -12);
     XCTAssertTrue([manual matchesSettings:settings]);
     XCTAssertNotEqualObjects(manual.identifier, automatic.identifier);
+
+    // A manual preamp that cuts less than the automatic one still matches the
+    // settings it came from, though applying it turns the preamp automatic.
+    settings.preampDB = 0;
+    VibeEQPreset *loud = [VibeEQPreset presetWithName:@"Loud" settings:settings];
+    XCTAssertEqual(loud.preampDB, 0);
+    XCTAssertTrue([loud matchesSettings:settings]);
+    XCTAssertTrue([loud applyingToSettings:settings].preampAutomatic);
 }
 
 - (void)testAPresetMatchesOnlySettingsItWouldMake {
