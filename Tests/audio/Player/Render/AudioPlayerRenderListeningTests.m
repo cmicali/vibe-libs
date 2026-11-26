@@ -5,8 +5,8 @@
 #import "AudioPlayerRenderTestCase.h"
 
 // The listening stage in the master bus: exact while neutral, heard once set,
-// exact again once neutral, with no click at a change, its clipping reported,
-// and out of the path under bit-perfect output. The stage's own tests hold
+// exact again once neutral, with no click at a change, its clipping and its
+// rate reported, and out of the path under bit-perfect output. The stage's own tests hold
 // its math (Tests/audio/Listening).
 @interface AudioPlayerRenderListeningTests : AudioPlayerRenderTests
 @end
@@ -112,6 +112,25 @@ static float MaxStep(NSData *capture, NSUInteger channel, NSRange frames) {
     clipping = [_events filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"event == 'clipping'"]];
     XCTAssertEqual(clipping.count, 2u);
     XCTAssertEqualObjects(clipping.lastObject[@"clipping"], @NO);
+}
+
+// The real engine tells the delegate once, on main, when the bus's rate
+// changes, and the player then reports the new rate.
+- (void)testARateChangeReachesTheDelegateOnceOnMain {
+    [self startPlayerAt:48000 channels:2 fx:NO bitPerfect:NO automatic:NO];
+    [self landMainQueue];
+    XCTAssertEqual(_player.listeningSampleRate, 48000.0);
+    [_events removeAllObjects];
+
+    XCTAssertTrue([_player debugSetOutputRate:96000]);
+    _rate = 96000;
+    XCTAssertTrue([_player debugSetOutputRate:96000], @"the current rate is a no-op");
+    [self landMainQueue];
+    NSArray *rates = [_events filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"event == 'listeningRate'"]];
+    XCTAssertEqual(rates.count, 1u);
+    XCTAssertEqualObjects(rates.firstObject[@"rate"], @96000);
+    XCTAssertEqualObjects(rates.firstObject[@"main"], @YES);
+    XCTAssertEqual(_player.listeningSampleRate, 96000.0);
 }
 
 - (void)testBitPerfectOutputHostsNoStage {

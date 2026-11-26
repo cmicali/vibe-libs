@@ -78,7 +78,7 @@ static VibeListeningSettings *Edited(void (^edit)(VibeMutableListeningSettings *
     XCTAssertEqual(neutral.bands.count, 0u);
     XCTAssertEqual(neutral.crossfeed, VibeCrossfeedOff);
     XCTAssertEqual(neutral.balance, 0);
-    XCTAssertEqual(neutral.effectivePreampDB, 0);
+    XCTAssertEqual([neutral effectivePreampDBAtRate:kVibeListeningPreviewRate], 0);
     XCTAssertEqualObjects(neutral, [[VibeListeningSettings alloc] init]);
 }
 
@@ -156,12 +156,12 @@ static VibeListeningSettings *Edited(void (^edit)(VibeMutableListeningSettings *
         s.bands = @[Peak(1000, 6, 1)];
         s.preampDB = -2;
     });
-    XCTAssertEqualWithAccuracy(settings.effectivePreampDB, -6, 1e-6);
+    XCTAssertEqualWithAccuracy([settings effectivePreampDBAtRate:kVibeListeningPreviewRate], -6, 1e-6);
     VibeMutableListeningSettings *manual = [settings mutableCopy];
     manual.preampAutomatic = NO;
-    XCTAssertEqual(manual.effectivePreampDB, -2);
+    XCTAssertEqual([manual effectivePreampDBAtRate:kVibeListeningPreviewRate], -2);
     manual.eqEnabled = NO;
-    XCTAssertEqual(manual.effectivePreampDB, 0);
+    XCTAssertEqual([manual effectivePreampDBAtRate:kVibeListeningPreviewRate], 0);
 }
 
 - (void)testSettingsSurviveSecureCodingAndTheirPropertyList {
@@ -262,18 +262,25 @@ static VibeListeningSettings *Edited(void (^edit)(VibeMutableListeningSettings *
 }
 
 - (void)testTheAutomaticPreampCutsTheHighestBoost {
-    XCTAssertEqual(VibeListeningAutomaticPreampDB(@[]), 0);
-    XCTAssertEqual(VibeListeningAutomaticPreampDB(@[Peak(1000, -6, 1)]), 0);
-    XCTAssertEqualWithAccuracy(VibeListeningAutomaticPreampDB(@[Peak(1000, 6, 1)]), -6, 1e-6);
+    const double rate = kVibeListeningPreviewRate;
+    XCTAssertEqual(VibeListeningAutomaticPreampDBAtRate(@[], rate), 0);
+    XCTAssertEqual(VibeListeningAutomaticPreampDBAtRate(@[Peak(1000, -6, 1)], rate), 0);
+    XCTAssertEqualWithAccuracy(VibeListeningAutomaticPreampDBAtRate(@[Peak(1000, 6, 1)], rate), -6, 1e-6);
     // A narrow peak between two grid points still counts in full.
-    XCTAssertEqualWithAccuracy(VibeListeningAutomaticPreampDB(@[Peak(1234.5, 9, 10)]), -9, 1e-4);
+    XCTAssertEqualWithAccuracy(VibeListeningAutomaticPreampDBAtRate(@[Peak(1234.5, 9, 10)], rate), -9, 1e-4);
+    // A rate no stage plays at falls back to the preview rate.
+    NSArray *treble = @[Peak(16000, 9, 1)];
+    for (NSNumber *bad in @[@0, @7999, @(NAN), @(INFINITY)]) {
+        XCTAssertEqual(VibeListeningAutomaticPreampDBAtRate(treble, bad.doubleValue),
+                       VibeListeningAutomaticPreampDBAtRate(treble, rate), @"%@", bad);
+    }
     // Two overlapping boosts sum.
     NSArray *overlap = @[Peak(1000, 4, 0.5), Peak(1100, 4, 0.5)];
     double peak = -INFINITY;
     for (double hz = 900; hz < 1200; hz += 0.5) {
         peak = fmax(peak, VibeListeningResponseDB(overlap, hz, 48000));
     }
-    XCTAssertEqualWithAccuracy(VibeListeningAutomaticPreampDB(overlap), -peak, 1e-3);
+    XCTAssertEqualWithAccuracy(VibeListeningAutomaticPreampDBAtRate(overlap, rate), -peak, 1e-3);
 }
 
 @end

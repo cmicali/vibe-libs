@@ -141,10 +141,11 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
 // is replaced. The bus is the source segment's to rebuild.
 - (void)setMasterBusFormatOnQueue:(AVAudioFormat *)format {
     os_unfair_lock_lock(&_stateLock);
-    BOOL rateChanged = _masterFormat.sampleRate != format.sampleRate;
+    AVAudioFormat *old = _masterFormat;
     _masterFormat = format;
     os_unfair_lock_unlock(&_stateLock);
-    if (rateChanged) {
+    // Read after the unlock, so the old format is released outside the lock.
+    if (old.sampleRate != format.sampleRate) {
         run_on_main_thread({
             id<AudioPlayerDelegate> delegate = self.delegate;
             if ([delegate respondsToSelector:@selector(audioPlayerDidChangeListeningSampleRate:)]) {

@@ -250,10 +250,6 @@ static double VibeHoldBalance(double balance) {
     return ![self eqChangesSamples] && _crossfeed == VibeCrossfeedOff && !_mono && !_swapChannels && _balance == 0;
 }
 
-- (double)effectivePreampDB {
-    return [self effectivePreampDBAtRate:kVibeListeningPreviewRate];
-}
-
 - (double)effectivePreampDBAtRate:(double)sampleRate {
     if (!_eqEnabled) {
         return 0;
@@ -512,7 +508,7 @@ static double VibeRefinePeak(const VibeFilterSet *set, double a, double b, doubl
 }
 
 double VibeListeningAutomaticPreampDBAtRate(NSArray<VibeEQBand *> *bands, double sampleRate) {
-    double rate = isfinite(sampleRate) && sampleRate >= 8000 ? sampleRate : kVibeListeningPreviewRate;
+    double rate = VibeListeningRateOrPreview(sampleRate);
     VibeFilterSet set = VibeFilterSetMake(bands, rate);
     if (set.count == 0) {
         return 0;
@@ -536,8 +532,4 @@ double VibeListeningAutomaticPreampDBAtRate(NSArray<VibeEQBand *> *bands, double
         mid = db;
     }
     return best > 1e-8 ? -best : 0;
-}
-
-double VibeListeningAutomaticPreampDB(NSArray<VibeEQBand *> *bands) {
-    return VibeListeningAutomaticPreampDBAtRate(bands, kVibeListeningPreviewRate);
 }

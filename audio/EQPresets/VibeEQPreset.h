@@ -48,14 +48,13 @@ typedef NS_ENUM(NSInteger, VibeEQPresetKind) {
 
 // A copy of `settings` with these bands, the EQ on, and the preamp automatic.
 // The preset's preamp turns the preamp manual only when it cuts more than the
-// automatic one would, at the preview rate and at `sampleRate`. Everything
-// else in `settings` stays.
-- (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings;
+// automatic one would, at the preview rate and at `sampleRate`, the playback
+// rate. Everything else in `settings` stays.
 - (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate;
 
 // The settings' EQ is on with these bands, at the preamp this preset applies
-// or at this preset's own manual preamp, so an app can show this preset's name.
-- (BOOL)matchesSettings:(VibeListeningSettings *)settings;
+// at `sampleRate` or at this preset's own manual preamp, so an app can show
+// this preset's name.
 - (BOOL)matchesSettings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate;
 
 @end

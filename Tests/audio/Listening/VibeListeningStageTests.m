@@ -57,21 +57,36 @@ static float *Plane(NSArray<NSMutableData *> *planes, NSUInteger c) {
     return planes[c].mutableBytes;
 }
 
+// One step of a linear congruential generator, as a value from 0 to 1.
+static double NextUniform(uint32_t *state) {
+    *state = *state * 1664525u + 1013904223u;
+    return (double)(*state >> 8) / (double)(1u << 24);
+}
+
+static float NoiseSample(uint32_t *state, float amplitude) {
+    return amplitude * ((float)NextUniform(state) * 2.0f - 1.0f);
+}
+
 static void FillNoise(NSArray<NSMutableData *> *planes, uint32_t seed, float amplitude) {
     uint32_t state = seed;
     for (NSMutableData *plane in planes) {
         float *samples = plane.mutableBytes;
         for (NSUInteger i = 0; i < plane.length / sizeof(float); i++) {
-            state = state * 1664525u + 1013904223u;
-            samples[i] = amplitude * ((float)(state >> 8) / (float)(1u << 24) * 2.0f - 1.0f);
+            samples[i] = NoiseSample(&state, amplitude);
         }
     }
 }
 
-static void FillSine(float *samples, uint32_t frames, double hz, double rate, float amplitude) {
+// A sine's frames from `start` on, at `phase` radians at frame 0.
+static void FillSineFrom(float *samples, uint32_t start, uint32_t frames, double hz, double rate, float amplitude,
+                         double phase) {
     for (uint32_t i = 0; i < frames; i++) {
-        samples[i] = amplitude * (float)sin(2 * M_PI * hz * i / rate);
+        samples[i] = amplitude * (float)sin(2 * M_PI * hz * (start + i) / rate + phase);
     }
+}
+
+static void FillSine(float *samples, uint32_t frames, double hz, double rate, float amplitude) {
+    FillSineFrom(samples, 0, frames, hz, rate, amplitude, 0);
 }
 
 // Renders every plane through the stage in place, in slices.
@@ -117,6 +132,71 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
         step = fmaxf(step, fabsf(samples[i] - samples[i - 1]));
     }
     return step;
+}
+
+// The tone the change tests play, at 48 kHz, and the cycle they measure: one
+// of 60 Hz.
+static const double kToneRate = 48000;
+static const float kToneAmplitude = 0.5f;
+static const double kTonePhase = M_PI_2 + 0.3;
+static const uint32_t kCycleFrames = 800;
+
+// Plays a tone at `hz` on the first channel, the others silent, through
+// `stage` for `frames` frames, in slices of `slice` that divide it. `change`
+// runs before the slice that starts at frame `at`, and `rendered`, if given,
+// after each slice. Returns each channel's level in each cycle, in dB against
+// the tone's amplitude, so cycle k holds frames k * 800 to (k + 1) * 800.
+static NSArray<NSArray<NSNumber *> *> *CycleLevelsDB(VibeListeningStage *stage, uint32_t channels, double hz,
+                                                     uint32_t frames, uint32_t slice, uint32_t at,
+                                                     void (^change)(void),
+                                                     void (^rendered)(float *const *planes, uint32_t first)) {
+    NSArray<NSMutableData *> *planes = Planes(channels, slice);
+    float *buffers[kVibeListeningMaxChannels];
+    double power[kVibeListeningMaxChannels] = {0};
+    NSMutableArray<NSMutableArray<NSNumber *> *> *levels = [NSMutableArray array];
+    for (uint32_t c = 0; c < channels; c++) {
+        buffers[c] = Plane(planes, c);
+        [levels addObject:[NSMutableArray array]];
+    }
+    for (uint32_t first = 0; first < frames; first += slice) {
+        if (first == at) {
+            change();
+        }
+        FillSineFrom(buffers[0], first, slice, hz, kToneRate, kToneAmplitude, kTonePhase);
+        for (uint32_t c = 1; c < channels; c++) {
+            memset(buffers[c], 0, slice * sizeof(float));
+        }
+        VibeListeningStageRender(stage, buffers, slice);
+        if (rendered) {
+            rendered(buffers, first);
+        }
+        for (uint32_t j = 0; j < slice; j++) {
+            for (uint32_t c = 0; c < channels; c++) {
+                power[c] += buffers[c][j] * buffers[c][j];
+            }
+            if ((first + j + 1) % kCycleFrames == 0) {
+                for (uint32_t c = 0; c < channels; c++) {
+                    [levels[c] addObject:@(20 * log10(sqrt(2 * power[c] / kCycleFrames) / kToneAmplitude))];
+                    power[c] = 0;
+                }
+            }
+        }
+    }
+    return levels;
+}
+
+// The stage's measured gain for `bands` matches the response within 0.1 dB at
+// each frequency and rate.
+- (void)assertBands:(NSArray<VibeEQBand *> *)bands
+    matchTheResponseAt:(NSArray<NSNumber *> *)frequencies
+                 rates:(NSArray<NSNumber *> *)rates {
+    for (NSNumber *rate in rates) {
+        for (NSNumber *hz in frequencies) {
+            double expected = VibeListeningResponseDB(bands, hz.doubleValue, rate.doubleValue);
+            double measured = [self measuredDBAt:hz.doubleValue rate:rate.doubleValue settings:EQ(bands)];
+            XCTAssertEqualWithAccuracy(measured, expected, 0.1, @"%@ at %@ Hz, %@ Hz", bands, hz, rate);
+        }
+    }
 }
 
 - (VibeListeningStage *)stageWithChannels:(uint32_t)channels rate:(double)rate settings:(VibeListeningSettings *)settings {
@@ -190,14 +270,8 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
         Band(VibeEQBandTypeLowPass, 5000, 0, 0.707), Band(VibeEQBandTypeHighPass, 100, 0, 0.707),
     ];
     NSArray<NSNumber *> *frequencies = @[@20, @45, @100, @220, @500, @1000, @2200, @3000, @5000, @10000, @15000, @20000];
-    for (NSNumber *rate in @[@44100, @48000, @96000]) {
-        for (VibeEQBand *band in cases) {
-            for (NSNumber *hz in frequencies) {
-                double expected = VibeListeningResponseDB(@[band], hz.doubleValue, rate.doubleValue);
-                double measured = [self measuredDBAt:hz.doubleValue rate:rate.doubleValue settings:EQ(@[band])];
-                XCTAssertEqualWithAccuracy(measured, expected, 0.1, @"%@ at %@ Hz, %@ Hz", band, hz, rate);
-            }
-        }
+    for (VibeEQBand *band in cases) {
+        [self assertBands:@[band] matchTheResponseAt:frequencies rates:@[@44100, @48000, @96000]];
     }
 }
 
@@ -243,14 +317,9 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
         Band(VibeEQBandTypePeak, 1000, 6, 8), Band(VibeEQBandTypePeak, 2500, 4, 2),
         Band(VibeEQBandTypePeak, 3200, -3, 1.5), Band(VibeEQBandTypeHighShelf, 8000, -5, 0.7),
     ];
-    NSArray<NSNumber *> *frequencies = @[@30, @60, @100, @300, @1000, @2500, @3200, @6000, @12000, @18000];
-    for (NSNumber *rate in @[@44100, @48000, @88200, @96000, @176400, @192000]) {
-        for (NSNumber *hz in frequencies) {
-            double expected = VibeListeningResponseDB(bands, hz.doubleValue, rate.doubleValue);
-            double measured = [self measuredDBAt:hz.doubleValue rate:rate.doubleValue settings:EQ(bands)];
-            XCTAssertEqualWithAccuracy(measured, expected, 0.1, @"at %@ Hz, %@ Hz", hz, rate);
-        }
-    }
+    [self assertBands:bands
+        matchTheResponseAt:@[@30, @60, @100, @300, @1000, @2500, @3200, @6000, @12000, @18000]
+                     rates:@[@44100, @48000, @88200, @96000, @176400, @192000]];
 }
 
 - (void)testHeadroomCoversTheBassShelfAndThePlaybackRate {
@@ -279,29 +348,18 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
         s.eqEnabled = YES;
         s.bands = @[Band(VibeEQBandTypePeak, original, 12, q)];
         VibeListeningStage *stage = [self stageWithChannels:1 rate:48000 settings:s];
-        float samples[240], *planes[] = {samples};
-        double peak = 0, cyclePower = 0;
-        for (unsigned first = 0; first < 72000; first += 240) {
-            if (first == 48000) {
-                s.bands = @[Band(VibeEQBandTypePeak, next, 12, q)];
-                XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
+        __block double peak = 0;
+        NSArray<NSNumber *> *levels = CycleLevelsDB(stage, 1, original, 72000, 240, 48000, ^{
+            s.bands = @[Band(VibeEQBandTypePeak, next, 12, q)];
+            XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
+        }, ^(float *const *planes, uint32_t first) {
+            for (uint32_t j = 0; j < 240 && first >= 48000; j++) {
+                peak = fmax(peak, fabs(planes[0][j]));
             }
-            for (unsigned j = 0; j < 240; j++) {
-                samples[j] = (float)(0.5 * cos(2 * M_PI * original * (first + j) / 48000 + 0.3));
-            }
-            VibeListeningStageRender(stage, planes, 240);
-            if (first < 48000) continue;
-            for (unsigned j = 0; j < 240; j++) {
-                peak = fmax(peak, fabs(samples[j]));
-                if (bass) {
-                    cyclePower += samples[j] * samples[j];
-                    if ((first + j + 1) % 800 == 0) {
-                        // Each cycle stays within 1 dB of the input level.
-                        XCTAssertGreaterThan(sqrt(2 * cyclePower / 800), 0.445);
-                        cyclePower = 0;
-                    }
-                }
-            }
+        })[0];
+        // Each bass cycle stays within 1 dB of the input level: over 0.445.
+        for (NSUInteger k = 48000 / kCycleFrames; bass && k < levels.count; k++) {
+            XCTAssertGreaterThan(levels[k].doubleValue, 20 * log10(0.445 / kToneAmplitude), @"cycle %lu", k);
         }
         XCTAssertLessThan(peak, 0.51);
     }
@@ -325,28 +383,15 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
         VibeMutableListeningSettings *s = [EQ(@[treble, cut]) mutableCopy];
         s.preampDB = -12;
         VibeListeningStage *stage = [self stageWithChannels:1 rate:48000 settings:s];
-        float samples[240], *planes[] = {samples};
-        double cyclePower = 0, settled = 0.5 * pow(10, (preampRises ? -12 : -24) / 20.0);
-        for (unsigned first = 0; first < 72000; first += 240) {
-            if (first == 48000) {
-                s.bands = edit;
-                s.preampDB = preampRises ? 0 : -12;
-                XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
-            }
-            for (unsigned j = 0; j < 240; j++) {
-                samples[j] = (float)(0.5 * cos(2 * M_PI * 60 * (first + j) / 48000 + 0.3));
-            }
-            VibeListeningStageRender(stage, planes, 240);
-            for (unsigned j = 0; j < 240; j++) {
-                cyclePower += samples[j] * samples[j];
-                if ((first + j + 1) % 800 == 0) {
-                    // The cycle that holds the preamp's fade is between the two levels.
-                    if (first + j + 1 > (preampRises ? 48800u : 48000u)) {
-                        XCTAssertEqualWithAccuracy(20 * log10(sqrt(2 * cyclePower / 800) / settled), 0, 0.5);
-                    }
-                    cyclePower = 0;
-                }
-            }
+        double settledDB = preampRises ? -12 : -24;
+        NSArray<NSNumber *> *levels = CycleLevelsDB(stage, 1, 60, 72000, 240, 48000, ^{
+            s.bands = edit;
+            s.preampDB = preampRises ? 0 : -12;
+            XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
+        }, nil)[0];
+        // The cycle that holds the preamp's fade is between the two levels.
+        for (NSUInteger k = 48000 / kCycleFrames + (preampRises ? 1 : 0); k < levels.count; k++) {
+            XCTAssertEqualWithAccuracy(levels[k].doubleValue, settledDB, 0.5, @"cycle %lu", k);
         }
     }
 }
@@ -358,31 +403,18 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
     for (int mono = 0; mono < 2; mono++) {
         VibeMutableListeningSettings *s = [EQ(@[Band(VibeEQBandTypePeak, 60, -12, 6)]) mutableCopy];
         VibeListeningStage *stage = [self stageWithChannels:2 rate:48000 settings:s];
-        float left[240], right[240], *planes[] = {left, right};
-        double power[2] = {0}, settled = (mono ? 0.25 : 0.5) * pow(10, -12 / 20.0);
-        for (unsigned first = 0; first < 72000; first += 240) {
-            if (first == 48000) {
-                s.mono = mono;
-                s.swapChannels = !mono;
-                XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
-            }
-            for (unsigned j = 0; j < 240; j++) {
-                left[j] = (float)(0.5 * cos(2 * M_PI * 60 * (first + j) / 48000 + 0.3));
-                right[j] = 0;
-            }
-            VibeListeningStageRender(stage, planes, 240);
-            for (unsigned j = 0; j < 240; j++) {
-                power[0] += left[j] * left[j];
-                power[1] += right[j] * right[j];
-                if ((first + j + 1) % 800 != 0) {
-                    continue;
-                }
-                // The fade ends in the first cycle after the change.
-                for (int c = mono ? 0 : 1; c < 2 && first + j + 1 > 48800; c++) {
-                    double level = 20 * log10(sqrt(2 * power[c] / 800) / settled);
-                    XCTAssertEqualWithAccuracy(level, 0, 0.5, @"%@, channel %d", mono ? @"mono" : @"swap", c);
-                }
-                power[0] = power[1] = 0;
+        // Mono plays half the left on each side.
+        double settledDB = -12 + (mono ? 20 * log10(0.5) : 0);
+        NSArray<NSArray<NSNumber *> *> *levels = CycleLevelsDB(stage, 2, 60, 72000, 240, 48000, ^{
+            s.mono = mono;
+            s.swapChannels = !mono;
+            XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
+        }, nil);
+        // The fade ends in the first cycle after the change.
+        for (int c = mono ? 0 : 1; c < 2; c++) {
+            for (NSUInteger k = 48000 / kCycleFrames + 1; k < levels[c].count; k++) {
+                XCTAssertEqualWithAccuracy(levels[c][k].doubleValue, settledDB, 0.5, @"%@, channel %d, cycle %lu",
+                                           mono ? @"mono" : @"swap", c, k);
             }
         }
     }
@@ -401,36 +433,33 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
         VibeListeningStage *reference = VibeListeningStageCreate(1, 48000);
         VibeListeningStageSetSettings(reference, s);
         // Slices off the warm-up's grid, so its end splits a slice.
-        float samples[500], old[500], *planes[] = {samples}, *oldPlanes[] = {old};
-        double power = 0, low = INFINITY, high = -INFINITY;
-        uint32_t change = 48000, heard = 0;
-        for (unsigned first = 0; first < 96000; first += 500) {
-            if (first == change) {
-                s.bands = @[Band(VibeEQBandTypePeak, 60, to, 6)];
-                XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
-            }
-            for (unsigned j = 0; j < 500; j++) {
-                samples[j] = old[j] = (float)(0.5 * cos(2 * M_PI * 60 * (first + j) / 48000 + 0.3));
-            }
-            VibeListeningStageRender(stage, planes, 500);
-            VibeListeningStageRender(reference, oldPlanes, 500);
-            for (unsigned j = 0; j < 500 && first >= change; j++) {
-                if (!heard && samples[j] != old[j]) {
+        NSArray<NSMutableData *> *oldPlanes = Planes(1, 500);
+        float *old = Plane(oldPlanes, 0);
+        const uint32_t change = 48000;
+        __block uint32_t heard = 0;
+        NSArray<NSNumber *> *levels = CycleLevelsDB(stage, 1, 60, 96000, 500, change, ^{
+            s.bands = @[Band(VibeEQBandTypePeak, 60, to, 6)];
+            XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
+        }, ^(float *const *planes, uint32_t first) {
+            float *oldBuffers[] = {old};
+            FillSineFrom(old, first, 500, 60, kToneRate, kToneAmplitude, kTonePhase);
+            VibeListeningStageRender(reference, oldBuffers, 500);
+            for (uint32_t j = 0; j < 500 && first >= change; j++) {
+                if (!heard && planes[0][j] != old[j]) {
                     heard = first + j - change;
-                }
-                power += samples[j] * samples[j];
-                if ((first + j + 1) % 800 == 0) {
-                    double level = 20 * log10(sqrt(2 * power / 800) / 0.5) + 12;
-                    low = fmin(low, level);
-                    high = fmax(high, level);
-                    power = 0;
                 }
             }
             if (first >= change && first < change + 4800) {
                 XCTAssertTrue(VibeListeningStageEngaged(stage));
             }
-        }
+        })[0];
         VibeListeningStageFree(reference);
+        // The preamp is -12 dB.
+        double low = INFINITY, high = -INFINITY;
+        for (NSUInteger k = change / kCycleFrames; k < levels.count; k++) {
+            low = fmin(low, levels[k].doubleValue + 12);
+            high = fmax(high, levels[k].doubleValue + 12);
+        }
         // A boost to +12 dB at Q 6 takes 190 ms to settle, so its warm-up is
         // the cap, 150 ms. A bell at +6 dB takes 135 ms. The fade's first
         // frame still plays the old curve alone.
@@ -443,8 +472,7 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
 // Random edits to six random bands, every 20 ms, over noise and a bass tone.
 static uint32_t gEditState;
 static double NextRandom(void) {
-    gEditState = gEditState * 1664525u + 1013904223u;
-    return (double)(gEditState >> 8) / (double)(1u << 24);
+    return NextUniform(&gEditState);
 }
 
 static VibeEQBand *RandomBand(void) {
@@ -490,9 +518,8 @@ static VibeEQBand *RandomBand(void) {
                 s.bands = bands;
                 VibeListeningStageSetSettings(stage, s);
                 for (uint32_t j = 0; j < block; j++, frame++) {
-                    noise = noise * 1664525u + 1013904223u;
-                    samples[j] = tone ? (float)(0.25 * sin(2 * M_PI * 55 * frame / rates[r]))
-                                      : 0.25f * ((float)(noise >> 8) / (float)(1u << 24) * 2.0f - 1.0f);
+                    float noiseSample = NoiseSample(&noise, 0.25f);
+                    samples[j] = tone ? (float)(0.25 * sin(2 * M_PI * 55 * frame / rates[r])) : noiseSample;
                 }
                 VibeListeningStageRender(stage, planes, block);
                 for (uint32_t j = 0; j < block; j++) {

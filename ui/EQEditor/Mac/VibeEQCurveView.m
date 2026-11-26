@@ -63,7 +63,7 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
 #pragma mark - Values
 
 - (void)setSampleRate:(double)sampleRate {
-    double rate = isfinite(sampleRate) && sampleRate >= 8000 ? sampleRate : kVibeListeningPreviewRate;
+    double rate = VibeListeningRateOrPreview(sampleRate);
     if (_sampleRate != rate) {
         _sampleRate = rate;
         [self invalidateCurve];
@@ -188,18 +188,20 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
             largest = MAX(largest, fabs(band.gainDB));
         }
     }
-    for (NSUInteger i = 0; i < count; i++) {
-        double frequency = VibeEQFrequencyForX(NSMinX(plot) + MIN((CGFloat)i, NSWidth(plot)), NSMinX(plot),
+    // The curve ends at Nyquist.
+    NSUInteger sampled = 0;
+    for (; sampled < count; sampled++) {
+        double frequency = VibeEQFrequencyForX(NSMinX(plot) + MIN((CGFloat)sampled, NSWidth(plot)), NSMinX(plot),
                                                NSWidth(plot));
         if (frequency > _sampleRate * 0.5) {
-            _samples.length = i * sizeof(double);
             break;
         }
-        samples[i] = any ? VibeListeningResponseDB(_bands, frequency, _sampleRate) : 0;
-        if (isfinite(samples[i])) {
-            largest = MAX(largest, fabs(samples[i]));
+        samples[sampled] = any ? VibeListeningResponseDB(_bands, frequency, _sampleRate) : 0;
+        if (isfinite(samples[sampled])) {
+            largest = MAX(largest, fabs(samples[sampled]));
         }
     }
+    _samples.length = sampled * sizeof(double);
     _neededRange = VibeEQRangeForPeak(largest);
 }
 

@@ -33,10 +33,14 @@ static NSString *const kPreampKey = @"preampDB";
     return self;
 }
 
-// A preset is saved at one rate and applied at any, so an automatic preamp is
-// saved as its value at the preview rate, whatever is playing.
+// The rate a preset's automatic preamp is saved at. It is fixed, so a preset
+// saved while one rate plays is the same as one saved while another does, and
+// an exported file doesn't depend on what was playing.
+static const double kVibeEQPresetSavedRate = kVibeListeningPreviewRate;
+
 + (instancetype)presetWithName:(NSString *)name settings:(VibeListeningSettings *)settings {
-    double preamp = settings.preampAutomatic ? VibeListeningAutomaticPreampDB(settings.bands) : settings.preampDB;
+    double preamp = settings.preampAutomatic ? VibeListeningAutomaticPreampDBAtRate(settings.bands, kVibeEQPresetSavedRate)
+                                             : settings.preampDB;
     return [[self alloc] initWithIdentifier:[@"user." stringByAppendingString:NSUUID.UUID.UUIDString]
                                        name:name
                                        kind:VibeEQPresetKindUser
@@ -45,8 +49,20 @@ static NSString *const kPreampKey = @"preampDB";
                                    preampDB:preamp];
 }
 
-- (BOOL)matchesSettings:(VibeListeningSettings *)settings {
-    return [self matchesSettings:settings sampleRate:kVibeListeningPreviewRate];
+// Manual only when it cuts more than the automatic preamp would, both at the
+// rate a preset is saved at and at this one. So a preset saved with the
+// automatic preamp stays automatic at every rate. The margin covers a value an
+// earlier search saved.
+- (BOOL)appliesManualPreampAtRate:(double)sampleRate {
+    // The automatic preamp is never above 0 dB.
+    if (self.preampDB >= 0) {
+        return NO;
+    }
+    double saved = VibeListeningAutomaticPreampDBAtRate(self.bands, kVibeEQPresetSavedRate);
+    double rate = VibeListeningRateOrPreview(sampleRate);
+    double automatic = rate == kVibeEQPresetSavedRate ? saved
+                                                      : fmin(saved, VibeListeningAutomaticPreampDBAtRate(self.bands, rate));
+    return self.preampDB < automatic - 1e-6;
 }
 
 - (BOOL)matchesSettings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate {
@@ -55,26 +71,21 @@ static NSString *const kPreampKey = @"preampDB";
     }
     // A manual preamp the preset saved matches too, though applying would turn
     // one that cuts less than the automatic preamp back to automatic.
-    return (!settings.preampAutomatic && settings.preampDB == self.preampDB) ||
-           fabs([settings effectivePreampDBAtRate:sampleRate] -
-                [[self applyingToSettings:settings sampleRate:sampleRate] effectivePreampDBAtRate:sampleRate]) < 1e-9;
-}
-
-- (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings {
-    return [self applyingToSettings:settings sampleRate:kVibeListeningPreviewRate];
+    if (!settings.preampAutomatic && fabs(settings.preampDB - self.preampDB) < 1e-9) {
+        return YES;
+    }
+    if ([self appliesManualPreampAtRate:sampleRate]) {
+        return NO;
+    }
+    return settings.preampAutomatic ||
+           fabs(settings.preampDB - VibeListeningAutomaticPreampDBAtRate(self.bands, sampleRate)) < 1e-9;
 }
 
 - (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate {
     VibeMutableListeningSettings *applied = [settings mutableCopy];
     applied.bands = self.bands;
     applied.eqEnabled = YES;
-    // Manual only when it cuts more than the automatic preamp would, both at
-    // the preview rate a preset is saved at and at this one. So a preset saved
-    // with the automatic preamp stays automatic at every rate. The margin
-    // covers a value an earlier search saved.
-    double automatic = fmin(VibeListeningAutomaticPreampDB(self.bands),
-                            VibeListeningAutomaticPreampDBAtRate(self.bands, sampleRate));
-    BOOL manual = self.preampDB < automatic - 1e-6;
+    BOOL manual = [self appliesManualPreampAtRate:sampleRate];
     applied.preampAutomatic = !manual;
     if (manual) {
         applied.preampDB = self.preampDB;

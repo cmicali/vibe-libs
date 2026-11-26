@@ -51,4 +51,4 @@ Each graphic slider and each node is a VoiceOver slider of its own. A slider rea
 
 ## Tests
 
-`Tests/ui/EQEditor/Mac/` holds `VibeEQEditorMathTests`, the math both ways and the number formats, and `VibeEQEditorViewTests`, the editor in a window kept off every display. They cover which face shows and when, the delegate's calls through drags, keys, fields, and add and remove, the axis held through a drag, the hit test, the disabled and hidden editor, the VoiceOver values, the drawing in both appearances, and the hosted-control check.
+`Tests/ui/EQEditor/Mac/` holds `VibeEQEditorMathTests`, the math both ways and the number formats, and `VibeEQEditorViewTests`, the editor in a window kept off every display. They cover which face shows and when, the delegate's calls through drags, keys, fields, and add and remove, the axis held through a drag, the combined curve redrawn when only the playback rate changes (`testChangingOnlyThePlaybackRateRedrawsTheCombinedResponse`), the hit test, the disabled and hidden editor, the VoiceOver values, the drawing in both appearances, and the hosted-control check.

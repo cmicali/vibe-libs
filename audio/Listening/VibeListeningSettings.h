@@ -10,6 +10,7 @@
 //
 
 #import <Foundation/Foundation.h>
+#include <math.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -78,8 +79,8 @@ static const double kVibeListeningPreampMaxDB = 0;
 
 // Nothing would change a sample, so a stage can pass the signal through.
 @property (nonatomic, readonly, getter=isNeutral) BOOL neutral;
-// The automatic or the manual preamp, in dB; 0 when the EQ is off.
-@property (nonatomic, readonly) double effectivePreampDB;
+// The automatic preamp at the playback rate, or the manual preamp, in dB; 0
+// when the EQ is off.
 - (double)effectivePreampDBAtRate:(double)sampleRate;
 
 // A dictionary of plists, for an app's defaults. A missing or bad value reads
@@ -120,11 +121,16 @@ double VibeListeningResponseDB(NSArray<VibeEQBand *> *bands, double frequency, d
 
 // Used for a preview before the host has a playback format.
 static const double kVibeListeningPreviewRate = 48000;
+// The lowest rate a stage plays at.
+static const double kVibeListeningMinRate = 8000;
+
+// The rate itself when a stage could play at it, else the preview rate.
+static inline double VibeListeningRateOrPreview(double rate) {
+    return isfinite(rate) && rate >= kVibeListeningMinRate ? rate : kVibeListeningPreviewRate;
+}
 
 // Minus the highest boost from DC to Nyquist at the playback rate.
 double VibeListeningAutomaticPreampDBAtRate(NSArray<VibeEQBand *> *bands, double sampleRate);
-// Uses the preview rate for callers without a playback format.
-double VibeListeningAutomaticPreampDB(NSArray<VibeEQBand *> *bands);
 
 #ifdef __cplusplus
 }

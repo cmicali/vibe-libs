@@ -70,6 +70,7 @@ NSData *VibeAudibleFrames(NSData *pcm, NSUInteger channels);
 - (NSData *)sourcePCM:(NSURL *)url;
 - (NSUInteger)count:(NSString *)event;
 - (void)settleUntil:(BOOL (^)(void))condition;
+- (void)landMainQueue;
 - (NSDictionary *)settledSignalSnapshot;
 - (void)startPlayerAt:(double)rate channels:(NSUInteger)channels fx:(BOOL)fx bitPerfect:(BOOL)bitPerfect automatic:(BOOL)automatic;
 - (VibeTestTrack *)play:(NSURL *)url paused:(BOOL)paused position:(double)position;

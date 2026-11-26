@@ -52,7 +52,8 @@ NS_ASSUME_NONNULL_BEGIN
 // The listening stage's output passed full scale within the last second it
 // played. The delegate hears of a change.
 @property (readonly) BOOL listeningClipping;
-// The format used by the listening filters, or zero before the bus has a format.
+// The sample rate the listening stage plays at, which is the master bus's, or
+// 0 before the bus has a format. The delegate hears of a change.
 @property (readonly) double listeningSampleRate;
 
 // Track-change crossfade in milliseconds, default the 10 ms declick minimum.

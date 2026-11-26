@@ -693,5 +693,9 @@ involuntaryFallbackName:(NSString *)fallbackName carriedModesFromUID:(NSString *
 - (void)audioPlayerDidChangeListeningClipping:(AudioPlayer *)p {
     [_events addObject:@{@"event": @"clipping", @"clipping": @(p.listeningClipping)}];
 }
+- (void)audioPlayerDidChangeListeningSampleRate:(AudioPlayer *)p {
+    [_events addObject:@{@"event": @"listeningRate", @"rate": @(p.listeningSampleRate),
+                         @"main": @(NSThread.isMainThread)}];
+}
 
 @end
