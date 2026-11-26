@@ -594,13 +594,13 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
 - (NSArray<VibeEQAccessibilitySlider *> *)nodeElements {
     if (!_elements) {
         NSMutableArray<VibeEQAccessibilitySlider *> *elements = [NSMutableArray array];
-        __weak typeof(self) weakSelf = self;
+        __weak VibeEQCurveView *weakSelf = self;
         for (NSUInteger i = 0; i < _bands.count; i++) {
             VibeEQAccessibilitySlider *element = [[VibeEQAccessibilitySlider alloc] init];
             element.accessibilityParent = self;
             element.accessibilityLabel = VibeEQBandName(self.strings, i);
             element.valueBlock = ^NSString * {
-                typeof(self) view = weakSelf;
+                VibeEQCurveView *view = weakSelf;
                 return view && i < view.bands.count ? VibeEQNodeAccessibilityValue(view.bands[i], view.locale) : @"";
             };
             element.frameBlock = ^NSRect {

@@ -122,7 +122,7 @@ static const NSEdgeInsets kPlotInsets = {24, 38, 22, 10};  // top, left, bottom,
 // The slider's whole column, the VoiceOver frame.
 - (NSRect)columnRectForSlider:(NSUInteger)index {
     NSRect plot = self.plotRect;
-    CGFloat width = NSWidth(plot) / kSliderCount;
+    CGFloat width = NSWidth(plot) / (CGFloat)kSliderCount;
     return NSMakeRect(NSMinX(plot) + width * (CGFloat)index, NSMinY(plot) - kKnobHeight / 2, width,
                       NSHeight(plot) + kKnobHeight);
 }
@@ -349,20 +349,20 @@ static const NSEdgeInsets kPlotInsets = {24, 38, 22, 10};  // top, left, bottom,
     if (!_elements) {
         NSMutableArray<VibeEQAccessibilitySlider *> *elements = [NSMutableArray array];
         NSArray<NSNumber *> *frequencies = [VibeListeningSettings graphicFrequencies];
-        __weak typeof(self) weakSelf = self;
+        __weak VibeEQGraphicView *weakSelf = self;
         for (NSUInteger i = 0; i < kSliderCount; i++) {
             VibeEQAccessibilitySlider *element = [[VibeEQAccessibilitySlider alloc] init];
             element.accessibilityParent = self;
             double frequency = frequencies[i].doubleValue;
             element.valueBlock = ^NSString * {
-                typeof(self) view = weakSelf;
+                VibeEQGraphicView *view = weakSelf;
                 return view ? VibeEQFormatGain([view gainAtSlider:i], view.locale) : @"";
             };
             element.frameBlock = ^NSRect {
                 return [weakSelf columnRectForSlider:i];
             };
             element.stepBlock = ^(BOOL up) {
-                typeof(self) view = weakSelf;
+                VibeEQGraphicView *view = weakSelf;
                 view.focusedSlider = i;
                 [view stepFocusedBy:up ? kVibeEQGraphicStepDB : -kVibeEQGraphicStepDB];
             };
