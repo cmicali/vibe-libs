@@ -110,6 +110,8 @@ vibe-libs/
 │   ├── LoudnessEqualizer ● loudness equalization and its limiter, a realtime stage
 │   ├── Listening ●      an EQ, a preamp, crossfeed, and the channel tools: their
 │   │                    settings, response math, and realtime stage
+│   ├── EQPresets ●      EQ presets: the built-ins, Equalizer APO's text, and a headphone
+│   │                    search
 │   ├── OutputDevices ●  Mac/ device discovery, rates, hog mode, format rules, event log;
 │   │                    iOS/ the audio session and its route rules
 │   └── Player ●         the transport, the voice bus, the master bus, the output unit,
@@ -215,6 +217,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | audio/FX | audio/DSP |
 | audio/LoudnessEqualizer | nothing but Accelerate |
 | audio/Listening | audio/DSP |
+| audio/EQPresets | audio/Listening |
 | audio/OutputDevices | nothing |
 | audio/Player | audio/AudioTypes, audio/DSP, audio/Decode, audio/FX, audio/Meter, audio/Listening, audio/LoudnessEqualizer, audio/OutputDevices, files/FileLoading |
 | media/Tags | audio/AudioTypes, third_party/taglib |

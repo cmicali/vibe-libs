@@ -6,7 +6,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first fifty-six pieces are here.** Each came from Vibe, but for libwavpack, the Monkey's Audio SDK, `audio/LoudnessEqualizer`, `audio/Listening`, and `ui/EQEditor`. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first fifty-seven pieces are here.** Each came from Vibe, but for libwavpack, the Monkey's Audio SDK, `audio/LoudnessEqualizer`, `audio/Listening`, `audio/EQPresets`, and `ui/EQEditor`. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |
@@ -27,6 +27,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 | `audio/Meter` | Live band levels. |
 | `audio/LoudnessEqualizer` | Loudness equalization: a slow gain that evens out quiet and loud passages, and its limiter. |
 | `audio/Listening` | An EQ, a preamp, headphone crossfeed, and the channel tools, with their settings and response math. |
+| `audio/EQPresets` | EQ presets: the built-ins, Equalizer APO's parametric text, and a headphone search. |
 | `audio/Decode` | The audio file handle and the decoders it hosts. |
 | `audio/Player` | Gapless, crossfading, bit-perfect playback, with its device and route recovery halves and a manual render pump. |
 | `media/Tags` | The TagLib wrapper: tag fields and embedded art bytes. |
