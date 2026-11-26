@@ -108,6 +108,8 @@ vibe-libs/
 │   ├── Meter ●          live band levels from inside a render, only while someone looks
 │   ├── FX ●             the DJ chain over Apple's audio units
 │   ├── LoudnessEqualizer ● loudness equalization and its limiter, a realtime stage
+│   ├── Listening ●      an EQ, a preamp, crossfeed, and the channel tools, with their
+│   │                    settings and response math
 │   ├── OutputDevices ●  Mac/ device discovery, rates, hog mode, format rules, event log;
 │   │                    iOS/ the audio session and its route rules
 │   └── Player ●         the transport, the voice bus, the master bus, the output unit,
@@ -212,6 +214,7 @@ The table is the map after the planned cuts. **The template for a piece is writt
 | audio/Meter | nothing |
 | audio/FX | audio/DSP |
 | audio/LoudnessEqualizer | nothing but Accelerate |
+| audio/Listening | nothing |
 | audio/OutputDevices | nothing |
 | audio/Player | audio/AudioTypes, audio/DSP, audio/Decode, audio/FX, audio/Meter, audio/LoudnessEqualizer, audio/OutputDevices, files/FileLoading |
 | media/Tags | audio/AudioTypes, third_party/taglib |

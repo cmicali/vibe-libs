@@ -20,6 +20,9 @@ static const CGFloat kVibeFileTileCornerRadius = 8;
 // A row's icon where it has no art: a waveform tile, or a note list for a
 // CUE sheet or an M3U.
 UIImage *VibeFileTileImage(BOOL playlist);
+// A song's art where it has none, in a track row and the strip: a note on
+// the same fill, as the system's Music app draws it.
+UIImage *VibeSongTileImage(void);
 
 @interface UIListContentConfiguration (VibeFileRow)
 

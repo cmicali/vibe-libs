@@ -23,17 +23,18 @@ UIView *VibeNotDownloadedMark(void) {
 
 // Drawn once, in both appearances: an image asset holding the light and the
 // dark tile follows the trait collection by itself, which a single rendered
-// image would not.
-UIImage *VibeFileTileImage(BOOL playlist) {
-    static UIImage *tiles[2];
+// image would not. The tiles are a file's, a playlist's, and a song's.
+static UIImage *VibeTileImage(NSUInteger kind) {
+    static UIImage *tiles[3];
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         CGRect bounds = CGRectMake(0, 0, kVibeFileTileSide, kVibeFileTileSide);
         UIImageSymbolConfiguration *configuration =
                 [UIImageSymbolConfiguration configurationWithPointSize:17 weight:UIImageSymbolWeightMedium];
         UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:bounds.size];
-        for (NSUInteger kind = 0; kind < 2; kind++) {
-            NSString *symbol = kind == 1 ? @"music.note.list" : @"waveform";
+        NSArray<NSString *> *symbols = @[@"waveform", @"music.note.list", @"music.note"];
+        for (NSUInteger kind = 0; kind < 3; kind++) {
+            NSString *symbol = symbols[kind];
             UIImage *(^draw)(UIUserInterfaceStyle) = ^UIImage *(UIUserInterfaceStyle style) {
                 UITraitCollection *traits = [UITraitCollection traitCollectionWithUserInterfaceStyle:style];
                 UIImage *glyph = [[UIImage systemImageNamed:symbol withConfiguration:configuration]
@@ -53,7 +54,15 @@ UIImage *VibeFileTileImage(BOOL playlist) {
             tiles[kind] = tile;
         }
     });
-    return tiles[playlist ? 1 : 0];
+    return tiles[kind];
+}
+
+UIImage *VibeFileTileImage(BOOL playlist) {
+    return VibeTileImage(playlist ? 1 : 0);
+}
+
+UIImage *VibeSongTileImage(void) {
+    return VibeTileImage(2);
 }
 
 @implementation UIListContentConfiguration (VibeFileRow)
