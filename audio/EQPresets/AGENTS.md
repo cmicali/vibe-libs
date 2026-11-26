@@ -1,6 +1,6 @@
 # audio/EQPresets
 
-EQ presets for `audio/Listening`'s settings: the built-in presets, a reader and a writer for Equalizer APO's parametric text, and a library that searches headphone presets. It depends on `core/Common` and `audio/Listening`. It reads no app's settings, strings, or types.
+EQ presets for `audio/Listening`'s settings: the built-in presets, a reader and a writer for Equalizer APO's parametric text, and a library that searches headphone presets. It depends on `audio/Listening`. It reads no app's settings, strings, or types.
 
 ## The presets
 
@@ -21,11 +21,11 @@ Filter 1: ON PK Fc 105 Hz Gain -3.1 dB Q 0.70
 
 - **It reads** PK and PEQ as a peak, LSC and LS as a low shelf, HSC and HS as a high shelf, LP and LPQ as a low pass, and HP and HPQ as a high pass. A filter marked OFF reads as a band that is not enabled. A line it can't read, a comment, or a filter type it doesn't know is skipped. A filter with no Q takes 0.707. Numbers read with a point as the decimal mark, whatever the locale.
 - **It never throws.** Text with no filter it can read returns nil and an error. Values outside a band's range are clamped by `VibeEQBand`. Past 20 filters, the rest are skipped.
-- **It writes** a `Preamp:` line and one `Filter N:` line for each band, with PK, LSC, HSC, LPQ, or HPQ. A band that is not enabled is written OFF. What it writes reads back to the same bands.
+- **It writes** a `Preamp:` line and one `Filter N:` line for each band, with PK, LSC, HSC, LPQ, or HPQ, to three decimals with a point. A band that is not enabled is written OFF. What it writes reads back to the same bands, for values of three decimals or fewer, which covers every AutoEQ result.
 
 ## Headphone presets, and why none are bundled
 
-`VibeEQPresetLibrary` searches headphone presets, ranked, case- and diacritic-insensitive, off main, and calls back on main. A name that starts with the query ranks first, then a name with a word that starts with it, then any name that contains it. Ties sort by name. `+sharedLibrary` holds the built-ins and **no headphone presets**, so its search returns nothing.
+`VibeEQPresetLibrary` searches headphone presets, ranked, case- and diacritic-insensitive, off main, and calls back on main. A name that starts with the query ranks first, then a name with a word that starts with it, then any name that contains it, then a name that contains every word of it. Ties sort by name. Names are folded once, when the headphones load, so a search over 5,000 takes a few milliseconds. **A library's headphones come from a loader block**, which runs once, off main, on first use. `+sharedLibrary`'s loader returns **no headphone presets**, so its search returns nothing. The tests make a library of their own.
 
 **The AutoEQ list is not bundled, because no measurement source's terms clearly allow it in a paid, closed-source app.** The decision was to bundle only the sources whose terms clearly allow that, and to leave out any that forbid it or say nothing. This was checked on 2026-11-26, at AutoEQ commit [7ae0f56](https://github.com/jaakkopasanen/AutoEq/tree/7ae0f56d53074872b028649617a22bbb4232feb7):
 

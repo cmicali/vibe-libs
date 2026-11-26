@@ -6,7 +6,7 @@ The first pieces come from [Vibe](https://github.com/cmicali/vibe). Anything in 
 
 ## The pieces
 
-**The first fifty-five pieces are here.** Each came from Vibe, but for libwavpack, the Monkey's Audio SDK, `audio/LoudnessEqualizer`, and `audio/Listening`. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
+**The first fifty-six pieces are here.** Each came from Vibe, but for libwavpack, the Monkey's Audio SDK, `audio/LoudnessEqualizer`, `audio/Listening`, and `audio/EQPresets`. The ten under `third_party/` are vendored libraries. The plan for the rest is [docs/plan.md](docs/plan.md).
 
 | Piece | What it holds |
 | --- | --- |

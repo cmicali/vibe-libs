@@ -289,6 +289,28 @@ targets:
     templateAttributes:
       excludedPlatform: Mac
 
+  # audio/EQPresets, tested on macOS.
+  EQPresetsTests:
+    type: bundle.unit-test
+    platform: macOS
+    templates: [VibeLibsEQPresets]
+    templateAttributes:
+      excludedPlatform: iOS
+    sources:
+      - path: Tests/audio/EQPresets
+        excludes: ["**/*.md"]
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+
+  # audio/EQPresets built for iOS, so an AppKit leak fails here.
+  EQPresets-iOS:
+    type: library.static
+    platform: iOS
+    templates: [VibeLibsEQPresets]
+    templateAttributes:
+      excludedPlatform: Mac
+
   # files/FileLoading, tested on macOS. The tests drive the seams and the fake
   # cloud, which compile only under DEBUG, so the bundle defines it in every
   # configuration. The coordinator's
@@ -1292,6 +1314,8 @@ schemes:
         LoudnessEqualizer-iOS: all
         ListeningTests: [test]
         Listening-iOS: all
+        EQPresetsTests: [test]
+        EQPresets-iOS: all
         FileLoadingTests: [test]
         FileLoading-iOS: all
         DiskCacheTests: [test]
@@ -1370,7 +1394,7 @@ schemes:
         SparkleTests: [test]
     test:
       targets: [CommonTests, GraphicsTests, AudioTypesTests, DSPTests, AnalysisTests, OutputDevicesTests,
-                FXTests, MeterTests, LoudnessEqualizerTests, ListeningTests, FileLoadingTests, DiskCacheTests,
+                FXTests, MeterTests, LoudnessEqualizerTests, ListeningTests, EQPresetsTests, FileLoadingTests, DiskCacheTests,
                 HTTPTests, RemoteFilesTests, DropboxTests, ShareLinksTests, DecodeTests, PlayerTests, TagsTests,
                 MetadataTests, PlayQueueTests, PlaylistsTests, FolderScanTests, WaveformTests, WaveformLoadingTests,
                 WaveformStylesTests, WaveformViewTests, ControlsTests, SettingsWindowTests, ShortcutsTests, DropWellsTests,
