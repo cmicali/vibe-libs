@@ -49,8 +49,7 @@ static const CGFloat kCellActionBarFillAlpha = 0.12;
 static const CGFloat kCellTimeWaveformOverlap = 12;
 // Apple Music's rendered glyph sizes, in far larger tap targets.
 static const CGFloat kCellGlyphPointSize = 34;
-static const CGFloat kCellSideGlyphPointSize = 23;
-static const CGFloat kTransportButtonSide = 66;
+static const CGFloat kCellSideGlyphPointSize = 23;static const CGFloat kTransportButtonSide = 66;
 static const CGFloat kTransportButtonGap = 41;
 // Shuffle and repeat: smaller glyphs in narrower targets. Their gaps give way
 // before the three's, and the three's before the edges or the route name.
@@ -168,6 +167,13 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
     // that set is.
     NSLayoutConstraint *_actionBarLeadingAfterPad;
     BOOL               _fxPadShown;
+    // Portrait's queue control sits in a circle of the action bar's fill at
+    // the bar's leading end, before the FX pad's circle and the route
+    // capsule. Each leading edge after it is active only in portrait while
+    // the control shows (applyActionBarSplit).
+    UIView             *_queueCircle;
+    NSLayoutConstraint *_padLeadingAfterQueue;
+    NSLayoutConstraint *_actionBarLeadingAfterQueue;
     // What hiding the shuffle and repeat buttons zeroes (applyShuffleRepeatShown).
     NSLayoutConstraint *_shuffleWidth;
     NSLayoutConstraint *_outerGapWanted;
@@ -313,7 +319,18 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         _routeView.translatesAutoresizingMaskIntoConstraints = NO;
         [content addSubview:_routeView];
 
-        // The host's queue control, in the page's top-trailing corner.
+        // Portrait's circle behind the queue control, as the FX pad's.
+        _queueCircle = [[UIView alloc] init];
+        _queueCircle.backgroundColor = _actionBar.backgroundColor;
+        _queueCircle.layer.cornerRadius = kCellActionBarHeight / 2;
+        _queueCircle.layer.cornerCurve = kCACornerCurveContinuous;
+        _queueCircle.userInteractionEnabled = NO;
+        _queueCircle.hidden = YES;
+        _queueCircle.translatesAutoresizingMaskIntoConstraints = NO;
+        [content addSubview:_queueCircle];
+
+        // The host's queue control: in portrait's circle at the bottom-leading
+        // corner, and in the wide layouts' top-trailing corner.
         _queueButton = [UIButton buttonWithType:UIButtonTypeSystem];
         _queueButton.tintColor = [UIColor labelColor];
         _queueButton.hidden = YES;
@@ -361,6 +378,11 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
         NSLayoutConstraint *sliderTrailing = [_standardScrubber.trailingAnchor
                 constraintEqualToAnchor:_waveformView.trailingAnchor constant:-kCellTimeEdgeInset];
         sliderTrailing.priority = UILayoutPriorityRequired - 1;
+        // Below required, so portrait's circle sizes the queue control.
+        NSLayoutConstraint *queueWidth = [_queueButton.widthAnchor constraintEqualToConstant:kTransportFlankButtonSide];
+        queueWidth.priority = UILayoutPriorityRequired - 1;
+        NSLayoutConstraint *queueHeight = [_queueButton.heightAnchor constraintEqualToConstant:kTransportFlankButtonSide];
+        queueHeight.priority = UILayoutPriorityRequired - 1;
         [NSLayoutConstraint activateConstraints:@[
             [_backdropView.topAnchor constraintEqualToAnchor:content.topAnchor],
             [_backdropView.bottomAnchor constraintEqualToAnchor:content.bottomAnchor],
@@ -383,8 +405,10 @@ static NSString *RepeatSymbolName(VibeRepeatMode mode) {
             [_actionBar.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
             [_fxPadView.widthAnchor constraintEqualToConstant:kCellActionBarHeight],
             [_fxPadView.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
-            [_queueButton.widthAnchor constraintEqualToConstant:kTransportFlankButtonSide],
-            [_queueButton.heightAnchor constraintEqualToConstant:kTransportFlankButtonSide],
+            queueWidth,
+            queueHeight,
+            [_queueCircle.widthAnchor constraintEqualToConstant:kCellActionBarHeight],
+            [_queueCircle.heightAnchor constraintEqualToConstant:kCellActionBarHeight],
             waveformFullWidth,
             [_waveformView.trailingAnchor constraintEqualToAnchor:content.trailingAnchor],
             sliderLeading,
@@ -541,9 +565,17 @@ static UIImage *TransportGradientImage(void) {
     [content addLayoutGuide:labels];
     _actionBarLeadingAfterPad = [_actionBar.leadingAnchor constraintEqualToAnchor:_fxPadView.trailingAnchor
                                                                           constant:kCellActionBarGap];
+    _padLeadingAfterQueue = [_fxPadView.leadingAnchor constraintEqualToAnchor:_queueCircle.trailingAnchor
+                                                                     constant:kCellActionBarGap];
+    _actionBarLeadingAfterQueue = [_actionBar.leadingAnchor constraintEqualToAnchor:_queueCircle.trailingAnchor
+                                                                            constant:kCellActionBarGap];
     NSLayoutConstraint *actionBarLeadingFull = [_actionBar.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
                                                                                         constant:kCellActionBarInset];
     actionBarLeadingFull.priority = UILayoutPriorityDefaultHigh;
+    // Below required too, so the pad moves past the queue circle when it shows.
+    NSLayoutConstraint *padLeadingFull = [_fxPadView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
+                                                                                  constant:kCellActionBarInset];
+    padLeadingFull.priority = UILayoutPriorityDefaultHigh;
 
     // The single-line labels keep their line reserved, so a missing artist
     // lays out like a present one.
@@ -617,13 +649,15 @@ static UIImage *TransportGradientImage(void) {
         [_routeView.trailingAnchor constraintEqualToAnchor:_actionBar.trailingAnchor
                                                   constant:-kCellActionBarContentInset],
         [_fxPadView.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
-        [_fxPadView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor
-                                                 constant:kCellActionBarInset],
-        // In the band above the art, opposite nothing: the grabber is centered.
-        [_queueButton.centerYAnchor constraintEqualToAnchor:safe.topAnchor
-                                                   constant:kCellTopBandHeight / 2],
-        [_queueButton.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor
-                                                    constant:-kCellTimeEdgeInset],
+        padLeadingFull,
+        // The queue control's circle, in the bottom-leading corner, and the
+        // control filling it, so the whole circle takes the tap.
+        [_queueCircle.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+        [_queueCircle.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:kCellActionBarInset],
+        [_queueButton.topAnchor constraintEqualToAnchor:_queueCircle.topAnchor],
+        [_queueButton.bottomAnchor constraintEqualToAnchor:_queueCircle.bottomAnchor],
+        [_queueButton.leadingAnchor constraintEqualToAnchor:_queueCircle.leadingAnchor],
+        [_queueButton.trailingAnchor constraintEqualToAnchor:_queueCircle.trailingAnchor],
 
         [_transportView.bottomAnchor constraintEqualToAnchor:_actionBar.topAnchor
                                                     constant:-kCellActionBarTransportGap],
@@ -874,6 +908,19 @@ static UIImage *TransportGradientImage(void) {
     if (!_activeLayout) {
         return; // the first applyLayoutForBounds: activates a layout, then this
     }
+    // Portrait's bar, from the leading edge: the queue circle while the
+    // control shows, the FX pad's circle while it shows, then the capsule.
+    // Off before on, so no two leading edges hold at once.
+    BOOL queueInBar = _queueSymbol && !_landscapeActive;
+    _queueCircle.hidden = !queueInBar;
+    BOOL padAfterQueue = queueInBar && _fxPadShown;
+    BOOL barAfterQueue = queueInBar && !_fxPadShown;
+    if (_padLeadingAfterQueue.active != padAfterQueue || _actionBarLeadingAfterQueue.active != barAfterQueue) {
+        _padLeadingAfterQueue.active = NO;
+        _actionBarLeadingAfterQueue.active = NO;
+        _padLeadingAfterQueue.active = padAfterQueue;
+        _actionBarLeadingAfterQueue.active = barAfterQueue;
+    }
     _actionBarLeadingAfterPad.active = _fxPadShown && !_landscapeActive;
     _actionBar.hidden = _compactActive;
     _routeView.hidden = _compactActive;
@@ -1010,6 +1057,8 @@ static UIImage *TransportGradientImage(void) {
         [self setGlyph:symbol onButton:_queueButton pointSize:kCellSideGlyphPointSize];
     }
     [self applyQueueControl];
+    // Portrait's bar makes room for the circle, or closes up.
+    [self applyActionBarSplit];
 }
 
 - (void)setChromeAlpha:(CGFloat)alpha {
@@ -1019,6 +1068,7 @@ static UIImage *TransportGradientImage(void) {
     _actionBar.alpha = alpha;
     _fxPadView.alpha = alpha;
     _queueButton.alpha = alpha;
+    _queueCircle.alpha = alpha;
 }
 
 - (void)applyQueueControl {
