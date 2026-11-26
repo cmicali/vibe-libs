@@ -101,6 +101,11 @@ static const CGFloat kGap = 10;
 - (void)layout {
     [super layout];
     NSRect bounds = self.bounds;
+    if (_compactPresentation) {
+        _graphicView.frame = bounds;
+        _curveView.frame = bounds;
+        return;
+    }
     CGFloat controlWidth = MIN(NSWidth(bounds), 240);
     _faceControl.frame = NSMakeRect(round((NSWidth(bounds) - controlWidth) / 2), 0, controlWidth, kFaceControlHeight);
     CGFloat top = kFaceControlHeight + kGap;
@@ -124,6 +129,21 @@ static const CGFloat kGap = 10;
     _settings = value;
     [self pushBandsExceptFrom:nil];
     [self updateFace];
+}
+
+- (void)setCompactPresentation:(BOOL)compact {
+    _compactPresentation = compact;
+    [self updateFace];
+    self.needsLayout = YES;
+}
+
+- (NSUInteger)selectedBandIndex {
+    return _curveView.selectedIndex;
+}
+
+- (void)setSelectedBandIndex:(NSUInteger)index {
+    _curveView.selectedIndex = index;
+    _bandList.selectedIndex = _curveView.selectedIndex;
 }
 
 - (BOOL)graphicFaceAvailable {
@@ -197,7 +217,8 @@ static const CGFloat kGap = 10;
     BOOL graphic = _face == VibeEQEditorFaceGraphic;
     _graphicView.hidden = !graphic;
     _curveView.hidden = graphic;
-    _bandList.hidden = graphic;
+    _bandList.hidden = graphic || _compactPresentation;
+    _faceControl.hidden = _compactPresentation;
     [self updateFaceControl];
 }
 
@@ -240,6 +261,9 @@ static const CGFloat kGap = 10;
     }
     if (face != _bandList) {
         _bandList.selectedIndex = index;
+    }
+    if ([self.delegate respondsToSelector:@selector(eqEditorViewDidSelectBand:)]) {
+        [self.delegate eqEditorViewDidSelectBand:self];
     }
 }
 

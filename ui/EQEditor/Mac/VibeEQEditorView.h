@@ -32,6 +32,8 @@ typedef NS_ENUM(NSInteger, VibeEQEditorFace) {
 - (void)eqEditorViewDidEndEditing:(VibeEQEditorView *)view;
 
 @optional
+// A host that presents the selected band can update its controls here.
+- (void)eqEditorViewDidSelectBand:(VibeEQEditorView *)view;
 // The user switched faces, so the host can keep the choice.
 - (void)eqEditorViewDidChangeFace:(VibeEQEditorView *)view;
 
@@ -74,6 +76,11 @@ typedef NS_ENUM(NSInteger, VibeEQEditorFace) {
 @property (nonatomic) VibeEQEditorFace face;
 // The bands fit the graphic face.
 @property (nonatomic, readonly) BOOL graphicFaceAvailable;
+
+// Fill the editor with the current face. The host supplies the face picker and band controls.
+@property (nonatomic) BOOL compactPresentation;
+// NSNotFound clears the selection.
+@property (nonatomic) NSUInteger selectedBandIndex;
 
 // NO dims the view and ignores every input. YES by default.
 @property (nonatomic, getter=isEnabled) BOOL enabled;
