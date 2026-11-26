@@ -408,11 +408,10 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     NSUInteger index = [self nodeIndexAtPoint:point];
     if (index == NSNotFound && event.clickCount == 2 && NSPointInRect(point, self.plotRect) &&
         _bands.count < kVibeListeningMaxBands) {
-        NSRect plot = self.plotRect;
-        double frequency = VibeEQRoundFrequency(VibeEQFrequencyForX(point.x, NSMinX(plot), NSWidth(plot)));
-        double gain = VibeEQSnapGain(VibeEQGainForY(point.y, NSMinY(plot), NSHeight(plot), self.rangeDB),
-                                     kVibeEQParametricStepDB, kVibeEQMaxGainDB);
-        VibeEQBand *band = [VibeEQBand bandWithType:VibeEQBandTypePeak frequency:frequency gainDB:gain q:1];
+        VibeEQBand *band = [VibeEQBand bandWithType:VibeEQBandTypePeak
+                                          frequency:[self frequencyAtX:point.x]
+                                             gainDB:[self gainAtY:point.y]
+                                                  q:1];
         [self commitBands:[_bands arrayByAddingObject:band] selecting:_bands.count];
         return;
     }
@@ -422,6 +421,19 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     }
     _heldRange = self.rangeDB;
     [self anchorDragAt:point option:(event.modifierFlags & NSEventModifierFlagOption) != 0];
+}
+
+// The band values at a point of the plot, rounded and snapped as an edit
+// stores them.
+- (double)frequencyAtX:(CGFloat)x {
+    NSRect plot = self.plotRect;
+    return VibeEQRoundFrequency(VibeEQFrequencyForX(x, NSMinX(plot), NSWidth(plot)));
+}
+
+- (double)gainAtY:(CGFloat)y {
+    NSRect plot = self.plotRect;
+    return VibeEQSnapGain(VibeEQGainForY(y, NSMinY(plot), NSHeight(plot), self.rangeDB), kVibeEQParametricStepDB,
+                          kVibeEQMaxGainDB);
 }
 
 - (void)commitBands:(NSArray<VibeEQBand *> *)bands selecting:(NSUInteger)next {
@@ -442,14 +454,13 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     NSMenu *menu = [[NSMenu alloc] init];
     NSMenuItem *item = [menu addItemWithTitle:_strings.removeBand action:@selector(removeClickedBand:) keyEquivalent:@""];
     item.target = self;
-    item.tag = index;
     item.representedObject = _bands[index];
     return menu;
 }
 
 - (void)removeClickedBand:(NSMenuItem *)item {
-    NSUInteger index = item.tag;
-    if (self.enabled && index < _bands.count && _bands[index] == item.representedObject) {
+    NSUInteger index = [_bands indexOfObjectIdenticalTo:item.representedObject];
+    if (self.enabled && index != NSNotFound) {
         [self removeBandAtIndex:index];
     }
 }
@@ -485,14 +496,8 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
         [self replaceBandAtIndex:_selectedIndex with:VibeEQBandMoved(band, band.frequency, band.gainDB, q)];
         return;
     }
-    NSRect plot = self.plotRect;
-    double frequency = VibeEQRoundFrequency(VibeEQFrequencyForX(point.x + _grabOffset.x, NSMinX(plot), NSWidth(plot)));
-    double gain = band.gainDB;
-    if (VibeEQBandHasGain(band.type)) {
-        double range = self.rangeDB;
-        gain = VibeEQSnapGain(VibeEQGainForY(point.y + _grabOffset.y, NSMinY(plot), NSHeight(plot), range),
-                              kVibeEQParametricStepDB, kVibeEQMaxGainDB);
-    }
+    double frequency = [self frequencyAtX:point.x + _grabOffset.x];
+    double gain = VibeEQBandHasGain(band.type) ? [self gainAtY:point.y + _grabOffset.y] : band.gainDB;
     [self replaceBandAtIndex:_selectedIndex with:VibeEQBandMoved(band, frequency, gain, band.q)];
     // A widened axis moves every node, so the grab is measured again.
     if (self.rangeDB > _heldRange) {

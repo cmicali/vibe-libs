@@ -135,9 +135,11 @@ static const CGFloat kGap = 10;
 }
 
 - (void)setCompactPresentation:(BOOL)compact {
+    if (compact == _compactPresentation) {
+        return;
+    }
     _compactPresentation = compact;
     [self updateFace];
-    self.needsLayout = YES;
 }
 
 - (NSUInteger)selectedBandIndex {
@@ -174,7 +176,7 @@ static const CGFloat kGap = 10;
     _enabled = enabled;
     _faceControl.enabled = enabled;
     _graphicView.enabled = enabled;
-    _curveView.enabled = enabled && !(_compactPresentation && _face == VibeEQEditorFaceGraphic);
+    [self updateCurveEnabled];
     _bandList.enabled = enabled;
     CGFloat alpha = enabled ? 1 : 0.5;
     for (NSView *part in @[_faceControl, _graphicView, _curveView, _bandList]) {
@@ -232,11 +234,16 @@ static const CGFloat kGap = 10;
     BOOL graphic = _face == VibeEQEditorFaceGraphic;
     _graphicView.hidden = !graphic;
     _curveView.hidden = graphic && !_compactPresentation;
-    _curveView.enabled = _enabled && !(_compactPresentation && graphic);
-    self.needsLayout = YES;
     _bandList.hidden = graphic || _compactPresentation;
     _faceControl.hidden = _compactPresentation;
+    [self updateCurveEnabled];
     [self updateFaceControl];
+    self.needsLayout = YES;
+}
+
+// Above the compact graphic sliders the curve only shows the response.
+- (void)updateCurveEnabled {
+    _curveView.enabled = _enabled && !(_compactPresentation && _face == VibeEQEditorFaceGraphic);
 }
 
 - (void)updateFaceControl {
