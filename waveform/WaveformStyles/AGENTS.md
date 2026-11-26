@@ -44,6 +44,8 @@ The theme beats the style's palette. The style is the geometry, and the theme is
 
 **`WaveformTheme`'s `themeForIdentifier:isDark:artworkColor:customPlayed:customUnplayed:` is the only home of the rules from identifier to colors.** It returns `playedColor`, `unplayedColor`, and `hoverColor`. The app maps its store onto it in one place, so the theme reads no store. A view resolves only through the `WaveformThemeProvider` block its shell installs, with the appearance it draws in and the artwork color settled on it. A view with none resolves Mono.
 
+**An app that keeps Vibe's color choices maps them through `WaveformThemeChoice`.** It fills one value per appearance from its store: the theme, Custom's pair, the band palette, Spectrum's palette and coloring, and the three band wells. `themeForChoice:isDark:artworkColor:` turns it into a theme, so two apps resolve the same choices alike. `WaveformTheme`'s lists give each chooser its rows, each in order, its default first, and Custom last. `swatchColorsForPaletteKind:identifier:isDark:` gives a built-in palette's three colors, and on iOS `swatchImageForPaletteKind:identifier:isDark:` draws them as a chooser row's three bars.
+
 **Each color carries its side's resting level in its alpha. Renderers own only their ramp shapes**, and scale every stop against that level (`VibeColorWithScaledAlpha`, `core/Graphics`' `PlatformColor.h`). `WaveformTheme.m` names the built-in levels. A custom well's alpha sets its side's whole intensity and persists in the hex (`#RRGGBBAA`). A renderer that hard-codes an alpha breaks every theme at once.
 
 **`flatFill` drops the ramp, never the level.** Spectrum and the pill draw no ramp either way (`WaveformRendererRegistry.supportsGradientForIdentifier:`).

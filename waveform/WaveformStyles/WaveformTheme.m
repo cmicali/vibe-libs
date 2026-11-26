@@ -106,6 +106,13 @@ static CGFloat VibeLuminance(CGFloat r, CGFloat g, CGFloat b) {
     return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
+static NSString *VibeIdentifierIn(NSArray<NSString *> *list, NSString *identifier) {
+    return identifier && [list containsObject:identifier] ? identifier : list.firstObject;
+}
+
+@implementation WaveformThemeChoice
+@end
+
 @implementation WaveformTheme
 
 - (instancetype)initWithPlayed:(VibeColor *)played unplayed:(VibeColor *)unplayed isDark:(BOOL)isDark {
@@ -137,6 +144,101 @@ static CGFloat VibeLuminance(CGFloat r, CGFloat g, CGFloat b) {
     return [self themeForIdentifier:SETTINGS_VALUE_WAVEFORM_THEME_MONO isDark:isDark
                        artworkColor:nil customPlayed:nil customUnplayed:nil];
 }
+
++ (NSArray<NSString *> *)themeIdentifiers {
+    return @[SETTINGS_VALUE_WAVEFORM_THEME_MONO, SETTINGS_VALUE_WAVEFORM_THEME_ORANGE,
+             SETTINGS_VALUE_WAVEFORM_THEME_ALBUM_ART, SETTINGS_VALUE_WAVEFORM_THEME_CUSTOM];
+}
+
++ (NSArray<NSString *> *)bandThemeIdentifiers {
+    return @[SETTINGS_VALUE_WAVEFORM_BAND_THEME_REKORD_BIN, SETTINGS_VALUE_WAVEFORM_BAND_THEME_DENGINE,
+             SETTINGS_VALUE_WAVEFORM_BAND_THEME_CUSTOM];
+}
+
++ (NSArray<NSString *> *)spectrumPaletteIdentifiers {
+    return @[SETTINGS_VALUE_WAVEFORM_SPECTRUM_PALETTE_RGB, SETTINGS_VALUE_WAVEFORM_SPECTRUM_PALETTE_BLUE,
+             SETTINGS_VALUE_WAVEFORM_SPECTRUM_PALETTE_GREEN, SETTINGS_VALUE_WAVEFORM_SPECTRUM_PALETTE_CUSTOM];
+}
+
++ (NSArray<NSString *> *)spectrumColoringIdentifiers {
+    return @[SETTINGS_VALUE_WAVEFORM_SPECTRUM_COLORING_SECTIONS, SETTINGS_VALUE_WAVEFORM_SPECTRUM_COLORING_PRECISE];
+}
+
++ (WaveformTheme *)themeForChoice:(WaveformThemeChoice *)choice
+                           isDark:(BOOL)isDark
+                     artworkColor:(VibeColor *)artworkColor {
+    WaveformTheme *resolved = [self themeForIdentifier:VibeIdentifierIn(self.themeIdentifiers, choice.theme)
+                                                isDark:isDark
+                                          artworkColor:artworkColor
+                                          customPlayed:choice.customPlayed
+                                        customUnplayed:choice.customUnplayed];
+    NSString *bandTheme = VibeIdentifierIn(self.bandThemeIdentifiers, choice.bandTheme);
+    NSString *spectrumPalette = VibeIdentifierIn(self.spectrumPaletteIdentifiers, choice.spectrumPalette);
+    // An unset well draws Rekord Bin's band, the theme's default bands.
+    NSArray<VibeColor *> *rekordBin = resolved.bandColors;
+    NSArray<VibeColor *> *custom = @[choice.customLow ?: rekordBin[0], choice.customMid ?: rekordBin[1],
+                                     choice.customHigh ?: rekordBin[2]];
+    resolved.bandColors = [self bandColorsForIdentifier:bandTheme isDark:isDark customBands:custom];
+    resolved.spectrumColors = [self spectrumColorsForIdentifier:spectrumPalette isDark:isDark customBands:custom];
+    resolved.spectrumColorsBySection = [VibeIdentifierIn(self.spectrumColoringIdentifiers, choice.spectrumColoring)
+            isEqualToString:SETTINGS_VALUE_WAVEFORM_SPECTRUM_COLORING_SECTIONS];
+    return resolved;
+}
+
++ (NSArray<VibeColor *> *)swatchColorsForPaletteKind:(VibeWaveformPaletteKind)kind
+                                          identifier:(NSString *)identifier
+                                              isDark:(BOOL)isDark {
+    switch (kind) {
+        case VibeWaveformPaletteKindTheme:
+            return @[];
+        case VibeWaveformPaletteKindBands:
+            if ([identifier isEqualToString:SETTINGS_VALUE_WAVEFORM_BAND_THEME_CUSTOM]) {
+                return @[];
+            }
+            return [[self bandColorsForIdentifier:identifier isDark:isDark customBands:@[]]
+                    subarrayWithRange:NSMakeRange(0, 3)];
+        case VibeWaveformPaletteKindSpectrum:
+            if ([identifier isEqualToString:SETTINGS_VALUE_WAVEFORM_SPECTRUM_PALETTE_CUSTOM]) {
+                return @[];
+            }
+            return [self spectrumColorsForIdentifier:identifier isDark:isDark customBands:@[]];
+    }
+    return @[];
+}
+
+#if !TARGET_OS_OSX
++ (UIImage *)swatchImageForPaletteKind:(VibeWaveformPaletteKind)kind
+                            identifier:(NSString *)identifier
+                                isDark:(BOOL)isDark {
+    if (kind == VibeWaveformPaletteKindTheme) {
+        return nil;
+    }
+    static NSMutableDictionary<NSString *, UIImage *> *cache;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        cache = [NSMutableDictionary dictionary];
+    });
+    NSString *key = [NSString stringWithFormat:@"%ld/%@/%d", (long)kind, identifier, isDark];
+    if (cache[key]) {
+        return cache[key];
+    }
+    NSArray<VibeColor *> *colors = [self swatchColorsForPaletteKind:kind identifier:identifier isDark:isDark];
+    const CGFloat barWidth = 8, barGap = 3, height = 22;
+    UIGraphicsImageRendererFormat *format = [UIGraphicsImageRendererFormat preferredFormat];
+    format.opaque = NO;
+    UIGraphicsImageRenderer *renderer =
+        [[UIGraphicsImageRenderer alloc] initWithSize:CGSizeMake(barWidth * 3 + barGap * 2, height) format:format];
+    UIImage *swatch = [[renderer imageWithActions:^(UIGraphicsImageRendererContext *context) {
+        for (NSUInteger band = 0; band < colors.count; band++) {
+            [colors[band] setFill];
+            [[UIBezierPath bezierPathWithRoundedRect:CGRectMake(band * (barWidth + barGap), 0, barWidth, height)
+                                        cornerRadius:2] fill];
+        }
+    }] imageWithRenderingMode:UIImageRenderingModeAlwaysOriginal];
+    cache[key] = swatch;
+    return swatch;
+}
+#endif
 
 + (NSArray<VibeColor *> *)spectrumColorsForIdentifier:(NSString *)identifier isDark:(BOOL)isDark
                                           customBands:(NSArray<VibeColor *> *)custom {
