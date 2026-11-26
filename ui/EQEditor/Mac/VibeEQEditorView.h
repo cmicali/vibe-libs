@@ -64,6 +64,8 @@ typedef NS_ENUM(NSInteger, VibeEQEditorFace) {
 @interface VibeEQEditorView : NSView
 
 @property (nonatomic, weak, nullable) id<VibeEQEditorViewDelegate> delegate;
+// The host's playback rate. Defaults to 48 kHz for an offline preview.
+@property (nonatomic) double sampleRate;
 
 // Neutral by default. Setting it calls no delegate method.
 @property (nonatomic, copy, null_resettable) VibeListeningSettings *settings;

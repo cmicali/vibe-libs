@@ -1475,6 +1475,13 @@ intendedSubmittedPlayIdentifier:(uint64_t)intendedSubmittedPlayIdentifier submit
     });
 }
 
+- (double)listeningSampleRate {
+    os_unfair_lock_lock(&_stateLock);
+    double rate = _masterFormat.sampleRate;
+    os_unfair_lock_unlock(&_stateLock);
+    return rate;
+}
+
 - (BOOL)listeningClipping {
     os_unfair_lock_lock(&_stateLock);
     BOOL clipping = _listeningClipping;

@@ -403,6 +403,18 @@
     XCTAssertEqual(_ends, 1u);
 }
 
+- (void)testChangingOnlyThePlaybackRateRedrawsTheCombinedResponse {
+    NSArray *bands = @[[VibeEQBand bandWithType:VibeEQBandTypePeak frequency:8000 gainDB:11 q:1.41],
+                       [VibeEQBand bandWithType:VibeEQBandTypePeak frequency:16000 gainDB:11 q:1.41]];
+    [self showParametric:[self settingsWithBands:bands]];
+    // Their combined boost rises from 11.9 dB at 48 kHz to 12.9 dB at 96 kHz.
+    XCTAssertEqual(_editor.curveView.rangeDB, 12);
+    _editor.sampleRate = 96000;
+    XCTAssertEqual(_editor.curveView.rangeDB, 24);
+    _editor.sampleRate = 48000;
+    XCTAssertEqual(_editor.curveView.rangeDB, 12);
+}
+
 - (void)testKeysMoveTheSelectedNode {
     [self showParametric:[self parametricSettings]];
     VibeEQCurveView *curve = _editor.curveView;

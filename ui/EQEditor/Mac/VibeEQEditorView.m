@@ -135,6 +135,14 @@ static const CGFloat kGap = 10;
     [self updateFace];
 }
 
+- (double)sampleRate {
+    return _curveView.sampleRate;
+}
+
+- (void)setSampleRate:(double)sampleRate {
+    _curveView.sampleRate = sampleRate;
+}
+
 - (void)setEnabled:(BOOL)enabled {
     _enabled = enabled;
     _faceControl.enabled = enabled;

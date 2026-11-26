@@ -183,10 +183,12 @@ static VibeEQPreset *Headphone(NSString *name) {
         XCTAssertEqual(preset.kind, VibeEQPresetKindBuiltIn);
         XCTAssertNil(preset.source);
         XCTAssertEqual(preset.preampDB, 0);
-        XCTAssertTrue([preset applyingToSettings:[VibeListeningSettings neutralSettings]].isGraphic, @"%@", preset.name);
+        XCTAssertTrue([preset applyingToSettings:[VibeListeningSettings neutralSettings]
+                                      sampleRate:kVibeListeningPreviewRate].isGraphic, @"%@", preset.name);
     }
     VibeEQPreset *flat = library.builtInPresets.firstObject;
-    XCTAssertTrue([flat applyingToSettings:[VibeListeningSettings neutralSettings]].isNeutral);
+    XCTAssertTrue([flat applyingToSettings:[VibeListeningSettings neutralSettings]
+                                sampleRate:kVibeListeningPreviewRate].isNeutral);
     VibeEQPreset *bassBoost = library.builtInPresets[1];
     XCTAssertGreaterThan(VibeListeningResponseDB(bassBoost.bands, 40, 48000), 4);
     XCTAssertEqualWithAccuracy(VibeListeningResponseDB(bassBoost.bands, 8000, 48000), 0, 0.5);
@@ -202,7 +204,7 @@ static VibeEQPreset *Headphone(NSString *name) {
     start.preampAutomatic = NO;
     start.preampDB = -3;
     VibeEQPreset *bassBoost = [VibeEQPresetLibrary sharedLibrary].builtInPresets[1];
-    VibeListeningSettings *applied = [bassBoost applyingToSettings:start];
+    VibeListeningSettings *applied = [bassBoost applyingToSettings:start sampleRate:kVibeListeningPreviewRate];
     XCTAssertTrue(applied.eqEnabled);
     XCTAssertEqualObjects(applied.bands, bassBoost.bands);
     XCTAssertTrue(applied.preampAutomatic);
@@ -214,14 +216,15 @@ static VibeEQPreset *Headphone(NSString *name) {
 
 - (void)testAHeadphonesPreampTurnsManualOnlyWhenItCutsMore {
     NSArray *bands = @[ Band(VibeEQBandTypePeak, 1000, 4, 1) ];
-    double automatic = VibeListeningAutomaticPreampDB(bands);
+    double automatic = VibeListeningAutomaticPreampDBAtRate(bands, kVibeListeningPreviewRate);
     VibeEQPreset *deeper = [[VibeEQPreset alloc] initWithIdentifier:@"a"
                                                                name:@"A"
                                                                kind:VibeEQPresetKindHeadphone
                                                              source:@"Lab"
                                                               bands:bands
                                                            preampDB:automatic - 2];
-    VibeListeningSettings *applied = [deeper applyingToSettings:[VibeListeningSettings neutralSettings]];
+    VibeListeningSettings *applied = [deeper applyingToSettings:[VibeListeningSettings neutralSettings]
+                                                     sampleRate:kVibeListeningPreviewRate];
     XCTAssertFalse(applied.preampAutomatic);
     XCTAssertEqualWithAccuracy(applied.preampDB, automatic - 2, 1e-9);
 
@@ -231,7 +234,8 @@ static VibeEQPreset *Headphone(NSString *name) {
                                                                 source:@"Lab"
                                                                  bands:bands
                                                               preampDB:-1];
-    XCTAssertTrue([shallower applyingToSettings:[VibeListeningSettings neutralSettings]].preampAutomatic);
+    XCTAssertTrue([shallower applyingToSettings:[VibeListeningSettings neutralSettings]
+                                     sampleRate:kVibeListeningPreviewRate].preampAutomatic);
 }
 
 - (void)testAPresetCodesAndCompares {
@@ -286,15 +290,16 @@ static VibeEQPreset *Headphone(NSString *name) {
     XCTAssertEqual(automatic.kind, VibeEQPresetKindUser);
     XCTAssertTrue([automatic.identifier hasPrefix:@"user."]);
     XCTAssertEqualObjects(automatic.bands, settings.bands);
-    XCTAssertEqualWithAccuracy(automatic.preampDB, VibeListeningAutomaticPreampDB(settings.bands), 1e-9);
-    XCTAssertTrue([automatic matchesSettings:settings]);
-    XCTAssertTrue([[automatic applyingToSettings:settings] preampAutomatic]);
+    XCTAssertEqualWithAccuracy(automatic.preampDB,
+                               VibeListeningAutomaticPreampDBAtRate(settings.bands, kVibeListeningPreviewRate), 1e-9);
+    XCTAssertTrue([automatic matchesSettings:settings sampleRate:kVibeListeningPreviewRate]);
+    XCTAssertTrue([[automatic applyingToSettings:settings sampleRate:kVibeListeningPreviewRate] preampAutomatic]);
 
     settings.preampAutomatic = NO;
     settings.preampDB = -12;
     VibeEQPreset *manual = [VibeEQPreset presetWithName:@"Quiet" settings:settings];
     XCTAssertEqual(manual.preampDB, -12);
-    XCTAssertTrue([manual matchesSettings:settings]);
+    XCTAssertTrue([manual matchesSettings:settings sampleRate:kVibeListeningPreviewRate]);
     XCTAssertNotEqualObjects(manual.identifier, automatic.identifier);
 
     // A manual preamp that cuts less than the automatic one still matches the
@@ -302,30 +307,73 @@ static VibeEQPreset *Headphone(NSString *name) {
     settings.preampDB = 0;
     VibeEQPreset *loud = [VibeEQPreset presetWithName:@"Loud" settings:settings];
     XCTAssertEqual(loud.preampDB, 0);
-    XCTAssertTrue([loud matchesSettings:settings]);
-    XCTAssertTrue([loud applyingToSettings:settings].preampAutomatic);
+    XCTAssertTrue([loud matchesSettings:settings sampleRate:kVibeListeningPreviewRate]);
+    XCTAssertTrue([loud applyingToSettings:settings sampleRate:kVibeListeningPreviewRate].preampAutomatic);
+}
+
+// The automatic preamp for a treble boost differs at each rate. A preset saved
+// with it stays automatic and keeps its name at every rate.
+- (void)testAPresetSavedAsAutomaticStaysAutomaticAtEveryRate {
+    VibeMutableListeningSettings *settings = [[VibeListeningSettings neutralSettings] mutableCopy];
+    settings.eqEnabled = YES;
+    settings.bands = [VibeListeningSettings graphicBandsWithGains:@[ @0, @0, @0, @0, @0, @0, @1, @3, @5, @6 ]];
+    VibeEQPreset *preset = [VibeEQPreset presetWithName:@"Mine" settings:settings];
+    XCTAssertGreaterThan(VibeListeningAutomaticPreampDBAtRate(settings.bands, 44100), preset.preampDB + 0.05);
+    XCTAssertLessThan(VibeListeningAutomaticPreampDBAtRate(settings.bands, 96000), preset.preampDB - 0.4);
+    for (NSNumber *rate in @[ @22050, @44100, @48000, @96000, @192000 ]) {
+        XCTAssertTrue([preset matchesSettings:settings sampleRate:rate.doubleValue], @"%@", rate);
+        XCTAssertTrue([preset applyingToSettings:settings sampleRate:rate.doubleValue].preampAutomatic, @"%@", rate);
+    }
+    // One saved as manual stays manual where it cuts more than automatic does.
+    settings.preampAutomatic = NO;
+    settings.preampDB = -9;
+    VibeEQPreset *quiet = [VibeEQPreset presetWithName:@"Quiet" settings:settings];
+    for (NSNumber *rate in @[ @44100, @192000 ]) {
+        VibeListeningSettings *applied = [quiet applyingToSettings:settings sampleRate:rate.doubleValue];
+        XCTAssertFalse(applied.preampAutomatic, @"%@", rate);
+        XCTAssertEqual(applied.preampDB, -9);
+    }
 }
 
 - (void)testAPresetMatchesOnlySettingsItWouldMake {
     VibeEQPreset *bassBoost = [VibeEQPresetLibrary sharedLibrary].builtInPresets[1];
     VibeListeningSettings *neutral = [VibeListeningSettings neutralSettings];
-    VibeListeningSettings *applied = [bassBoost applyingToSettings:neutral];
-    XCTAssertTrue([bassBoost matchesSettings:applied]);
-    XCTAssertFalse([bassBoost matchesSettings:neutral]);
-    XCTAssertFalse([[VibeEQPresetLibrary sharedLibrary].builtInPresets[0] matchesSettings:applied]);
+    const double rate = kVibeListeningPreviewRate;
+    VibeListeningSettings *applied = [bassBoost applyingToSettings:neutral sampleRate:rate];
+    XCTAssertTrue([bassBoost matchesSettings:applied sampleRate:rate]);
+    XCTAssertFalse([bassBoost matchesSettings:neutral sampleRate:rate]);
+    XCTAssertFalse([[VibeEQPresetLibrary sharedLibrary].builtInPresets[0] matchesSettings:applied sampleRate:rate]);
 
     VibeMutableListeningSettings *edited = [applied mutableCopy];
     edited.crossfeed = VibeCrossfeedStrong;
-    XCTAssertTrue([bassBoost matchesSettings:edited], @"the channel tools don't count");
+    XCTAssertTrue([bassBoost matchesSettings:edited sampleRate:rate], @"the channel tools don't count");
     edited.eqEnabled = NO;
-    XCTAssertFalse([bassBoost matchesSettings:edited]);
+    XCTAssertFalse([bassBoost matchesSettings:edited sampleRate:rate]);
     edited.eqEnabled = YES;
     edited.preampAutomatic = NO;
     edited.preampDB = -20;
-    XCTAssertFalse([bassBoost matchesSettings:edited]);
+    XCTAssertFalse([bassBoost matchesSettings:edited sampleRate:rate]);
+    // A manual preamp at the automatic value plays the same, so it matches.
+    edited.preampDB = VibeListeningAutomaticPreampDBAtRate(bassBoost.bands, rate);
+    XCTAssertTrue([bassBoost matchesSettings:edited sampleRate:rate]);
     edited.preampAutomatic = YES;
     edited.bands = [VibeListeningSettings graphicBandsWithGains:@[ @6, @5, @4, @2, @0, @0, @0, @0, @0, @1 ]];
-    XCTAssertFalse([bassBoost matchesSettings:edited]);
+    XCTAssertFalse([bassBoost matchesSettings:edited sampleRate:rate]);
+
+    // A preset that applies a manual preamp matches only that preamp.
+    VibeEQPreset *quiet = [[VibeEQPreset alloc] initWithIdentifier:@"q"
+                                                              name:@"Q"
+                                                              kind:VibeEQPresetKindHeadphone
+                                                            source:@"Lab"
+                                                             bands:bassBoost.bands
+                                                          preampDB:-20];
+    edited.bands = bassBoost.bands;
+    XCTAssertFalse([quiet matchesSettings:edited sampleRate:rate], @"automatic");
+    edited.preampAutomatic = NO;
+    edited.preampDB = VibeListeningAutomaticPreampDBAtRate(bassBoost.bands, rate);
+    XCTAssertFalse([quiet matchesSettings:edited sampleRate:rate], @"manual at the automatic value");
+    edited.preampDB = -20;
+    XCTAssertTrue([quiet matchesSettings:edited sampleRate:rate]);
 }
 
 #pragma mark - Search
