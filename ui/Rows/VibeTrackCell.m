@@ -236,7 +236,7 @@ static const CGFloat kArtTextGap = 14;
     _renderedRow = [row copy];
     _numberLabel.text = row.numberText;
     [self resolveGutter];
-    _artView.image = row.thumbnail ?: VibeFileTileImage(NO);
+    _artView.image = row.thumbnail ?: VibeSongTileImage();
     _durationLabel.text = row.durationText;
     _titleLabel.text = row.title ?: @"";
     // Hidden rather than blank, so the title centres on its own.
