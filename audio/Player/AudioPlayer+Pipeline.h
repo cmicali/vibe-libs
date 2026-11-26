@@ -118,6 +118,11 @@ NS_ASSUME_NONNULL_BEGIN
 // replaces is freed once the render leaves. Hosting needs no output stop:
 // the render reads the pointer once a slice.
 - (void)applyLoudnessOnQueue;
+// Hosts the listening stage as applyLoudnessOnQueue does the loudness stage,
+// built at the first settings that aren't neutral, and publishes the settings.
+- (void)applyListeningOnQueue;
+// Reads the stage's clipping, and tells the delegate on main of a change.
+- (void)updateListeningClippingOnQueue;
 
 // Opens the gate and starts the output unit, then the meter. Every start and
 // resume goes through here, which is what cancels a pending idle stop.

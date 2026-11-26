@@ -135,10 +135,10 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/audio/LoudnessEqualizer"]
 
-  # The listening settings and their response math: the EQ's bands, the
-  # preamp, crossfeed, and the channel tools.
+  # The listening settings and their response math, and the realtime stage
+  # that plays them, with a C API. It lists DSP for the fades.
   VibeLibsListening:
-    templates: [VibeLibsCommon]
+    templates: [VibeLibsCommon, VibeLibsDSP]
     sources:
       - path: audio/Listening
         excludes: ["**/*.md", "${excludedPlatform}/**"]
@@ -255,7 +255,7 @@ targetTemplates:
   # it would VibeLibsDecode, which this one lists.
   VibeLibsPlayer:
     templates: [VibeLibsCommon, VibeLibsAudioTypes, VibeLibsDSP, VibeLibsDecode, VibeLibsFX, VibeLibsMeter,
-                VibeLibsLoudnessEqualizer, VibeLibsOutputDevices, VibeLibsFileLoading]
+                VibeLibsListening, VibeLibsLoudnessEqualizer, VibeLibsOutputDevices, VibeLibsFileLoading]
     sources:
       - path: audio/Player
         excludes: ["**/*.md", "${excludedPlatform}/**"]
