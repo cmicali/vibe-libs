@@ -49,6 +49,26 @@ typedef NS_ENUM(NSInteger, VibeWaveformPaletteKind) {
 
 @class WaveformTheme;
 
+// The color choices an app keeps, for one appearance. The app fills one from
+// its store, and WaveformTheme's themeForChoice: turns it into a theme, so
+// every app maps the same choices the same way. Each identifier is one of
+// WaveformTheme's lists, and nil or an unknown one draws the list's first.
+@interface WaveformThemeChoice : NSObject
+// The theme of the styles that paint played and unplayed colors.
+@property (nonatomic, copy, nullable) NSString *theme;
+// Custom's pair, alpha included. Custom without both draws Mono.
+@property (nonatomic, strong, nullable) VibeColor *customPlayed;
+@property (nonatomic, strong, nullable) VibeColor *customUnplayed;
+@property (nonatomic, copy, nullable) NSString *bandTheme;
+@property (nonatomic, copy, nullable) NSString *spectrumPalette;
+@property (nonatomic, copy, nullable) NSString *spectrumColoring;
+// The band wells, which 3-Band's Custom and Spectrum's Custom share. An unset
+// well draws Rekord Bin's band.
+@property (nonatomic, strong, nullable) VibeColor *customLow;
+@property (nonatomic, strong, nullable) VibeColor *customMid;
+@property (nonatomic, strong, nullable) VibeColor *customHigh;
+@end
+
 // How a view resolves its theme: from the appearance it draws in and the
 // artwork color settled on it. An app installs one that maps its own
 // settings. A view with none resolves Mono.
@@ -121,6 +141,33 @@ typedef WaveformTheme *_Nonnull (^WaveformThemeProvider)(BOOL isDark, VibeColor 
 
 // The renderers' default before a view resolves anything.
 + (WaveformTheme *)monochromeThemeIsDark:(BOOL)isDark;
+
+// Each palette list in a chooser's order. The first is the default, and
+// Custom is last. Spectrum's colorings are Sections, then Precise.
+@property (class, readonly) NSArray<NSString *> *themeIdentifiers;
+@property (class, readonly) NSArray<NSString *> *bandThemeIdentifiers;
+@property (class, readonly) NSArray<NSString *> *spectrumPaletteIdentifiers;
+@property (class, readonly) NSArray<NSString *> *spectrumColoringIdentifiers;
+
+// The theme for an app's choices, for one appearance (WaveformThemeChoice).
++ (WaveformTheme *)themeForChoice:(WaveformThemeChoice *)choice
+                           isDark:(BOOL)isDark
+                     artworkColor:(nullable VibeColor *)artworkColor;
+
+// A built-in band or Spectrum palette's low, mid and high, for a chooser's
+// swatch. Empty for the theme kind and for Custom.
++ (NSArray<VibeColor *> *)swatchColorsForPaletteKind:(VibeWaveformPaletteKind)kind
+                                          identifier:(NSString *)identifier
+                                              isDark:(BOOL)isDark;
+
+#if !TARGET_OS_OSX
+// The swatch as three rounded bars, for a chooser's row. Custom's is empty,
+// so its name lines up with the rest. nil for the theme kind. Cached, since a
+// table asks again on every reload. Main thread only.
++ (nullable VibeImage *)swatchImageForPaletteKind:(VibeWaveformPaletteKind)kind
+                                     identifier:(NSString *)identifier
+                                         isDark:(BOOL)isDark;
+#endif
 
 // album_art's clamp: the art color at full alpha, pushed toward the
 // appearance's contrast pole until it reads; nil for no color or too gray a
