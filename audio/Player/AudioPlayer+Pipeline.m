@@ -587,6 +587,7 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
         VibeListeningStage *old = atomic_exchange_explicit(&_masterBus->listening, NULL, memory_order_seq_cst);
         [self afterRenderLeavesOnQueue:^{ VibeListeningStageFree(old); }];
         listening = NULL;
+        _listeningPublished = nil;
     }
     if (allowed) {
         // Built at the first settings that change samples, and kept once
@@ -600,8 +601,14 @@ static const NSTimeInterval kSlowOutputStartLogThresholdSeconds = 0.25;
                 atomic_store_explicit(&_masterBus->listening, listening, memory_order_release);
             }
         }
-        if (listening && !VibeListeningStageSetSettings(listening, settings)) {
-            LogError(@"AudioPlayer: no listening filters; the last settings play on");
+        // Every open re-applies, so only a change builds new filters.
+        if (listening && ![settings isEqual:_listeningPublished]) {
+            if (VibeListeningStageSetSettings(listening, settings)) {
+                _listeningPublished = settings;
+            }
+            else {
+                LogError(@"AudioPlayer: no listening filters; the last settings play on");
+            }
         }
     }
     [self updateListeningClippingOnQueue];

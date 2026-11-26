@@ -2,17 +2,9 @@
 //  VibeListeningStage.h
 //  vibe-libs
 //
-//  The realtime stage that plays a VibeListeningSettings: swap, mono, the
-//  preamp, the EQ, crossfeed, and balance, in that order. This piece's
+//  The realtime stage that plays a VibeListeningSettings. Neutral, it is a
+//  bit-perfect pass-through, and a change crossfades over 10 ms. This piece's
 //  AGENTS.md has the math.
-//
-//  Neutral, it is a bit-perfect pass-through: the render reads one flag and
-//  returns. A change crossfades from the old settings to the new over 10 ms,
-//  so it never clicks.
-//
-//  The queue half creates the stage at a rate and channels and publishes
-//  settings from one thread at a time. The audio-thread half renders slices
-//  in place.
 //
 
 #import <Foundation/Foundation.h>
@@ -49,7 +41,7 @@ uint32_t VibeListeningStageChannels(const VibeListeningStage *stage) CA_REALTIME
 double VibeListeningStageSampleRate(const VibeListeningStage *stage);
 // In the signal path: settings that change samples, or a crossfade.
 BOOL VibeListeningStageEngaged(const VibeListeningStage *stage);
-// Output samples past ±1.0, counted while engaged.
+// Output samples past ±1.0, counted while engaged, the input's own included.
 uint64_t VibeListeningStageClips(const VibeListeningStage *stage);
 // Engaged, with a clip in the last second of the frames it rendered.
 BOOL VibeListeningStageClipping(const VibeListeningStage *stage);

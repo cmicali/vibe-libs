@@ -10,11 +10,7 @@
 #include <math.h>
 #include <stdatomic.h>
 
-// The render works in chunks of this many frames, the scratch's length.
-enum { kChunkFrames = 512 };
-
-// A filter state this small is flushed to zero, so a decaying tail never
-// reaches the slow denormal range.
+enum { kChunkFrames = 512 };  // the scratch's length
 static const double kDenormalFloor = 1e-25;
 
 #pragma mark - Crossfeed
@@ -71,7 +67,8 @@ struct VibeListeningProgram {
     double preamp;               // linear
     float balanceLeft, balanceRight;
     VibeCrossfeedFilter crossfeedFilter;
-    uint32_t channels, bandCount;
+    uint32_t bandCount;
+    VibeEQBandType types[kVibeListeningMaxBands];
     VibeListeningBiquad filters[kVibeListeningMaxBands];
     double state[];              // channels × bandCount × 2, transposed direct form II
 };
@@ -93,12 +90,14 @@ static void VibeListeningTouch(void *memory, size_t size) {
 static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *settings, uint32_t channels,
                                                         double sampleRate) {
     VibeListeningBiquad filters[kVibeListeningMaxBands];
+    VibeEQBandType types[kVibeListeningMaxBands];
     uint32_t bandCount = 0;
     double preampDB = 0;
     if (settings.eqEnabled) {
         preampDB = settings.effectivePreampDB;
         for (VibeEQBand *band in settings.bands) {
             if (!band.neutral && bandCount < kVibeListeningMaxBands) {
+                types[bandCount] = band.type;
                 filters[bandCount++] =
                     VibeListeningBiquadMake(band.type, band.frequency, band.gainDB, band.q, sampleRate);
             }
@@ -111,9 +110,9 @@ static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *s
     }
     VibeListeningTouch(program, size);
     BOOL stereo = channels >= 2;
-    program->channels = channels;
     program->bandCount = bandCount;
     memcpy(program->filters, filters, bandCount * sizeof(VibeListeningBiquad));
+    memcpy(program->types, types, bandCount * sizeof(VibeEQBandType));
     program->preamp = pow(10.0, preampDB / 20.0);
     program->swap = stereo && settings.swapChannels;
     program->mono = stereo && settings.mono;
@@ -125,7 +124,7 @@ static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *s
     program->balanceLeft = (float)fmin(1.0, 1.0 - settings.balance);
     program->balanceRight = (float)fmin(1.0, 1.0 + settings.balance);
     program->neutral = !program->swap && !program->mono && !program->crossfeed && !program->balance &&
-                       preampDB == 0 && bandCount == 0;
+                       program->preamp == 1.0 && bandCount == 0;
     return program;
 }
 
@@ -253,83 +252,112 @@ uint64_t VibeListeningStageRenders(const VibeListeningStage *stage) {
 
 VIBE_REALTIME_CHECKED_BEGIN
 
-static void VibeListeningProgramRun(VibeListeningProgram *program, float *const *buffers, uint32_t frames)
+static void VibeListeningSwapAndMono(float *left, float *right, BOOL swap, BOOL mono, uint32_t frames)
     CA_REALTIME_API {
-    if (!program || program->neutral) {
-        return;
-    }
-    float *left = buffers[0], *right = program->channels >= 2 ? buffers[1] : buffers[0];
-    if (program->swap || program->mono) {
+    if (mono) {
         for (uint32_t i = 0; i < frames; i++) {
-            float l = left[i], r = right[i];
-            if (program->mono) {
-                l = r = (l + r) * 0.5f;
-            }
-            left[i] = program->swap ? r : l;
-            right[i] = program->swap ? l : r;
+            left[i] = right[i] = (left[i] + right[i]) * 0.5f;
         }
     }
-    uint32_t bands = program->bandCount;
-    if (bands > 0 || program->preamp != 1.0) {
-        for (uint32_t c = 0; c < program->channels; c++) {
-            float *samples = buffers[c];
-            double *state = program->state + (size_t)c * bands * 2;
-            double preamp = program->preamp;
-            for (uint32_t i = 0; i < frames; i++) {
-                double x = samples[i] * preamp;
-                for (uint32_t b = 0; b < bands; b++) {
-                    const VibeListeningBiquad *f = &program->filters[b];
-                    double *s = state + 2 * b;
-                    double y = f->b0 * x + s[0];
-                    s[0] = f->b1 * x - f->a1 * y + s[1];
-                    s[1] = f->b2 * x - f->a2 * y;
-                    x = y;
-                }
-                samples[i] = (float)x;
-            }
-            for (uint32_t k = 0; k < bands * 2; k++) {
-                if (fabs(state[k]) < kDenormalFloor) {
-                    state[k] = 0;
-                }
-            }
-        }
-    }
-    if (program->crossfeed) {
-        VibeCrossfeedFilter *f = &program->crossfeedFilter;
+    else if (swap) {
         for (uint32_t i = 0; i < frames; i++) {
-            double in[2] = {left[i], right[i]};
-            for (int c = 0; c < 2; c++) {
-                f->lo[c] = f->loA0 * in[c] + f->loB1 * f->lo[c];
-                f->hi[c] = f->hiA0 * in[c] + f->hiA1 * f->in[c] + f->hiB1 * f->hi[c];
-                f->in[c] = in[c];
-            }
-            left[i] = (float)((f->hi[0] + f->lo[1]) * f->gain);
-            right[i] = (float)((f->hi[1] + f->lo[0]) * f->gain);
-        }
-        for (int c = 0; c < 2; c++) {
-            f->lo[c] = fabs(f->lo[c]) < kDenormalFloor ? 0 : f->lo[c];
-            f->hi[c] = fabs(f->hi[c]) < kDenormalFloor ? 0 : f->hi[c];
-        }
-    }
-    if (program->balance) {
-        for (uint32_t i = 0; i < frames; i++) {
-            left[i] *= program->balanceLeft;
-            right[i] *= program->balanceRight;
+            float l = left[i];
+            left[i] = right[i];
+            right[i] = l;
         }
     }
 }
 
-// The new program starts from the old one's filter state where they match,
-// so a small edit's crossfade joins two near-equal signals.
-static void VibeListeningProgramInherit(VibeListeningProgram *to, const VibeListeningProgram *from)
+// One channel's preamp and EQ. Each band runs over the whole chunk with its
+// coefficients and state in locals, in double, so the cascade keeps double
+// precision between bands.
+static void VibeListeningEQ(const VibeListeningProgram *program, double *state, float *samples, uint32_t frames)
+    CA_REALTIME_API {
+    double work[kChunkFrames];
+    double preamp = program->preamp;
+    for (uint32_t i = 0; i < frames; i++) {
+        work[i] = samples[i] * preamp;
+    }
+    for (uint32_t b = 0; b < program->bandCount; b++) {
+        VibeListeningBiquad f = program->filters[b];
+        double s0 = state[2 * b], s1 = state[2 * b + 1];
+        for (uint32_t i = 0; i < frames; i++) {
+            double x = work[i];
+            double y = f.b0 * x + s0;
+            s0 = f.b1 * x - f.a1 * y + s1;
+            s1 = f.b2 * x - f.a2 * y;
+            work[i] = y;
+        }
+        state[2 * b] = fabs(s0) < kDenormalFloor ? 0 : s0;
+        state[2 * b + 1] = fabs(s1) < kDenormalFloor ? 0 : s1;
+    }
+    for (uint32_t i = 0; i < frames; i++) {
+        samples[i] = (float)work[i];
+    }
+}
+
+static void VibeListeningCrossfeed(VibeCrossfeedFilter *filter, float *left, float *right, uint32_t frames)
+    CA_REALTIME_API {
+    VibeCrossfeedFilter f = *filter;
+    for (uint32_t i = 0; i < frames; i++) {
+        double l = left[i], r = right[i];
+        f.lo[0] = f.loA0 * l + f.loB1 * f.lo[0];
+        f.lo[1] = f.loA0 * r + f.loB1 * f.lo[1];
+        f.hi[0] = f.hiA0 * l + f.hiA1 * f.in[0] + f.hiB1 * f.hi[0];
+        f.hi[1] = f.hiA0 * r + f.hiA1 * f.in[1] + f.hiB1 * f.hi[1];
+        f.in[0] = l;
+        f.in[1] = r;
+        left[i] = (float)((f.hi[0] + f.lo[1]) * f.gain);
+        right[i] = (float)((f.hi[1] + f.lo[0]) * f.gain);
+    }
+    for (int c = 0; c < 2; c++) {
+        f.lo[c] = fabs(f.lo[c]) < kDenormalFloor ? 0 : f.lo[c];
+        f.hi[c] = fabs(f.hi[c]) < kDenormalFloor ? 0 : f.hi[c];
+    }
+    *filter = f;
+}
+
+static void VibeListeningProgramRun(VibeListeningProgram *program, float *const *buffers, uint32_t channels,
+                                    uint32_t frames) CA_REALTIME_API {
+    if (!program || program->neutral) {
+        return;
+    }
+    float *left = buffers[0], *right = channels >= 2 ? buffers[1] : buffers[0];
+    VibeListeningSwapAndMono(left, right, program->swap, program->mono, frames);
+    if (program->bandCount > 0 || program->preamp != 1.0) {
+        for (uint32_t c = 0; c < channels; c++) {
+            VibeListeningEQ(program, program->state + (size_t)c * program->bandCount * 2, buffers[c], frames);
+        }
+    }
+    if (program->crossfeed) {
+        VibeListeningCrossfeed(&program->crossfeedFilter, left, right, frames);
+    }
+    if (program->balance) {
+        float gainLeft = program->balanceLeft, gainRight = program->balanceRight;
+        for (uint32_t i = 0; i < frames; i++) {
+            left[i] *= gainLeft;
+            right[i] *= gainRight;
+        }
+    }
+}
+
+// The new program starts from the old one's filter state where a band keeps
+// its place and type, so a small edit's crossfade joins two near-equal
+// signals.
+static void VibeListeningProgramInherit(VibeListeningProgram *to, const VibeListeningProgram *from, uint32_t channels)
     CA_REALTIME_API {
     if (!from) {
         return;
     }
-    if (to->bandCount == from->bandCount) {
-        size_t count = (size_t)to->channels * to->bandCount * 2;
-        for (size_t k = 0; k < count; k++) {
-            to->state[k] = from->state[k];
+    for (uint32_t b = 0; b < to->bandCount && b < from->bandCount; b++) {
+        if (to->types[b] != from->types[b]) {
+            continue;
+        }
+        for (uint32_t c = 0; c < channels; c++) {
+            const double *source = from->state + ((size_t)c * from->bandCount + b) * 2;
+            double *target = to->state + ((size_t)c * to->bandCount + b) * 2;
+            target[0] = source[0];
+            target[1] = source[1];
         }
     }
     if (to->crossfeed && from->crossfeed) {
@@ -357,7 +385,7 @@ static void VibeListeningChunk(VibeListeningStage *stage, float *const *buffers,
     if (!stage->fading) {
         VibeListeningProgram *next = atomic_exchange_explicit(&stage->pending, NULL, memory_order_acquire);
         if (next) {
-            VibeListeningProgramInherit(next, stage->current);
+            VibeListeningProgramInherit(next, stage->current, channels);
             stage->previous = stage->current;
             stage->current = next;
             stage->fading = YES;
@@ -370,8 +398,8 @@ static void VibeListeningChunk(VibeListeningStage *stage, float *const *buffers,
                 stage->scratch[c][i] = buffers[c][i];
             }
         }
-        VibeListeningProgramRun(stage->previous, stage->scratch, frames);
-        VibeListeningProgramRun(stage->current, buffers, frames);
+        VibeListeningProgramRun(stage->previous, stage->scratch, channels, frames);
+        VibeListeningProgramRun(stage->current, buffers, channels, frames);
         for (uint32_t i = 0; i < frames; i++) {
             float t = VibeFadeGainAtFrame(VibeFadeCurveLinear, 0.0f, 1.0f, stage->fadePosition + i, stage->fadeFrames);
             for (uint32_t c = 0; c < channels; c++) {
@@ -387,13 +415,18 @@ static void VibeListeningChunk(VibeListeningStage *stage, float *const *buffers,
         }
     }
     else {
-        VibeListeningProgramRun(stage->current, buffers, frames);
+        VibeListeningProgramRun(stage->current, buffers, channels, frames);
     }
     for (uint32_t c = 0; c < channels; c++) {
+        const float *samples = buffers[c];
+        float peak = 0;
         for (uint32_t i = 0; i < frames; i++) {
-            if (fabsf(buffers[c][i]) > 1.0f) {
+            peak = fmaxf(peak, fabsf(samples[i]));
+        }
+        for (uint32_t i = 0; peak > 1.0f && i < frames; i++) {
+            if (fabsf(samples[i]) > 1.0f) {
                 stage->clips++;
-                stage->lastClipFrame = stage->frames + i + 1;
+                stage->lastClipFrame = MAX(stage->lastClipFrame, stage->frames + i + 1);
             }
         }
     }

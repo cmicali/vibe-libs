@@ -127,7 +127,7 @@ static OSStatus VibeMasterBusRenderSlice(VibeMasterBus *master, const AudioTimeS
             status = fxStatus;
         }
     }
-    // Before the meter, so a level display shows what is heard.
+    // Both stages run before the meter, so a level display shows what is heard.
     VibeListeningStage *listening = atomic_load_explicit(&master->listening, memory_order_seq_cst);
     if (listening && VibeListeningStageChannels(listening) == channels) {
         float *buffers[2] = { list->mBuffers[0].mData, list->mBuffers[channels - 1].mData };

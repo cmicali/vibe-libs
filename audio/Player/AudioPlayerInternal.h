@@ -128,6 +128,7 @@ static inline int64_t VibeTrackEndFrameInFile(id<VibePlayableItem> track, AudioF
     BOOL                    _loudnessEqualization; // under _stateLock, as _pitch
     VibeListeningSettings  *_listening;        // under _stateLock; nil is neutral
     BOOL                    _listeningClipping; // under _stateLock; the queue writes it
+    VibeListeningSettings  *_listeningPublished; // the queue's: what the hosted stage was last given
     // The request identifiers' one sequence, which plays and prefetches draw
     // from under _stateLock (AudioPlayer.h, Request identifiers).
     uint64_t                _lastRequestIdentifier;
