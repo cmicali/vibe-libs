@@ -33,6 +33,21 @@ static NSString *const kPreampKey = @"preampDB";
     return self;
 }
 
++ (instancetype)presetWithName:(NSString *)name settings:(VibeListeningSettings *)settings {
+    double preamp = settings.preampAutomatic ? VibeListeningAutomaticPreampDB(settings.bands) : settings.preampDB;
+    return [[self alloc] initWithIdentifier:[@"user." stringByAppendingString:NSUUID.UUID.UUIDString]
+                                       name:name
+                                       kind:VibeEQPresetKindUser
+                                     source:nil
+                                      bands:settings.bands
+                                   preampDB:preamp];
+}
+
+- (BOOL)matchesSettings:(VibeListeningSettings *)settings {
+    return settings.eqEnabled && [settings.bands isEqualToArray:self.bands] &&
+           fabs(settings.effectivePreampDB - [self applyingToSettings:settings].effectivePreampDB) < 1e-9;
+}
+
 - (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings {
     VibeMutableListeningSettings *applied = [settings mutableCopy];
     applied.bands = self.bands;
@@ -62,6 +77,49 @@ static NSString *const kPreampKey = @"preampDB";
 
 - (NSUInteger)hash {
     return self.identifier.hash ^ self.name.hash;
+}
+
+#pragma mark - Property lists
+
+static NSString *const kKindNames[] = {
+    [VibeEQPresetKindBuiltIn] = @"builtIn", [VibeEQPresetKindHeadphone] = @"headphone", [VibeEQPresetKindUser] = @"user"};
+
+- (NSDictionary<NSString *, id> *)propertyList {
+    VibeMutableListeningSettings *settings = [[VibeListeningSettings neutralSettings] mutableCopy];
+    settings.bands = self.bands;
+    NSMutableDictionary *plist = [@{
+        kIdentifierKey : self.identifier,
+        kNameKey : self.name,
+        kKindKey : kKindNames[self.kind],
+        kBandsKey : settings.propertyList[@"bands"],
+        kPreampKey : @(self.preampDB),
+    } mutableCopy];
+    plist[kSourceKey] = self.source;
+    return plist;
+}
+
+- (instancetype)initWithPropertyList:(id)propertyList {
+    if (![propertyList isKindOfClass:[NSDictionary class]]) {
+        return nil;
+    }
+    NSDictionary *plist = propertyList;
+    id identifier = plist[kIdentifierKey], name = plist[kNameKey], source = plist[kSourceKey], preamp = plist[kPreampKey];
+    NSInteger kind = -1;
+    for (NSInteger i = VibeEQPresetKindBuiltIn; i <= VibeEQPresetKindUser; i++) {
+        if ([kKindNames[i] isEqual:plist[kKindKey]]) {
+            kind = i;
+        }
+    }
+    if (![identifier isKindOfClass:[NSString class]] || ![name isKindOfClass:[NSString class]] || kind < 0) {
+        return nil;
+    }
+    id bands = plist[kBandsKey];
+    return [self initWithIdentifier:identifier
+                               name:name
+                               kind:kind
+                             source:[source isKindOfClass:[NSString class]] ? source : nil
+                              bands:[[VibeListeningSettings alloc] initWithPropertyList:bands ? @{@"bands" : bands} : nil].bands
+                           preampDB:[preamp isKindOfClass:[NSNumber class]] ? [preamp doubleValue] : 0];
 }
 
 #pragma mark - Coding

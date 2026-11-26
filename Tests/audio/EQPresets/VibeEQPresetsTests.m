@@ -244,6 +244,82 @@ static VibeEQPreset *Headphone(NSString *name) {
     XCTAssertNotEqualObjects(Headphone(@"Other"), preset);
 }
 
+- (void)testAPresetRoundTripsThroughItsPropertyList {
+    VibeEQPreset *headphone = Headphone(@"Listed");
+    XCTAssertEqualObjects([[VibeEQPreset alloc] initWithPropertyList:headphone.propertyList], headphone);
+    VibeEQPreset *builtIn = [VibeEQPresetLibrary sharedLibrary].builtInPresets[3];
+    XCTAssertEqualObjects([[VibeEQPreset alloc] initWithPropertyList:builtIn.propertyList], builtIn);
+    XCTAssertNil(builtIn.propertyList[@"source"]);
+    XCTAssertTrue([NSPropertyListSerialization propertyList:headphone.propertyList
+                                           isValidForFormat:NSPropertyListBinaryFormat_v1_0]);
+}
+
+- (void)testABadPropertyListReadsAsNil {
+    NSDictionary *good = Headphone(@"Good").propertyList;
+    XCTAssertNil([[VibeEQPreset alloc] initWithPropertyList:nil]);
+    XCTAssertNil([[VibeEQPreset alloc] initWithPropertyList:@"preset"]);
+    XCTAssertNil([[VibeEQPreset alloc] initWithPropertyList:@{}]);
+    for (NSString *key in @[ @"identifier", @"name", @"kind" ]) {
+        NSMutableDictionary *missing = [good mutableCopy];
+        [missing removeObjectForKey:key];
+        XCTAssertNil([[VibeEQPreset alloc] initWithPropertyList:missing], @"%@", key);
+        NSMutableDictionary *wrong = [good mutableCopy];
+        wrong[key] = @42;
+        XCTAssertNil([[VibeEQPreset alloc] initWithPropertyList:wrong], @"%@", key);
+    }
+    NSMutableDictionary *odd = [good mutableCopy];
+    odd[@"source"] = @7;
+    odd[@"bands"] = @[ @"not a band", @{@"type" : @"nope"} ];
+    odd[@"preampDB"] = @"loud";
+    VibeEQPreset *read = [[VibeEQPreset alloc] initWithPropertyList:odd];
+    XCTAssertNil(read.source);
+    XCTAssertEqualObjects(read.bands, @[]);
+    XCTAssertEqual(read.preampDB, 0);
+}
+
+- (void)testAUserPresetComesFromTheSettings {
+    VibeMutableListeningSettings *settings = [[VibeListeningSettings neutralSettings] mutableCopy];
+    settings.eqEnabled = YES;
+    settings.bands = @[ Band(VibeEQBandTypePeak, 1000, 5, 1), Band(VibeEQBandTypeLowShelf, 100, -3, 0.7) ];
+    VibeEQPreset *automatic = [VibeEQPreset presetWithName:@"Mine" settings:settings];
+    XCTAssertEqualObjects(automatic.name, @"Mine");
+    XCTAssertEqual(automatic.kind, VibeEQPresetKindUser);
+    XCTAssertTrue([automatic.identifier hasPrefix:@"user."]);
+    XCTAssertEqualObjects(automatic.bands, settings.bands);
+    XCTAssertEqualWithAccuracy(automatic.preampDB, VibeListeningAutomaticPreampDB(settings.bands), 1e-9);
+    XCTAssertTrue([automatic matchesSettings:settings]);
+    XCTAssertTrue([[automatic applyingToSettings:settings] preampAutomatic]);
+
+    settings.preampAutomatic = NO;
+    settings.preampDB = -12;
+    VibeEQPreset *manual = [VibeEQPreset presetWithName:@"Quiet" settings:settings];
+    XCTAssertEqual(manual.preampDB, -12);
+    XCTAssertTrue([manual matchesSettings:settings]);
+    XCTAssertNotEqualObjects(manual.identifier, automatic.identifier);
+}
+
+- (void)testAPresetMatchesOnlySettingsItWouldMake {
+    VibeEQPreset *bassBoost = [VibeEQPresetLibrary sharedLibrary].builtInPresets[1];
+    VibeListeningSettings *neutral = [VibeListeningSettings neutralSettings];
+    VibeListeningSettings *applied = [bassBoost applyingToSettings:neutral];
+    XCTAssertTrue([bassBoost matchesSettings:applied]);
+    XCTAssertFalse([bassBoost matchesSettings:neutral]);
+    XCTAssertFalse([[VibeEQPresetLibrary sharedLibrary].builtInPresets[0] matchesSettings:applied]);
+
+    VibeMutableListeningSettings *edited = [applied mutableCopy];
+    edited.crossfeed = VibeCrossfeedStrong;
+    XCTAssertTrue([bassBoost matchesSettings:edited], @"the channel tools don't count");
+    edited.eqEnabled = NO;
+    XCTAssertFalse([bassBoost matchesSettings:edited]);
+    edited.eqEnabled = YES;
+    edited.preampAutomatic = NO;
+    edited.preampDB = -20;
+    XCTAssertFalse([bassBoost matchesSettings:edited]);
+    edited.preampAutomatic = YES;
+    edited.bands = [VibeListeningSettings graphicBandsWithGains:@[ @6, @5, @4, @2, @0, @0, @0, @0, @0, @1 ]];
+    XCTAssertFalse([bassBoost matchesSettings:edited]);
+}
+
 #pragma mark - Search
 
 - (void)testTheSharedLibraryHoldsNoHeadphones {
