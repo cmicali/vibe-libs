@@ -10,7 +10,7 @@ The view an app edits an EQ's bands with, in two faces: a graphic face of ten sl
 | `VibeEQCurveView` | the parametric graph: the grid, the curve, and the nodes |
 | `VibeEQBandListView` | the parametric list: a row per band, and add and remove |
 | `VibeEQFaceTabs` | the faces' tabs, drawn |
-| `VibeEQEditorMath.h` | the axes, the steps, the rounding, the hit test, and the Q gestures. Header-only and tested |
+| `VibeEQEditorMath.h` | the axes, the steps, the rounding, the hit test, the Q gestures, and where a band is added and which is selected after a removal. Header-only and tested |
 | `VibeEQEditorFormat` | how a number is written and read, in a locale's digits |
 
 ## How an app uses it
@@ -19,7 +19,7 @@ List `VibeLibsEQEditor` in a macOS target. Make a `VibeEQEditorView`, set its `d
 
 - **It edits only the bands.** The settings it hands back are the app's last ones with new bands. The preamp, crossfeed, the channel tools, the EQ's switch, the presets, and the window are the app's.
 - **The delegate hears every change live** (`eqEditorView:didChangeSettings:`), during a drag too, so the app can play it at once. It hears **`eqEditorViewDidEndEditing:` once an edit is over**: a drag let go, a key step, a field committed, a band added or removed, or a slider reset. The app records its undo and saves there. Setting `settings` or `face` calls the delegate never.
-- **The face is the app's choice, but the graphic face shows only while the bands fit it**: none, or exactly `+graphicBandsWithGains:`'s layout. Otherwise the parametric face shows, `face` reads so, and the graphic tab is disabled with `graphicUnavailable` as its tooltip and its VoiceOver help. When the bands fit again, the chosen face comes back. Switching a graphic setting to the parametric face keeps its ten bands. `eqEditorViewDidChangeFace:` tells the app the user switched.
+- **The face is the app's choice, but the graphic face shows only while the bands fit it**: none, or exactly `+graphicBandsWithGains:`'s layout. Otherwise the parametric face shows, `face` reads so, and the graphic tab is disabled with `graphicUnavailable` as its tooltip and its VoiceOver help. **The face is worked out again only when the app sets `settings` or `face`**, so the chosen face comes back with the next settings that fit. A user's edit never swaps the face under the pointer: an edit that makes the bands fit only turns the graphic tab back on. Switching a graphic setting to the parametric face keeps its ten bands. `eqEditorViewDidChangeFace:` tells the app the user switched.
 - **A flat setting's first graphic edit writes the ten graphic bands**, so an empty EQ opens in the graphic face.
 - **`enabled` NO dims every part to half and ignores every click, key, and VoiceOver action.** An app turns it off while the EQ doesn't apply, as under bit-perfect output.
 - **The words are the app's.** `strings` holds English defaults. An app sets its own, localized, before the view shows. `locale` sets the numbers' digits.
@@ -35,7 +35,7 @@ List `VibeLibsEQEditor` in a macOS target. Make a `VibeEQEditorView`, set its `d
 - **A trackpad's momentum is ignored**, since it would edit after the edit ended.
 - With the keys, Tab moves between the nodes and then out of the graph. Left and right move a node a twelfth of an octave (a third with Shift). Up and down move its gain 0.5 dB (0.1 with Shift). Option with up and down changes Q. Delete removes the band.
 
-**The list edits every band by typing**: its switch, its type, its frequency, its gain, and its Q. A field accepts the locale's digits, and "2.5k" for 2,500. A word that holds no number puts the value back. A pass filter's gain field is empty and can't be edited. **Add** puts a peak at 0 dB in the middle of the widest gap between the bands, on the log axis, up to 20 bands. **Remove** removes the selected band. The graph and the list share the selection.
+**The list edits every band by typing**: its switch, its type, its frequency, its gain, and its Q. A field accepts the locale's digits, and "2.5k" for 2,500. A word that holds no number puts the value back. A pass filter's gain field is empty and can't be edited. **Add** puts a peak at 0 dB in the middle of the widest gap between the bands, on the log axis, up to 20 bands. **Remove**, like Delete in the graph, removes the selected band and selects the one that took its place. Either sends the end of the edit after the selection moves. The graph and the list share the selection.
 
 ## Drawing and work
 

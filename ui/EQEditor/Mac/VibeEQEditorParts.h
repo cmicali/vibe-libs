@@ -92,26 +92,27 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, readonly) NSTableView *tableView;
 @property (nonatomic, readonly) NSButton *addButton;
 @property (nonatomic, readonly) NSButton *removeButton;
-// Shows the bands given while it was hidden.
-- (void)reloadIfNeeded;
 @end
-
-// The spoken value of a node: "1,000 Hz, +3.0 dB, Q 1.4". A pass filter has
-// no gain, so it reads "1,000 Hz, Q 0.71".
-NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale);
 
 // The band types whose gain counts: a peak and the shelves.
 BOOL VibeEQBandHasGain(VibeEQBandType type);
+// A copy of a band with new values, keeping whether it is on.
+VibeEQBand *VibeEQBandChanged(VibeEQBand *band, VibeEQBandType type, double frequency, double gainDB, double q);
+// A band's spoken name, counted from 1: "Band 3".
+NSString *VibeEQBandName(VibeEQEditorStrings *strings, NSUInteger index);
 
+// A face's plot: its bounds less the insets.
+NSRect VibeEQPlotRect(NSRect bounds, NSEdgeInsets insets);
 // The axes' labels.
 NSFont *VibeEQLabelFont(void);
 // A grid line: the label color at an alpha, since a system separator color
 // given an alpha of its own turns brighter in dark mode, not fainter.
 NSColor *VibeEQGridColor(CGFloat alpha);
-// The face's grid alphas: a minor line, a major one, and 0 dB.
 static const CGFloat kVibeEQMinorGridAlpha = 0.05;
 static const CGFloat kVibeEQMajorGridAlpha = 0.12;
-static const CGFloat kVibeEQZeroLineAlpha = 0.3;
+// The dB grid across a plot: a line each 6 dB, 0 dB stronger, and a label
+// each labelStep dB to the plot's left.
+void VibeEQDrawGainGrid(NSRect plot, double rangeDB, int labelStep);
 
 @interface VibeEQEditorView (Parts)
 @property (nonatomic, readonly) VibeEQFaceTabs *faceControl;

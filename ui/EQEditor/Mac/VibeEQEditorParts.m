@@ -5,7 +5,7 @@
 
 #import "VibeEQEditorParts.h"
 
-#import "VibeEQEditorFormat.h"
+#import "VibeEQEditorMath.h"
 
 @implementation VibeEQAccessibilitySlider
 
@@ -63,13 +63,17 @@ BOOL VibeEQBandHasGain(VibeEQBandType type) {
     return type == VibeEQBandTypePeak || type == VibeEQBandTypeLowShelf || type == VibeEQBandTypeHighShelf;
 }
 
-NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale) {
-    NSString *frequency = VibeEQFormatFrequency(band.frequency, locale);
-    NSString *q = [@"Q " stringByAppendingString:VibeEQFormatQ(band.q, locale)];
-    if (!VibeEQBandHasGain(band.type)) {
-        return [NSString stringWithFormat:@"%@, %@", frequency, q];
-    }
-    return [NSString stringWithFormat:@"%@, %@, %@", frequency, VibeEQFormatGain(band.gainDB, locale), q];
+VibeEQBand *VibeEQBandChanged(VibeEQBand *band, VibeEQBandType type, double frequency, double gainDB, double q) {
+    return [[VibeEQBand alloc] initWithType:type frequency:frequency gainDB:gainDB q:q enabled:band.enabled];
+}
+
+NSString *VibeEQBandName(VibeEQEditorStrings *strings, NSUInteger index) {
+    return [NSString stringWithFormat:strings.bandFormat, (long)index + 1];
+}
+
+NSRect VibeEQPlotRect(NSRect bounds, NSEdgeInsets insets) {
+    return NSMakeRect(insets.left, insets.bottom, MAX(0, NSWidth(bounds) - insets.left - insets.right),
+                      MAX(0, NSHeight(bounds) - insets.top - insets.bottom));
 }
 
 NSFont *VibeEQLabelFont(void) {
@@ -78,4 +82,21 @@ NSFont *VibeEQLabelFont(void) {
 
 NSColor *VibeEQGridColor(CGFloat alpha) {
     return [NSColor.labelColor colorWithAlphaComponent:alpha];
+}
+
+void VibeEQDrawGainGrid(NSRect plot, double rangeDB, int labelStep) {
+    NSDictionary *attributes = @{
+        NSFontAttributeName: VibeEQLabelFont(),
+        NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
+    };
+    for (int db = -(int)rangeDB; db <= (int)rangeDB; db += 6) {
+        CGFloat y = round(VibeEQYForGain(db, NSMinY(plot), NSHeight(plot), rangeDB)) + 0.5;
+        [VibeEQGridColor(db == 0 ? 0.3 : kVibeEQMajorGridAlpha) setFill];
+        NSRectFillUsingOperation(NSMakeRect(NSMinX(plot), y - 0.5, NSWidth(plot), 1), NSCompositingOperationSourceOver);
+        if (db % labelStep == 0) {
+            NSString *label = db > 0 ? [NSString stringWithFormat:@"+%d", db] : [NSString stringWithFormat:@"%d", db];
+            NSSize size = [label sizeWithAttributes:attributes];
+            [label drawAtPoint:NSMakePoint(NSMinX(plot) - 8 - size.width, y - size.height / 2) withAttributes:attributes];
+        }
+    }
 }

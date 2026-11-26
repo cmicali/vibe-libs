@@ -20,7 +20,7 @@ static const CGFloat kInset = 2;
 @end
 
 @implementation VibeEQFaceTabs {
-    NSMutableArray<NSNumber *> *_disabled;
+    NSMutableIndexSet *_disabled;
     NSMutableDictionary<NSNumber *, NSString *> *_toolTips;
     NSArray<VibeEQFaceTab *> *_elements;
 }
@@ -29,7 +29,7 @@ static const CGFloat kInset = 2;
     self = [super initWithFrame:frame];
     if (self) {
         _labels = @[];
-        _disabled = [NSMutableArray array];
+        _disabled = [NSMutableIndexSet indexSet];
         _toolTips = [NSMutableDictionary dictionary];
     }
     return self;
@@ -42,23 +42,28 @@ static const CGFloat kInset = 2;
 }
 
 - (void)setSelectedSegment:(NSInteger)selectedSegment {
-    _selectedSegment = selectedSegment;
-    self.needsDisplay = YES;
+    if (selectedSegment != _selectedSegment) {
+        _selectedSegment = selectedSegment;
+        self.needsDisplay = YES;
+    }
 }
 
 - (void)setEnabled:(BOOL)enabled forSegment:(NSInteger)segment {
-    [_disabled removeObject:@(segment)];
-    if (!enabled) {
-        [_disabled addObject:@(segment)];
+    if (enabled == [self isEnabledForSegment:segment]) {
+        return;
     }
+    enabled ? [_disabled removeIndex:(NSUInteger)segment] : [_disabled addIndex:(NSUInteger)segment];
     self.needsDisplay = YES;
 }
 
 - (BOOL)isEnabledForSegment:(NSInteger)segment {
-    return ![_disabled containsObject:@(segment)];
+    return ![_disabled containsIndex:(NSUInteger)segment];
 }
 
 - (void)setToolTip:(nullable NSString *)toolTip forSegment:(NSInteger)segment {
+    if (toolTip == _toolTips[@(segment)] || [toolTip isEqualToString:_toolTips[@(segment)]]) {
+        return;
+    }
     _toolTips[@(segment)] = toolTip;
     [self updateToolTipRects];
 }

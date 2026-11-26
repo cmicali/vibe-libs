@@ -104,10 +104,7 @@ static const NSEdgeInsets kPlotInsets = {24, 38, 22, 10};  // top, left, bottom,
 #pragma mark - Geometry
 
 - (NSRect)plotRect {
-    NSRect bounds = self.bounds;
-    return NSMakeRect(kPlotInsets.left, kPlotInsets.bottom,
-                      MAX(0, bounds.size.width - kPlotInsets.left - kPlotInsets.right),
-                      MAX(0, bounds.size.height - kPlotInsets.top - kPlotInsets.bottom));
+    return VibeEQPlotRect(self.bounds, kPlotInsets);
 }
 
 - (NSPoint)knobCenterForSlider:(NSUInteger)index {
@@ -146,17 +143,7 @@ static const NSEdgeInsets kPlotInsets = {24, 38, 22, 10};  // top, left, bottom,
         NSFontAttributeName: VibeEQLabelFont(),
         NSForegroundColorAttributeName: NSColor.secondaryLabelColor,
     };
-
-    // The dB grid, with 0 dB drawn stronger.
-    for (int db = -12; db <= 12; db += 6) {
-        CGFloat y = round(VibeEQYForGain(db, NSMinY(plot), NSHeight(plot), kVibeEQNarrowRangeDB)) + 0.5;
-        [VibeEQGridColor(db == 0 ? kVibeEQZeroLineAlpha : kVibeEQMajorGridAlpha) setFill];
-        NSRectFillUsingOperation(NSMakeRect(NSMinX(plot), y - 0.5, NSWidth(plot), 1), NSCompositingOperationSourceOver);
-        NSString *label = db > 0 ? [NSString stringWithFormat:@"+%d", db] : [NSString stringWithFormat:@"%d", db];
-        NSSize size = [label sizeWithAttributes:labelAttributes];
-        [label drawAtPoint:NSMakePoint(NSMinX(plot) - 8 - size.width, y - size.height / 2)
-            withAttributes:labelAttributes];
-    }
+    VibeEQDrawGainGrid(plot, kVibeEQNarrowRangeDB, 6);
 
     NSColor *accent = NSColor.controlAccentColor;
     CGFloat zeroY = VibeEQYForGain(0, NSMinY(plot), NSHeight(plot), kVibeEQNarrowRangeDB);
@@ -398,7 +385,7 @@ static const NSEdgeInsets kPlotInsets = {24, 38, 22, 10};  // top, left, bottom,
 
 - (void)setStrings:(VibeEQEditorStrings *)strings {
     _strings = [strings copy];
-    self.accessibilityLabel = strings.sliders;
+    self.accessibilityLabel = strings.slidersAccessibilityLabel;
 }
 
 - (NSArray *)accessibilityChildren {

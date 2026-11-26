@@ -26,8 +26,9 @@ typedef NS_ENUM(NSInteger, VibeEQEditorFace) {
 // Every change, live while a drag goes on. The settings are the host's last
 // ones with new bands.
 - (void)eqEditorView:(VibeEQEditorView *)view didChangeSettings:(VibeListeningSettings *)settings;
-// One edit is over: a drag let go, a key step, a field committed, a band
-// added or removed. The host records its undo and saves here.
+// One edit is over: a drag or a scroll let go, a key step, a slider reset, a
+// field committed, or a band added or removed. The host records its undo
+// and saves here.
 - (void)eqEditorViewDidEndEditing:(VibeEQEditorView *)view;
 
 @optional
@@ -55,10 +56,8 @@ typedef NS_ENUM(NSInteger, VibeEQEditorFace) {
 @property (nonatomic, copy) NSString *removeBand;
 // A node's and a row's name, with the band's number: "Band %ld".
 @property (nonatomic, copy) NSString *bandFormat;
-// The curve's spoken name.
-@property (nonatomic, copy) NSString *curve;
-// The graphic face's spoken name.
-@property (nonatomic, copy) NSString *sliders;
+@property (nonatomic, copy) NSString *curveAccessibilityLabel;
+@property (nonatomic, copy) NSString *slidersAccessibilityLabel;
 
 @end
 
@@ -69,9 +68,9 @@ typedef NS_ENUM(NSInteger, VibeEQEditorFace) {
 // Neutral by default. Setting it calls no delegate method.
 @property (nonatomic, copy, null_resettable) VibeListeningSettings *settings;
 
-// The graphic face shows only while the bands fit it: none, or exactly the
-// graphic layout. Otherwise the parametric face shows, and this reads so.
-// Setting it calls no delegate method.
+// The face showing. The graphic face shows only while the bands fit it:
+// none, or exactly the graphic layout. A face set while they don't fit shows
+// once the host sets bands that do. Setting it calls no delegate method.
 @property (nonatomic) VibeEQEditorFace face;
 // The bands fit the graphic face.
 @property (nonatomic, readonly) BOOL graphicFaceAvailable;

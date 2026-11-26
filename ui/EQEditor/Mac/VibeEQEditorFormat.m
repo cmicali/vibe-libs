@@ -65,12 +65,14 @@ NSString *VibeEQFormatQ(double q, NSLocale *locale) {
 
 NSString *VibeEQFormatFieldNumber(double value, NSUInteger minimumFractionDigits, NSUInteger maximumFractionDigits,
                                   NSLocale *locale) {
-    NSNumberFormatter *f = VibeEQFormatter(@"field", locale, ^(NSNumberFormatter *formatter) {
+    NSString *kind = [NSString stringWithFormat:@"field-%lu-%lu", (unsigned long)minimumFractionDigits,
+                                                (unsigned long)maximumFractionDigits];
+    NSNumberFormatter *f = VibeEQFormatter(kind, locale, ^(NSNumberFormatter *formatter) {
         formatter.numberStyle = NSNumberFormatterDecimalStyle;
         formatter.usesGroupingSeparator = NO;
+        formatter.minimumFractionDigits = minimumFractionDigits;
+        formatter.maximumFractionDigits = maximumFractionDigits;
     });
-    f.minimumFractionDigits = minimumFractionDigits;
-    f.maximumFractionDigits = maximumFractionDigits;
     double scale = pow(10, (double)maximumFractionDigits);
     double rounded = round(value * scale) / scale;
     return [f stringFromNumber:@(rounded == 0 ? 0 : rounded)];

@@ -208,6 +208,25 @@
     XCTAssertEqual(_editor.face, VibeEQEditorFaceParametric);
 }
 
+// An edit that makes the bands fit again leaves the parametric face up, and
+// the tabs say so; the graphic tab turns back on.
+- (void)testAnEditNeverSwapsTheFace {
+    _editor.face = VibeEQEditorFaceGraphic;
+    _editor.settings = [self settingsWithBands:@[[VibeEQBand bandWithType:VibeEQBandTypePeak frequency:1000 gainDB:3 q:1]]];
+    XCTAssertEqual(_editor.face, VibeEQEditorFaceParametric);
+    [_editor layoutSubtreeIfNeeded];
+    VibeEQCurveView *curve = _editor.curveView;
+    XCTAssertTrue([_window makeFirstResponder:curve]);
+    [curve keyDown:[self key:NSDeleteCharacter flags:0]];
+    XCTAssertEqual(_editor.settings.bands.count, 0u);
+    XCTAssertTrue(_editor.graphicFaceAvailable);
+    XCTAssertEqual(_editor.face, VibeEQEditorFaceParametric);
+    XCTAssertEqual(_editor.faceControl.selectedSegment, VibeEQEditorFaceParametric);
+    XCTAssertTrue([_editor.faceControl isEnabledForSegment:VibeEQEditorFaceGraphic]);
+    XCTAssertFalse(curve.hidden);
+    XCTAssertEqual(_ends, 1u);
+}
+
 - (void)testHostSettingsCallNoDelegate {
     _editor.settings = [self parametricSettings];
     _editor.face = VibeEQEditorFaceGraphic;

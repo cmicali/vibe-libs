@@ -125,6 +125,23 @@
     }
 }
 
+- (void)testANewBandGoesInTheWidestGap {
+    XCTAssertEqual(VibeEQFrequencyForNewBand(NULL, 0), 1000);
+    double one[] = {1000};
+    // 20 to 1000 is wider than 1000 to 20000 on the log axis.
+    XCTAssertEqualWithAccuracy(VibeEQFrequencyForNewBand(one, 1), sqrt(20 * 1000), 1e-9);
+    double three[] = {8000, 30, 1000};
+    XCTAssertEqualWithAccuracy(VibeEQFrequencyForNewBand(three, 3), sqrt(30 * 1000), 1e-9);
+    double edge[] = {20000, 20};
+    XCTAssertEqualWithAccuracy(VibeEQFrequencyForNewBand(edge, 2), sqrt(20 * 20000), 1e-9);
+}
+
+- (void)testTheSelectionAfterARemoval {
+    XCTAssertEqual(VibeEQSelectionAfterRemoving(1, 3), 1u);
+    XCTAssertEqual(VibeEQSelectionAfterRemoving(3, 3), 2u);
+    XCTAssertEqual(VibeEQSelectionAfterRemoving(0, 0), (NSUInteger)NSNotFound);
+}
+
 - (void)testNumbersReadInTheLocalesDigits {
     NSLocale *english = [NSLocale localeWithLocaleIdentifier:@"en_US"];
     NSLocale *german = [NSLocale localeWithLocaleIdentifier:@"de_DE"];

@@ -271,8 +271,7 @@ static const CGFloat kButtonSize = 22;
 }
 
 - (NSString *)nameOfRow:(NSInteger)row column:(NSString *)column {
-    NSString *band = [NSString stringWithFormat:_strings.bandFormat, (long)row + 1];
-    return [NSString stringWithFormat:@"%@, %@", band, column];
+    return [NSString stringWithFormat:@"%@, %@", VibeEQBandName(_strings, (NSUInteger)row), column];
 }
 
 - (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row {
@@ -289,7 +288,7 @@ static const CGFloat kButtonSize = 22;
         cell.textField.stringValue = [NSString stringWithFormat:@"%ld", (long)row + 1];
         cell.toggle.state = band.enabled ? NSControlStateValueOn : NSControlStateValueOff;
         cell.toggle.enabled = _enabled;
-        cell.toggle.accessibilityLabel = [NSString stringWithFormat:_strings.bandFormat, (long)row + 1];
+        cell.toggle.accessibilityLabel = VibeEQBandName(_strings, (NSUInteger)row);
         return cell;
     }
     if ([identifier isEqual:kTypeColumn]) {
@@ -303,8 +302,12 @@ static const CGFloat kButtonSize = 22;
             popUp.target = self;
             popUp.action = @selector(changeType:);
         }
-        [popUp removeAllItems];
-        [popUp addItemsWithTitles:_strings.bandTypes];
+        // A drag reloads its row on every move, so the menu is built only
+        // when it's new or the words changed.
+        if (![popUp.itemTitles isEqualToArray:_strings.bandTypes]) {
+            [popUp removeAllItems];
+            [popUp addItemsWithTitles:_strings.bandTypes];
+        }
         [popUp selectItemAtIndex:band.type];
         popUp.enabled = _enabled;
         popUp.accessibilityLabel = [self nameOfRow:row column:_strings.typeColumn];
@@ -398,12 +401,7 @@ static const CGFloat kButtonSize = 22;
     }
     VibeEQBand *band = _bands[index];
     VibeEQBandType type = (VibeEQBandType)MAX(VibeEQBandTypePeak, MIN(sender.indexOfSelectedItem, VibeEQBandTypeHighPass));
-    [self replaceBandAtIndex:index
-                        with:[[VibeEQBand alloc] initWithType:type
-                                                    frequency:band.frequency
-                                                       gainDB:band.gainDB
-                                                            q:band.q
-                                                      enabled:band.enabled]];
+    [self replaceBandAtIndex:index with:VibeEQBandChanged(band, type, band.frequency, band.gainDB, band.q)];
 }
 
 - (void)commitField:(NSTextField *)sender {
@@ -426,58 +424,43 @@ static const CGFloat kButtonSize = 22;
     } else {
         q = VibeEQClamp(round(value * 100) / 100, kVibeEQMinQ, kVibeEQMaxQ);
     }
-    [self replaceBandAtIndex:index
-                        with:[[VibeEQBand alloc] initWithType:band.type
-                                                    frequency:frequency
-                                                       gainDB:gain
-                                                            q:q
-                                                      enabled:band.enabled]];
+    [self replaceBandAtIndex:index with:VibeEQBandChanged(band, band.type, frequency, gain, q)];
 }
 
-// A new peak at 0 dB, in the middle of the widest gap between the bands on
-// the log axis, so it never lands on another.
+// The bands, then the selection, then the end, so the host's undo record
+// sees the editor settled.
+- (void)commitBands:(NSArray<VibeEQBand *> *)bands selecting:(NSUInteger)index {
+    _selectedIndex = NSNotFound;
+    self.bands = bands;
+    [self.owner face:self didChangeBands:_bands];
+    self.selectedIndex = index;
+    [self.owner face:self didSelectBandAtIndex:_selectedIndex];
+    [self.owner faceDidEndEditing:self];
+}
+
+// A new peak at 0 dB, where VibeEQFrequencyForNewBand puts it.
 - (void)addBand:(id)sender {
-    if (!_enabled || _bands.count >= kVibeListeningMaxBands) {
+    if (_bands.count >= kVibeListeningMaxBands) {
         return;
     }
-    NSMutableArray<NSNumber *> *edges = [NSMutableArray arrayWithObjects:@(kVibeEQMinFrequency), @(kVibeEQMaxFrequency), nil];
-    for (VibeEQBand *band in _bands) {
-        [edges addObject:@(band.frequency)];
-    }
-    [edges sortUsingSelector:@selector(compare:)];
-    double frequency = 1000;
-    double widest = -1;
-    for (NSUInteger i = 0; i + 1 < edges.count; i++) {
-        double low = edges[i].doubleValue, high = edges[i + 1].doubleValue;
-        double gap = log(high / low);
-        if (gap > widest + 1e-9) {
-            widest = gap;
-            frequency = sqrt(low * high);
-        }
-    }
-    if (_bands.count == 0) {
-        frequency = 1000;
+    double frequencies[kVibeListeningMaxBands];
+    for (NSUInteger i = 0; i < _bands.count; i++) {
+        frequencies[i] = _bands[i].frequency;
     }
     VibeEQBand *band = [VibeEQBand bandWithType:VibeEQBandTypePeak
-                                      frequency:VibeEQRoundFrequency(frequency)
+                                      frequency:VibeEQRoundFrequency(VibeEQFrequencyForNewBand(frequencies, _bands.count))
                                          gainDB:0
                                               q:1];
-    [self commitBands:[_bands arrayByAddingObject:band]];
-    self.selectedIndex = _bands.count - 1;
-    [self.owner face:self didSelectBandAtIndex:_selectedIndex];
+    [self commitBands:[_bands arrayByAddingObject:band] selecting:_bands.count];
 }
 
 - (void)removeBand:(id)sender {
-    if (!_enabled || _selectedIndex == NSNotFound) {
+    if (_selectedIndex == NSNotFound) {
         return;
     }
-    NSUInteger removed = _selectedIndex;
     NSMutableArray<VibeEQBand *> *bands = [_bands mutableCopy];
-    [bands removeObjectAtIndex:removed];
-    _selectedIndex = NSNotFound;
-    [self commitBands:bands];
-    self.selectedIndex = bands.count == 0 ? NSNotFound : MIN(removed, bands.count - 1);
-    [self.owner face:self didSelectBandAtIndex:_selectedIndex];
+    [bands removeObjectAtIndex:_selectedIndex];
+    [self commitBands:bands selecting:VibeEQSelectionAfterRemoving(_selectedIndex, bands.count)];
 }
 
 @end

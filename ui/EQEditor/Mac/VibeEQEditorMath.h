@@ -135,4 +135,43 @@ static inline CGFloat VibeEQColumnCenterX(NSUInteger column, CGFloat minX, CGFlo
     return minX + (width / (CGFloat)columns) * ((CGFloat)column + 0.5);
 }
 
+// The band selected after one is removed: the one that took its place, or
+// the new last one. NSNotFound when none is left.
+static inline NSUInteger VibeEQSelectionAfterRemoving(NSUInteger removed, NSUInteger remaining) {
+    return remaining == 0 ? NSNotFound : MIN(removed, remaining - 1);
+}
+
+// Where a new band goes: 1 kHz on an empty EQ, otherwise the middle of the
+// widest gap between the bands and the axis's ends, on the log axis, so it
+// never lands on another. The first of equal gaps wins.
+static inline double VibeEQFrequencyForNewBand(const double *_Nullable frequencies, NSUInteger count) {
+    if (count == 0) {
+        return 1000;
+    }
+    double edges[66];
+    count = MIN(count, (NSUInteger)64);
+    edges[0] = kVibeEQMinFrequency;
+    edges[1] = kVibeEQMaxFrequency;
+    for (NSUInteger i = 0; i < count; i++) {
+        edges[i + 2] = VibeEQClamp(frequencies[i], kVibeEQMinFrequency, kVibeEQMaxFrequency);
+    }
+    // Insertion sort: an EQ has at most 20 bands.
+    for (NSUInteger i = 1; i < count + 2; i++) {
+        for (NSUInteger j = i; j > 0 && edges[j - 1] > edges[j]; j--) {
+            double swap = edges[j];
+            edges[j] = edges[j - 1];
+            edges[j - 1] = swap;
+        }
+    }
+    double best = 1000, widest = -1;
+    for (NSUInteger i = 0; i + 1 < count + 2; i++) {
+        double gap = log(edges[i + 1] / edges[i]);
+        if (gap > widest + 1e-9) {
+            widest = gap;
+            best = sqrt(edges[i] * edges[i + 1]);
+        }
+    }
+    return best;
+}
+
 NS_ASSUME_NONNULL_END

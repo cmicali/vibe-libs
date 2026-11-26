@@ -24,8 +24,8 @@
         _addBand = @"Add Band";
         _removeBand = @"Remove Band";
         _bandFormat = @"Band %ld";
-        _curve = @"EQ curve";
-        _sliders = @"Graphic EQ";
+        _curveAccessibilityLabel = @"EQ curve";
+        _slidersAccessibilityLabel = @"Graphic EQ";
     }
     return self;
 }
@@ -44,8 +44,8 @@
     copy.addBand = self.addBand;
     copy.removeBand = self.removeBand;
     copy.bandFormat = self.bandFormat;
-    copy.curve = self.curve;
-    copy.sliders = self.sliders;
+    copy.curveAccessibilityLabel = self.curveAccessibilityLabel;
+    copy.slidersAccessibilityLabel = self.slidersAccessibilityLabel;
     return copy;
 }
 
@@ -130,11 +130,6 @@ static const CGFloat kGap = 10;
     return _settings.bands.count == 0 || _settings.isGraphic;
 }
 
-- (VibeEQEditorFace)face {
-    return _chosenFace == VibeEQEditorFaceGraphic && self.graphicFaceAvailable ? VibeEQEditorFaceGraphic
-                                                                               : VibeEQEditorFaceParametric;
-}
-
 - (void)setFace:(VibeEQEditorFace)face {
     _chosenFace = face;
     [self updateFace];
@@ -143,7 +138,6 @@ static const CGFloat kGap = 10;
 - (void)setEnabled:(BOOL)enabled {
     _enabled = enabled;
     _faceControl.enabled = enabled;
-    [self updateFaceControl];
     _graphicView.enabled = enabled;
     _curveView.enabled = enabled;
     _bandList.enabled = enabled;
@@ -194,14 +188,16 @@ static const CGFloat kGap = 10;
     }
 }
 
+// The face is worked out again only when the host sets the settings or a
+// face, so a user's edit never swaps the face under the pointer. An edit in
+// the parametric face can make the bands fit again, and the face stays.
 - (void)updateFace {
-    BOOL graphic = self.face == VibeEQEditorFaceGraphic;
+    _face = _chosenFace == VibeEQEditorFaceGraphic && self.graphicFaceAvailable ? VibeEQEditorFaceGraphic
+                                                                               : VibeEQEditorFaceParametric;
+    BOOL graphic = _face == VibeEQEditorFaceGraphic;
     _graphicView.hidden = !graphic;
     _curveView.hidden = graphic;
     _bandList.hidden = graphic;
-    if (!graphic) {
-        [_bandList reloadIfNeeded];
-    }
     [self updateFaceControl];
 }
 
@@ -209,7 +205,7 @@ static const CGFloat kGap = 10;
     BOOL available = self.graphicFaceAvailable;
     [_faceControl setEnabled:available forSegment:VibeEQEditorFaceGraphic];
     [_faceControl setToolTip:available ? nil : _strings.graphicUnavailable forSegment:VibeEQEditorFaceGraphic];
-    _faceControl.selectedSegment = self.face;
+    _faceControl.selectedSegment = _face;
 }
 
 // The tabs send only an enabled tab other than the current one.
@@ -220,19 +216,17 @@ static const CGFloat kGap = 10;
     }
 }
 
-- (void)viewDidUnhide {
-    [super viewDidUnhide];
-    [_bandList reloadIfNeeded];
-}
-
 #pragma mark - VibeEQFaceOwner
 
 - (void)face:(NSView *)face didChangeBands:(NSArray<VibeEQBand *> *)bands {
+    BOOL wasAvailable = self.graphicFaceAvailable;
     VibeMutableListeningSettings *settings = [_settings mutableCopy];
     settings.bands = bands;
     _settings = [settings copy];
     [self pushBandsExceptFrom:face];
-    [self updateFaceControl];
+    if (self.graphicFaceAvailable != wasAvailable) {
+        [self updateFaceControl];
+    }
     [self.delegate eqEditorView:self didChangeSettings:_settings];
 }
 

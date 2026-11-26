@@ -36,6 +36,8 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
     NSPoint _grabOffset;
     BOOL _changedInGesture;
     NSArray<VibeEQAccessibilitySlider *> *_elements;
+    NSBezierPath *_selectedPath;
+    double _selectedPathRange;
 }
 
 - (instancetype)initWithFrame:(NSRect)frame {
@@ -74,6 +76,7 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
 
 - (void)setSelectedIndex:(NSUInteger)selectedIndex {
     _selectedIndex = selectedIndex < _bands.count ? selectedIndex : NSNotFound;
+    _selectedPath = nil;
     self.needsDisplay = YES;
     [self noteFocusRingMaskChanged];
 }
@@ -93,12 +96,13 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
 
 - (void)setStrings:(VibeEQEditorStrings *)strings {
     _strings = [strings copy];
-    self.accessibilityLabel = strings.curve;
+    self.accessibilityLabel = strings.curveAccessibilityLabel;
     _elements = nil;
 }
 
 - (void)invalidateCurve {
     _curveValid = NO;
+    _selectedPath = nil;
     self.needsDisplay = YES;
 }
 
@@ -137,16 +141,23 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
 }
 
 static VibeEQBand *VibeEQBandMoved(VibeEQBand *band, double frequency, double gainDB, double q) {
-    return [[VibeEQBand alloc] initWithType:band.type frequency:frequency gainDB:gainDB q:q enabled:band.enabled];
+    return VibeEQBandChanged(band, band.type, frequency, gainDB, q);
+}
+
+// "1,000 Hz, +3.0 dB, Q 1.4". A pass filter has no gain: "30 Hz, Q 0.71".
+static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale) {
+    NSString *frequency = VibeEQFormatFrequency(band.frequency, locale);
+    NSString *q = [@"Q " stringByAppendingString:VibeEQFormatQ(band.q, locale)];
+    if (!VibeEQBandHasGain(band.type)) {
+        return [NSString stringWithFormat:@"%@, %@", frequency, q];
+    }
+    return [NSString stringWithFormat:@"%@, %@, %@", frequency, VibeEQFormatGain(band.gainDB, locale), q];
 }
 
 #pragma mark - Geometry
 
 - (NSRect)plotRect {
-    NSRect bounds = self.bounds;
-    return NSMakeRect(kPlotInsets.left, kPlotInsets.bottom,
-                      MAX(0, bounds.size.width - kPlotInsets.left - kPlotInsets.right),
-                      MAX(0, bounds.size.height - kPlotInsets.top - kPlotInsets.bottom));
+    return VibeEQPlotRect(self.bounds, kPlotInsets);
 }
 
 // Samples the curve, once for each change, and finds the range it needs.
@@ -161,14 +172,12 @@ static VibeEQBand *VibeEQBandMoved(VibeEQBand *band, double frequency, double ga
     _samples.length = count * sizeof(double);
     double *samples = _samples.mutableBytes;
     double largest = 0;
-    for (VibeEQBand *band in _bands) {
-        if (band.enabled && VibeEQBandHasGain(band.type)) {
-            largest = MAX(largest, fabs(band.gainDB));
-        }
-    }
     BOOL any = NO;
     for (VibeEQBand *band in _bands) {
         any = any || band.enabled;
+        if (band.enabled && VibeEQBandHasGain(band.type)) {
+            largest = MAX(largest, fabs(band.gainDB));
+        }
     }
     for (NSUInteger i = 0; i < count; i++) {
         double frequency = VibeEQFrequencyForX(NSMinX(plot) + MIN((CGFloat)i, NSWidth(plot)), NSMinX(plot),
@@ -227,7 +236,6 @@ static VibeEQBand *VibeEQBandMoved(VibeEQBand *band, double frequency, double ga
     if (NSIsEmptyRect(plot)) {
         return;
     }
-    [self ensureCurve];
     double range = self.rangeDB;
     NSDictionary *labelAttributes = @{
         NSFontAttributeName: VibeEQLabelFont(),
@@ -259,27 +267,20 @@ static VibeEQBand *VibeEQBandMoved(VibeEQBand *band, double frequency, double ga
         }
     }
 
-    // The dB grid: a line each 6 dB, labeled each 6 or 12, with 0 dB stronger.
-    int labelStep = range > kVibeEQNarrowRangeDB ? 12 : 6;
-    for (int db = -(int)range; db <= (int)range; db += 6) {
-        CGFloat y = round(VibeEQYForGain(db, NSMinY(plot), NSHeight(plot), range)) + 0.5;
-        [VibeEQGridColor(db == 0 ? kVibeEQZeroLineAlpha : kVibeEQMajorGridAlpha) setFill];
-        NSRectFillUsingOperation(NSMakeRect(NSMinX(plot), y - 0.5, NSWidth(plot), 1), NSCompositingOperationSourceOver);
-        if (db % labelStep == 0) {
-            NSString *label = db > 0 ? [NSString stringWithFormat:@"+%d", db] : [NSString stringWithFormat:@"%d", db];
-            NSSize size = [label sizeWithAttributes:labelAttributes];
-            [label drawAtPoint:NSMakePoint(NSMinX(plot) - 8 - size.width, y - size.height / 2)
-                withAttributes:labelAttributes];
-        }
-    }
+    VibeEQDrawGainGrid(plot, range, range > kVibeEQNarrowRangeDB ? 12 : 6);
 
     [NSGraphicsContext saveGraphicsState];
     NSRectClip(plot);
     NSColor *accent = NSColor.controlAccentColor;
 
-    // The selected band alone, faintly, so its share of the curve shows.
+    // The selected band alone, faintly, so its share of the curve shows. Kept
+    // until the bands, the selection, or the axis change.
     if (_selectedIndex != NSNotFound && _bands[_selectedIndex].enabled) {
-        NSBezierPath *own = [self curvePathForBands:@[_bands[_selectedIndex]] range:range];
+        if (!_selectedPath || _selectedPathRange != range) {
+            _selectedPath = [self curvePathForBand:_bands[_selectedIndex] range:range];
+            _selectedPathRange = range;
+        }
+        NSBezierPath *own = _selectedPath;
         [[accent colorWithAlphaComponent:0.5] setStroke];
         own.lineWidth = 1;
         CGFloat dash[] = {3, 3};
@@ -326,7 +327,8 @@ static VibeEQBand *VibeEQBandMoved(VibeEQBand *band, double frequency, double ga
 }
 
 // One band's own curve, sampled every other point: drawn only while selected.
-- (NSBezierPath *)curvePathForBands:(NSArray<VibeEQBand *> *)bands range:(double)range {
+- (NSBezierPath *)curvePathForBand:(VibeEQBand *)band range:(double)range {
+    NSArray<VibeEQBand *> *bands = @[band];
     NSRect plot = self.plotRect;
     NSBezierPath *path = [NSBezierPath bezierPath];
     for (CGFloat x = NSMinX(plot);; x += 2) {
@@ -569,12 +571,12 @@ static VibeEQBand *VibeEQBandMoved(VibeEQBand *band, double frequency, double ga
         case NSDeleteFunctionKey: {
             NSMutableArray<VibeEQBand *> *bands = [_bands mutableCopy];
             [bands removeObjectAtIndex:_selectedIndex];
-            NSUInteger next = bands.count == 0 ? NSNotFound : MIN(_selectedIndex, bands.count - 1);
+            NSUInteger next = VibeEQSelectionAfterRemoving(_selectedIndex, bands.count);
             self.bands = bands;
             [self.owner face:self didChangeBands:_bands];
-            [self.owner faceDidEndEditing:self];
             _selectedIndex = NSNotFound;
             [self selectBand:next];
+            [self.owner faceDidEndEditing:self];
             return YES;
         }
         default:
@@ -596,7 +598,7 @@ static VibeEQBand *VibeEQBandMoved(VibeEQBand *band, double frequency, double ga
         for (NSUInteger i = 0; i < _bands.count; i++) {
             VibeEQAccessibilitySlider *element = [[VibeEQAccessibilitySlider alloc] init];
             element.accessibilityParent = self;
-            element.accessibilityLabel = [NSString stringWithFormat:self.strings.bandFormat, (long)i + 1];
+            element.accessibilityLabel = VibeEQBandName(self.strings, i);
             element.valueBlock = ^NSString * {
                 typeof(self) view = weakSelf;
                 return view && i < view.bands.count ? VibeEQNodeAccessibilityValue(view.bands[i], view.locale) : @"";
