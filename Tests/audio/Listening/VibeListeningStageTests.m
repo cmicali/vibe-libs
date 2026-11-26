@@ -237,6 +237,22 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
     XCTAssertEqual(VibeListeningStageClips(stage), 0u);
 }
 
+- (void)testAStackedCurveMatchesTheResponseAtSixRates {
+    NSArray<VibeEQBand *> *bands = @[
+        Band(VibeEQBandTypeLowShelf, 100, 4, 0.7), Band(VibeEQBandTypePeak, 60, -12, 6),
+        Band(VibeEQBandTypePeak, 1000, 6, 8), Band(VibeEQBandTypePeak, 2500, 4, 2),
+        Band(VibeEQBandTypePeak, 3200, -3, 1.5), Band(VibeEQBandTypeHighShelf, 8000, -5, 0.7),
+    ];
+    NSArray<NSNumber *> *frequencies = @[@30, @60, @100, @300, @1000, @2500, @3200, @6000, @12000, @18000];
+    for (NSNumber *rate in @[@44100, @48000, @88200, @96000, @176400, @192000]) {
+        for (NSNumber *hz in frequencies) {
+            double expected = VibeListeningResponseDB(bands, hz.doubleValue, rate.doubleValue);
+            double measured = [self measuredDBAt:hz.doubleValue rate:rate.doubleValue settings:EQ(bands)];
+            XCTAssertEqualWithAccuracy(measured, expected, 0.1, @"at %@ Hz, %@ Hz", hz, rate);
+        }
+    }
+}
+
 - (void)testHeadroomCoversTheBassShelfAndThePlaybackRate {
     VibeListeningSettings *bass = Edited(^(VibeMutableListeningSettings *s) {
         s.eqEnabled = YES;
@@ -331,6 +347,165 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
                     cyclePower = 0;
                 }
             }
+        }
+    }
+}
+
+// A 60 Hz tone on the left alone, through a narrow 60 Hz cut. Swap and mono
+// carry the cut's state to the channel's new input, so once the fade is over
+// every cycle is at the cut's settled level.
+- (void)testSwapAndMonoKeepABassCutSettled {
+    for (int mono = 0; mono < 2; mono++) {
+        VibeMutableListeningSettings *s = [EQ(@[Band(VibeEQBandTypePeak, 60, -12, 6)]) mutableCopy];
+        VibeListeningStage *stage = [self stageWithChannels:2 rate:48000 settings:s];
+        float left[240], right[240], *planes[] = {left, right};
+        double power[2] = {0}, settled = (mono ? 0.25 : 0.5) * pow(10, -12 / 20.0);
+        for (unsigned first = 0; first < 72000; first += 240) {
+            if (first == 48000) {
+                s.mono = mono;
+                s.swapChannels = !mono;
+                XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
+            }
+            for (unsigned j = 0; j < 240; j++) {
+                left[j] = (float)(0.5 * cos(2 * M_PI * 60 * (first + j) / 48000 + 0.3));
+                right[j] = 0;
+            }
+            VibeListeningStageRender(stage, planes, 240);
+            for (unsigned j = 0; j < 240; j++) {
+                power[0] += left[j] * left[j];
+                power[1] += right[j] * right[j];
+                if ((first + j + 1) % 800 != 0) {
+                    continue;
+                }
+                // The fade ends in the first cycle after the change.
+                for (int c = mono ? 0 : 1; c < 2 && first + j + 1 > 48800; c++) {
+                    double level = 20 * log10(sqrt(2 * power[c] / 800) / settled);
+                    XCTAssertEqualWithAccuracy(level, 0, 0.5, @"%@, channel %d", mono ? @"mono" : @"swap", c);
+                }
+                power[0] = power[1] = 0;
+            }
+        }
+    }
+}
+
+// A gain step past the carried one makes a 60 Hz bell start at rest. It warms
+// up on the input while the old curve alone is heard, so a bass note on the
+// bell neither dips nor bursts when the new curve fades in.
+- (void)testALargeChangeWarmsUpBeforeItIsHeard {
+    double steps[][2] = {{6, 12}, {12, 6}, {-6, 6}};
+    for (int k = 0; k < 3; k++) {
+        double from = steps[k][0], to = steps[k][1];
+        VibeMutableListeningSettings *s = [EQ(@[Band(VibeEQBandTypePeak, 60, from, 6)]) mutableCopy];
+        s.preampDB = -12;
+        VibeListeningStage *stage = [self stageWithChannels:1 rate:48000 settings:s];
+        VibeListeningStage *reference = VibeListeningStageCreate(1, 48000);
+        VibeListeningStageSetSettings(reference, s);
+        // Slices off the warm-up's grid, so its end splits a slice.
+        float samples[500], old[500], *planes[] = {samples}, *oldPlanes[] = {old};
+        double power = 0, low = INFINITY, high = -INFINITY;
+        uint32_t change = 48000, heard = 0;
+        for (unsigned first = 0; first < 96000; first += 500) {
+            if (first == change) {
+                s.bands = @[Band(VibeEQBandTypePeak, 60, to, 6)];
+                XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
+            }
+            for (unsigned j = 0; j < 500; j++) {
+                samples[j] = old[j] = (float)(0.5 * cos(2 * M_PI * 60 * (first + j) / 48000 + 0.3));
+            }
+            VibeListeningStageRender(stage, planes, 500);
+            VibeListeningStageRender(reference, oldPlanes, 500);
+            for (unsigned j = 0; j < 500 && first >= change; j++) {
+                if (!heard && samples[j] != old[j]) {
+                    heard = first + j - change;
+                }
+                power += samples[j] * samples[j];
+                if ((first + j + 1) % 800 == 0) {
+                    double level = 20 * log10(sqrt(2 * power / 800) / 0.5) + 12;
+                    low = fmin(low, level);
+                    high = fmax(high, level);
+                    power = 0;
+                }
+            }
+            if (first >= change && first < change + 4800) {
+                XCTAssertTrue(VibeListeningStageEngaged(stage));
+            }
+        }
+        VibeListeningStageFree(reference);
+        // A boost to +12 dB at Q 6 takes 190 ms to settle, so its warm-up is
+        // the cap, 150 ms. A bell at +6 dB takes 135 ms. The fade's first
+        // frame still plays the old curve alone.
+        XCTAssertEqual(heard, (to == 12 ? 7200u : 6475u) + 1, @"%g to %g dB", from, to);
+        XCTAssertGreaterThan(low, fmin(from, to) - 0.5, @"%g to %g dB", from, to);
+        XCTAssertLessThan(high, fmax(from, to) + 0.5, @"%g to %g dB", from, to);
+    }
+}
+
+// Random edits to six random bands, every 20 ms, over noise and a bass tone.
+static uint32_t gEditState;
+static double NextRandom(void) {
+    gEditState = gEditState * 1664525u + 1013904223u;
+    return (double)(gEditState >> 8) / (double)(1u << 24);
+}
+
+static VibeEQBand *RandomBand(void) {
+    VibeEQBandType type = (VibeEQBandType)(int)(NextRandom() * 5);
+    double hz = 20 * pow(1000, NextRandom()), gain = -24 + 48 * NextRandom(), q = 0.1 * pow(100, NextRandom());
+    return [[VibeEQBand alloc] initWithType:type frequency:hz gainDB:gain q:q enabled:NextRandom() > 0.15];
+}
+
+- (void)testRandomEditsNeverBurst {
+    double rates[] = {44100, 96000, 192000};
+    for (int r = 0; r < 3; r++) {
+        for (int tone = 0; tone < 2; tone++) {
+            gEditState = 99 + (uint32_t)r;
+            NSMutableArray<VibeEQBand *> *bands = [NSMutableArray array];
+            for (int i = 0; i < 6; i++) {
+                [bands addObject:RandomBand()];
+            }
+            VibeMutableListeningSettings *s = [EQ(bands) mutableCopy];
+            s.preampAutomatic = YES;
+            VibeListeningStage *stage = [self stageWithChannels:1 rate:rates[r] settings:s];
+            uint32_t block = (uint32_t)(rates[r] / 50), noise = 5, frame = 0;
+            NSMutableData *plane = [NSMutableData dataWithLength:block * sizeof(float)];
+            float *samples = plane.mutableBytes, *planes[] = {samples};
+            double peak = 0;
+            BOOL finite = YES;
+            for (int edit = 0; edit < 300; edit++) {
+                int kind = (int)(NextRandom() * 4), index = (int)(NextRandom() * 6);
+                VibeEQBand *old = bands[index];
+                if (kind == 0) {
+                    bands[index] = RandomBand();
+                }
+                else if (kind == 1) {
+                    bands[index] = [old bandWithGainDB:fmax(-24, fmin(24, old.gainDB + (NextRandom() - 0.5) * 8))];
+                }
+                else if (kind == 2) {
+                    double hz = old.frequency * pow(1.3, NextRandom() - 0.5);
+                    bands[index] = [[VibeEQBand alloc] initWithType:old.type frequency:hz gainDB:old.gainDB
+                                                                  q:old.q enabled:old.enabled];
+                }
+                else {
+                    bands[index] = [old bandWithEnabled:!old.enabled];
+                }
+                s.bands = bands;
+                VibeListeningStageSetSettings(stage, s);
+                for (uint32_t j = 0; j < block; j++, frame++) {
+                    noise = noise * 1664525u + 1013904223u;
+                    samples[j] = tone ? (float)(0.25 * sin(2 * M_PI * 55 * frame / rates[r]))
+                                      : 0.25f * ((float)(noise >> 8) / (float)(1u << 24) * 2.0f - 1.0f);
+                }
+                VibeListeningStageRender(stage, planes, block);
+                for (uint32_t j = 0; j < block; j++) {
+                    finite = finite && isfinite(samples[j]);
+                    peak = fmax(peak, fabs(samples[j]));
+                }
+            }
+            // Measured: the tone stays at or under its input's peak. With no
+            // warm-up it rose 11.4 dB at 192 kHz. The noise rises up to 3.2 dB
+            // either way, since the curves themselves boost it.
+            double overDB = 20 * log10(peak / 0.25);
+            XCTAssertTrue(finite);
+            XCTAssertLessThan(overDB, tone ? 0.5 : 3.5, @"%@ at %g Hz", tone ? @"tone" : @"noise", rates[r]);
         }
     }
 }

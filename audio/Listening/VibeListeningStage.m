@@ -12,6 +12,14 @@
 
 enum { kChunkFrames = 512 };  // the scratch's length
 static const double kDenormalFloor = 1e-25;
+// A band whose gain moved this far or less keeps its state. Measured on gain
+// steps of peaks and shelves with a tone on the band: up to 3 dB a kept state
+// stays within 2.4 dB over the louder settled level. Past that, a band starts
+// at rest and warms up, and stays within 1.6 dB.
+static const double kCarriedGainStepDB = 3.0;
+// The longest warm-up. At 150 ms a 55 Hz tone through random edits stays at
+// its input's peak at 192 kHz. At 100 ms it rises 0.1 dB, and at 50 ms 3.2 dB.
+static const double kWarmUpCapMilliseconds = 150.0;
 
 #pragma mark - Crossfeed
 
@@ -78,6 +86,7 @@ struct VibeListeningProgram {
     uint32_t bandCount;
     VibeListeningBand bands[kVibeListeningMaxBands];
     VibeListeningBiquad filters[kVibeListeningMaxBands];
+    uint32_t settleFrames[kVibeListeningMaxBands];  // from rest, capped
     double state[];              // channels × bandCount × 2, transposed direct form II
 };
 
@@ -93,6 +102,17 @@ static void VibeListeningTouch(void *memory, size_t size) {
     for (size_t i = 0; i < size; i += 4096) {
         bytes[i] = 0;
     }
+}
+
+// How long a band takes to settle from rest: three time constants of its
+// slowest pole, held under the cap. Complex poles have the radius sqrt(a2).
+// A low Q gives two real poles, and the larger one is the slower.
+static uint32_t VibeListeningSettleFrames(VibeListeningBiquad f, double sampleRate) {
+    double cap = kWarmUpCapMilliseconds * 0.001 * sampleRate;
+    double spread = f.a1 * f.a1 - 4.0 * f.a2;
+    double radius = spread < 0 ? sqrt(f.a2) : (fabs(f.a1) + sqrt(spread)) * 0.5;
+    double frames = radius <= 0 ? 0 : radius < 1 ? -3.0 / log(radius) : cap;
+    return (uint32_t)ceil(fmin(frames, cap));
 }
 
 static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *settings, uint32_t channels,
@@ -124,6 +144,9 @@ static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *s
     program->bandCount = bandCount;
     memcpy(program->filters, filters, bandCount * sizeof(VibeListeningBiquad));
     memcpy(program->bands, bands, bandCount * sizeof(VibeListeningBand));
+    for (uint32_t b = 0; b < bandCount; b++) {
+        program->settleFrames[b] = VibeListeningSettleFrames(filters[b], sampleRate);
+    }
     program->preamp = pow(10.0, preampDB / 20.0);
     program->swap = stereo && settings.swapChannels;
     program->mono = stereo && settings.mono;
@@ -160,10 +183,10 @@ struct VibeListeningStage {
     _Atomic(VibeListeningProgram *) retired;
 
     // The render's own. current plays; previous, while fading, is faded from.
-    // NULL plays the input as it is.
+    // NULL plays the input as it is. While warming up, previous alone is heard.
     VibeListeningProgram *current, *previous;
     BOOL fading, resting;
-    uint32_t fadePosition;
+    uint32_t warmUpFrames, fadePosition;
     float *scratch[kVibeListeningMaxChannels];  // kChunkFrames each
     float *storage;
     uint64_t rendered, frames, clips, lastClipFrame;
@@ -354,49 +377,68 @@ static void VibeListeningProgramRun(VibeListeningProgram *program, float *const 
 
 // The new program starts from the old one's filter state for each band that
 // keeps its slot and type and moved only a little, so a small edit's crossfade
-// joins two near-equal signals. A band that moved far starts at rest, because
-// its old state describes another resonance. The bands after it keep their
-// state: a bass cut that started at rest would let the bass through until it
-// settled.
-static void VibeListeningProgramInherit(VibeListeningProgram *to, const VibeListeningProgram *from, uint32_t channels)
-    CA_REALTIME_API {
+// joins two near-equal signals. A band that moved far, or a new one, starts at
+// rest, because its old state describes another resonance. The bands after it,
+// or after a removed band, keep their state, but their input changed, so they
+// settle too. Returns how many frames the new program needs to settle before
+// it is heard: the slowest of those bands' settling times, or 0 when no band
+// changed far.
+static uint32_t VibeListeningProgramInherit(VibeListeningProgram *to, const VibeListeningProgram *from,
+                                            uint32_t channels) CA_REALTIME_API {
     if (!from) {
-        return;
+        return 0;
     }
     // The preamp runs before the bands, so their state scales with it.
     double stateGain = to->preamp / from->preamp;
-    // Mono and swap change every band's input, so every band starts at rest.
-    BOOL sameInput = from->mono == to->mono && from->swap == to->swap;
-    uint32_t o = 0;
-    for (uint32_t b = 0; sameInput && b < to->bandCount; b++) {
+    // A band's state follows its input. Mono's input is the mean of the two
+    // channels, so its state is the mean of theirs. A swap takes the other
+    // channel's. Leaving mono, each channel starts from the mono state.
+    BOOL toMono = to->mono && !from->mono, swapped = !to->mono && !from->mono && to->swap != from->swap;
+    uint32_t o = 0, warmUp = 0;
+    BOOL changed = NO;  // a band before this one was removed or starts at rest
+    for (uint32_t b = 0; b < to->bandCount; b++) {
         VibeListeningBand next = to->bands[b];
         while (o < from->bandCount && from->bands[o].slot < next.slot) {
+            changed = YES;
             o++;
         }
-        if (o == from->bandCount) {
-            break;
+        BOOL kept = NO;
+        uint32_t match = o;
+        if (o < from->bandCount && from->bands[o].slot == next.slot) {
+            VibeListeningBand old = from->bands[o++];
+            double q = fmax(old.q, next.q);
+            kept = old.type == next.type &&
+                   fabs(next.tuning - old.tuning) <= fmin(old.tuning, next.tuning) * fmin(0.1, 0.5 / q) &&
+                   fabs(old.gainDB - next.gainDB) <= kCarriedGainStepDB && fabs(old.q - next.q) <= 0.1 * q;
         }
-        VibeListeningBand old = from->bands[o];
-        double q = fmax(old.q, next.q);
-        if (old.slot != next.slot || old.type != next.type ||
-            fabs(next.tuning - old.tuning) > fmin(old.tuning, next.tuning) * fmin(0.1, 0.5 / q) ||
-            fabs(old.gainDB - next.gainDB) > 1.0 || fabs(old.q - next.q) > 0.1 * q) {
+        if (!kept || changed) {
+            warmUp = MAX(warmUp, to->settleFrames[b]);
+        }
+        if (!kept) {
+            changed = YES;
             continue;
         }
         for (uint32_t c = 0; c < channels; c++) {
-            const double *source = from->state + ((size_t)c * from->bandCount + o) * 2;
+            uint32_t other = c < 2 && (toMono || swapped) ? 1 - c : c;
+            const double *source = from->state + ((size_t)c * from->bandCount + match) * 2;
+            const double *second = from->state + ((size_t)other * from->bandCount + match) * 2;
             double *target = to->state + ((size_t)c * to->bandCount + b) * 2;
-            target[0] = source[0] * stateGain;
-            target[1] = source[1] * stateGain;
+            for (int s = 0; s < 2; s++) {
+                target[s] = (toMono ? (source[s] + second[s]) * 0.5 : second[s]) * stateGain;
+            }
         }
     }
     if (to->crossfeed && from->crossfeed) {
+        const VibeCrossfeedFilter *old = &from->crossfeedFilter;
         for (int c = 0; c < 2; c++) {
-            to->crossfeedFilter.lo[c] = from->crossfeedFilter.lo[c];
-            to->crossfeedFilter.hi[c] = from->crossfeedFilter.hi[c];
-            to->crossfeedFilter.in[c] = from->crossfeedFilter.in[c];
+            int other = toMono || swapped ? 1 - c : c;
+            double share = toMono ? 0.5 : 0;
+            to->crossfeedFilter.lo[c] = old->lo[other] + (old->lo[c] - old->lo[other]) * share;
+            to->crossfeedFilter.hi[c] = old->hi[other] + (old->hi[c] - old->hi[other]) * share;
+            to->crossfeedFilter.in[c] = old->in[other] + (old->in[c] - old->in[other]) * share;
         }
     }
+    return warmUp;
 }
 
 static void VibeListeningRetire(VibeListeningStage *stage, VibeListeningProgram *program) CA_REALTIME_API {
@@ -410,19 +452,32 @@ static void VibeListeningRetire(VibeListeningStage *stage, VibeListeningProgram 
                                                     memory_order_relaxed));
 }
 
-static void VibeListeningChunk(VibeListeningStage *stage, float *const *buffers, uint32_t frames) CA_REALTIME_API {
+// Renders the first frames of a chunk and returns how many. A warm-up's end
+// splits a chunk, so the fade starts on the frame after it.
+static uint32_t VibeListeningChunk(VibeListeningStage *stage, float *const *buffers, uint32_t frames) CA_REALTIME_API {
     uint32_t channels = stage->channels;
     if (!stage->fading) {
         VibeListeningProgram *next = atomic_exchange_explicit(&stage->pending, NULL, memory_order_acquire);
         if (next) {
-            VibeListeningProgramInherit(next, stage->current, channels);
+            stage->warmUpFrames = VibeListeningProgramInherit(next, stage->current, channels);
             stage->previous = stage->current;
             stage->current = next;
             stage->fading = YES;
             stage->fadePosition = 0;
         }
     }
-    if (stage->fading) {
+    if (stage->warmUpFrames > 0) {
+        frames = MIN(frames, stage->warmUpFrames);
+        for (uint32_t c = 0; c < channels; c++) {
+            for (uint32_t i = 0; i < frames; i++) {
+                stage->scratch[c][i] = buffers[c][i];
+            }
+        }
+        VibeListeningProgramRun(stage->current, stage->scratch, channels, frames);
+        VibeListeningProgramRun(stage->previous, buffers, channels, frames);
+        stage->warmUpFrames -= frames;
+    }
+    else if (stage->fading) {
         for (uint32_t c = 0; c < channels; c++) {
             for (uint32_t i = 0; i < frames; i++) {
                 stage->scratch[c][i] = buffers[c][i];
@@ -461,6 +516,7 @@ static void VibeListeningChunk(VibeListeningStage *stage, float *const *buffers,
         }
     }
     stage->frames += frames;
+    return frames;
 }
 
 void VibeListeningStageRender(VibeListeningStage *stage, float *const *channels, uint32_t frames) CA_REALTIME_API {
@@ -468,12 +524,12 @@ void VibeListeningStageRender(VibeListeningStage *stage, float *const *channels,
         return;
     }
     float *chunk[kVibeListeningMaxChannels];
-    for (uint32_t offset = 0; offset < frames; offset += kChunkFrames) {
+    for (uint32_t offset = 0; offset < frames;) {
         uint32_t count = frames - offset < kChunkFrames ? frames - offset : kChunkFrames;
         for (uint32_t c = 0; c < stage->channels; c++) {
             chunk[c] = channels[c] + offset;
         }
-        VibeListeningChunk(stage, chunk, count);
+        offset += VibeListeningChunk(stage, chunk, count);
     }
     stage->resting = !stage->fading && (!stage->current || stage->current->neutral);
     stage->rendered++;
