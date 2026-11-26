@@ -291,6 +291,50 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
     }
 }
 
+// A 60 Hz tone through a narrow 60 Hz cut. An edit to the band before the cut,
+// or a rise in the preamp, must leave every cycle at the cut's settled level.
+- (void)testAnEditLeavesABassCutAfterItSettled {
+    VibeEQBand *cut = Band(VibeEQBandTypePeak, 60, -12, 6);
+    VibeEQBand *treble = Band(VibeEQBandTypePeak, 8000, 3, 1);
+    NSArray<NSArray<VibeEQBand *> *> *edits = @[
+        @[Band(VibeEQBandTypePeak, 8000, 6, 1), cut],
+        @[Band(VibeEQBandTypePeak, 4000, 3, 1), cut],
+        @[[treble bandWithEnabled:NO], cut],
+        @[[treble bandWithGainDB:0], cut],
+        @[treble, cut],
+    ];
+    for (NSArray<VibeEQBand *> *edit in edits) {
+        // The last edit keeps the bands and raises the preamp by 12 dB.
+        BOOL preampRises = edit == edits.lastObject;
+        VibeMutableListeningSettings *s = [EQ(@[treble, cut]) mutableCopy];
+        s.preampDB = -12;
+        VibeListeningStage *stage = [self stageWithChannels:1 rate:48000 settings:s];
+        float samples[240], *planes[] = {samples};
+        double cyclePower = 0, settled = 0.5 * pow(10, (preampRises ? -12 : -24) / 20.0);
+        for (unsigned first = 0; first < 72000; first += 240) {
+            if (first == 48000) {
+                s.bands = edit;
+                s.preampDB = preampRises ? 0 : -12;
+                XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
+            }
+            for (unsigned j = 0; j < 240; j++) {
+                samples[j] = (float)(0.5 * cos(2 * M_PI * 60 * (first + j) / 48000 + 0.3));
+            }
+            VibeListeningStageRender(stage, planes, 240);
+            for (unsigned j = 0; j < 240; j++) {
+                cyclePower += samples[j] * samples[j];
+                if ((first + j + 1) % 800 == 0) {
+                    // The cycle that holds the preamp's fade is between the two levels.
+                    if (first + j + 1 > (preampRises ? 48800u : 48000u)) {
+                        XCTAssertEqualWithAccuracy(20 * log10(sqrt(2 * cyclePower / 800) / settled), 0, 0.5);
+                    }
+                    cyclePower = 0;
+                }
+            }
+        }
+    }
+}
+
 - (void)testAChangeMidPlayMakesNoClick {
     NSArray<VibeListeningSettings *> *steps = @[
         EQ(@[Band(VibeEQBandTypePeak, 211, 12, 1)]),

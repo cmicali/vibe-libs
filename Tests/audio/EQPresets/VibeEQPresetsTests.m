@@ -306,6 +306,30 @@ static VibeEQPreset *Headphone(NSString *name) {
     XCTAssertTrue([loud applyingToSettings:settings].preampAutomatic);
 }
 
+// The automatic preamp for a treble boost differs at each rate. A preset saved
+// with it stays automatic and keeps its name at every rate.
+- (void)testAPresetSavedAsAutomaticStaysAutomaticAtEveryRate {
+    VibeMutableListeningSettings *settings = [[VibeListeningSettings neutralSettings] mutableCopy];
+    settings.eqEnabled = YES;
+    settings.bands = [VibeListeningSettings graphicBandsWithGains:@[ @0, @0, @0, @0, @0, @0, @1, @3, @5, @6 ]];
+    VibeEQPreset *preset = [VibeEQPreset presetWithName:@"Mine" settings:settings];
+    XCTAssertGreaterThan(VibeListeningAutomaticPreampDBAtRate(settings.bands, 44100), preset.preampDB + 0.05);
+    XCTAssertLessThan(VibeListeningAutomaticPreampDBAtRate(settings.bands, 96000), preset.preampDB - 0.4);
+    for (NSNumber *rate in @[ @22050, @44100, @48000, @96000, @192000 ]) {
+        XCTAssertTrue([preset matchesSettings:settings sampleRate:rate.doubleValue], @"%@", rate);
+        XCTAssertTrue([preset applyingToSettings:settings sampleRate:rate.doubleValue].preampAutomatic, @"%@", rate);
+    }
+    // One saved as manual stays manual where it cuts more than automatic does.
+    settings.preampAutomatic = NO;
+    settings.preampDB = -9;
+    VibeEQPreset *quiet = [VibeEQPreset presetWithName:@"Quiet" settings:settings];
+    for (NSNumber *rate in @[ @44100, @192000 ]) {
+        VibeListeningSettings *applied = [quiet applyingToSettings:settings sampleRate:rate.doubleValue];
+        XCTAssertFalse(applied.preampAutomatic, @"%@", rate);
+        XCTAssertEqual(applied.preampDB, -9);
+    }
+}
+
 - (void)testAPresetMatchesOnlySettingsItWouldMake {
     VibeEQPreset *bassBoost = [VibeEQPresetLibrary sharedLibrary].builtInPresets[1];
     VibeListeningSettings *neutral = [VibeListeningSettings neutralSettings];

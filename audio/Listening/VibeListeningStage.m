@@ -352,27 +352,39 @@ static void VibeListeningProgramRun(VibeListeningProgram *program, float *const 
     }
 }
 
-// The new program starts from the old one's filter state where a band keeps
-// its place and type, so a small edit's crossfade joins two near-equal
-// signals.
+// The new program starts from the old one's filter state for each band that
+// keeps its slot and type and moved only a little, so a small edit's crossfade
+// joins two near-equal signals. A band that moved far starts at rest, because
+// its old state describes another resonance. The bands after it keep their
+// state: a bass cut that started at rest would let the bass through until it
+// settled.
 static void VibeListeningProgramInherit(VibeListeningProgram *to, const VibeListeningProgram *from, uint32_t channels)
     CA_REALTIME_API {
     if (!from) {
         return;
     }
-    double stateGain = fmin(1, to->preamp / from->preamp);
-    for (uint32_t b = 0; b < to->bandCount && b < from->bandCount; b++) {
-        VibeListeningBand old = from->bands[b], next = to->bands[b];
-        // A small drag can carry its ringing into the new filter. A new
-        // resonance starts at rest. Downstream bands then have new input too.
-        double q = fmax(old.q, next.q);
-        if (old.slot != next.slot || old.type != next.type || from->mono != to->mono || from->swap != to->swap ||
-            fabs(next.tuning - old.tuning) > fmin(old.tuning, next.tuning) * fmin(0.1, 0.5 / q) ||
-            fabs(old.gainDB - next.gainDB) > 1.0 || fabs(old.q - next.q) > 0.1 * q) {
+    // The preamp runs before the bands, so their state scales with it.
+    double stateGain = to->preamp / from->preamp;
+    // Mono and swap change every band's input, so every band starts at rest.
+    BOOL sameInput = from->mono == to->mono && from->swap == to->swap;
+    uint32_t o = 0;
+    for (uint32_t b = 0; sameInput && b < to->bandCount; b++) {
+        VibeListeningBand next = to->bands[b];
+        while (o < from->bandCount && from->bands[o].slot < next.slot) {
+            o++;
+        }
+        if (o == from->bandCount) {
             break;
         }
+        VibeListeningBand old = from->bands[o];
+        double q = fmax(old.q, next.q);
+        if (old.slot != next.slot || old.type != next.type ||
+            fabs(next.tuning - old.tuning) > fmin(old.tuning, next.tuning) * fmin(0.1, 0.5 / q) ||
+            fabs(old.gainDB - next.gainDB) > 1.0 || fabs(old.q - next.q) > 0.1 * q) {
+            continue;
+        }
         for (uint32_t c = 0; c < channels; c++) {
-            const double *source = from->state + ((size_t)c * from->bandCount + b) * 2;
+            const double *source = from->state + ((size_t)c * from->bandCount + o) * 2;
             double *target = to->state + ((size_t)c * to->bandCount + b) * 2;
             target[0] = source[0] * stateGain;
             target[1] = source[1] * stateGain;

@@ -33,12 +33,10 @@ static NSString *const kPreampKey = @"preampDB";
     return self;
 }
 
+// A preset is saved at one rate and applied at any, so an automatic preamp is
+// saved as its value at the preview rate, whatever is playing.
 + (instancetype)presetWithName:(NSString *)name settings:(VibeListeningSettings *)settings {
-    return [self presetWithName:name settings:settings sampleRate:kVibeListeningPreviewRate];
-}
-
-+ (instancetype)presetWithName:(NSString *)name settings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate {
-    double preamp = settings.preampAutomatic ? VibeListeningAutomaticPreampDBAtRate(settings.bands, sampleRate) : settings.preampDB;
+    double preamp = settings.preampAutomatic ? VibeListeningAutomaticPreampDB(settings.bands) : settings.preampDB;
     return [[self alloc] initWithIdentifier:[@"user." stringByAppendingString:NSUUID.UUID.UUIDString]
                                        name:name
                                        kind:VibeEQPresetKindUser
@@ -70,7 +68,13 @@ static NSString *const kPreampKey = @"preampDB";
     VibeMutableListeningSettings *applied = [settings mutableCopy];
     applied.bands = self.bands;
     applied.eqEnabled = YES;
-    BOOL manual = self.preampDB < VibeListeningAutomaticPreampDBAtRate(self.bands, sampleRate);
+    // Manual only when it cuts more than the automatic preamp would, both at
+    // the preview rate a preset is saved at and at this one. So a preset saved
+    // with the automatic preamp stays automatic at every rate. The margin
+    // covers a value an earlier search saved.
+    double automatic = fmin(VibeListeningAutomaticPreampDB(self.bands),
+                            VibeListeningAutomaticPreampDBAtRate(self.bands, sampleRate));
+    BOOL manual = self.preampDB < automatic - 1e-6;
     applied.preampAutomatic = !manual;
     if (manual) {
         applied.preampDB = self.preampDB;
