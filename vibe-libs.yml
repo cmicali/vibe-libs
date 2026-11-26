@@ -499,6 +499,20 @@ targetTemplates:
       base:
         HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/DropWells/Mac"]
 
+  # An EQ's editor: the graphic face's sliders and the parametric face's
+  # curve, nodes, and band list. macOS only, so no iOS target may list it.
+  # Its files sit in its Mac/ half, as Shortcuts' do. It lists Listening for
+  # the bands and the curve's math, and Controls for the drawn switch, which
+  # lists Graphics.
+  VibeLibsEQEditor:
+    templates: [VibeLibsListening, VibeLibsControls]
+    sources:
+      - path: ui/EQEditor
+        excludes: ["**/*.md", "${excludedPlatform}/**"]
+    settings:
+      base:
+        HEADER_SEARCH_PATHS: ["$(inherited)", "$(VIBE_LIBS_ROOT)/ui/EQEditor/Mac"]
+
   # Security-scoped bookmarks and folder grants, with the grant panel. macOS
   # only, so no iOS target may list it. Its files sit in its Mac/ half, as
   # Shortcuts' do. It lists Common for the path spelling and the log and
