@@ -237,7 +237,59 @@ static float MaxStep(const float *samples, uint32_t from, uint32_t to) {
     XCTAssertEqual(VibeListeningStageClips(stage), 0u);
 }
 
+- (void)testHeadroomCoversTheBassShelfAndThePlaybackRate {
+    VibeListeningSettings *bass = Edited(^(VibeMutableListeningSettings *s) {
+        s.eqEnabled = YES;
+        s.bands = @[Band(VibeEQBandTypeLowShelf, 20, 12, sqrt(0.5))];
+    });
+    XCTAssertEqualWithAccuracy([bass effectivePreampDBAtRate:48000], -12, 1e-5);
+    XCTAssertEqualWithAccuracy([self measuredDBAt:10 rate:48000 settings:bass], -0.897, 0.01);
+    VibeListeningSettings *treble = Edited(^(VibeMutableListeningSettings *s) {
+        s.eqEnabled = YES;
+        s.bands = [VibeListeningSettings graphicBandsWithGains:@[@0,@0,@0,@0,@0,@0,@1,@3,@5,@6]];
+    });
+    XCTAssertEqualWithAccuracy([self measuredDBAt:16000 rate:96000 settings:treble], -0.025, 0.01);
+    VibeEQBand *high = Band(VibeEQBandTypeHighShelf, 20000, 12, sqrt(0.5));
+    XCTAssertEqualWithAccuracy(VibeListeningAutomaticPreampDBAtRate(@[high], 96000), -12, 1e-6);
+}
+
 #pragma mark - Changes
+
+- (void)testRetuningAPeakDoesNotBurstOrDropASustainedBassNote {
+    for (NSNumber *hz in @[@8000, @60]) {
+        BOOL bass = hz.integerValue == 60;
+        double original = hz.doubleValue, next = bass ? 61 : 50, q = bass ? 6 : 5;
+        VibeMutableListeningSettings *s = [VibeListeningSettings.neutralSettings mutableCopy];
+        s.eqEnabled = YES;
+        s.bands = @[Band(VibeEQBandTypePeak, original, 12, q)];
+        VibeListeningStage *stage = [self stageWithChannels:1 rate:48000 settings:s];
+        float samples[240], *planes[] = {samples};
+        double peak = 0, cyclePower = 0;
+        for (unsigned first = 0; first < 72000; first += 240) {
+            if (first == 48000) {
+                s.bands = @[Band(VibeEQBandTypePeak, next, 12, q)];
+                XCTAssertTrue(VibeListeningStageSetSettings(stage, s));
+            }
+            for (unsigned j = 0; j < 240; j++) {
+                samples[j] = (float)(0.5 * cos(2 * M_PI * original * (first + j) / 48000 + 0.3));
+            }
+            VibeListeningStageRender(stage, planes, 240);
+            if (first < 48000) continue;
+            for (unsigned j = 0; j < 240; j++) {
+                peak = fmax(peak, fabs(samples[j]));
+                if (bass) {
+                    cyclePower += samples[j] * samples[j];
+                    if ((first + j + 1) % 800 == 0) {
+                        // Each cycle stays within 1 dB of the input level.
+                        XCTAssertGreaterThan(sqrt(2 * cyclePower / 800), 0.445);
+                        cyclePower = 0;
+                    }
+                }
+            }
+        }
+        XCTAssertLessThan(peak, 0.51);
+    }
+}
 
 - (void)testAChangeMidPlayMakesNoClick {
     NSArray<VibeListeningSettings *> *steps = @[

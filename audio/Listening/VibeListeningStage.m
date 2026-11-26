@@ -58,6 +58,14 @@ static VibeCrossfeedFilter VibeCrossfeedFilterMake(VibeCrossfeed crossfeed, doub
 
 // One settings' filters at the stage's rate and channels, built on the queue.
 // The render owns it once it takes it, and hands it back on the retired list.
+// Positions use the prewarped frequency so a treble edit near Nyquist
+// is judged by the same fraction of a filter bandwidth as a bass edit.
+typedef struct {
+    NSUInteger slot;
+    VibeEQBandType type;
+    double tuning, gainDB, q;
+} VibeListeningBand;
+
 typedef struct VibeListeningProgram VibeListeningProgram;
 struct VibeListeningProgram {
     VibeListeningProgram *next;  // on the retired list
@@ -68,7 +76,7 @@ struct VibeListeningProgram {
     float balanceLeft, balanceRight;
     VibeCrossfeedFilter crossfeedFilter;
     uint32_t bandCount;
-    VibeEQBandType types[kVibeListeningMaxBands];
+    VibeListeningBand bands[kVibeListeningMaxBands];
     VibeListeningBiquad filters[kVibeListeningMaxBands];
     double state[];              // channels × bandCount × 2, transposed direct form II
 };
@@ -90,17 +98,20 @@ static void VibeListeningTouch(void *memory, size_t size) {
 static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *settings, uint32_t channels,
                                                         double sampleRate) {
     VibeListeningBiquad filters[kVibeListeningMaxBands];
-    VibeEQBandType types[kVibeListeningMaxBands];
+    VibeListeningBand bands[kVibeListeningMaxBands];
     uint32_t bandCount = 0;
     double preampDB = 0;
     if (settings.eqEnabled) {
-        preampDB = settings.effectivePreampDB;
+        preampDB = [settings effectivePreampDBAtRate:sampleRate];
+        NSUInteger slot = 0;
         for (VibeEQBand *band in settings.bands) {
             if (!band.neutral && bandCount < kVibeListeningMaxBands) {
-                types[bandCount] = band.type;
+                double tuning = tan(M_PI * fmin(band.frequency / sampleRate, 0.48));
+                bands[bandCount] = (VibeListeningBand){slot, band.type, tuning, band.gainDB, band.q};
                 filters[bandCount++] =
                     VibeListeningBiquadMake(band.type, band.frequency, band.gainDB, band.q, sampleRate);
             }
+            slot++;
         }
     }
     size_t size = VibeListeningProgramSize(channels, bandCount);
@@ -112,7 +123,7 @@ static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *s
     BOOL stereo = channels >= 2;
     program->bandCount = bandCount;
     memcpy(program->filters, filters, bandCount * sizeof(VibeListeningBiquad));
-    memcpy(program->types, types, bandCount * sizeof(VibeEQBandType));
+    memcpy(program->bands, bands, bandCount * sizeof(VibeListeningBand));
     program->preamp = pow(10.0, preampDB / 20.0);
     program->swap = stereo && settings.swapChannels;
     program->mono = stereo && settings.mono;
@@ -349,15 +360,22 @@ static void VibeListeningProgramInherit(VibeListeningProgram *to, const VibeList
     if (!from) {
         return;
     }
+    double stateGain = fmin(1, to->preamp / from->preamp);
     for (uint32_t b = 0; b < to->bandCount && b < from->bandCount; b++) {
-        if (to->types[b] != from->types[b]) {
-            continue;
+        VibeListeningBand old = from->bands[b], next = to->bands[b];
+        // A small drag can carry its ringing into the new filter. A new
+        // resonance starts at rest. Downstream bands then have new input too.
+        double q = fmax(old.q, next.q);
+        if (old.slot != next.slot || old.type != next.type || from->mono != to->mono || from->swap != to->swap ||
+            fabs(next.tuning - old.tuning) > fmin(old.tuning, next.tuning) * fmin(0.1, 0.5 / q) ||
+            fabs(old.gainDB - next.gainDB) > 1.0 || fabs(old.q - next.q) > 0.1 * q) {
+            break;
         }
         for (uint32_t c = 0; c < channels; c++) {
             const double *source = from->state + ((size_t)c * from->bandCount + b) * 2;
             double *target = to->state + ((size_t)c * to->bandCount + b) * 2;
-            target[0] = source[0];
-            target[1] = source[1];
+            target[0] = source[0] * stateGain;
+            target[1] = source[1] * stateGain;
         }
     }
     if (to->crossfeed && from->crossfeed) {

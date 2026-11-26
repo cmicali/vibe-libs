@@ -80,6 +80,7 @@ static const double kVibeListeningPreampMaxDB = 0;
 @property (nonatomic, readonly, getter=isNeutral) BOOL neutral;
 // The automatic or the manual preamp, in dB; 0 when the EQ is off.
 @property (nonatomic, readonly) double effectivePreampDB;
+- (double)effectivePreampDBAtRate:(double)sampleRate;
 
 // A dictionary of plists, for an app's defaults. A missing or bad value reads
 // as neutral, and -initWithPropertyList: never throws.
@@ -117,9 +118,12 @@ extern "C" {
 // stage plays them at `sampleRate`.
 double VibeListeningResponseDB(NSArray<VibeEQBand *> *bands, double frequency, double sampleRate);
 
-// Minus the curve's highest boost, sampled densely on a log scale from 20 Hz to
-// 20 kHz at 48 kHz, so the boost can't clip a full-scale tone. 0 when nothing
-// boosts. It has no floor: it cuts as far as the curve boosts.
+// Used for a preview before the host has a playback format.
+static const double kVibeListeningPreviewRate = 48000;
+
+// Minus the highest boost from DC to Nyquist at the playback rate.
+double VibeListeningAutomaticPreampDBAtRate(NSArray<VibeEQBand *> *bands, double sampleRate);
+// Uses the preview rate for callers without a playback format.
 double VibeListeningAutomaticPreampDB(NSArray<VibeEQBand *> *bands);
 
 #ifdef __cplusplus

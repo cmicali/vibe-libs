@@ -52,6 +52,8 @@ NS_ASSUME_NONNULL_BEGIN
 // The listening stage's output passed full scale within the last second it
 // played. The delegate hears of a change.
 @property (readonly) BOOL listeningClipping;
+// The format used by the listening filters, or zero before the bus has a format.
+@property (readonly) double listeningSampleRate;
 
 // Track-change crossfade in milliseconds, default the 10 ms declick minimum.
 // Applies only when a play replaces an audibly playing track. Raising it past
@@ -324,6 +326,9 @@ openRequestIdentifier:(uint64_t)openRequestIdentifier;
 - (void)audioPlayer:(AudioPlayer *)audioPlayer error:(NSError *)error;
 
 @optional
+// Main thread, when the listening filters have a new playback rate.
+- (void)audioPlayerDidChangeListeningSampleRate:(AudioPlayer *)audioPlayer;
+
 // Main thread, on a change of listeningClipping.
 - (void)audioPlayerDidChangeListeningClipping:(AudioPlayer *)audioPlayer;
 

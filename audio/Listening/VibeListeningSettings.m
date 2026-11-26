@@ -251,10 +251,14 @@ static double VibeHoldBalance(double balance) {
 }
 
 - (double)effectivePreampDB {
+    return [self effectivePreampDBAtRate:kVibeListeningPreviewRate];
+}
+
+- (double)effectivePreampDBAtRate:(double)sampleRate {
     if (!_eqEnabled) {
         return 0;
     }
-    return _preampAutomatic ? VibeListeningAutomaticPreampDB(_bands) : _preampDB;
+    return _preampAutomatic ? VibeListeningAutomaticPreampDBAtRate(_bands, sampleRate) : _preampDB;
 }
 
 #pragma mark Copying
@@ -463,7 +467,7 @@ typedef struct {
 static VibeFilterSet VibeFilterSetMake(NSArray<VibeEQBand *> *bands, double sampleRate) {
     VibeFilterSet set = {0};
     for (VibeEQBand *band in bands) {
-        if (band.enabled && set.count < kVibeListeningMaxBands) {
+        if (!band.neutral && set.count < kVibeListeningMaxBands) {
             set.filters[set.count++] =
                 VibeListeningBiquadMake(band.type, band.frequency, band.gainDB, band.q, sampleRate);
         }
@@ -484,48 +488,56 @@ double VibeListeningResponseDB(NSArray<VibeEQBand *> *bands, double frequency, d
     return VibeFilterSetResponseDB(&set, frequency, sampleRate);
 }
 
-double VibeListeningAutomaticPreampDB(NSArray<VibeEQBand *> *bands) {
-    static const double kRate = 48000;
-    static const int kPoints = 1024;
-    BOOL boosts = NO;
-    for (VibeEQBand *band in bands) {
-        boosts = boosts || !band.neutral;
-    }
-    if (!boosts) {
-        return 0;
-    }
-    VibeFilterSet set = VibeFilterSetMake(bands, kRate);
-    // A log grid, then a golden-section search beside the best point, so a
-    // narrow peak between two points still counts.
-    double low = log(20.0), high = log(20000.0), step = (high - low) / (kPoints - 1);
-    double best = -INFINITY;
-    int bestIndex = 0;
-    for (int i = 0; i < kPoints; i++) {
-        double dB = VibeFilterSetResponseDB(&set, exp(low + step * i), kRate);
-        if (dB > best) {
-            best = dB;
-            bestIndex = i;
-        }
-    }
+// Refine every sampled maximum. Two narrow boosts can have nearly equal tops.
+static double VibeRefinePeak(const VibeFilterSet *set, double a, double b, double rate) {
     const double ratio = 0.6180339887498949;
-    double a = fmax(low, low + step * (bestIndex - 1)), b = fmin(high, low + step * (bestIndex + 1));
     double c = b - ratio * (b - a), d = a + ratio * (b - a);
-    double fc = VibeFilterSetResponseDB(&set, exp(c), kRate), fd = VibeFilterSetResponseDB(&set, exp(d), kRate);
+    double fc = VibeFilterSetResponseDB(set, c, rate), fd = VibeFilterSetResponseDB(set, d, rate);
     for (int i = 0; i < 30; i++) {
         if (fc > fd) {
             b = d;
             d = c;
             fd = fc;
             c = b - ratio * (b - a);
-            fc = VibeFilterSetResponseDB(&set, exp(c), kRate);
+            fc = VibeFilterSetResponseDB(set, c, rate);
         } else {
             a = c;
             c = d;
             fc = fd;
             d = a + ratio * (b - a);
-            fd = VibeFilterSetResponseDB(&set, exp(d), kRate);
+            fd = VibeFilterSetResponseDB(set, d, rate);
         }
-        best = fmax(best, fmax(fc, fd));
     }
-    return best > 0 ? -best : 0;
+    return fmax(fc, fd);
+}
+
+double VibeListeningAutomaticPreampDBAtRate(NSArray<VibeEQBand *> *bands, double sampleRate) {
+    double rate = isfinite(sampleRate) && sampleRate >= 8000 ? sampleRate : kVibeListeningPreviewRate;
+    VibeFilterSet set = VibeFilterSetMake(bands, rate);
+    if (set.count == 0) {
+        return 0;
+    }
+    // Mirror a log grid around a quarter of the rate. Bells near Nyquist
+    // narrow just as bass bells do near DC. Include both endpoints.
+    const int half = 768;
+    double nyquist = rate * 0.5, step = log1p(nyquist * 0.5) / half;
+    double leftHz = 0, midHz = 0;
+    double mid = VibeFilterSetResponseDB(&set, 0, rate), left = mid, best = mid;
+    for (int i = 1; i <= 2 * half; i++) {
+        double hz = i <= half ? expm1(i * step) : nyquist - expm1((2 * half - i) * step);
+        double db = VibeFilterSetResponseDB(&set, hz, rate);
+        best = fmax(best, db);
+        if (mid > left && mid >= db) {
+            best = fmax(best, VibeRefinePeak(&set, leftHz, hz, rate));
+        }
+        leftHz = midHz;
+        left = mid;
+        midHz = hz;
+        mid = db;
+    }
+    return best > 1e-8 ? -best : 0;
+}
+
+double VibeListeningAutomaticPreampDB(NSArray<VibeEQBand *> *bands) {
+    return VibeListeningAutomaticPreampDBAtRate(bands, kVibeListeningPreviewRate);
 }

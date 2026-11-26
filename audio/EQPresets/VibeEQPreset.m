@@ -34,7 +34,11 @@ static NSString *const kPreampKey = @"preampDB";
 }
 
 + (instancetype)presetWithName:(NSString *)name settings:(VibeListeningSettings *)settings {
-    double preamp = settings.preampAutomatic ? VibeListeningAutomaticPreampDB(settings.bands) : settings.preampDB;
+    return [self presetWithName:name settings:settings sampleRate:kVibeListeningPreviewRate];
+}
+
++ (instancetype)presetWithName:(NSString *)name settings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate {
+    double preamp = settings.preampAutomatic ? VibeListeningAutomaticPreampDBAtRate(settings.bands, sampleRate) : settings.preampDB;
     return [[self alloc] initWithIdentifier:[@"user." stringByAppendingString:NSUUID.UUID.UUIDString]
                                        name:name
                                        kind:VibeEQPresetKindUser
@@ -44,20 +48,29 @@ static NSString *const kPreampKey = @"preampDB";
 }
 
 - (BOOL)matchesSettings:(VibeListeningSettings *)settings {
+    return [self matchesSettings:settings sampleRate:kVibeListeningPreviewRate];
+}
+
+- (BOOL)matchesSettings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate {
     if (!settings.eqEnabled || ![settings.bands isEqualToArray:self.bands]) {
         return NO;
     }
     // A manual preamp the preset saved matches too, though applying would turn
     // one that cuts less than the automatic preamp back to automatic.
     return (!settings.preampAutomatic && settings.preampDB == self.preampDB) ||
-           fabs(settings.effectivePreampDB - [self applyingToSettings:settings].effectivePreampDB) < 1e-9;
+           fabs([settings effectivePreampDBAtRate:sampleRate] -
+                [[self applyingToSettings:settings sampleRate:sampleRate] effectivePreampDBAtRate:sampleRate]) < 1e-9;
 }
 
 - (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings {
+    return [self applyingToSettings:settings sampleRate:kVibeListeningPreviewRate];
+}
+
+- (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate {
     VibeMutableListeningSettings *applied = [settings mutableCopy];
     applied.bands = self.bands;
     applied.eqEnabled = YES;
-    BOOL manual = self.preampDB < VibeListeningAutomaticPreampDB(self.bands);
+    BOOL manual = self.preampDB < VibeListeningAutomaticPreampDBAtRate(self.bands, sampleRate);
     applied.preampAutomatic = !manual;
     if (manual) {
         applied.preampDB = self.preampDB;

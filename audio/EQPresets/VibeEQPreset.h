@@ -38,6 +38,7 @@ typedef NS_ENUM(NSInteger, VibeEQPresetKind) {
 // A user preset with a new identifier, from the settings' bands and preamp: the
 // automatic preamp's value when it is automatic.
 + (instancetype)presetWithName:(NSString *)name settings:(VibeListeningSettings *)settings;
++ (instancetype)presetWithName:(NSString *)name settings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate;
 
 // A dictionary of plists, for an app's defaults. The bands are in the settings'
 // property list format. A missing or bad identifier, name, or kind reads as
@@ -49,10 +50,12 @@ typedef NS_ENUM(NSInteger, VibeEQPresetKind) {
 // The preset's preamp turns the preamp manual only when it cuts more than the
 // automatic one would. Everything else in `settings` stays.
 - (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings;
+- (VibeListeningSettings *)applyingToSettings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate;
 
 // The settings' EQ is on with these bands, at the preamp this preset applies
 // or at this preset's own manual preamp, so an app can show this preset's name.
 - (BOOL)matchesSettings:(VibeListeningSettings *)settings;
+- (BOOL)matchesSettings:(VibeListeningSettings *)settings sampleRate:(double)sampleRate;
 
 @end
 

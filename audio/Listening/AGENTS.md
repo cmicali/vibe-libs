@@ -10,7 +10,7 @@ What a listener sets to suit their ears and headphones: a parametric EQ of up to
 
 **`isNeutral` means no sample would change**, so a stage can pass the signal through bit for bit. An EQ changes samples only when it is on and has a band that is not neutral, or a preamp that isn't 0 dB. A band is neutral when it is off, or a peak or shelf at 0 dB. A pass filter is never neutral.
 
-**The preamp belongs to the EQ.** `effectivePreampDB` is 0 while the EQ is off. Automatic, it is `VibeListeningAutomaticPreampDB`: minus the curve's highest boost from 20 Hz to 20 kHz at 48 kHz, found on a log grid of 1,024 points and then by a golden-section search beside the best one, so a narrow peak between two points still counts in full. It has no floor, unlike the manual value: it cuts as far as the curve boosts.
+**The preamp belongs to the EQ.** `effectivePreampDB` is 0 while the EQ is off. Automatic uses the combined curve at the stage’s sample rate. The search covers DC through Nyquist and refines each local maximum. Callers without a playback format use a 48 kHz preview. It has no floor, unlike the manual value: it cuts as far as the curve boosts.
 
 **The graphic face** is ten peaks at 31 Hz to 16 kHz, with a Q of 1.41. `isGraphic` is true only for exactly that layout, every band on, so an editor knows which face can show the settings.
 
@@ -28,7 +28,7 @@ What a listener sets to suit their ears and headphones: a parametric EQ of up to
 
 **Settings become a program on the queue**: each band's biquad at the stage's rate, the preamp's gain, the crossfeed's filters, and the balance's gains, with the filter state in the same allocation. The queue publishes it by pointer. A program the render never took is freed at the next publish.
 
-**The render crossfades to a new program over 10 ms**, linearly, frame by frame, with `audio/DSP`'s `VibeFadeGainAtFrame`. It runs both programs over the fade, the old one on a copy of the input. The new program starts from the old one's filter state when they have the same number of bands, so a small edit joins two near-equal signals. A program that arrives during a fade waits until it ends. When a fade ends, the render pushes the old program onto a lock-free retired list, and the next publish frees it, so a program is freed only after the render's last read of it.
+**The render crossfades to a new program over 10 ms**, linearly, frame by frame, with `audio/DSP`'s `VibeFadeGainAtFrame`. It runs both programs over the fade, the old one on a copy of the input. Small edits carry the matching bands’ state across the fade. A large retune, a different band, or a change to its input starts the affected part of the cascade at rest. A program that arrives during a fade waits until it ends. When a fade ends, the render pushes the old program onto a lock-free retired list, and the next publish frees it, so a program is freed only after the render's last read of it.
 
 **The biquads are transposed direct form II**, with the state in double, per channel and band. A state under 1e-25 is flushed to zero after each chunk, so a decaying tail never reaches the denormal range. The render works in chunks of at most 512 frames, its scratch's length.
 

@@ -66,6 +66,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 // The parametric face's graph: the grid, the curve, and a node per band.
 @interface VibeEQCurveView : NSView
+@property (nonatomic) double sampleRate;
 @property (nonatomic, weak, nullable) id<VibeEQFaceOwner> owner;
 @property (nonatomic, copy) NSArray<VibeEQBand *> *bands;
 // NSNotFound for none.

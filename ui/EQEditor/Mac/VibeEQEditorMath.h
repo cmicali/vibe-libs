@@ -23,8 +23,6 @@ static const double kVibeEQNarrowRangeDB = 12;
 static const double kVibeEQGraphicStepDB = 0.5;
 // The parametric face's gain steps, by drag and by key.
 static const double kVibeEQParametricStepDB = 0.1;
-// The sample rate the curve is drawn at, the one the automatic preamp uses.
-static const double kVibeEQCurveSampleRate = 48000;
 
 static inline double VibeEQClamp(double value, double low, double high) {
     if (isnan(value)) {

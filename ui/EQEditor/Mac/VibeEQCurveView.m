@@ -44,6 +44,7 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
     self = [super initWithFrame:frame];
     if (self) {
         _bands = @[];
+        _sampleRate = kVibeListeningPreviewRate;
         _selectedIndex = NSNotFound;
         _enabled = YES;
         _locale = NSLocale.currentLocale;
@@ -60,6 +61,14 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
 }
 
 #pragma mark - Values
+
+- (void)setSampleRate:(double)sampleRate {
+    double rate = isfinite(sampleRate) && sampleRate >= 8000 ? sampleRate : kVibeListeningPreviewRate;
+    if (_sampleRate != rate) {
+        _sampleRate = rate;
+        [self invalidateCurve];
+    }
+}
 
 - (void)setBands:(NSArray<VibeEQBand *> *)bands {
     NSUInteger oldCount = _bands.count;
@@ -182,7 +191,11 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     for (NSUInteger i = 0; i < count; i++) {
         double frequency = VibeEQFrequencyForX(NSMinX(plot) + MIN((CGFloat)i, NSWidth(plot)), NSMinX(plot),
                                                NSWidth(plot));
-        samples[i] = any ? VibeListeningResponseDB(_bands, frequency, kVibeEQCurveSampleRate) : 0;
+        if (frequency > _sampleRate * 0.5) {
+            _samples.length = i * sizeof(double);
+            break;
+        }
+        samples[i] = any ? VibeListeningResponseDB(_bands, frequency, _sampleRate) : 0;
         if (isfinite(samples[i])) {
             largest = MAX(largest, fabs(samples[i]));
         }
@@ -333,8 +346,11 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     NSBezierPath *path = [NSBezierPath bezierPath];
     for (CGFloat x = NSMinX(plot);; x += 2) {
         CGFloat clamped = MIN(x, NSMaxX(plot));
-        double db = VibeListeningResponseDB(bands, VibeEQFrequencyForX(clamped, NSMinX(plot), NSWidth(plot)),
-                                            kVibeEQCurveSampleRate);
+        double hz = VibeEQFrequencyForX(clamped, NSMinX(plot), NSWidth(plot));
+        if (hz > _sampleRate * 0.5) {
+            break;
+        }
+        double db = VibeListeningResponseDB(bands, hz, _sampleRate);
         if (!isfinite(db)) {
             db = -range * 2;
         }

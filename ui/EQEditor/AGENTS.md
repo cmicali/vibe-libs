@@ -28,7 +28,7 @@ List `VibeLibsEQEditor` in a macOS target. Make a `VibeEQEditorView`, set its `d
 
 **The graphic face's sliders run ±12 dB in 0.5 dB steps.** A click on a track jumps the knob there, and a grab on the knob keeps its offset. A double-click resets one to 0. A slider's value shows over its knob while it's dragged, and while it has the keys. Left and right choose a slider, up and down move it 0.5 dB, Page Up and Page Down 3 dB, and 0 resets it.
 
-**The parametric graph's frequency axis is log, 20 Hz to 20 kHz. Its dB axis is ±12, and widens to ±24 when a band's gain or the curve passes 12.** The curve is `VibeListeningResponseDB` at 48 kHz, one sample a point. A node sits at its band's frequency and gain. A pass filter has no gain, so its node sits on 0 dB.
+**The parametric graph's frequency axis is log, 20 Hz to 20 kHz. Its dB axis is ±12, and widens to ±24 when a band's gain or the curve passes 12.** The host gives the editor its playback rate. The combined and selected curves use that rate up to Nyquist, with a 48 kHz preview before playback has a format. A node sits at its band's frequency and gain. A pass filter has no gain, so its node sits on 0 dB.
 
 - **A drag moves a node's frequency and gain**, to three figures and 0.1 dB. Option-drag changes Q, doubling every 60 points up. A scroll over a node, or the selected one, changes Q too. A pass filter's drag moves only its frequency.
 - **TRAP: a drag holds the dB axis.** It may widen when the drag passes 12 dB, and then measures the grab again, but it never narrows until the release. Otherwise every node would jump under the pointer.
