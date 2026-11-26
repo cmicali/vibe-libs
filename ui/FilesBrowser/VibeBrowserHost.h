@@ -138,6 +138,11 @@ typedef NS_ENUM(NSInteger, VibeBrowserLabel) {
 // first time a row needs art. One per host, so one per stack of screens.
 FOUNDATION_EXTERN AudioTrackMetadataCache *VibeBrowserArtCache(id<VibeBrowserHost> host);
 
+// The first of sources that lists url from elsewhere, such as a Dropbox
+// mirror, or nil. It never touches the disk.
+FOUNDATION_EXTERN id<VibeBrowserSource> _Nullable VibeBrowserRefreshingSource(NSArray<id<VibeBrowserSource>> *sources,
+                                                                             NSURL *url);
+
 // An alert over screen with the host's OK. then runs on OK.
 FOUNDATION_EXTERN void VibeBrowserPresentAlert(UIViewController *screen, id<VibeBrowserHost> host, NSString *title,
                                                NSString *message, dispatch_block_t _Nullable then);
@@ -177,8 +182,11 @@ FOUNDATION_EXTERN void VibeBrowserPresentAlert(UIViewController *screen, id<Vibe
 @property (nonatomic, readonly) VibeBrowserAction *folderAction;
 // The bar button's menu item: the folder shown with its subfolders. The host
 // is asked when the user picks it, before the walk lists anything, with the
-// folder the walk starts from, which may hold no songs itself. The browser
-// hands the folders with songs, in walk order, to the block returned.
+// folder the walk starts from, which may hold no songs itself, so it can show
+// at once that something runs. The browser hands the folders with songs, in
+// walk order, to the block returned. The walk finishes and calls the block
+// even when the screen goes first, such as a sheet closed mid-walk: then it
+// shows no alert, and a walk that found nothing calls nothing.
 @property (nonatomic, readonly) NSString *subfoldersTitle;
 - (void (^)(NSArray<NSURL *> *folders))subfoldersHandlerForFolder:(NSURL *)folder
                                                        fromScreen:(UIViewController *)screen;
@@ -193,6 +201,15 @@ FOUNDATION_EXTERN void VibeBrowserPresentAlert(UIViewController *screen, id<Vibe
 - (void)rootWillAppear:(UIViewController *)root;
 // Over the root's title. None without it.
 @property (nonatomic, readonly, copy, nullable) NSString *rootPrompt;
+
+// The subfolder walk from folder, as it goes, on main after each folder it
+// lists: how many folders it has listed, and how many songs they hold,
+// including a few the caps may drop.
+- (void)subfolderWalkFromFolder:(NSURL *)folder didListFolders:(NSUInteger)folders songs:(NSUInteger)songs;
+// The walk from folder has ended, on main, before the block from
+// subfoldersHandlerForFolder:fromScreen: gets its folders, or an alert
+// shows. Every walk the host was asked about ends once.
+- (void)subfolderWalkDidEndFromFolder:(NSURL *)folder;
 
 // Held weakly, by a host whose state changes: its playback, its sources, or
 // its root rows.

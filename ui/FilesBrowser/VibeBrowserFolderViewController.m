@@ -12,6 +12,7 @@
 #import "FileRow.h"
 #import "FilePaths.h"
 #import "FolderWalk.h"
+#import "VibeBrowserSubfolderWalk.h"
 #import "VibeLocationStore.h"
 #import "PlaceholderFiles.h"
 #import "VibePlaylistFile.h"
@@ -34,10 +35,6 @@ static const CFTimeInterval kRelistInterval = 60;
 static const NSUInteger kMaximumLiftedRows = 6;
 // How long Open Folder keeps the file it came from highlighted.
 static const NSTimeInterval kHighlightInterval = 1.2;
-// Play with Subfolders stops after this many listed audio entries or visited
-// folders. Whole folders can exceed the entry limit. CUE expansion adds more rows.
-static const NSUInteger kMaximumSubfolderTracks = 2000;
-static const NSUInteger kMaximumSubfolders = 500;
 // A listing at least this long gets the filter field. A short one is read at
 // a glance, and the field would only cost its height.
 static const NSUInteger kFilterThreshold = 12;
@@ -63,7 +60,8 @@ static const NSUInteger kFilterThreshold = 12;
         // TRAP: nothing here may touch the disk. A screen is made on main as
         // a folder opens, and for a provider's folder a stat or a name lookup
         // is IPC that can block.
-        _refreshingSource = [self refreshingSourceForURL:directoryURL];
+        // Asked in the initializer, so it never touches the disk.
+        _refreshingSource = VibeBrowserRefreshingSource(host.sources, directoryURL);
         _standardizedPath = VibeComparablePath(directoryURL.path);
         _title = [VibeLocationStore displayNameForFolderURL:directoryURL];
         _playback = [host conformsToProtocol:@protocol(VibeBrowserPlaybackHost)]
@@ -193,15 +191,6 @@ static const NSUInteger kFilterThreshold = 12;
             ? _refreshingSource.unavailableMessage : [_host label:VibeBrowserLabelUnavailable];
 }
 
-// Asked in the initializer, so it never touches the disk.
-- (id<VibeBrowserSource>)refreshingSourceForURL:(NSURL *)url {
-    for (id<VibeBrowserSource> source in _host.sources) {
-        if ([source respondsToSelector:@selector(refreshesDirectoryURL:)] && [source refreshesDirectoryURL:url]) {
-            return source;
-        }
-    }
-    return nil;
-}
 
 // A download landed, or the downloads were removed: the mark and the art
 // follow the file, so a mirrored folder on screen reads its listing again.
@@ -412,85 +401,55 @@ static const NSUInteger kFilterThreshold = 12;
 
 // This folder and the folders inside it, depth first in the listing's order,
 // as one open: the first folder with songs is the base and the rest are
-// additions, each listed flat as any folder is.
+// additions, each listed flat as any folder is. The host hears the walk's
+// start, its progress, and its end. The walk finishes when the screen goes,
+// and then hands its folders over with no alert.
 - (void)openDirectoryWithSubfolders {
     if (_walkingSubfolders) {
         return;
     }
     _walkingSubfolders = YES;
-    void (^open)(NSArray<NSURL *> *) = [_host subfoldersHandlerForFolder:_directoryURL fromScreen:self];
+    id<VibeBrowserHost> host = _host;
+    NSURL *start = _directoryURL;
+    NSString *title = _title;
+    void (^open)(NSArray<NSURL *> *) = [host subfoldersHandlerForFolder:start fromScreen:self];
     __weak VibeBrowserFolderViewController *weakSelf = self;
-    [self walkSubfolders:[NSMutableArray arrayWithObject:_directoryURL]
-                   found:[NSMutableArray array]
-                  tracks:0
-                 visited:0
-              completion:^(NSArray<NSURL *> *folders, BOOL capped) {
+    [VibeBrowserSubfolderWalk walkFolder:start
+                                sortedBy:host.folderSort
+                                 sources:host.sources
+                                progress:^(NSUInteger listed, NSUInteger songs) {
+        if ([host respondsToSelector:@selector(subfolderWalkFromFolder:didListFolders:songs:)]) {
+            [host subfolderWalkFromFolder:start didListFolders:listed songs:songs];
+        }
+    }
+                              completion:^(NSArray<NSURL *> *folders, BOOL capped) {
+        if ([host respondsToSelector:@selector(subfolderWalkDidEndFromFolder:)]) {
+            [host subfolderWalkDidEndFromFolder:start];
+        }
         VibeBrowserFolderViewController *strongSelf = weakSelf;
-        if (!strongSelf) {
-            return;
+        if (strongSelf) {
+            strongSelf->_walkingSubfolders = NO;
         }
-        strongSelf->_walkingSubfolders = NO;
-        id<VibeBrowserHost> host = strongSelf->_host;
+        // An alert needs this screen in a window, which it isn't once its
+        // sheet closed, or a deeper folder was pushed over it. Then the
+        // walk's folders still go to the host, and an empty walk ends
+        // quietly.
+        UIViewController *screen = strongSelf.viewIfLoaded.window ? strongSelf : nil;
         if (folders.count == 0) {
-            VibeBrowserPresentAlert(strongSelf, host, strongSelf->_title, [host label:VibeBrowserLabelEmptyFolder], nil);
+            if (screen) {
+                VibeBrowserPresentAlert(screen, host, title, [host label:VibeBrowserLabelEmptyFolder], nil);
+            }
             return;
         }
-        if (!capped) {
+        if (!capped || !screen) {
             open(folders);
             return;
         }
-        VibeBrowserPresentAlert(strongSelf, host, strongSelf->_title,
-                                [host subfoldersCappedMessageForLimit:kMaximumSubfolderTracks], ^{
+        VibeBrowserPresentAlert(screen, host, title,
+                                [host subfoldersCappedMessageForLimit:VibeBrowserMaximumSubfolderTracks], ^{
             open(folders);
         });
     }];
-}
-
-// One folder per turn. A refreshing source's folder, such as Dropbox's, is
-// listed by its source first: a mirror holds only what something has listed,
-// so one never browsed is empty on disk. Completion on main; capped means folders were left unvisited.
-- (void)walkSubfolders:(NSMutableArray<NSURL *> *)pending
-                 found:(NSMutableArray<NSURL *> *)found
-                tracks:(NSUInteger)tracks
-               visited:(NSUInteger)visited
-            completion:(void (^)(NSArray<NSURL *> *folders, BOOL capped))completion {
-    if (pending.count == 0 || tracks >= kMaximumSubfolderTracks || visited >= kMaximumSubfolders) {
-        completion(found, pending.count > 0);
-        return;
-    }
-    NSURL *directory = pending.firstObject;
-    [pending removeObjectAtIndex:0];
-    VibeFolderOpenSort sort = _host.folderSort;
-    __weak VibeBrowserFolderViewController *weakSelf = self;
-    dispatch_block_t list = ^{
-        dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            NSArray<NSURL *> *subfolders = @[];
-            NSArray<NSURL *> *audio = @[];
-            [FolderWalk listDirectory:directory sortedBy:sort folders:&subfolders playlists:NULL audio:&audio];
-            NSUInteger songs = audio.count;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (songs > 0) {
-                    [found addObject:directory];
-                }
-                // Ahead of its siblings: depth first.
-                [pending insertObjects:subfolders
-                             atIndexes:[NSIndexSet indexSetWithIndexesInRange:NSMakeRange(0, subfolders.count)]];
-                [weakSelf walkSubfolders:pending found:found tracks:tracks + songs visited:visited + 1
-                              completion:completion];
-            });
-        });
-    };
-    // The open that follows reads a listed folder as it is, so each is
-    // listed once.
-    id<VibeBrowserSource> source = [self refreshingSourceForURL:directory];
-    if (source) {
-        [source refreshDirectoryURL:directory completion:^(NSError *error) {
-            list();
-        }];
-    }
-    else {
-        list();
-    }
 }
 
 // The rows of an Add, lifted for the shell to carry into the Playlist tab.
