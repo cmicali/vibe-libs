@@ -418,7 +418,12 @@
     NSRect plot = curve.plotRect;
     NSPoint node = [curve nodeCenterForBandAtIndex:1];
     NSPoint to = NSMakePoint(node.x + 50, node.y + 25);
-    [self dragIn:curve from:node through:@[[NSValue valueWithPoint:to]] flags:0];
+    [curve mouseDown:[self mouse:NSEventTypeLeftMouseDown at:node in:curve flags:0 clicks:1]];
+    XCTAssertTrue(NSIsEmptyRect(curve.focusRingMaskBounds));
+    [curve mouseDragged:[self mouse:NSEventTypeLeftMouseDragged at:to in:curve flags:0 clicks:1]];
+    XCTAssertTrue(NSIsEmptyRect(curve.focusRingMaskBounds));
+    [curve mouseUp:[self mouse:NSEventTypeLeftMouseUp at:to in:curve flags:0 clicks:1]];
+    XCTAssertTrue(NSPointInRect([curve nodeCenterForBandAtIndex:1], curve.focusRingMaskBounds));
     VibeEQBand *band = _editor.settings.bands[1];
     XCTAssertEqual(band.frequency, VibeEQRoundFrequency(VibeEQFrequencyForX(to.x, NSMinX(plot), NSWidth(plot))));
     XCTAssertEqualWithAccuracy(band.gainDB,

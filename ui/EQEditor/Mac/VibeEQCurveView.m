@@ -149,7 +149,7 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
     _bands = bands;
     _changedInGesture = YES;
     [self invalidateCurve];
-    [self noteFocusRingMaskChanged];
+    if (_dragMode == VibeEQDragModeNone) [self noteFocusRingMaskChanged];
     [self.owner face:self didChangeBands:_bands];
 }
 
@@ -417,12 +417,14 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
 }
 
 - (NSRect)focusRingMaskBounds {
-    if (_selectedIndex == NSNotFound) return NSZeroRect;
+    // The selection halo moves with the point. AppKit animates its keyboard
+    // focus ring again whenever a moving mask is invalidated.
+    if (!_enabled || _dragMode != VibeEQDragModeNone || _selectedIndex == NSNotFound) return NSZeroRect;
     return NSInsetRect([self nodeRectForBandAtIndex:_selectedIndex], -1, -1);
 }
 
 - (void)drawFocusRingMask {
-    if (_selectedIndex != NSNotFound) {
+    if (!NSIsEmptyRect(self.focusRingMaskBounds)) {
         [[NSBezierPath bezierPathWithOvalInRect:[self nodeRectForBandAtIndex:_selectedIndex]] fill];
     }
 }
@@ -459,9 +461,10 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
         if (self.window.firstResponder == self) [self.window makeFirstResponder:nil];
         return;
     }
-    [self.window makeFirstResponder:self];
     _heldRange = self.rangeDB;
     [self anchorDragAt:point option:(event.modifierFlags & NSEventModifierFlagOption) != 0];
+    [self noteFocusRingMaskChanged];
+    [self.window makeFirstResponder:self];
 }
 
 // The band values at a point of the plot, rounded and snapped as an edit
@@ -553,6 +556,7 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     }
     _dragMode = VibeEQDragModeNone;
     self.needsDisplay = YES;
+    [self noteFocusRingMaskChanged];
     [self endEdit];
 }
 
