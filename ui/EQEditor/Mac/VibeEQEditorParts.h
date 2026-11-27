@@ -16,6 +16,7 @@ NS_ASSUME_NONNULL_BEGIN
 // bands it was last given.
 @protocol VibeEQFaceOwner <NSObject>
 @property (nonatomic, readonly, nullable) NSColor *accentColor;
+@property (nonatomic, readonly, nullable) NSMenu *menu;
 - (void)face:(NSView *)face didChangeBands:(NSArray<VibeEQBand *> *)bands;
 - (void)faceDidEndEditing:(NSView *)face;
 - (void)face:(NSView *)face didSelectBandAtIndex:(NSUInteger)index;

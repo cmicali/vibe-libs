@@ -98,8 +98,9 @@ static const float   kDefaultMaxPitch = 8;
 
     [self drawScaleAroundCenterX:centerX];
     [self drawSlotAtCenterX:centerX];
-    [self drawZeroLEDAtCenterX:centerX];
-    [self drawKnobInRect:self.knobRect];
+    NSRect knob = self.knobRect;
+    [self drawZeroLEDAtX:(NSMinX(self.bounds) + NSMinX(knob)) / 2];
+    [self drawKnobInRect:knob];
 }
 
 - (void)drawScaleAroundCenterX:(CGFloat)centerX {
@@ -194,7 +195,7 @@ static const float   kDefaultMaxPitch = 8;
     [slot stroke];
 }
 
-- (void)drawZeroLEDAtCenterX:(CGFloat)centerX {
+- (void)drawZeroLEDAtX:(CGFloat)x {
     static NSColor *litColor;
     static NSColor *glowColor;
     static NSColor *unlitColor;
@@ -207,7 +208,6 @@ static const float   kDefaultMaxPitch = 8;
     // Quartz-lock style LED left of the center bar: lit green at exactly 0.
     BOOL locked = (_pitch == 0);
     CGFloat ledRadius = 2.5;
-    CGFloat x = centerX - kSlotWidth / 2 - kTickGap - kTickLength - kLabelGap - 14;
     NSRect ledRect = NSMakeRect(x - ledRadius, [self yForPitch:0] - ledRadius,
                                 ledRadius * 2, ledRadius * 2);
     NSBezierPath *led = [NSBezierPath bezierPathWithOvalInRect:ledRect];

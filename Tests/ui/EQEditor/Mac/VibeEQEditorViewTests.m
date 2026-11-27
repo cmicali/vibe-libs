@@ -15,6 +15,17 @@
 #import "VibeEQEditorParts.h"
 #import "VibeEQEditorView.h"
 
+@interface VibeFocusReportingCurve : VibeEQCurveView
+@property (nonatomic) NSRect reportedMask;
+@end
+
+@implementation VibeFocusReportingCurve
+- (void)noteFocusRingMaskChanged {
+    [super noteFocusRingMaskChanged];
+    self.reportedMask = self.focusRingMaskBounds;
+}
+@end
+
 @interface VibeEQEditorViewTests : XCTestCase <VibeEQEditorViewDelegate>
 @end
 
@@ -407,9 +418,32 @@
     XCTAssertEqualObjects(_editor.settings, [self parametricSettings]);
     XCTAssertEqual(_ends, 2u);
     XCTAssertNil([curve menuForEvent:click]);
+    _editor.menu = [[NSMenu alloc] init];
+    [_editor.menu addItemWithTitle:@"Reset" action:nil keyEquivalent:@""];
+    XCTAssertEqualObjects([curve menuForEvent:click].itemArray.lastObject.title, @"Reset");
+    [curve mouseDown:add];
+    NSMenu *nodeMenu = [curve menuForEvent:click];
+    XCTAssertEqualObjects(nodeMenu.itemArray.firstObject.title, _editor.strings.removeBand);
+    XCTAssertEqualObjects(nodeMenu.itemArray.lastObject.title, @"Reset");
+    [NSApp sendAction:nodeMenu.itemArray.firstObject.action to:nodeMenu.itemArray.firstObject.target from:nodeMenu.itemArray.firstObject];
     _editor.enabled = NO;
+    XCTAssertNil([curve menuForEvent:click]);
     [curve mouseDown:add];
     XCTAssertEqual(_editor.settings.bands.count, 3u);
+}
+
+- (void)testReplacingBandsUpdatesTheFocusRingForTheSelectedPoint {
+    VibeFocusReportingCurve *curve = [[VibeFocusReportingCurve alloc] initWithFrame:_window.contentView.bounds];
+    _window.contentView = curve;
+    curve.bands = self.parametricSettings.bands;
+    curve.selectedIndex = 1;
+    [_window makeFirstResponder:curve];
+    NSRect original = curve.reportedMask;
+    curve.bands = self.graphicSettings.bands;
+    XCTAssertFalse(NSEqualRects(original, curve.reportedMask));
+    XCTAssertTrue(NSPointInRect([curve nodeCenterForBandAtIndex:1], curve.reportedMask));
+    curve.bands = @[];
+    XCTAssertTrue(NSIsEmptyRect(curve.reportedMask));
 }
 
 - (void)testDraggingANodeMovesItsFrequencyAndGain {

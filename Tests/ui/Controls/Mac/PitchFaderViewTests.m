@@ -67,9 +67,9 @@ static const CGFloat kTravelBottom = kHeight - 13;
     return c.redComponent > 0.9 && c.greenComponent > 0.9 && c.blueComponent > 0.9;
 }
 
-// The quartz-lock LED, left of the scale at the zero line.
+// The LED sits halfway across the space beside the 40-point knob.
 - (NSColor *)ledIn:(NSBitmapImageRep *)rep {
-    return VibePixel(rep, YES, kWidth / 2 - 36, [self yForPitch:0]);
+    return VibePixel(rep, YES, (NSWidth(_fader.bounds) - 40) / 4, [self yForPitch:0]);
 }
 
 - (void)send:(NSEventType)type atPitch:(float)pitch clicks:(NSInteger)clicks {
@@ -102,6 +102,7 @@ static const CGFloat kTravelBottom = kHeight - 13;
 }
 
 - (void)testTheLEDIsLitOnlyAtExactlyZero {
+    [_fader setFrameSize:NSMakeSize(80, kHeight)];
     NSColor *lit = [self ledIn:VibeRenderView(_fader)];
     XCTAssertGreaterThan(lit.greenComponent, 0.9);
     _fader.pitch = 0.1f;

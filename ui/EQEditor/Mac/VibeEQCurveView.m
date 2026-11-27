@@ -90,6 +90,8 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
 }
 
 - (void)setBands:(NSArray<VibeEQBand *> *)bands {
+    if ([_bands isEqualToArray:bands]) return;
+    NSRect oldFocusRing = self.focusRingMaskBounds;
     NSUInteger oldCount = _bands.count;
     _bands = [bands copy];
     if (_selectedIndex != NSNotFound && _selectedIndex >= _bands.count) {
@@ -100,6 +102,7 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
         NSAccessibilityPostNotification(self, NSAccessibilityLayoutChangedNotification);
     }
     [self invalidateCurve];
+    if (!NSEqualRects(oldFocusRing, self.focusRingMaskBounds)) [self noteFocusRingMaskChanged];
 }
 
 - (void)setSelectedIndex:(NSUInteger)selectedIndex {
@@ -491,12 +494,13 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
 - (NSMenu *)menuForEvent:(NSEvent *)event {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     NSUInteger index = [self nodeIndexAtPoint:point];
-    if (!self.enabled || index == NSNotFound) {
-        return nil;
-    }
+    if (!self.enabled) return nil;
+    NSMenu *menu = [self.owner.menu copy];
+    if (index == NSNotFound) return NSPointInRect(point, self.plotRect) ? menu : nil;
     [self selectBand:index];
-    NSMenu *menu = [[NSMenu alloc] init];
-    NSMenuItem *item = [menu addItemWithTitle:_strings.removeBand action:@selector(removeClickedBand:) keyEquivalent:@""];
+    if (!menu) menu = [[NSMenu alloc] init];
+    if (menu.numberOfItems) [menu insertItem:NSMenuItem.separatorItem atIndex:0];
+    NSMenuItem *item = [menu insertItemWithTitle:_strings.removeBand action:@selector(removeClickedBand:) keyEquivalent:@"" atIndex:0];
     item.target = self;
     item.representedObject = _bands[index];
     return menu;
