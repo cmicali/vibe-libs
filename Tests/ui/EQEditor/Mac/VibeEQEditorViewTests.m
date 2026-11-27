@@ -15,6 +15,17 @@
 #import "VibeEQEditorParts.h"
 #import "VibeEQEditorView.h"
 
+@interface VibeFocusReportingCurve : VibeEQCurveView
+@property (nonatomic) NSRect reportedMask;
+@end
+
+@implementation VibeFocusReportingCurve
+- (void)noteFocusRingMaskChanged {
+    [super noteFocusRingMaskChanged];
+    self.reportedMask = self.focusRingMaskBounds;
+}
+@end
+
 @interface VibeEQEditorViewTests : XCTestCase <VibeEQEditorViewDelegate>
 @end
 
@@ -365,6 +376,20 @@
     XCTAssertEqual([curve nodeIndexAtPoint:center], 0u);
 }
 
+- (void)testClickingEmptySpaceClearsGraphFocus {
+    [self showParametric:[self parametricSettings]];
+    VibeEQCurveView *curve = _editor.curveView;
+    NSPoint node = [curve nodeCenterForBandAtIndex:1];
+    [curve mouseDown:[self mouse:NSEventTypeLeftMouseDown at:node in:curve flags:0 clicks:1]];
+    XCTAssertEqual(_window.firstResponder, curve);
+    XCTAssertEqual(curve.selectedIndex, 1u);
+    NSPoint blank = NSMakePoint(NSMidX(curve.plotRect), NSMinY(curve.plotRect) + 2);
+    [curve mouseDown:[self mouse:NSEventTypeLeftMouseDown at:blank in:curve flags:0 clicks:1]];
+    XCTAssertEqual(curve.selectedIndex, (NSUInteger)NSNotFound);
+    XCTAssertNotEqual(_window.firstResponder, curve);
+    XCTAssertTrue(NSIsEmptyRect(curve.focusRingMaskBounds));
+}
+
 - (void)testDoubleClickAddsAPeakAtThePointerAndItsMenuRemovesThatBand {
     [self showParametric:[self parametricSettings]];
     VibeEQCurveView *curve = _editor.curveView;
@@ -393,9 +418,32 @@
     XCTAssertEqualObjects(_editor.settings, [self parametricSettings]);
     XCTAssertEqual(_ends, 2u);
     XCTAssertNil([curve menuForEvent:click]);
+    _editor.menu = [[NSMenu alloc] init];
+    [_editor.menu addItemWithTitle:@"Reset" action:nil keyEquivalent:@""];
+    XCTAssertEqualObjects([curve menuForEvent:click].itemArray.lastObject.title, @"Reset");
+    [curve mouseDown:add];
+    NSMenu *nodeMenu = [curve menuForEvent:click];
+    XCTAssertEqualObjects(nodeMenu.itemArray.firstObject.title, _editor.strings.removeBand);
+    XCTAssertEqualObjects(nodeMenu.itemArray.lastObject.title, @"Reset");
+    [NSApp sendAction:nodeMenu.itemArray.firstObject.action to:nodeMenu.itemArray.firstObject.target from:nodeMenu.itemArray.firstObject];
     _editor.enabled = NO;
+    XCTAssertNil([curve menuForEvent:click]);
     [curve mouseDown:add];
     XCTAssertEqual(_editor.settings.bands.count, 3u);
+}
+
+- (void)testReplacingBandsUpdatesTheFocusRingForTheSelectedPoint {
+    VibeFocusReportingCurve *curve = [[VibeFocusReportingCurve alloc] initWithFrame:_window.contentView.bounds];
+    _window.contentView = curve;
+    curve.bands = self.parametricSettings.bands;
+    curve.selectedIndex = 1;
+    [_window makeFirstResponder:curve];
+    NSRect original = curve.reportedMask;
+    curve.bands = self.graphicSettings.bands;
+    XCTAssertFalse(NSEqualRects(original, curve.reportedMask));
+    XCTAssertTrue(NSPointInRect([curve nodeCenterForBandAtIndex:1], curve.reportedMask));
+    curve.bands = @[];
+    XCTAssertTrue(NSIsEmptyRect(curve.reportedMask));
 }
 
 - (void)testDraggingANodeMovesItsFrequencyAndGain {
@@ -404,7 +452,12 @@
     NSRect plot = curve.plotRect;
     NSPoint node = [curve nodeCenterForBandAtIndex:1];
     NSPoint to = NSMakePoint(node.x + 50, node.y + 25);
-    [self dragIn:curve from:node through:@[[NSValue valueWithPoint:to]] flags:0];
+    [curve mouseDown:[self mouse:NSEventTypeLeftMouseDown at:node in:curve flags:0 clicks:1]];
+    XCTAssertTrue(NSIsEmptyRect(curve.focusRingMaskBounds));
+    [curve mouseDragged:[self mouse:NSEventTypeLeftMouseDragged at:to in:curve flags:0 clicks:1]];
+    XCTAssertTrue(NSIsEmptyRect(curve.focusRingMaskBounds));
+    [curve mouseUp:[self mouse:NSEventTypeLeftMouseUp at:to in:curve flags:0 clicks:1]];
+    XCTAssertTrue(NSPointInRect([curve nodeCenterForBandAtIndex:1], curve.focusRingMaskBounds));
     VibeEQBand *band = _editor.settings.bands[1];
     XCTAssertEqual(band.frequency, VibeEQRoundFrequency(VibeEQFrequencyForX(to.x, NSMinX(plot), NSWidth(plot))));
     XCTAssertEqualWithAccuracy(band.gainDB,

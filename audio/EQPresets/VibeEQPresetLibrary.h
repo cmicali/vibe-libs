@@ -20,7 +20,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithHeadphonesLoader:(NSArray<VibeEQPreset *> * (^)(void))loader NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
-// Flat, Bass Boost, Treble Boost, Vocal, Loudness, and Bass Cut.
+// Flat and 5-Band Flat, then the tone presets.
 @property (nonatomic, readonly, copy) NSArray<VibeEQPreset *> *builtInPresets;
 
 // The headphones whose names match `query`, case- and diacritic-insensitive,

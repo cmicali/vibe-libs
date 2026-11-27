@@ -90,6 +90,8 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
 }
 
 - (void)setBands:(NSArray<VibeEQBand *> *)bands {
+    if ([_bands isEqualToArray:bands]) return;
+    NSRect oldFocusRing = self.focusRingMaskBounds;
     NSUInteger oldCount = _bands.count;
     _bands = [bands copy];
     if (_selectedIndex != NSNotFound && _selectedIndex >= _bands.count) {
@@ -100,6 +102,7 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
         NSAccessibilityPostNotification(self, NSAccessibilityLayoutChangedNotification);
     }
     [self invalidateCurve];
+    if (!NSEqualRects(oldFocusRing, self.focusRingMaskBounds)) [self noteFocusRingMaskChanged];
 }
 
 - (void)setSelectedIndex:(NSUInteger)selectedIndex {
@@ -149,7 +152,7 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
     _bands = bands;
     _changedInGesture = YES;
     [self invalidateCurve];
-    [self noteFocusRingMaskChanged];
+    if (_dragMode == VibeEQDragModeNone) [self noteFocusRingMaskChanged];
     [self.owner face:self didChangeBands:_bands];
 }
 
@@ -417,16 +420,14 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
 }
 
 - (NSRect)focusRingMaskBounds {
-    if (_selectedIndex == NSNotFound) {
-        return self.plotRect;
-    }
+    // The selection halo moves with the point. AppKit animates its keyboard
+    // focus ring again whenever a moving mask is invalidated.
+    if (!_enabled || _dragMode != VibeEQDragModeNone || _selectedIndex == NSNotFound) return NSZeroRect;
     return NSInsetRect([self nodeRectForBandAtIndex:_selectedIndex], -1, -1);
 }
 
 - (void)drawFocusRingMask {
-    if (_selectedIndex == NSNotFound) {
-        NSRectFill(self.plotRect);
-    } else {
+    if (!NSIsEmptyRect(self.focusRingMaskBounds)) {
         [[NSBezierPath bezierPathWithOvalInRect:[self nodeRectForBandAtIndex:_selectedIndex]] fill];
     }
 }
@@ -446,7 +447,6 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     if (!self.enabled) {
         return;
     }
-    [self.window makeFirstResponder:self];
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     NSUInteger index = [self nodeIndexAtPoint:point];
     if (index == NSNotFound && event.clickCount == 2 && NSPointInRect(point, self.plotRect) &&
@@ -456,14 +456,18 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
                                              gainDB:[self gainAtY:point.y]
                                                   q:1];
         [self commitBands:[_bands arrayByAddingObject:band] selecting:_bands.count];
+        [self.window makeFirstResponder:self];
         return;
     }
     [self selectBand:index];
     if (index == NSNotFound) {
+        if (self.window.firstResponder == self) [self.window makeFirstResponder:nil];
         return;
     }
     _heldRange = self.rangeDB;
     [self anchorDragAt:point option:(event.modifierFlags & NSEventModifierFlagOption) != 0];
+    [self noteFocusRingMaskChanged];
+    [self.window makeFirstResponder:self];
 }
 
 // The band values at a point of the plot, rounded and snapped as an edit
@@ -490,12 +494,13 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
 - (NSMenu *)menuForEvent:(NSEvent *)event {
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     NSUInteger index = [self nodeIndexAtPoint:point];
-    if (!self.enabled || index == NSNotFound) {
-        return nil;
-    }
+    if (!self.enabled) return nil;
+    NSMenu *menu = [self.owner.menu copy];
+    if (index == NSNotFound) return NSPointInRect(point, self.plotRect) ? menu : nil;
     [self selectBand:index];
-    NSMenu *menu = [[NSMenu alloc] init];
-    NSMenuItem *item = [menu addItemWithTitle:_strings.removeBand action:@selector(removeClickedBand:) keyEquivalent:@""];
+    if (!menu) menu = [[NSMenu alloc] init];
+    if (menu.numberOfItems) [menu insertItem:NSMenuItem.separatorItem atIndex:0];
+    NSMenuItem *item = [menu insertItemWithTitle:_strings.removeBand action:@selector(removeClickedBand:) keyEquivalent:@"" atIndex:0];
     item.target = self;
     item.representedObject = _bands[index];
     return menu;
@@ -555,6 +560,7 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     }
     _dragMode = VibeEQDragModeNone;
     self.needsDisplay = YES;
+    [self noteFocusRingMaskChanged];
     [self endEdit];
 }
 
