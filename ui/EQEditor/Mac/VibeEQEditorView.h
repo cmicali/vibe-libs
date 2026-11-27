@@ -68,6 +68,8 @@ typedef NS_ENUM(NSInteger, VibeEQEditorFace) {
 @property (nonatomic, weak, nullable) id<VibeEQEditorViewDelegate> delegate;
 // The host's playback rate. Defaults to 48 kHz for an offline preview.
 @property (nonatomic) double sampleRate;
+// The graph and graphic sliders use the system accent when this is nil.
+@property (nonatomic, strong, nullable) NSColor *accentColor;
 
 // Neutral by default. Setting it calls no delegate method.
 @property (nonatomic, copy, null_resettable) VibeListeningSettings *settings;

@@ -699,6 +699,29 @@
     return color;
 }
 
+- (void)testBandNumberContrastsWithItsFill {
+    [self showParametric:[self parametricSettings]];
+    VibeEQCurveView *curve = _editor.curveView;
+    NSPoint node = [curve nodeCenterForBandAtIndex:1];
+    for (NSAppearanceName name in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
+        _window.appearance = [NSAppearance appearanceNamed:name];
+        for (NSColor *accent in @[NSColor.whiteColor, NSColor.yellowColor, NSColor.blueColor]) {
+            _editor.accentColor = accent;
+            NSBitmapImageRep *rep = VibeRenderView(curve);
+            NSColor *ink = [accent isEqual:NSColor.blueColor] ? NSColor.whiteColor : NSColor.blackColor;
+            XCTAssertTrue(VibeColorsClose(VibePixel(rep, NO, node.x - 4, node.y), accent, 0.08));
+            // Only the numeral can draw the contrasting color this far inside the circle.
+            NSUInteger inkPixels = 0;
+            for (NSInteger dy = -3; dy <= 3; dy++) {
+                for (NSInteger dx = -2; dx <= 2; dx++) {
+                    if (VibeColorsClose(VibePixel(rep, NO, node.x + dx, node.y + dy), ink, 0.35)) inkPixels++;
+                }
+            }
+            XCTAssertGreaterThan(inkPixels, 2u, @"%@, %@", name, accent);
+        }
+    }
+}
+
 - (void)testDrawsInBothAppearances {
     NSColor *plotBackgrounds[2];
     int index = 0;
@@ -716,11 +739,18 @@
         CGFloat zero = NSMidY(graphic.plotRect);
         NSColor *fill = VibePixel(rep, NO, knob.x, (knob.y + zero) / 2 - 3);
         XCTAssertTrue(VibeColorsClose(fill, [self accentIn:appearance], 0.08), @"%@: %@", name, fill);
+        NSColor *custom = [NSColor colorWithSRGBRed:0.8 green:0.15 blue:0.4 alpha:1];
+        _editor.accentColor = custom;
+        rep = VibeRenderView(graphic);
+        XCTAssertTrue(VibeColorsClose(VibePixel(rep, NO, knob.x, (knob.y + zero) / 2 - 3), custom, 0.08));
 
         [self showParametric:[self parametricSettings]];
         VibeEQCurveView *curve = _editor.curveView;
         rep = VibeRenderView(curve);
         NSPoint node = [curve nodeCenterForBandAtIndex:1];
+        XCTAssertTrue(VibeColorsClose(VibePixel(rep, NO, node.x - 4, node.y), custom, 0.08));
+        _editor.accentColor = nil;
+        rep = VibeRenderView(curve);
         XCTAssertTrue(VibeColorsClose(VibePixel(rep, NO, node.x - 4, node.y), [self accentIn:appearance], 0.08));
         plotBackgrounds[index++] = VibePixel(rep, NO, NSMinX(curve.plotRect) + 3, NSMaxY(curve.plotRect) - 3);
         XCTAssertFalse(VibeBitmapIsBlank(VibeRenderView(_editor.bandList)));

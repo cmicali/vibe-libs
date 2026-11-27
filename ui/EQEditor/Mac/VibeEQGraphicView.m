@@ -145,7 +145,7 @@ static const NSEdgeInsets kPlotInsets = {24, 38, 22, 10};  // top, left, bottom,
     };
     VibeEQDrawGainGrid(plot, kVibeEQNarrowRangeDB, 6);
 
-    NSColor *accent = NSColor.controlAccentColor;
+    NSColor *accent = self.owner.accentColor ?: NSColor.controlAccentColor;
     CGFloat zeroY = VibeEQYForGain(0, NSMinY(plot), NSHeight(plot), kVibeEQNarrowRangeDB);
     NSArray<NSNumber *> *frequencies = [VibeListeningSettings graphicFrequencies];
     BOOL focused = self.window.firstResponder == self && self.window.isKeyWindow;
