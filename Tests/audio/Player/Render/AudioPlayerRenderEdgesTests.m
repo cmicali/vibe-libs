@@ -132,14 +132,14 @@
     for (NSNumber *block in @[@63,@256,@1024,@4096]) {
         [self startPlayerAt:48000 channels:2 fx:NO bitPerfect:YES automatic:NO]; _blockSize=block.unsignedIntegerValue;
         VibeTestTrack *track=[self play:url paused:NO position:0]; [self render:12000];
-        NSUInteger eventsBeforeStop=_events.count;
+        NSUInteger eventsBeforeStop=[self transportEventCount];
         [_player stop]; [self render:2048]; XCTAssertTrue(_player.isStopped);
         // Whatever the stop posted to main is queued before this marker.
         [_player runSyncOnQueue:^{}];
         __block BOOL drained=NO; dispatch_async(dispatch_get_main_queue(), ^{ drained=YES; });
         [self settleUntil:^BOOL { return drained; }];
         XCTAssertNil(_player.currentTrack);
-        XCTAssertEqual(_events.count,eventsBeforeStop,@"stop fires no transport or track-end callback: %@",_events);
+        XCTAssertEqual([self transportEventCount],eventsBeforeStop,@"stop fires no transport or track-end callback: %@",_events);
         NSData *silence=[self renderSeconds:0.1]; XCTAssertEqual(VibeRMS(silence,2,0,NSMakeRange(0,4800)),0);
         NSUInteger starts=[self count:@"start"]; [_player play:track];
         [self settleUntil:^BOOL { return [self count:@"start"]>starts; }];

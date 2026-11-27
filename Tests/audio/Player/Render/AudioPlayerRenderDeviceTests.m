@@ -125,7 +125,7 @@
         [_player runSyncOnQueue:^{ exclusive=[[self->_player valueForKey:@"exclusiveOutputWanted"] boolValue]; }];
         XCTAssertFalse(exclusive, @"Port B already has bit-perfect on and exclusive off");
         [self settleUntil:^BOOL { return [self count:@"device"] == 1; }];
-        XCTAssertEqualObjects(_events.lastObject[@"carriedModes"], @"");
+        XCTAssertEqualObjects([self eventsNamed:@"device"].lastObject[@"carriedModes"], @"");
         // An unconfigured destination inherits only on automatic re-adoption.
         _outputModesProvider = ^(NSString *uid, BOOL *bitPerfect, BOOL *exclusive) {
             *bitPerfect = *exclusive = [uid isEqualToString:@"port-a"];
@@ -137,12 +137,12 @@
         }];
         [self settleUntil:^BOOL { return [self count:@"device"] == 2; }];
         XCTAssertTrue([_player.outputDeviceDiagnosticSnapshot[@"exclusiveOutputWanted"] boolValue]);
-        XCTAssertEqualObjects(_events.lastObject[@"carriedModes"], @"port-a");
+        XCTAssertEqualObjects([self eventsNamed:@"device"].lastObject[@"carriedModes"], @"port-a");
         __block BOOL selected = NO;
         [_player setOutputDevice:2 completion:^{ selected = YES; }];
         [self settleUntil:^BOOL { return selected; }];
         XCTAssertFalse([_player.outputDeviceDiagnosticSnapshot[@"exclusiveOutputWanted"] boolValue]);
-        XCTAssertEqualObjects(_events.lastObject[@"carriedModes"], @"");
+        XCTAssertEqualObjects([self eventsNamed:@"device"].lastObject[@"carriedModes"], @"");
     } @finally {
         [_player debugShutdown]; _player=nil;
         method_setImplementation(method,original); imp_removeBlock(replacement);
