@@ -10,6 +10,7 @@
 
 #import "VibeEQEditorFormat.h"
 #import "VibeEQEditorMath.h"
+#import "VibeListeningBiquad.h"
 
 static const NSEdgeInsets kPlotInsets = {10, 38, 20, 12};  // top, left, bottom, right
 static const CGFloat kNodeRadius = 8;
@@ -25,6 +26,11 @@ typedef NS_ENUM(NSInteger, VibeEQDragMode) {
     // The curve, in dB, one per sample, and the range it needs. Empty until
     // asked for.
     NSMutableData *_samples;
+    NSData *_frequencies;
+    CGFloat _sampleWidth;
+    double _gridRate;
+    NSArray<VibeEQBand *> *_sampledBands;
+    NSArray<NSData *> *_bandResponses;
     double _neededRange;
     BOOL _curveValid;
     // A drag holds the axis, so the node stays under the pointer. It only
@@ -169,39 +175,67 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     return VibeEQPlotRect(self.bounds, kPlotInsets);
 }
 
-// Samples the curve, once for each change, and finds the range it needs.
+- (void)prepareFrequencyGrid:(CGFloat)width {
+    if (_frequencies && width == _sampleWidth && _gridRate == _sampleRate) return;
+    _sampleWidth = width;
+    _gridRate = _sampleRate;
+    _sampledBands = nil;
+    NSUInteger count = width > 0 ? (NSUInteger)ceil(width) + 1 : 0;
+    NSMutableData *grid = [NSMutableData dataWithLength:count * sizeof(double)];
+    double *hz = grid.mutableBytes;
+    for (NSUInteger i = 0; i < count; i++) {
+        hz[i] = VibeEQFrequencyForX(MIN((CGFloat)i, width), 0, width);
+        if (hz[i] > _sampleRate * 0.5) {
+            grid.length = i * sizeof(double);
+            break;
+        }
+    }
+    _frequencies = grid;
+}
+
+- (NSData *)responseForBand:(VibeEQBand *)band {
+    NSMutableData *response = [NSMutableData dataWithLength:_frequencies.length];
+    if (band.neutral) return response;
+    VibeListeningBiquad filter = VibeListeningBiquadMake(band.type, band.frequency, band.gainDB, band.q, _sampleRate);
+    const double *hz = _frequencies.bytes;
+    double *db = response.mutableBytes;
+    NSUInteger count = response.length / sizeof(double);
+    for (NSUInteger i = 0; i < count; i++) {
+        db[i] = VibeListeningBiquadResponseDB(filter, hz[i], _sampleRate);
+    }
+    return response;
+}
+
+// During a drag only the moving band's response changes. Sum the responses
+// in band order, just as the audio filters combine in dB.
 - (void)ensureCurve {
     if (_curveValid) {
         return;
     }
     _curveValid = YES;
-    NSRect plot = self.plotRect;
-    // A sample for each point across.
-    NSUInteger count = NSWidth(plot) > 0 ? (NSUInteger)ceil(NSWidth(plot)) + 1 : 0;
-    _samples.length = count * sizeof(double);
+    [self prepareFrequencyGrid:NSWidth(self.plotRect)];
+    _samples.length = _frequencies.length;
+    [_samples resetBytesInRange:NSMakeRange(0, _samples.length)];
     double *samples = _samples.mutableBytes;
+    NSUInteger count = _samples.length / sizeof(double);
+    NSMutableArray *responses = [NSMutableArray arrayWithCapacity:_bands.count];
     double largest = 0;
-    BOOL any = NO;
-    for (VibeEQBand *band in _bands) {
-        any = any || band.enabled;
+    for (NSUInteger i = 0; i < _bands.count; i++) {
+        VibeEQBand *band = _bands[i];
+        NSData *response = i < _sampledBands.count && [band isEqual:_sampledBands[i]]
+            ? _bandResponses[i] : [self responseForBand:band];
+        [responses addObject:response];
+        const double *db = response.bytes;
+        for (NSUInteger j = 0; j < count; j++) samples[j] += db[j];
         if (band.enabled && VibeEQBandHasGain(band.type)) {
             largest = MAX(largest, fabs(band.gainDB));
         }
     }
-    // The curve ends at Nyquist.
-    NSUInteger sampled = 0;
-    for (; sampled < count; sampled++) {
-        double frequency = VibeEQFrequencyForX(NSMinX(plot) + MIN((CGFloat)sampled, NSWidth(plot)), NSMinX(plot),
-                                               NSWidth(plot));
-        if (frequency > _sampleRate * 0.5) {
-            break;
-        }
-        samples[sampled] = any ? VibeListeningResponseDB(_bands, frequency, _sampleRate) : 0;
-        if (isfinite(samples[sampled])) {
-            largest = MAX(largest, fabs(samples[sampled]));
-        }
+    _sampledBands = [_bands copy];
+    _bandResponses = responses;
+    for (NSUInteger i = 0; i < count; i++) {
+        if (isfinite(samples[i])) largest = MAX(largest, fabs(samples[i]));
     }
-    _samples.length = sampled * sizeof(double);
     _neededRange = VibeEQRangeForPeak(largest);
 }
 
@@ -292,7 +326,7 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     // until the bands, the selection, or the axis change.
     if (_selectedIndex != NSNotFound && _bands[_selectedIndex].enabled) {
         if (!_selectedPath || _selectedPathRange != range) {
-            _selectedPath = [self curvePathForBand:_bands[_selectedIndex] range:range];
+            _selectedPath = [self pathForResponse:_bandResponses[_selectedIndex] range:range step:2];
             _selectedPathRange = range;
         }
         NSBezierPath *own = _selectedPath;
@@ -303,7 +337,7 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
         [own stroke];
     }
 
-    NSBezierPath *curve = [self curvePathFromSamples:range];
+    NSBezierPath *curve = [self pathForResponse:_samples range:range step:1];
     CGFloat zeroY = VibeEQYForGain(0, NSMinY(plot), NSHeight(plot), range);
     NSBezierPath *fill = [curve copy];
     [fill lineToPoint:NSMakePoint(NSMaxX(plot), zeroY)];
@@ -327,40 +361,17 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     }
 }
 
-- (NSBezierPath *)curvePathFromSamples:(double)range {
+- (NSBezierPath *)pathForResponse:(NSData *)response range:(double)range step:(NSUInteger)step {
     NSRect plot = self.plotRect;
-    const double *samples = _samples.bytes;
-    NSUInteger count = _samples.length / sizeof(double);
+    const double *samples = response.bytes;
+    NSUInteger count = response.length / sizeof(double);
     NSBezierPath *path = [NSBezierPath bezierPath];
-    for (NSUInteger i = 0; i < count; i++) {
+    for (NSUInteger i = 0; i < count; i = MIN(i + step, count - 1)) {
         double db = isfinite(samples[i]) ? samples[i] : -range * 2;
         NSPoint point = NSMakePoint(NSMinX(plot) + MIN((CGFloat)i, NSWidth(plot)),
                                     NSMinY(plot) + NSHeight(plot) * (CGFloat)((db + range) / (2 * range)));
         i == 0 ? [path moveToPoint:point] : [path lineToPoint:point];
-    }
-    return path;
-}
-
-// One band's own curve, sampled every other point: drawn only while selected.
-- (NSBezierPath *)curvePathForBand:(VibeEQBand *)band range:(double)range {
-    NSArray<VibeEQBand *> *bands = @[band];
-    NSRect plot = self.plotRect;
-    NSBezierPath *path = [NSBezierPath bezierPath];
-    for (CGFloat x = NSMinX(plot);; x += 2) {
-        CGFloat clamped = MIN(x, NSMaxX(plot));
-        double hz = VibeEQFrequencyForX(clamped, NSMinX(plot), NSWidth(plot));
-        if (hz > _sampleRate * 0.5) {
-            break;
-        }
-        double db = VibeListeningResponseDB(bands, hz, _sampleRate);
-        if (!isfinite(db)) {
-            db = -range * 2;
-        }
-        NSPoint point = NSMakePoint(clamped, NSMinY(plot) + NSHeight(plot) * (CGFloat)((db + range) / (2 * range)));
-        x == NSMinX(plot) ? [path moveToPoint:point] : [path lineToPoint:point];
-        if (clamped >= NSMaxX(plot)) {
-            break;
-        }
+        if (i + 1 == count) break;
     }
     return path;
 }
