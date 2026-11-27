@@ -463,6 +463,20 @@
     XCTAssertEqual(_ends, 1u);
 }
 
+- (void)testCombinedResponseFollowsEachCopyOfTheSameBand {
+    VibeEQBand *boost = [VibeEQBand bandWithType:VibeEQBandTypePeak frequency:1000 gainDB:8 q:1];
+    VibeEQBand *off = [boost bandWithEnabled:NO];
+    VibeEQCurveView *curve = _editor.curveView;
+    [self showParametric:[self settingsWithBands:@[boost, boost]]];
+    XCTAssertEqual(curve.rangeDB, 24);
+    _editor.settings = [self settingsWithBands:@[boost, off]];
+    XCTAssertEqual(curve.rangeDB, 12);
+    _editor.settings = [self settingsWithBands:@[off, boost, boost]];
+    XCTAssertEqual(curve.rangeDB, 24);
+    _editor.settings = [self settingsWithBands:@[boost]];
+    XCTAssertEqual(curve.rangeDB, 12);
+}
+
 - (void)testChangingOnlyThePlaybackRateRedrawsTheCombinedResponse {
     NSArray *bands = @[[VibeEQBand bandWithType:VibeEQBandTypePeak frequency:8000 gainDB:11 q:1.41],
                        [VibeEQBand bandWithType:VibeEQBandTypePeak frequency:16000 gainDB:11 q:1.41]];
