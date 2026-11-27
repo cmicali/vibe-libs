@@ -98,7 +98,7 @@ static float MaxStep(NSData *capture, NSUInteger channel, NSRange frames) {
     [self render:9600];
     XCTAssertTrue(_player.listeningClipping);
     XCTAssertGreaterThan([_player.debugRenderCounts[@"listeningClips"] unsignedLongLongValue], 0u);
-    NSArray *clipping = [_events filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"event == 'clipping'"]];
+    NSArray *clipping = [self eventsNamed:@"clipping"];
     XCTAssertEqual(clipping.count, 1u);
     XCTAssertEqualObjects(clipping.lastObject[@"clipping"], @YES);
 
@@ -126,7 +126,7 @@ static float MaxStep(NSData *capture, NSUInteger channel, NSRange frames) {
     _rate = 96000;
     XCTAssertTrue([_player debugSetOutputRate:96000], @"the current rate is a no-op");
     [self landMainQueue];
-    NSArray *rates = [_events filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"event == 'listeningRate'"]];
+    NSArray *rates = [self eventsNamed:@"listeningRate"];
     XCTAssertEqual(rates.count, 1u);
     XCTAssertEqualObjects(rates.firstObject[@"rate"], @96000);
     XCTAssertEqualObjects(rates.firstObject[@"main"], @YES);

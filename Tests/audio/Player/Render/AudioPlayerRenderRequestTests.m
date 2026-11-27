@@ -25,10 +25,6 @@
     [_events addObject:@{@"event": event, @"item": track ?: NSNull.null, @"request": @(request)}];
 }
 
-- (NSArray<NSDictionary *> *)eventsNamed:(NSString *)name {
-    return [_events filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"event == %@", name]];
-}
-
 - (NSArray<NSDictionary *> *)eventsForRequest:(uint64_t)request {
     return [_events filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"request == %llu OR finished == %llu OR started == %llu",
                                                  request, request, request]];

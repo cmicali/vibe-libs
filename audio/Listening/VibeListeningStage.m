@@ -17,15 +17,19 @@ static const double kDenormalFloor = 1e-25;
 // stays within 2.4 dB over the louder settled level. Past that, a band starts
 // at rest and warms up, and stays within 1.6 dB.
 static const double kCarriedGainStepDB = 3.0;
+// The other carry limits: the tuning by a tenth, or by half the bandwidth
+// when that is less, and the Q by a tenth of the larger Q.
+static const double kCarriedTuningShare = 0.1, kCarriedWidthShare = 0.5, kCarriedQShare = 0.1;
 // The longest warm-up. At 150 ms a 55 Hz tone through random edits stays at
 // its input's peak at 192 kHz. At 100 ms it rises 0.1 dB, and at 50 ms 3.2 dB.
 static const double kWarmUpCapMilliseconds = 150.0;
 // A move the render walks through its in-between curves. Each step goes half
-// the carry limits, so 1.5 dB at most. With a tone at a shelf's corner, a
-// 12 dB step then dips at most 2.7 dB under the quieter level, where one
-// crossfade dipped 24.8 dB, because the two curves' phases nearly cancel.
-// Whole carry limits per step dipped 7.3 dB.
+// the carry limits, so its gain moves kStepGainDB at most. With a tone at a
+// shelf's corner, a 12 dB step then dips at most 2.7 dB under the quieter
+// level, where one crossfade dipped 24.8 dB, because the two curves' phases
+// nearly cancel. Whole carry limits per step dipped 7.3 dB.
 static const double kStepShare = 0.5;
+static const double kStepGainDB = 1.5;  // kStepShare of kCarriedGainStepDB
 // A step lasts 1.5 times the moving bands' settling time, and at least 2 ms.
 // At 1 time, a step rose 1.7 dB over the louder level, where one crossfade
 // rose 1.2 dB.
@@ -109,10 +113,6 @@ struct VibeListeningProgram {
     double state[];              // channels × bandCount × 2, transposed direct form II
 };
 
-static size_t VibeListeningProgramSize(uint32_t channels, uint32_t bands) {
-    return sizeof(VibeListeningProgram) + (size_t)channels * bands * 2 * sizeof(double);
-}
-
 // TRAP: Clang drops a memset(0) after calloc, and turns malloc and memset into
 // calloc. A volatile write per page makes the queue take the page faults, not
 // the audio thread.
@@ -121,6 +121,26 @@ static void VibeListeningTouch(void *memory, size_t size) {
     for (size_t i = 0; i < size; i += 4096) {
         bytes[i] = 0;
     }
+}
+
+// A zeroed program with state for `bands` bands, touched on the queue.
+static VibeListeningProgram *VibeListeningProgramAllocate(uint32_t channels, uint32_t bands) {
+    size_t size = sizeof(VibeListeningProgram) + (size_t)channels * bands * 2 * sizeof(double);
+    VibeListeningProgram *program = calloc(1, size);
+    if (program) {
+        VibeListeningTouch(program, size);
+    }
+    return program;
+}
+
+// The prewarped frequency, held under 0.48 of the rate as the biquads hold
+// it, and back.
+static inline double VibeListeningTuning(double hz, double sampleRate) CA_REALTIME_API {
+    return tan(M_PI * fmin(hz / sampleRate, 0.48));
+}
+
+static inline double VibeListeningTunedHz(double tuning, double sampleRate) CA_REALTIME_API {
+    return atan(tuning) * sampleRate / M_PI;
 }
 
 // How long a band takes to settle from rest: three time constants of its
@@ -146,7 +166,7 @@ static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *s
         NSUInteger slot = 0;
         for (VibeEQBand *band in settings.bands) {
             if (!band.neutral && bandCount < kVibeListeningMaxBands) {
-                double tuning = tan(M_PI * fmin(band.frequency / sampleRate, 0.48));
+                double tuning = VibeListeningTuning(band.frequency, sampleRate);
                 VibeListeningBiquad filter =
                     VibeListeningBiquadMake(band.type, band.frequency, band.gainDB, band.q, sampleRate);
                 bands[bandCount] = (VibeListeningBand){slot, band.type, tuning, band.gainDB, band.q,
@@ -156,12 +176,10 @@ static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *s
             slot++;
         }
     }
-    size_t size = VibeListeningProgramSize(channels, bandCount);
-    VibeListeningProgram *program = calloc(1, size);
+    VibeListeningProgram *program = VibeListeningProgramAllocate(channels, bandCount);
     if (!program) {
         return NULL;
     }
-    VibeListeningTouch(program, size);
     BOOL stereo = channels >= 2;
     program->bandCount = bandCount;
     memcpy(program->filters, filters, bandCount * sizeof(VibeListeningBiquad));
@@ -183,10 +201,8 @@ static VibeListeningProgram *VibeListeningProgramCreate(VibeListeningSettings *s
 
 // A step program has room for every band, and the render fills it.
 static VibeListeningProgram *VibeListeningStepCreate(uint32_t channels) {
-    size_t size = VibeListeningProgramSize(channels, kVibeListeningMaxBands);
-    VibeListeningProgram *program = calloc(1, size);
+    VibeListeningProgram *program = VibeListeningProgramAllocate(channels, kVibeListeningMaxBands);
     if (program) {
-        VibeListeningTouch(program, size);
         program->step = YES;
     }
     return program;
@@ -215,16 +231,18 @@ struct VibeListeningStage {
     // The render's own. current plays; previous, while fading, is faded from.
     // NULL plays the input as it is. While warming up, previous alone is heard.
     // target is the newest program, while the render walks to it in steps,
-    // which it fills into the two step programs in turn. hurried is set while
-    // edits come faster than the changes play, as in a drag: a newer program
-    // cut a walk short, or waited for a fade. Then the render takes each new
-    // program at once, as a walk would fall behind. Measured on drags with an
-    // edit every 10 ms, walking lagged up to 132 ms behind, against 48 ms.
-    // It clears once the render is idle.
+    // which it fills into the two step programs in turn. walking is set from a
+    // walk's first step through its last, so each fades over stepFrames.
+    // hurried is set while edits come faster than the changes play, as in a
+    // drag: a newer program cut a walk short, or waited for a fade. Then the
+    // render takes each new program at once, as a walk would fall behind.
+    // Measured on drags with an edit every 10 ms, walking lagged up to 132 ms
+    // behind, against 48 ms. It clears once the render is idle or at rest.
     VibeListeningProgram *current, *previous, *target;
     VibeListeningProgram *steps[2];
-    BOOL fading, resting, hurried;
-    uint32_t warmUpFrames, fadePosition, fadeLength, stepFadeFrames, stepFrames;
+    BOOL fading, resting, walking, hurried;
+    uint32_t warmUpFrames, fadePosition, fadeLength, stepFrames;
+    uint32_t stepFadeFrames, stepSettleFrames;  // a step's shortest fade, and its slowest band
     float *scratch[kVibeListeningMaxChannels];  // kChunkFrames each
     float *storage;
     uint64_t rendered, frames, clips, lastClipFrame;
@@ -267,6 +285,7 @@ VibeListeningStage *VibeListeningStageCreate(uint32_t channels, double sampleRat
     stage->sampleRate = sampleRate;
     stage->fadeFrames = VibeFadeFramesForMilliseconds(kFadeDurationMilliseconds, sampleRate);
     stage->stepFadeFrames = VibeFadeFramesForMilliseconds(kStepFadeMilliseconds, sampleRate);
+    stage->stepSettleFrames = (uint32_t)(kStepSettleMilliseconds * 0.001 * sampleRate);
     stage->resting = YES;
     atomic_init(&stage->pending, NULL);
     atomic_init(&stage->retired, NULL);
@@ -427,30 +446,28 @@ static void VibeListeningProgramRun(VibeListeningProgram *program, float *const 
     }
 }
 
-// The new program starts from the old one's filter state for each band that
-// keeps its slot and type and moved only a little, so a small edit's crossfade
-// joins two near-equal signals. A band that moved far, or a new one, starts at
-// rest, because its old state describes another resonance. A peak or shelf
-// that comes or goes near 0 dB is a small move, as a walk's last step is. The
-// bands after a band at rest, or after a removed band, keep their state, but their input changed, so they
-// settle too. Returns how many frames the new program needs to settle before
-// it is heard: the slowest of those bands' settling times, or 0 when no band
-// changed far.
+// How far a band's tuning may move and keep its state, as a share of the
+// smaller tuning: a tenth, or half the bandwidth at the larger Q.
+static inline double VibeListeningTuningLimit(double q) CA_REALTIME_API {
+    return fmin(kCarriedTuningShare, kCarriedWidthShare / q);
+}
+
 static BOOL VibeListeningBandKeepsState(VibeListeningBand old, VibeListeningBand next) CA_REALTIME_API {
     double q = fmax(old.q, next.q);
     return old.type == next.type &&
-           fabs(next.tuning - old.tuning) <= fmin(old.tuning, next.tuning) * fmin(0.1, 0.5 / q) &&
-           fabs(old.gainDB - next.gainDB) <= kCarriedGainStepDB && fabs(old.q - next.q) <= 0.1 * q;
+           fabs(next.tuning - old.tuning) <= fmin(old.tuning, next.tuning) * VibeListeningTuningLimit(q) &&
+           fabs(old.gainDB - next.gainDB) <= kCarriedGainStepDB && fabs(old.q - next.q) <= kCarriedQShare * q;
 }
 
-// A peak or shelf at 0 dB passes its input and holds no state, so a band that
-// appears or goes away within the carried gain step is a small move too.
-static BOOL VibeListeningBandFades(VibeListeningBand band) CA_REALTIME_API {
+// A peak or shelf has a gain. A pass filter has none, so it is never flat.
+static BOOL VibeListeningBandHasGain(VibeListeningBand band) CA_REALTIME_API {
     return band.type != VibeEQBandTypeLowPass && band.type != VibeEQBandTypeHighPass;
 }
 
+// A peak or shelf at 0 dB passes its input and holds no state, so a band that
+// appears or goes away within a walk's gain step is a small move too.
 static BOOL VibeListeningBandNearFlat(VibeListeningBand band) CA_REALTIME_API {
-    return VibeListeningBandFades(band) && fabs(band.gainDB) <= kStepShare * kCarriedGainStepDB + 1e-9;
+    return VibeListeningBandHasGain(band) && fabs(band.gainDB) <= kStepGainDB + 1e-9;
 }
 
 // A channel's carried state: the mean of its own and the other's as mono
@@ -459,6 +476,15 @@ static inline double VibeListeningCarried(double own, double other, BOOL toMono)
     return toMono ? (own + other) * 0.5 : other;
 }
 
+// The new program starts from the old one's filter state for each band that
+// keeps its slot and type and moved only a little, so a small edit's crossfade
+// joins two near-equal signals. A band that moved far, or a new one, starts at
+// rest, because its old state describes another resonance. A peak or shelf
+// that comes or goes near 0 dB is a small move, as a walk's last step is. The
+// bands after a band at rest, or after a removed band, keep their state, but
+// their input changed, so they settle too. Returns how many frames the new
+// program needs to settle before it is heard: the slowest of those bands'
+// settling times, or 0 when no band changed far.
 static uint32_t VibeListeningProgramInherit(VibeListeningProgram *to, const VibeListeningProgram *from,
                                             uint32_t channels) CA_REALTIME_API {
     if (!from) {
@@ -528,21 +554,31 @@ static BOOL VibeListeningSameTools(const VibeListeningProgram *a, const VibeList
 // with the frequency and Q moved on a log scale.
 static uint32_t VibeListeningStepsFor(VibeListeningBand a, VibeListeningBand b) CA_REALTIME_API {
     double q = fmax(a.q, b.q);
-    double gain = fabs(b.gainDB - a.gainDB) / (kStepShare * kCarriedGainStepDB);
-    double tuning = fabs(log(b.tuning / a.tuning)) / log1p(kStepShare * fmin(0.1, 0.5 / q));
-    double width = fabs(log(b.q / a.q)) / -log1p(-kStepShare * 0.1);
+    double gain = fabs(b.gainDB - a.gainDB) / kStepGainDB;
+    double tuning = fabs(log(b.tuning / a.tuning)) / log1p(kStepShare * VibeListeningTuningLimit(q));
+    double width = fabs(log(b.q / a.q)) / -log1p(-kStepShare * kCarriedQShare);
     return (uint32_t)ceil(fmax(gain, fmax(tuning, width)) - 1e-9);
 }
 
+// `a` moved `share` of the way to `z` on a log scale.
+static inline double VibeListeningLogStep(double a, double z, double share) CA_REALTIME_API {
+    return a * pow(z / a, share);
+}
+
 // Fills `step` with the first of the even steps from `from` to `to`, and
-// returns how many there are. Returns 0 when `to` should be taken at once:
-// it carries every band, the channel tools changed, a band changed type or a
-// pass filter came or went, or the move needs more than kMaxSteps. A peak or
-// shelf at one end only moves from or to 0 dB. The coefficients come from
-// libm alone, at most a few calls for each of 20 bands, once a step.
-static uint32_t VibeListeningPlanStep(VibeListeningProgram *step, const VibeListeningProgram *from,
-                                      const VibeListeningProgram *to, uint32_t channels,
-                                      double sampleRate, uint32_t *settleFrames) CA_REALTIME_API {
+// returns how many frames it fades over. Returns 0 when `to` should be taken
+// at once: the move fits in one step, the channel tools changed, a band
+// changed type, a pass filter came or went, a band from the first moving one
+// on settles slower than the stage's step limit, or the move needs more than
+// kMaxSteps. A move inside the carry limits but past one step is walked too:
+// a 3 dB step on a 1 kHz Q 3 shelf with a tone at its corner dipped 0.3 dB
+// walked, and 1.2 dB carried in one fade. A peak or shelf at one end only moves from or to 0 dB. The
+// preamp moves the step's share in dB, and doesn't count toward the steps,
+// since it only scales the level. The coefficients come from libm alone, at
+// most a few calls for each of 20 bands, once a step.
+static uint32_t VibeListeningPlanStep(const VibeListeningStage *stage, VibeListeningProgram *step,
+                                      const VibeListeningProgram *from,
+                                      const VibeListeningProgram *to) CA_REALTIME_API {
     if (!from || !VibeListeningSameTools(from, to)) {
         return 0;
     }
@@ -563,8 +599,9 @@ static uint32_t VibeListeningPlanStep(VibeListeningProgram *step, const VibeList
             move.from = move.to = to->bands[t++];
             move.from.gainDB = 0;
         }
+        // Slots are under 20, so this only guards the array.
         if (count == kVibeListeningMaxBands || move.from.type != move.to.type ||
-            (fromSlot != toSlot && !VibeListeningBandFades(move.from))) {
+            (fromSlot != toSlot && !VibeListeningBandHasGain(move.from))) {
             return 0;
         }
         uint32_t need = VibeListeningStepsFor(move.from, move.to);
@@ -575,39 +612,35 @@ static uint32_t VibeListeningPlanStep(VibeListeningProgram *step, const VibeList
         steps = MAX(steps, need);
         moves[count++] = move;
     }
-    if (steps < 2 || steps > kMaxSteps || settle > kStepSettleMilliseconds * 0.001 * sampleRate) {
+    if (steps < 2 || steps > kMaxSteps || settle > stage->stepSettleFrames) {
         return 0;
     }
-    *settleFrames = settle;
-    double share = 1.0 / steps;
+    double share = 1.0 / steps, sampleRate = stage->sampleRate;
     for (uint32_t b = 0; b < count; b++) {
         VibeListeningBand a = moves[b].from, z = moves[b].to, band = z;
-        band.tuning = a.tuning * pow(z.tuning / a.tuning, share);
+        band.tuning = VibeListeningLogStep(a.tuning, z.tuning, share);
         band.gainDB = a.gainDB + (z.gainDB - a.gainDB) * share;
-        band.q = a.q * pow(z.q / a.q, share);
-        double hz = atan(band.tuning) * sampleRate / M_PI;
+        band.q = VibeListeningLogStep(a.q, z.q, share);
+        double hz = VibeListeningTunedHz(band.tuning, sampleRate);
         step->filters[b] = VibeListeningBiquadMake(band.type, hz, band.gainDB, band.q, sampleRate);
         band.settleFrames = VibeListeningSettleFrames(step->filters[b], sampleRate);
         step->bands[b] = band;
     }
     step->bandCount = count;
-    // In dB, as the band gains move.
-    step->preamp = from->preamp * pow(to->preamp / from->preamp, share);
+    step->preamp = VibeListeningLogStep(from->preamp, to->preamp, share);
+    // The crossfeed's state comes from Inherit when it is on, as the
+    // channel tools are the same at both ends.
     step->swap = to->swap;
     step->mono = to->mono;
     step->crossfeed = to->crossfeed;
     step->crossfeedFilter = to->crossfeedFilter;
-    for (int c = 0; c < 2; c++) {
-        step->crossfeedFilter.lo[c] = step->crossfeedFilter.hi[c] = step->crossfeedFilter.in[c] = 0;
-    }
     step->balance = to->balance;
     step->balanceLeft = to->balanceLeft;
     step->balanceRight = to->balanceRight;
-    step->neutral = NO;
-    for (size_t i = 0; i < (size_t)channels * count * 2; i++) {
+    for (size_t i = 0; i < (size_t)stage->channels * count * 2; i++) {
         step->state[i] = 0;
     }
-    return steps;
+    return MAX(stage->stepFadeFrames, (uint32_t)(settle * kStepPace));
 }
 
 static void VibeListeningRetire(VibeListeningStage *stage, VibeListeningProgram *program) CA_REALTIME_API {
@@ -633,23 +666,26 @@ static uint32_t VibeListeningChunk(VibeListeningStage *stage, float *const *buff
             stage->hurried = stage->hurried || stage->target != NULL;
             VibeListeningRetire(stage, stage->target);
             stage->target = next;
+            stage->walking = NO;
         }
         if (stage->target) {
             // The step program the render isn't playing.
             VibeListeningProgram *step = stage->steps[stage->steps[0] == stage->current ? 1 : 0];
-            uint32_t settle = 0;
-            BOOL stepping = !stage->hurried && VibeListeningPlanStep(step, stage->current, stage->target, channels,
-                                                                     stage->sampleRate, &settle) > 0;
-            VibeListeningProgram *heard = stepping ? step : stage->target;
-            if (stepping) {
-                stage->stepFrames = MAX(stage->stepFadeFrames, (uint32_t)(settle * kStepPace));
+            uint32_t stepFrames =
+                stage->hurried ? 0 : VibeListeningPlanStep(stage, step, stage->current, stage->target);
+            VibeListeningProgram *heard = stepFrames > 0 ? step : stage->target;
+            if (stepFrames > 0) {
+                stage->stepFrames = stepFrames;
+                stage->walking = YES;
             }
             else {
                 stage->target = NULL;
             }
             stage->warmUpFrames = VibeListeningProgramInherit(heard, stage->current, channels);
-            BOOL walking = stepping || (stage->current && stage->current->step);
-            stage->fadeLength = walking && stage->warmUpFrames == 0 ? stage->stepFrames : stage->fadeFrames;
+            // A walk's last step, into its target, fades as its others do.
+            BOOL stepFade = stage->walking && stage->warmUpFrames == 0;
+            stage->fadeLength = stepFade ? stage->stepFrames : stage->fadeFrames;
+            stage->walking = stepFrames > 0;
             stage->previous = stage->current;
             stage->current = heard;
             stage->fading = YES;
@@ -734,6 +770,8 @@ void VibeListeningStageRender(VibeListeningStage *stage, float *const *channels,
         offset += VibeListeningChunk(stage, chunk, count);
     }
     stage->resting = !stage->fading && !stage->target && (!stage->current || stage->current->neutral);
+    // A resting stage skips its chunks, so it clears this here.
+    stage->hurried = stage->hurried && !stage->resting;
     stage->rendered++;
     atomic_store_explicit(&stage->engaged, stage->resting ? 0 : 1, memory_order_relaxed);
     atomic_store_explicit(&stage->reportClips, stage->clips, memory_order_relaxed);

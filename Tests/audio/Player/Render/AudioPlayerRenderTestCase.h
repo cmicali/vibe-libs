@@ -72,7 +72,7 @@ NSData *VibeAudibleFrames(NSData *pcm, NSUInteger channels);
 // The events that aren't the listening stage's reports, its rate and its
 // clipping, which a change of the output's rate or level sends on its own.
 - (NSUInteger)transportEventCount;
-- (NSDictionary *)lastEvent:(NSString *)event;  // nil when none came
+- (NSArray<NSDictionary *> *)eventsNamed:(NSString *)name;
 - (void)settleUntil:(BOOL (^)(void))condition;
 - (void)landMainQueue;
 - (NSDictionary *)settledSignalSnapshot;

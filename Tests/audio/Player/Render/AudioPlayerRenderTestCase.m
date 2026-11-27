@@ -252,9 +252,8 @@ NSData *VibeAudibleFrames(NSData *pcm, NSUInteger channels) {
 - (NSUInteger)transportEventCount {
     return _events.count - [self count:@"listeningRate"] - [self count:@"clipping"];
 }
-- (NSDictionary *)lastEvent:(NSString *)event {
-    for (NSDictionary *entry in _events.reverseObjectEnumerator) if ([entry[@"event"] isEqual:event]) return entry;
-    return nil;
+- (NSArray<NSDictionary *> *)eventsNamed:(NSString *)name {
+    return [_events filteredArrayUsingPredicate:[NSPredicate predicateWithFormat:@"event == %@", name]];
 }
 - (void)settleUntil:(BOOL (^)(void))condition {
     NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:VIBE_TEST_HANG_TIMEOUT];
