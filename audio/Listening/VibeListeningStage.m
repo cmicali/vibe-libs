@@ -725,7 +725,10 @@ void VibeListeningStageRender(VibeListeningStage *stage, float *const *channels,
     float *chunk[kVibeListeningMaxChannels];
     for (uint32_t offset = 0; offset < frames;) {
         uint32_t count = frames - offset < kChunkFrames ? frames - offset : kChunkFrames;
-        for (uint32_t c = 0; c < stage->channels; c++) {
+        // A stage has a channel, so the first is set outside the loop, where
+        // the static analyzer sees it.
+        chunk[0] = channels[0] + offset;
+        for (uint32_t c = 1; c < stage->channels; c++) {
             chunk[c] = channels[c] + offset;
         }
         offset += VibeListeningChunk(stage, chunk, count);

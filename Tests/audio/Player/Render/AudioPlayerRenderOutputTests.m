@@ -530,9 +530,11 @@
     originalDrives = method_setImplementation(drives, driveReplacement);
     originalCreate = method_setImplementation(create, createReplacement);
     @try {
-        NSUInteger events = _events.count;
+        // The new unit's rate sends a listening rate event, which isn't the
+        // start's outcome, so the wait counts transport events alone.
+        NSUInteger events = [self transportEventCount];
         [_player resume];
-        [self settleUntil:^BOOL { return self->_playError != nil || self->_events.count > events; }];
+        [self settleUntil:^BOOL { return self->_playError != nil || [self transportEventCount] > events; }];
         [_player runSyncOnQueue:^{}];
         XCTAssertEqual(created, 1u);
         XCTAssertNotNil(_playError, @"no unit came of the creation, so the resume's start fails");
