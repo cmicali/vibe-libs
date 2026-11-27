@@ -5,6 +5,7 @@
 
 #import <XCTest/XCTest.h>
 #import "VibeListeningStage.h"
+#include <malloc/malloc.h>
 #include <math.h>
 
 static const uint32_t kSlice = 512;
@@ -467,6 +468,144 @@ static NSArray<NSArray<NSNumber *> *> *CycleLevelsDB(VibeListeningStage *stage, 
         XCTAssertGreaterThan(low, fmin(from, to) - 0.5, @"%g to %g dB", from, to);
         XCTAssertLessThan(high, fmax(from, to) + 0.5, @"%g to %g dB", from, to);
     }
+}
+
+// Plays a 1 kHz tone of amplitude 0.5 through `stage` at 48 kHz, in slices
+// of 64 frames, and publishes `changes[k]` before the slice at frame
+// `at + k * every`. Returns each 48-frame cycle's level in dB against the tone.
+static NSArray<NSNumber *> *KilohertzCyclesDB(VibeListeningStage *stage, uint32_t frames, uint32_t at, uint32_t every,
+                                              NSArray<VibeListeningSettings *> *changes) {
+    const uint32_t slice = 64, cycle = 48;
+    float samples[64], *planes[] = {samples};
+    NSMutableArray<NSNumber *> *levels = [NSMutableArray array];
+    double power = 0;
+    NSUInteger next = 0;
+    for (uint32_t first = 0; first < frames; first += slice) {
+        while (next < changes.count && first >= at + next * every) {
+            VibeListeningStageSetSettings(stage, changes[next++]);
+        }
+        FillSineFrom(samples, first, slice, 1000, kToneRate, kToneAmplitude, kTonePhase);
+        VibeListeningStageRender(stage, planes, slice);
+        for (uint32_t j = 0; j < slice; j++) {
+            power += samples[j] * samples[j];
+            if ((first + j + 1) % cycle == 0) {
+                [levels addObject:@(10 * log10(fmax(2 * power / cycle, 1e-30) / (kToneAmplitude * kToneAmplitude)))];
+                power = 0;
+            }
+        }
+    }
+    return levels;
+}
+
+// A 12 dB gain step on a 1 kHz shelf, the tone at its corner, with the
+// automatic preamp. The two curves' phases nearly cancel there, so one
+// crossfade dipped 24.8 dB under the quieter level. The render walks the
+// in-between curves instead. Measured: at most 2.7 dB under and 1.2 dB over.
+- (void)testALargeGainStepOnAShelfWalksWithoutADip {
+    for (NSNumber *type in @[@(VibeEQBandTypeHighShelf), @(VibeEQBandTypeLowShelf)]) {
+        for (NSNumber *q in @[@3, @10]) {
+            for (int up = 0; up < 2; up++) {
+                double from = up ? -6 : 6, to = -from;
+                VibeListeningSettings * (^shelf)(double) = ^(double gain) {
+                    return Edited(^(VibeMutableListeningSettings *s) {
+                        s.eqEnabled = YES;
+                        s.bands = @[Band(type.integerValue, 1000, gain, q.doubleValue)];
+                    });
+                };
+                VibeListeningStage *stage = [self stageWithChannels:1 rate:kToneRate settings:shelf(from)];
+                NSArray<NSNumber *> *levels = KilohertzCyclesDB(stage, 48000, 24000, 0, @[shelf(to)]);
+                double before = levels[24000 / 48 - 1].doubleValue, after = levels.lastObject.doubleValue;
+                double low = INFINITY, high = -INFINITY;
+                for (NSUInteger k = 24000 / 48; k < levels.count; k++) {
+                    low = fmin(low, levels[k].doubleValue);
+                    high = fmax(high, levels[k].doubleValue);
+                }
+                XCTAssertGreaterThan(low, fmin(before, after) - 3, @"type %@ Q %@ %g to %g dB", type, q, from, to);
+                XCTAssertLessThan(high, fmax(before, after) + 1.5, @"type %@ Q %@ %g to %g dB", type, q, from, to);
+            }
+        }
+    }
+}
+
+// A fast drag of a 1 kHz bell's gain, 4 dB every 10 ms from -24 to +24 dB,
+// the tone on the bell. The output follows each edit and never bursts.
+// Measured: each edit is reached within 25 ms, and no cycle is louder than
+// the loudest edit's settled level.
+- (void)testAFastDragKeepsUpAndNeverBursts {
+    for (int down = 0; down < 2; down++) {
+        NSMutableArray<VibeListeningSettings *> *edits = [NSMutableArray array];
+        NSMutableArray<NSNumber *> *settled = [NSMutableArray array];
+        for (int i = 0; i <= 12; i++) {
+            double gain = down ? 24 - 4 * i : -24 + 4 * i;
+            VibeMutableListeningSettings *s = [EQ(@[Band(VibeEQBandTypePeak, 1000, gain, 2)]) mutableCopy];
+            s.preampDB = -24;
+            [edits addObject:s];
+            [settled addObject:@(VibeListeningResponseDB(s.bands, 1000, kToneRate) - 24)];
+        }
+        VibeListeningStage *stage = [self stageWithChannels:1 rate:kToneRate settings:edits[0]];
+        const uint32_t start = 24000, every = 480;
+        NSArray<NSNumber *> *levels = KilohertzCyclesDB(
+            stage, 48000, start, every, [edits subarrayWithRange:NSMakeRange(1, edits.count - 1)]);
+        double loudest = fmax(settled.firstObject.doubleValue, settled.lastObject.doubleValue);
+        for (NSUInteger k = start / 48; k < levels.count; k++) {
+            XCTAssertLessThan(levels[k].doubleValue, loudest + 0.5, @"cycle %lu", (unsigned long)k);
+        }
+        // Each edit is reached, or passed the way the drag goes, within 40 ms.
+        for (NSUInteger e = 1; e < edits.count; e++) {
+            NSUInteger at = (start + (e - 1) * every) / 48;
+            BOOL reached = NO;
+            for (NSUInteger k = at; k < at + 40 && k < levels.count && !reached; k++) {
+                double ahead = (down ? -1 : 1) * (levels[k].doubleValue - settled[e].doubleValue);
+                reached = ahead >= -1;
+            }
+            XCTAssertTrue(reached, @"%@, edit %lu", down ? @"down" : @"up", (unsigned long)e);
+        }
+    }
+}
+
+// A walk cut short by newer edits again and again. The render drops the rest
+// of each walk, the queue frees every program, and the last edit plays.
+// Under Address Sanitizer this finds a use after free. The bytes in use come
+// back to where they were, so nothing leaks.
+- (void)testAWalkCutShortFreesEveryProgram {
+    malloc_statistics_t start, end;
+    malloc_zone_statistics(NULL, &start);
+    @autoreleasepool {
+        VibeListeningStage *stage = VibeListeningStageCreate(2, 48000);
+        NSArray *planes = Planes(2, 64), *rest = Planes(2, 4800);
+        for (int i = 0; i < 300; i++) {
+            @autoreleasepool {
+                double gain = i % 2 ? 12 : -12;
+                VibeListeningStageSetSettings(stage, EQ(@[Band(VibeEQBandTypeHighShelf, 1000, gain, 3)]));
+                FillNoise(planes, (uint32_t)i, 0.5f);
+                // A walk of 12 dB at 1 kHz lasts about 30 ms. Every third
+                // edit plays out and lets the render go idle, so the next
+                // walks. 64 frames leave that walk partway, and the next edit
+                // cuts it short. Some edits wait unrendered behind a newer one.
+                if (i % 3 == 2) {
+                    FillNoise(rest, (uint32_t)i, 0.5f);
+                    RenderPlanes(stage, rest, 512);
+                }
+                else if (i % 7 != 6) {
+                    RenderPlanes(stage, planes, 64);
+                }
+            }
+        }
+        XCTAssertTrue(VibeListeningStageEngaged(stage));
+        // The last edit, +12 dB at 1 kHz with no preamp, settles.
+        VibeListeningSettings *last = EQ(@[Band(VibeEQBandTypeHighShelf, 1000, 12, 3)]);
+        VibeListeningStageSetSettings(stage, last);
+        NSMutableArray *settle = Planes(2, 24000);
+        FillSine(Plane(settle, 0), 24000, 5000, 48000, 0.25f);
+        RenderPlanes(stage, settle, 512);
+        double measured = 20 * log10(ToneAmplitude(Plane(settle, 0) + 12000, 12000, 5000, 48000) / 0.25);
+        XCTAssertEqualWithAccuracy(measured, VibeListeningResponseDB(last.bands, 5000, 48000), 0.01);
+        VibeListeningStageFree(stage);
+    }
+    malloc_zone_statistics(NULL, &end);
+    // One program for a band in stereo is about 1 KB, so a leak of the 300
+    // would show as about 300 KB.
+    XCTAssertLessThan((double)end.size_in_use - (double)start.size_in_use, 64 * 1024.0);
 }
 
 // Random edits to six random bands, every 20 ms, over noise and a bass tone.
