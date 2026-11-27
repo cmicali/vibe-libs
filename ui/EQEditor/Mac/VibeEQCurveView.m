@@ -417,16 +417,12 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
 }
 
 - (NSRect)focusRingMaskBounds {
-    if (_selectedIndex == NSNotFound) {
-        return self.plotRect;
-    }
+    if (_selectedIndex == NSNotFound) return NSZeroRect;
     return NSInsetRect([self nodeRectForBandAtIndex:_selectedIndex], -1, -1);
 }
 
 - (void)drawFocusRingMask {
-    if (_selectedIndex == NSNotFound) {
-        NSRectFill(self.plotRect);
-    } else {
+    if (_selectedIndex != NSNotFound) {
         [[NSBezierPath bezierPathWithOvalInRect:[self nodeRectForBandAtIndex:_selectedIndex]] fill];
     }
 }
@@ -446,7 +442,6 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     if (!self.enabled) {
         return;
     }
-    [self.window makeFirstResponder:self];
     NSPoint point = [self convertPoint:event.locationInWindow fromView:nil];
     NSUInteger index = [self nodeIndexAtPoint:point];
     if (index == NSNotFound && event.clickCount == 2 && NSPointInRect(point, self.plotRect) &&
@@ -456,12 +451,15 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
                                              gainDB:[self gainAtY:point.y]
                                                   q:1];
         [self commitBands:[_bands arrayByAddingObject:band] selecting:_bands.count];
+        [self.window makeFirstResponder:self];
         return;
     }
     [self selectBand:index];
     if (index == NSNotFound) {
+        if (self.window.firstResponder == self) [self.window makeFirstResponder:nil];
         return;
     }
+    [self.window makeFirstResponder:self];
     _heldRange = self.rangeDB;
     [self anchorDragAt:point option:(event.modifierFlags & NSEventModifierFlagOption) != 0];
 }

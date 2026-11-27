@@ -21,12 +21,22 @@ static NSString *Folded(NSString *text) {
     return folded;
 }
 
-static VibeEQPreset *BuiltIn(NSString *identifier, NSString *name, NSArray<NSNumber *> *gains) {
+static VibeEQBand *ToneBand(VibeEQBandType type, double hz, double gainDB) {
+    return [VibeEQBand bandWithType:type frequency:hz gainDB:gainDB q:0.7];
+}
+
+static NSArray<VibeEQBand *> *ToneBands(double bassDB, double midHz, double midDB, double trebleDB) {
+    return @[ ToneBand(VibeEQBandTypeLowShelf, 160, bassDB),
+              ToneBand(VibeEQBandTypePeak, midHz, midDB),
+              ToneBand(VibeEQBandTypeHighShelf, 4000, trebleDB) ];
+}
+
+static VibeEQPreset *BuiltIn(NSString *identifier, NSString *name, NSArray<VibeEQBand *> *bands) {
     return [[VibeEQPreset alloc] initWithIdentifier:[@"builtin." stringByAppendingString:identifier]
                                                name:name
                                                kind:VibeEQPresetKindBuiltIn
                                              source:nil
-                                              bands:[VibeListeningSettings graphicBandsWithGains:gains]
+                                              bands:bands
                                            preampDB:0];
 }
 
@@ -87,12 +97,18 @@ static NSUInteger Rank(NSString *name, NSString *query, NSArray<NSString *> *wor
         _loader = [loader copy];
         _queue = dispatch_queue_create("vibe.eqpresets.library", DISPATCH_QUEUE_SERIAL);
         _builtInPresets = @[
-            BuiltIn(@"flat", @"Flat", @[ @0, @0, @0, @0, @0, @0, @0, @0, @0, @0 ]),
-            BuiltIn(@"bass-boost", @"Bass Boost", @[ @6, @5, @4, @2, @0, @0, @0, @0, @0, @0 ]),
-            BuiltIn(@"treble-boost", @"Treble Boost", @[ @0, @0, @0, @0, @0, @0, @1, @3, @5, @6 ]),
-            BuiltIn(@"vocal", @"Vocal", @[ @-2, @-2, @-1, @0, @2, @3, @3, @2, @0, @-1 ]),
-            BuiltIn(@"loudness", @"Loudness", @[ @5, @4, @2, @0, @-1, @0, @0, @1, @3, @4 ]),
-            BuiltIn(@"bass-cut", @"Bass Cut", @[ @-6, @-5, @-4, @-2, @0, @0, @0, @0, @0, @0 ]),
+            BuiltIn(@"flat", @"Flat", ToneBands(0, 1000, 0, 0)),
+            BuiltIn(@"5-band-flat", @"5-Band Flat", @[ ToneBand(VibeEQBandTypeLowShelf, 80, 0),
+                                                       ToneBand(VibeEQBandTypePeak, 250, 0),
+                                                       ToneBand(VibeEQBandTypePeak, 1000, 0),
+                                                       ToneBand(VibeEQBandTypePeak, 4000, 0),
+                                                       ToneBand(VibeEQBandTypeHighShelf, 10000, 0) ]),
+            BuiltIn(@"bass-boost", @"Bass Boost", ToneBands(3, 1000, 0, 0)),
+            BuiltIn(@"bass-cut", @"Bass Cut", ToneBands(-3, 1000, 0, 0)),
+            BuiltIn(@"treble-boost", @"Treble Boost", ToneBands(0, 1000, 0, 2.5)),
+            BuiltIn(@"treble-cut", @"Treble Cut", ToneBands(0, 1000, 0, -2.5)),
+            BuiltIn(@"vocal", @"Vocal Presence", ToneBands(-1, 1500, 2, 0)),
+            BuiltIn(@"loudness", @"Low Volume", ToneBands(3, 1000, 0, 1.5)),
         ];
     }
     return self;

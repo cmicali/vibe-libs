@@ -172,28 +172,42 @@ static VibeEQPreset *Headphone(NSString *name) {
 
 #pragma mark - Presets
 
-- (void)testTheBuiltInsAreTheGraphicFace {
+- (void)testBuiltInTonePresets {
     VibeEQPresetLibrary *library = [VibeEQPresetLibrary sharedLibrary];
     XCTAssertEqualObjects([library.builtInPresets valueForKey:@"name"],
-                          (@[ @"Flat", @"Bass Boost", @"Treble Boost", @"Vocal", @"Loudness", @"Bass Cut" ]));
+                          (@[ @"Flat", @"5-Band Flat", @"Bass Boost", @"Bass Cut", @"Treble Boost", @"Treble Cut",
+                              @"Vocal Presence", @"Low Volume" ]));
     XCTAssertEqualObjects([library.builtInPresets valueForKey:@"identifier"],
-                          (@[ @"builtin.flat", @"builtin.bass-boost", @"builtin.treble-boost", @"builtin.vocal",
-                              @"builtin.loudness", @"builtin.bass-cut" ]));
-    for (VibeEQPreset *preset in library.builtInPresets) {
+                          (@[ @"builtin.flat", @"builtin.5-band-flat", @"builtin.bass-boost", @"builtin.bass-cut", @"builtin.treble-boost",
+                              @"builtin.treble-cut", @"builtin.vocal", @"builtin.loudness" ]));
+    NSArray *gains = @[ @[@0, @0, @0], @[@0, @0, @0, @0, @0], @[@3, @0, @0], @[@-3, @0, @0], @[@0, @0, @2.5],
+                        @[@0, @0, @-2.5], @[@-1, @2, @0], @[@3, @0, @1.5] ];
+    for (NSUInteger i = 0; i < library.builtInPresets.count; i++) {
+        VibeEQPreset *preset = library.builtInPresets[i];
         XCTAssertEqual(preset.kind, VibeEQPresetKindBuiltIn);
         XCTAssertNil(preset.source);
         XCTAssertEqual(preset.preampDB, 0);
-        XCTAssertTrue([preset applyingToSettings:[VibeListeningSettings neutralSettings]
-                                      sampleRate:kVibeListeningPreviewRate].isGraphic, @"%@", preset.name);
+        NSArray *frequencies = [preset.name isEqualToString:@"5-Band Flat"] ? @[@80, @250, @1000, @4000, @10000]
+                             : [preset.name isEqualToString:@"Vocal Presence"] ? @[@160, @1500, @4000]
+                             : @[@160, @1000, @4000];
+        XCTAssertEqualObjects([preset.bands valueForKey:@"frequency"], frequencies);
+        XCTAssertEqualObjects([preset.bands valueForKey:@"gainDB"], gains[i]);
+        for (VibeEQBand *band in preset.bands) {
+            XCTAssertTrue(band.enabled);
+            XCTAssertEqualWithAccuracy(band.q, 0.7, 1e-9);
+            VibeEQBandType type = band == preset.bands.firstObject ? VibeEQBandTypeLowShelf
+                                : band == preset.bands.lastObject ? VibeEQBandTypeHighShelf : VibeEQBandTypePeak;
+            XCTAssertEqual(band.type, type);
+        }
     }
     VibeEQPreset *flat = library.builtInPresets.firstObject;
     XCTAssertTrue([flat applyingToSettings:[VibeListeningSettings neutralSettings]
                                 sampleRate:kVibeListeningPreviewRate].isNeutral);
-    VibeEQPreset *bassBoost = library.builtInPresets[1];
-    XCTAssertGreaterThan(VibeListeningResponseDB(bassBoost.bands, 40, 48000), 4);
+    VibeEQPreset *bassBoost = library.builtInPresets[2];
+    XCTAssertEqualWithAccuracy(VibeListeningResponseDB(bassBoost.bands, 40, 48000), 3, 0.1);
     XCTAssertEqualWithAccuracy(VibeListeningResponseDB(bassBoost.bands, 8000, 48000), 0, 0.5);
-    VibeEQPreset *bassCut = library.builtInPresets[5];
-    XCTAssertLessThan(VibeListeningResponseDB(bassCut.bands, 40, 48000), -4);
+    VibeEQPreset *bassCut = library.builtInPresets[3];
+    XCTAssertEqualWithAccuracy(VibeListeningResponseDB(bassCut.bands, 40, 48000), -3, 0.1);
 }
 
 - (void)testApplyingKeepsEverythingButTheEQ {
@@ -203,7 +217,7 @@ static VibeEQPreset *Headphone(NSString *name) {
     start.balance = 0.25;
     start.preampAutomatic = NO;
     start.preampDB = -3;
-    VibeEQPreset *bassBoost = [VibeEQPresetLibrary sharedLibrary].builtInPresets[1];
+    VibeEQPreset *bassBoost = [VibeEQPresetLibrary sharedLibrary].builtInPresets[2];
     VibeListeningSettings *applied = [bassBoost applyingToSettings:start sampleRate:kVibeListeningPreviewRate];
     XCTAssertTrue(applied.eqEnabled);
     XCTAssertEqualObjects(applied.bands, bassBoost.bands);
@@ -336,7 +350,7 @@ static VibeEQPreset *Headphone(NSString *name) {
 }
 
 - (void)testAPresetMatchesOnlySettingsItWouldMake {
-    VibeEQPreset *bassBoost = [VibeEQPresetLibrary sharedLibrary].builtInPresets[1];
+    VibeEQPreset *bassBoost = [VibeEQPresetLibrary sharedLibrary].builtInPresets[2];
     VibeListeningSettings *neutral = [VibeListeningSettings neutralSettings];
     const double rate = kVibeListeningPreviewRate;
     VibeListeningSettings *applied = [bassBoost applyingToSettings:neutral sampleRate:rate];

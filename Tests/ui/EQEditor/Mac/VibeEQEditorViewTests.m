@@ -365,6 +365,20 @@
     XCTAssertEqual([curve nodeIndexAtPoint:center], 0u);
 }
 
+- (void)testClickingEmptySpaceClearsGraphFocus {
+    [self showParametric:[self parametricSettings]];
+    VibeEQCurveView *curve = _editor.curveView;
+    NSPoint node = [curve nodeCenterForBandAtIndex:1];
+    [curve mouseDown:[self mouse:NSEventTypeLeftMouseDown at:node in:curve flags:0 clicks:1]];
+    XCTAssertEqual(_window.firstResponder, curve);
+    XCTAssertEqual(curve.selectedIndex, 1u);
+    NSPoint blank = NSMakePoint(NSMidX(curve.plotRect), NSMinY(curve.plotRect) + 2);
+    [curve mouseDown:[self mouse:NSEventTypeLeftMouseDown at:blank in:curve flags:0 clicks:1]];
+    XCTAssertEqual(curve.selectedIndex, (NSUInteger)NSNotFound);
+    XCTAssertNotEqual(_window.firstResponder, curve);
+    XCTAssertTrue(NSIsEmptyRect(curve.focusRingMaskBounds));
+}
+
 - (void)testDoubleClickAddsAPeakAtThePointerAndItsMenuRemovesThatBand {
     [self showParametric:[self parametricSettings]];
     VibeEQCurveView *curve = _editor.curveView;
