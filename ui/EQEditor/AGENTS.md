@@ -39,7 +39,7 @@ List `VibeLibsEQEditor` in a macOS target. Make a `VibeEQEditorView`, set its `d
 
 ## Drawing and work
 
-**Everything is drawn in the system's colors and its accent**, so it follows light and dark mode and the user's accent. **TRAP: a grid line is the label color at an alpha** (`VibeEQGridColor`). A separator color given an alpha of its own turns brighter in dark mode, not fainter.
+The graph and sliders use the host's `accentColor`, or the system accent by default. Each enabled band shows its number in black or white, whichever has higher contrast against the fill. **TRAP: a grid line is the label color at an alpha** (`VibeEQGridColor`). A separator color given an alpha of its own turns brighter in dark mode, not fainter.
 
 **TRAP: no part is a control that macOS 26 hosts in SwiftUI**, with its Metal startup (ui/Controls/AGENTS.md). The tabs are drawn, the on switch is `VibeSwitch`, and the list's pop-ups and fields are borderless, which stay unhosted. The +/- buttons are small square buttons, which stay unhosted too. A test walks the view tree for a hosting view.
 

@@ -16,6 +16,19 @@ static const NSEdgeInsets kPlotInsets = {10, 38, 20, 12};  // top, left, bottom,
 static const CGFloat kNodeRadius = 8;
 static const CGFloat kHitRadius = 12;
 
+static CGFloat VibeEQLinearComponent(CGFloat value) {
+    return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4);
+}
+
+static NSColor *VibeEQNumberColor(NSColor *accent) {
+    NSColor *rgb = [accent colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
+    CGFloat luminance = 0.2126 * VibeEQLinearComponent(rgb.redComponent)
+                      + 0.7152 * VibeEQLinearComponent(rgb.greenComponent)
+                      + 0.0722 * VibeEQLinearComponent(rgb.blueComponent);
+    // Black and white have equal contrast at sqrt(0.05 * 1.05) - 0.05.
+    return luminance > 0.17913 ? NSColor.blackColor : NSColor.whiteColor;
+}
+
 typedef NS_ENUM(NSInteger, VibeEQDragMode) {
     VibeEQDragModeNone,
     VibeEQDragModeMove,
@@ -320,7 +333,7 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
 
     [NSGraphicsContext saveGraphicsState];
     NSRectClip(plot);
-    NSColor *accent = NSColor.controlAccentColor;
+    NSColor *accent = self.owner.accentColor ?: NSColor.controlAccentColor;
 
     // The selected band alone, faintly, so its share of the curve shows. Kept
     // until the bands, the selection, or the axis change.
@@ -351,13 +364,14 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     [curve stroke];
     [NSGraphicsContext restoreGraphicsState];
 
+    NSColor *numberColor = VibeEQNumberColor(accent);
     for (NSUInteger i = 0; i < _bands.count; i++) {
         if (i != _selectedIndex) {
-            [self drawNodeAtIndex:i accent:accent];
+            [self drawNodeAtIndex:i accent:accent numberColor:numberColor];
         }
     }
     if (_selectedIndex != NSNotFound) {
-        [self drawNodeAtIndex:_selectedIndex accent:accent];
+        [self drawNodeAtIndex:_selectedIndex accent:accent numberColor:numberColor];
     }
 }
 
@@ -376,7 +390,7 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     return path;
 }
 
-- (void)drawNodeAtIndex:(NSUInteger)index accent:(NSColor *)accent {
+- (void)drawNodeAtIndex:(NSUInteger)index accent:(NSColor *)accent numberColor:(NSColor *)numberColor {
     VibeEQBand *band = _bands[index];
     NSRect rect = [self nodeRectForBandAtIndex:index];
     BOOL selected = index == _selectedIndex;
@@ -395,7 +409,7 @@ static NSString *VibeEQNodeAccessibilityValue(VibeEQBand *band, NSLocale *locale
     NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)index + 1];
     NSDictionary *attributes = @{
         NSFontAttributeName: [NSFont monospacedDigitSystemFontOfSize:9 weight:NSFontWeightBold],
-        NSForegroundColorAttributeName: band.enabled ? NSColor.whiteColor : NSColor.secondaryLabelColor,
+        NSForegroundColorAttributeName: band.enabled ? numberColor : NSColor.secondaryLabelColor,
     };
     NSSize size = [number sizeWithAttributes:attributes];
     [number drawAtPoint:NSMakePoint(NSMidX(rect) - size.width / 2, NSMidY(rect) - size.height / 2)

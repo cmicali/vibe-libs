@@ -180,6 +180,12 @@ static const CGFloat kGap = 10;
     _curveView.sampleRate = sampleRate;
 }
 
+- (void)setAccentColor:(NSColor *)accentColor {
+    _accentColor = accentColor;
+    _curveView.needsDisplay = YES;
+    _graphicView.needsDisplay = YES;
+}
+
 - (void)setEnabled:(BOOL)enabled {
     _enabled = enabled;
     _faceControl.enabled = enabled;

@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 // What a face tells the editor. A face never keeps the settings, only the
 // bands it was last given.
 @protocol VibeEQFaceOwner <NSObject>
+@property (nonatomic, readonly, nullable) NSColor *accentColor;
 - (void)face:(NSView *)face didChangeBands:(NSArray<VibeEQBand *> *)bands;
 - (void)faceDidEndEditing:(NSView *)face;
 - (void)face:(NSView *)face didSelectBandAtIndex:(NSUInteger)index;
